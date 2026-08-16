@@ -26,6 +26,7 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.util.AbstractList;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -121,8 +122,9 @@ public class SelectImpl
     private SortedMap _tables = null;
 
     // combined list of selected ids and map of each id to its alias
-    private final Selects _selects = new Selects();
+    protected final Selects _selects = newSelects();
     private List _ordered = null;
+    private List _grouped = null;
 
     // flags
     private int _flags = 0;
@@ -157,7 +159,14 @@ public class SelectImpl
 
     // from select if this select selects from a tmp table created by another
     private SelectImpl _from = null;
-    private SelectImpl _outer = null;
+    protected SelectImpl _outer = null;
+    
+    // bitSet indicating if an alias is removed from parent select
+    // bit 0 : correspond to alias 0
+    // bit 1 : correspond to alias 1, etc.
+    // if the bit is set, the corresponding alias has been removed from parent
+    // and recorded under subselect.
+    private BitSet _removedAliasFromParent = new BitSet(16);
      
     /**
      * Helper method to return the proper table alias for the given alias index.
@@ -189,6 +198,7 @@ public class SelectImpl
         _conf = conf;
         _dict = _conf.getDBDictionaryInstance();
         _joinSyntax = _dict.joinSyntax;
+        _selects._dict = _dict;
     }
 
     /////////////////////////////////
@@ -1204,7 +1214,7 @@ public class SelectImpl
         int count = 0;
         for (int i = 0; i < toCols.length; i++, count++) {
             if (pks == null)
-                val = (oid == null) ? null : Numbers.valueOf(((Id)oid).getId());
+                val = (oid == null) ? null : Numbers.valueOf(((Id) oid).getId());
             else {
                 // must be app identity; use pk index to get correct pk value
                 join = mapping.assertJoinable(toCols[i]);
@@ -1362,11 +1372,7 @@ public class SelectImpl
 
     public void groupBy(SQLBuffer sql, Joins joins) {
         getJoins(joins, true);
-        if (_grouping == null)
-            _grouping = new SQLBuffer(_dict);
-        else
-            _grouping.append(", ");
-        _grouping.append(sql);
+        groupByAppend(sql.getSQL());
     }
 
     public void groupBy(String sql) {
@@ -1375,11 +1381,7 @@ public class SelectImpl
 
     public void groupBy(String sql, Joins joins) {
         getJoins(joins, true);
-        if (_grouping == null)
-            _grouping = new SQLBuffer(_dict);
-        else
-            _grouping.append(", ");
-        _grouping.append(sql);
+        groupByAppend(sql);
     }
 
     public void groupBy(Column col) {
@@ -1387,13 +1389,8 @@ public class SelectImpl
     }
 
     public void groupBy(Column col, Joins joins) {
-        if (_grouping == null)
-            _grouping = new SQLBuffer(_dict);
-        else
-            _grouping.append(", ");
-
         PathJoins pj = getJoins(joins, true);
-        _grouping.append(getColumnAlias(col, pj));
+        groupByAppend(getColumnAlias(col, pj));
     }
 
     public void groupBy(Column[] cols) {
@@ -1401,16 +1398,22 @@ public class SelectImpl
     }
 
     public void groupBy(Column[] cols, Joins joins) {
-        if (_grouping == null)
-            _grouping = new SQLBuffer(_dict);
-        else
-            _grouping.append(", ");
-
         PathJoins pj = getJoins(joins, true);
         for (int i = 0; i < cols.length; i++) {
-            if (i > 0)
+            groupByAppend(getColumnAlias(cols[i], pj));
+        }
+    }
+    
+    private void groupByAppend(String sql) {
+        if (_grouped == null || !_grouped.contains(sql)) {
+            if (_grouping == null) {
+                _grouping = new SQLBuffer(_dict);
+                _grouped = new ArrayList();
+            } else
                 _grouping.append(", ");
-            _grouping.append(getColumnAlias(cols[i], pj));
+
+            _grouping.append(sql);
+            _grouped.add(sql);
         }
     }
 
@@ -1487,8 +1490,13 @@ public class SelectImpl
     private void removeParentJoins(PathJoins pj) {
         if (_parent == null)
             return;
-        if (_parent._joins != null && !_parent._joins.isEmpty())
-            pj.joins().removeAll(_parent._joins.joins());
+        if (_parent._joins != null && !_parent._joins.isEmpty()) {
+            boolean removed = false;
+            if (!_removedAliasFromParent.isEmpty())
+                removed = _parent._joins.joins().removeAll(pj.joins());
+            if (!removed)
+                pj.joins().removeAll(_parent._joins.joins());
+        }
         if (!pj.isEmpty())
             _parent.removeParentJoins(pj);
     }
@@ -1897,9 +1905,15 @@ public class SelectImpl
             }
         }
         if (!fromParent && _parent != null) {
-            alias = _parent.findAlias(table, key, false, this);
-            if (alias != null)
+            boolean removeAliasFromParent = key.toString().indexOf(":") != -1;
+            alias = _parent.findAlias(table, key, removeAliasFromParent, this);
+            if (alias != null) {
+                if (removeAliasFromParent) {
+                    recordTableAlias(table, key, alias);
+                    _removedAliasFromParent.set(alias.intValue());
+                }
                 return alias;
+            }
         }
         if (_subsels != null) {
             SelectImpl sub;
@@ -1913,9 +1927,11 @@ public class SelectImpl
                     if (sub._tables != null)
                         sub._tables.remove(alias);
                 } else {
-                    alias = sub.findAlias(table, key, true, null);
-                    if (!fromParent && alias != null)
-                        recordTableAlias(table, key, alias);
+                    if (key instanceof String) {
+                        alias = sub.findAlias(table, key, true, null);
+                        if (!fromParent && alias != null)
+                            recordTableAlias(table, key, alias);
+                    }
                 }
             }
         }
@@ -2648,19 +2664,24 @@ public class SelectImpl
             return super.toString() + " (" + _outer + "): " + _joins;
         }
     }
+    
+    protected Selects newSelects() {
+        return new Selects();
+    }
 
     /**
      * Helper class to track selected columns, with fast contains method.
      * Acts as a list of select ids, with additional methods to manipulate
      * the alias of each selected id.
      */
-    private static class Selects
+    protected static class Selects
         extends AbstractList {
 
-        private List _ids = null;
-        private List _idents = null;
-        private Map _aliases = null;
-        private Map _selectAs = null;
+        protected List _ids = null;
+        protected List _idents = null;
+        protected Map _aliases = null;
+        protected Map _selectAs = null;
+        protected DBDictionary _dict = null;
 
         /**
          * Add all aliases from another instance.
@@ -2769,6 +2790,9 @@ public class SelectImpl
                     Object id = (ident && _idents != null) ? _idents.get(i)
                         : _ids.get(i);
                     Object alias = _aliases.get(id);
+                    if (id instanceof Column && ((Column) id).isXML())
+                        alias = alias + _dict.getStringVal;
+                        
                     String as = null;
                     if (inner)
                         as = ((String) alias).replace('.', '_');

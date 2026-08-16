@@ -214,9 +214,11 @@ public class JDBCConfigurationImpl
         updateManagerPlugin = addPlugin("jdbc.UpdateManager", true);
         aliases = new String[]{
             "default",
-            "org.apache.openjpa.jdbc.kernel.OperationOrderUpdateManager",
+            "org.apache.openjpa.jdbc.kernel.ConstraintUpdateManager",
             "operation-order",
             "org.apache.openjpa.jdbc.kernel.OperationOrderUpdateManager",
+            "constraint",
+            "org.apache.openjpa.jdbc.kernel.ConstraintUpdateManager",
         };
         updateManagerPlugin.setAliases(aliases);
         updateManagerPlugin.setDefault(aliases[0]);
@@ -753,7 +755,8 @@ public class JDBCConfigurationImpl
     public Object getConnectionFactory2() {
         // override to configure data source
         if (dataSource2 == null) {
-            DataSource ds = (DataSource) connectionFactory2.get();
+            // superclass will lookup from JNDI. 
+            DataSource ds = (DataSource) super.getConnectionFactory2();
             if (ds == null) {
                 // the driver name is always required, so if not specified,
                 // then no connection factory 2

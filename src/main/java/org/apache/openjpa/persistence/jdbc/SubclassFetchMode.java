@@ -28,10 +28,11 @@ import java.lang.annotation.Target;
  *
  * @author Abe White
  * @since 0.4.0
+ * @published
  */
 @Target({ TYPE })
 @Retention(RUNTIME)
 public @interface SubclassFetchMode {
 
-    EagerFetchType value() default EagerFetchType.NONE;
+    FetchMode value() default FetchMode.NONE;
 }

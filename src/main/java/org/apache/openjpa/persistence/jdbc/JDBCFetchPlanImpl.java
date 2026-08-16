@@ -18,6 +18,9 @@
  */
 package org.apache.openjpa.persistence.jdbc;
 
+import java.util.Collection;
+import javax.persistence.LockModeType;
+
 import org.apache.openjpa.jdbc.kernel.DelegatingJDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.kernel.DelegatingFetchConfiguration;
@@ -30,6 +33,7 @@ import org.apache.openjpa.persistence.PersistenceExceptions;
  *
  * @since 0.4.0
  * @author Abe White
+ * @nojavadoc
  */
 public class JDBCFetchPlanImpl
     extends FetchPlanImpl
@@ -45,64 +49,64 @@ public class JDBCFetchPlanImpl
     }
 
     @Override
-    protected DelegatingFetchConfiguration newDelegatingFetchConfiguration
-        (FetchConfiguration fetch) {
+    protected DelegatingFetchConfiguration newDelegatingFetchConfiguration(
+        FetchConfiguration fetch) {
         _fetch = new DelegatingJDBCFetchConfiguration((JDBCFetchConfiguration)
             fetch, PersistenceExceptions.TRANSLATOR);
         return _fetch;
     }
 
-    public int getEagerFetchMode() {
-        return _fetch.getEagerFetchMode();
+    public FetchMode getEagerFetchMode() {
+        return FetchMode.fromKernelConstant(_fetch.getEagerFetchMode());
     }
 
-    public JDBCFetchPlanImpl setEagerFetchMode(int mode) {
-        _fetch.setEagerFetchMode(mode);
+    public JDBCFetchPlanImpl setEagerFetchMode(FetchMode mode) {
+        _fetch.setEagerFetchMode(mode.toKernelConstant());
         return this;
     }
 
-    public int getSubclassFetchMode() {
-        return _fetch.getSubclassFetchMode();
+    public FetchMode getSubclassFetchMode() {
+        return FetchMode.fromKernelConstant(_fetch.getSubclassFetchMode());
     }
 
-    public JDBCFetchPlanImpl setSubclassFetchMode(int mode) {
-        _fetch.setSubclassFetchMode(mode);
+    public JDBCFetchPlanImpl setSubclassFetchMode(FetchMode mode) {
+        _fetch.setSubclassFetchMode(mode.toKernelConstant());
         return this;
     }
 
-    public int getResultSetType() {
-        return _fetch.getResultSetType();
+    public ResultSetType getResultSetType() {
+        return ResultSetType.fromKernelConstant(_fetch.getResultSetType());
     }
 
-    public JDBCFetchPlanImpl setResultSetType(int type) {
-        _fetch.setResultSetType(type);
+    public JDBCFetchPlanImpl setResultSetType(ResultSetType type) {
+        _fetch.setResultSetType(type.toKernelConstant());
         return this;
     }
 
-    public int getFetchDirection() {
-        return _fetch.getFetchDirection();
+    public FetchDirection getFetchDirection() {
+        return FetchDirection.fromKernelConstant(_fetch.getFetchDirection());
     }
 
-    public JDBCFetchPlanImpl setFetchDirection(int direction) {
-        _fetch.setFetchDirection(direction);
+    public JDBCFetchPlanImpl setFetchDirection(FetchDirection direction) {
+        _fetch.setFetchDirection(direction.toKernelConstant());
         return this;
     }
 
-    public int getLRSSize() {
-        return _fetch.getLRSSize();
+    public LRSSizeAlgorithm getLRSSizeAlgorithm() {
+        return LRSSizeAlgorithm.fromKernelConstant(_fetch.getLRSSize());
     }
 
-    public JDBCFetchPlanImpl setLRSSize(int lrsSize) {
-        _fetch.setLRSSize(lrsSize);
+    public JDBCFetchPlanImpl setLRSSizeAlgorithm(LRSSizeAlgorithm lrsSizeAlgorithm) {
+        _fetch.setLRSSize(lrsSizeAlgorithm.toKernelConstant());
         return this;
     }
 
-    public int getJoinSyntax() {
-        return _fetch.getJoinSyntax();
+    public JoinSyntax getJoinSyntax() {
+        return JoinSyntax.fromKernelConstant(_fetch.getJoinSyntax());
     }
 
-    public JDBCFetchPlanImpl setJoinSyntax(int syntax) {
-        _fetch.setJoinSyntax(syntax);
+    public JDBCFetchPlanImpl setJoinSyntax(JoinSyntax syntax) {
+        _fetch.setJoinSyntax(syntax.toKernelConstant());
         return this;
     }
 
@@ -113,5 +117,140 @@ public class JDBCFetchPlanImpl
     public JDBCFetchPlan setIsolation(IsolationLevel level) {
         _fetch.setIsolation(level.getConnectionConstant());
         return this;
+    }
+
+    @Override
+    public JDBCFetchPlan addFetchGroup(String group) {
+        return (JDBCFetchPlan) super.addFetchGroup(group);
+    }
+
+    @Override
+    public JDBCFetchPlan addFetchGroups(Collection groups) {
+        return (JDBCFetchPlan) super.addFetchGroups(groups);
+    }
+
+    @Override
+    public JDBCFetchPlan addFetchGroups(String... groups) {
+        return (JDBCFetchPlan) super.addFetchGroups(groups);
+    }
+
+    @Override
+    public JDBCFetchPlan addField(Class cls, String field) {
+        return (JDBCFetchPlan) super.addField(cls, field);
+    }
+
+    @Override
+    public JDBCFetchPlan addField(String field) {
+        return (JDBCFetchPlan) super.addField(field);
+    }
+
+    @Override
+    public JDBCFetchPlan addFields(Class cls, Collection fields) {
+        return (JDBCFetchPlan) super.addFields(cls, fields);
+    }
+
+    @Override
+    public JDBCFetchPlan addFields(Class cls, String... fields) {
+        return (JDBCFetchPlan) super.addFields(cls, fields);
+    }
+
+    @Override
+    public JDBCFetchPlan addFields(Collection fields) {
+        return (JDBCFetchPlan) super.addFields(fields);
+    }
+
+    @Override
+    public JDBCFetchPlan addFields(String... fields) {
+        return (JDBCFetchPlan) super.addFields(fields);
+    }
+
+    @Override
+    public JDBCFetchPlan clearFetchGroups() {
+        return (JDBCFetchPlan) super.clearFetchGroups();
+    }
+
+    @Override
+    public JDBCFetchPlan clearFields() {
+        return (JDBCFetchPlan) super.clearFields();
+    }
+
+    @Override
+    public JDBCFetchPlan removeFetchGroup(String group) {
+        return (JDBCFetchPlan) super.removeFetchGroup(group);
+    }
+
+    @Override
+    public JDBCFetchPlan removeFetchGroups(Collection groups) {
+        return (JDBCFetchPlan) super.removeFetchGroups(groups);
+    }
+
+    @Override
+    public JDBCFetchPlan removeFetchGroups(String... groups) {
+        return (JDBCFetchPlan) super.removeFetchGroups(groups);
+    }
+
+    @Override
+    public JDBCFetchPlan removeField(Class cls, String field) {
+        return (JDBCFetchPlan) super.removeField(cls, field);
+    }
+
+    @Override
+    public JDBCFetchPlan removeField(String field) {
+        return (JDBCFetchPlan) super.removeField(field);
+    }
+
+    @Override
+    public JDBCFetchPlan removeFields(Class cls, Collection fields) {
+        return (JDBCFetchPlan) super.removeFields(cls, fields);
+    }
+
+    @Override
+    public JDBCFetchPlan removeFields(Class cls, String... fields) {
+        return (JDBCFetchPlan) super.removeFields(cls, fields);
+    }
+
+    @Override
+    public JDBCFetchPlan removeFields(Collection fields) {
+        return (JDBCFetchPlan) super.removeFields(fields);
+    }
+
+    @Override
+    public JDBCFetchPlan removeFields(String... fields) {
+        return (JDBCFetchPlan) super.removeFields(fields);
+    }
+
+    @Override
+    public JDBCFetchPlan resetFetchGroups() {
+        return (JDBCFetchPlan) super.resetFetchGroups();
+    }
+
+    @Override
+    public JDBCFetchPlan setEnlistInQueryResultCache(boolean cache) {
+        return (JDBCFetchPlan) super.setEnlistInQueryResultCache(cache);
+    }
+
+    @Override
+    public JDBCFetchPlan setFetchBatchSize(int fetchBatchSize) {
+        return (JDBCFetchPlan) super.setFetchBatchSize(fetchBatchSize);
+    }
+
+    @Override
+    public JDBCFetchPlan setLockTimeout(int timeout) {
+        return (JDBCFetchPlan) super.setLockTimeout(timeout);
+    }
+
+    @Override
+    public JDBCFetchPlan setMaxFetchDepth(int depth) {
+        return (JDBCFetchPlan) super.setMaxFetchDepth(depth);
+    }
+
+    @Override
+    public JDBCFetchPlan setReadLockMode(LockModeType mode) {
+        return (JDBCFetchPlan) super.setReadLockMode(mode);
+    }
+
+    @Override
+    public JDBCFetchPlan setWriteLockMode(LockModeType mode) {
+        return (JDBCFetchPlan) super.setWriteLockMode(mode);
     }
 }

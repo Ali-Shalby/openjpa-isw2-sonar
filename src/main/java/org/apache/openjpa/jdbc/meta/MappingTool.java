@@ -22,6 +22,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.Collection;
@@ -51,6 +53,7 @@ import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.ClassArgParser;
 import org.apache.openjpa.lib.util.Files;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.lib.util.Services;
@@ -393,8 +396,8 @@ public class MappingTool
                 factory.setConfiguration(_conf);
                 _schema = factory;
             } else if (_readSchema 
-                || _schemaActions.contains(SchemaTool.ACTION_RETAIN)
-                || _schemaActions.contains(SchemaTool.ACTION_REFRESH)) {
+                || contains(_schemaActions,SchemaTool.ACTION_RETAIN)
+                || contains(_schemaActions,SchemaTool.ACTION_REFRESH)) {
                 _schema = (SchemaGroup) newSchemaTool(null).getDBSchemaGroup().
                     clone();
             } else {
@@ -726,8 +729,8 @@ public class MappingTool
         MappingRepository repos = getRepository();
         repos.setStrategyInstaller(new RuntimeStrategyInstaller(repos));
         if (getMapping(repos, cls, true) != null)
-            _flushSchema = !_schemaActions.contains(SCHEMA_ACTION_NONE)
-                && !_schemaActions.contains(SchemaTool.ACTION_ADD);
+            _flushSchema = !contains(_schemaActions,SCHEMA_ACTION_NONE)
+                && !contains(_schemaActions,SchemaTool.ACTION_ADD);
     }
 
     /**
@@ -771,7 +774,7 @@ public class MappingTool
         if (_dropCls == null)
             _dropCls = new HashSet();
         _dropCls.add(cls);
-        if (!_schemaActions.contains(SchemaTool.ACTION_DROP))
+        if (!contains(_schemaActions,SchemaTool.ACTION_DROP))
             return;
 
         MappingRepository repos = getRepository();
@@ -1075,11 +1078,18 @@ public class MappingTool
             Class[] types = Services.getImplementorClasses(ImportExport.class);
             ImportExport[] instances = new ImportExport[types.length];
             for (int i = 0; i < types.length; i++)
-                instances[i] = (ImportExport) types[i].newInstance();
+                instances[i] = (ImportExport) AccessController.doPrivileged(
+                    J2DoPrivHelper.newInstanceAction(types[i]));
             return instances;
         } catch (Throwable t) {
+            if (t instanceof PrivilegedActionException)
+                t = ((PrivilegedActionException) t).getException();
             throw new InternalException(_loc.get("importexport-instantiate"),t);
         }
+    }
+    
+    private static boolean contains(String list, String key) {
+    	return (list == null) ? false : list.indexOf(key) != -1;
     }
 
     /**

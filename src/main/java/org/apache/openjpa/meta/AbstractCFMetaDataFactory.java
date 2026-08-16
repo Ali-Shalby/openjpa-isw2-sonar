@@ -19,9 +19,13 @@
 package org.apache.openjpa.meta;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -47,6 +51,7 @@ import org.apache.openjpa.lib.meta.URLMetaDataIterator;
 import org.apache.openjpa.lib.meta.ZipFileMetaDataIterator;
 import org.apache.openjpa.lib.meta.ZipStreamMetaDataIterator;
 import org.apache.openjpa.lib.util.Files;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.UserException;
@@ -93,7 +98,8 @@ public abstract class AbstractCFMetaDataFactory
             File file;
             for (int i = 0; i < strs.length; i++) {
                 file = new File(strs[i]);
-                if (file.exists())
+                if (((Boolean) AccessController.doPrivileged(
+                    J2DoPrivHelper.existsAction(file))).booleanValue())
                     this.files.add(file);
             }
         }
@@ -192,7 +198,10 @@ public abstract class AbstractCFMetaDataFactory
         Parser parser;
         if (mode != MODE_QUERY) {
             int sermode = (isMappingOnlyFactory()) ? mode : mode | MODE_META;
-            ser = newSerializer();
+            if ((mode & MODE_ANN_MAPPING) != 0)
+                ser = newAnnotationSerializer();
+            else
+                ser = newSerializer();
             ser.setMode(sermode);
             if (metaFiles != null) {
                 parser = newParser(false);
@@ -231,7 +240,10 @@ public abstract class AbstractCFMetaDataFactory
             for (int i = 0; !qFiles && i < queries.length; i++)
                 qFiles = queries[i].getSourceMode() == MODE_QUERY;
             if (qFiles) {
-                ser = newSerializer();
+                if ((mode & MODE_ANN_MAPPING) != 0)
+                    ser = newAnnotationSerializer();
+                else
+                    ser = newSerializer();
                 ser.setMode(MODE_QUERY);
                 if (queryFiles != null) {
                     parser = newParser(false);
@@ -352,7 +364,8 @@ public abstract class AbstractCFMetaDataFactory
         for (int i = 0; i < metas.length; i++) {
             if (getSourceFile(metas[i]) == null)
                 setSourceFile(metas[i], defaultSourceFile(metas[i]));
-            if (getSourceFile(metas[i]).exists()) {
+            if (((Boolean) AccessController.doPrivileged(J2DoPrivHelper
+                .existsAction(getSourceFile(metas[i])))).booleanValue()) {
                 if (files == null)
                     files = new HashSet();
                 files.add(getSourceFile(metas[i]));
@@ -366,7 +379,9 @@ public abstract class AbstractCFMetaDataFactory
                 queries[i].setSource(defaultSourceFile(queries[i],
                     clsNames), queries[i].getSourceScope(),
                     queries[i].getSourceType());
-            if (queries[i].getSourceFile().exists()) {
+            if (((Boolean) AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(queries[i].getSourceFile())))
+                .booleanValue()) {
                 if (files == null)
                     files = new HashSet();
                 files.add(queries[i].getSourceFile());
@@ -377,7 +392,9 @@ public abstract class AbstractCFMetaDataFactory
                 if (getSourceFile(seqs[i]) == null)
                     setSourceFile(seqs[i], defaultSourceFile(seqs[i],
                         clsNames));
-                if (getSourceFile(seqs[i]).exists()) {
+                if (((Boolean) AccessController.doPrivileged(
+                    J2DoPrivHelper.existsAction(getSourceFile(seqs[i]))))
+                    .booleanValue()) {
                     if (files == null)
                         files = new HashSet();
                     files.add(getSourceFile(seqs[i]));
@@ -403,7 +420,9 @@ public abstract class AbstractCFMetaDataFactory
             if (queries[i].getSourceFile() == null)
                 queries[i].setSource(defaultSourceFile(queries[i], clsNames),
                     queries[i].getSourceScope(), queries[i].getSourceType());
-            if (queries[i].getSourceFile().exists()) {
+            if (((Boolean) AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(queries[i].getSourceFile())))
+                .booleanValue()) {
                 if (files == null)
                     files = new HashSet();
                 files.add(queries[i].getSourceFile());
@@ -473,7 +492,8 @@ public abstract class AbstractCFMetaDataFactory
         for (Iterator itr = files.iterator(); itr.hasNext();) {
             file = (File) itr.next();
             if (Files.backup(file, false) != null)
-                file.delete();
+                AccessController
+                    .doPrivileged(J2DoPrivHelper.deleteAction(file));
         }
     }
 
@@ -544,6 +564,11 @@ public abstract class AbstractCFMetaDataFactory
     protected abstract Serializer newSerializer();
 
     /**
+     * Create a new annotation metadata serializer.
+     */
+    protected abstract Serializer newAnnotationSerializer();
+
+    /**
      * Return the metadata that defines the given query, if any.
      *
      * @param clsNames map of class names to metadatas
@@ -606,16 +631,24 @@ public abstract class AbstractCFMetaDataFactory
             File file;
             for (Iterator itr = files.iterator(); itr.hasNext();) {
                 file = (File) itr.next();
-                if (file.isDirectory()) {
+                if (((Boolean) AccessController.doPrivileged(J2DoPrivHelper
+                    .isDirectoryAction(file))).booleanValue()) {
                     if (log.isTraceEnabled())
                         log.trace(_loc.get("scanning-directory", file));
-                    scan(new FileMetaDataIterator(dir, newMetaDataFilter()),
+                    scan(new FileMetaDataIterator(file, newMetaDataFilter()),
                         cparser, names, true, file);
                 } else if (file.getName().endsWith(".jar")) {
                     if (log.isTraceEnabled())
                         log.trace(_loc.get("scanning-jar", file));
-                    scan(new ZipFileMetaDataIterator(new ZipFile(file),
-                        newMetaDataFilter()), cparser, names, true, file);
+                    try {
+                        ZipFile zFile = (ZipFile) AccessController
+                            .doPrivileged(J2DoPrivHelper
+                                .newZipFileAction(file));
+                        scan(new ZipFileMetaDataIterator(zFile,
+                            newMetaDataFilter()), cparser, names, true, file);
+                    } catch (PrivilegedActionException pae) {
+                        throw (IOException) pae.getException();
+                    }
                 } else {
                     if (log.isTraceEnabled())
                         log.trace(_loc.get("scanning-file", file));
@@ -624,8 +657,15 @@ public abstract class AbstractCFMetaDataFactory
                     if (log.isTraceEnabled())
                         log.trace(_loc.get("scan-found-names", clss, file));
                     names.addAll(Arrays.asList(clss));
-                    mapPersistentTypeNames(file.getAbsoluteFile().toURL(),
-                        clss);
+                    File f = (File) AccessController
+                        .doPrivileged(J2DoPrivHelper
+                            .getAbsoluteFileAction(file));
+                    try {
+                        mapPersistentTypeNames(AccessController
+                            .doPrivileged(J2DoPrivHelper.toURLAction(f)), clss);
+                    } catch (PrivilegedActionException pae) {
+                        throw (FileNotFoundException) pae.getException();
+                    }
                 }
             }
         }
@@ -633,6 +673,23 @@ public abstract class AbstractCFMetaDataFactory
         if (urls != null) {
             for (Iterator itr = urls.iterator(); itr.hasNext();) {
                 url = (URL) itr.next();
+                if ("file".equals(url.getProtocol())) {
+                    File file = (File) AccessController
+                        .doPrivileged(J2DoPrivHelper
+                            .getAbsoluteFileAction(new File(url.getFile()))); 
+                    if (files != null && files.contains(file)) {
+                        continue;
+                    } else if (((Boolean) AccessController
+                        .doPrivileged(J2DoPrivHelper.isDirectoryAction(file)))
+                        .booleanValue()) {
+                        if (log.isTraceEnabled())
+                            log.trace(_loc.get("scanning-directory", file));
+                        scan(
+                            new FileMetaDataIterator(file, newMetaDataFilter()),
+                            cparser, names, true, file);
+                        continue;
+                    }
+                }
                 if ("jar".equals(url.getProtocol())
                     && url.getPath().endsWith("!/")) {
                     if (log.isTraceEnabled())
@@ -642,9 +699,16 @@ public abstract class AbstractCFMetaDataFactory
                 } else if (url.getPath().endsWith(".jar")) {
                     if (log.isTraceEnabled())
                         log.trace(_loc.get("scanning-jar-at-url", url));
-                    scan(new ZipStreamMetaDataIterator(
-                        new ZipInputStream(url.openStream()),
-                        newMetaDataFilter()), cparser, names, true, url);
+                    try {
+                        InputStream is = (InputStream)
+                            AccessController.doPrivileged(
+                                J2DoPrivHelper.openStreamAction(url));
+                        scan(new ZipStreamMetaDataIterator(
+                            new ZipInputStream(is),
+                            newMetaDataFilter()), cparser, names, true, url);
+                    } catch (PrivilegedActionException pae) {
+                        throw (IOException) pae.getException();
+                    }
                 } else {
                     if (log.isTraceEnabled())
                         log.trace(_loc.get("scanning-url", url));
@@ -662,14 +726,22 @@ public abstract class AbstractCFMetaDataFactory
             for (Iterator itr = rsrcs.iterator(); itr.hasNext();) {
                 rsrc = (String) itr.next();
                 if (rsrc.endsWith(".jar")) {
-                    url = loader.getResource(rsrc);
+                    url = (URL) AccessController.doPrivileged(
+                        J2DoPrivHelper.getResourceAction(loader, rsrc)); 
                     if (url != null) {
                         if (log.isTraceEnabled())
                             log.trace(_loc.get("scanning-jar-stream-url", url));
-                        scan(new ZipStreamMetaDataIterator
-                            (new ZipInputStream(url.openStream()),
-                                newMetaDataFilter()), cparser, names, true, 
+                        try {
+                            InputStream is = (InputStream)
+                                AccessController.doPrivileged(
+                                    J2DoPrivHelper.openStreamAction(url));
+                            scan(new ZipStreamMetaDataIterator
+                                (new ZipInputStream(is),
+                                newMetaDataFilter()), cparser, names, true,
                                 url);
+                        } catch (PrivilegedActionException pae) {
+                            throw (IOException) pae.getException();
+                        }
                     }
                 } else {
                     if (log.isTraceEnabled())
@@ -695,7 +767,7 @@ public abstract class AbstractCFMetaDataFactory
         }
         if (types != null)
             names.addAll(types);
-        
+
         if (log.isTraceEnabled())
             log.trace(_loc.get("parse-found-names", names));
         
@@ -799,8 +871,8 @@ public abstract class AbstractCFMetaDataFactory
 
         /**
          * Add all components in the given repository to the set to be
-		 * serialized.
-		 */
-		public void addAll (MetaDataRepository repos);
-	}
+         * serialized.
+         */
+        public void addAll (MetaDataRepository repos);
+    }
 }

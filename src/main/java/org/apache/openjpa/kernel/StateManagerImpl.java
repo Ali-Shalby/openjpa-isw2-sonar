@@ -29,6 +29,8 @@ import org.apache.openjpa.enhance.FieldManager;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.enhance.StateManager;
+import org.apache.openjpa.enhance.ManagedInstanceProvider;
+import org.apache.openjpa.enhance.DynamicPersistenceCapable;
 import org.apache.openjpa.event.LifecycleEvent;
 import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.lib.util.Localizer;
@@ -48,6 +50,7 @@ import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 import org.apache.openjpa.util.UserException;
+import org.apache.openjpa.util.ImplHelper;
 import serp.util.Numbers;
 
 /**
@@ -89,7 +92,7 @@ public class StateManagerImpl
     private static final int FLAG_VERSION_UPDATE = 2 << 15;
     private static final int FLAG_DETACHING = 2 << 16;
 
-    private static Localizer _loc = Localizer.forPackage
+    private static final Localizer _loc = Localizer.forPackage
         (StateManagerImpl.class);
 
     // information about the instance
@@ -300,6 +303,27 @@ public class StateManagerImpl
         _broker.setStateManager(_id, this, BrokerImpl.STATUS_INIT);
         if (state == PCState.PNEW)
             fireLifecycleEvent(LifecycleEvent.AFTER_PERSIST);
+
+        // if this is a non-tracking PC, add a hard ref to the appropriate data
+        // sets and give it an opportunity to make a state snapshot.
+        if (!isIntercepting())
+            saveFields(true);
+    }
+
+    /**
+     * Whether or not data access in this instance is intercepted. This differs
+     * from {@link ClassMetaData#isIntercepting()} in that it checks for
+     * property access + subclassing in addition to the redefinition /
+     * enhancement checks.
+     */
+    public boolean isIntercepting() {
+        if (getMetaData().isIntercepting())
+            return true;
+        if (getMetaData().getAccessType() != ClassMetaData.ACCESS_FIELD
+            && _pc instanceof DynamicPersistenceCapable)
+            return true;
+
+        return false;
     }
 
     /**
@@ -339,7 +363,10 @@ public class StateManagerImpl
     }
 
     public Object getManagedInstance() {
-        return _pc;
+        if (_pc instanceof ManagedInstanceProvider)
+            return ((ManagedInstanceProvider) _pc).getManagedInstance();
+        else
+            return _pc;
     }
 
     public PersistenceCapable getPersistenceCapable() {
@@ -547,10 +574,15 @@ public class StateManagerImpl
             return assign && assignObjectId(!preFlushing, preFlushing);
         }
 
-        // don't assign values to fields with non-default values already
-        if (fmd.getValueStrategy() == ValueStrategies.NONE
-            || !isDefaultValue(field))
+        // Just return if there's no value generation strategy
+        if (fmd.getValueStrategy() == ValueStrategies.NONE)
             return false;
+        
+        // Throw exception if field already has a value assigned.
+        // @GeneratedValue overrides POJO initial values and setter methods
+        if (!isDefaultValue(field) && !fmd.is_generated())
+            throw new InvalidStateException(_loc.get(
+                    "existing-value-override-excep", fmd.getFullName(false)));
 
         // for primary key fields, assign the object id and recache so that
         // to the user, so it looks like the oid always matches the pk fields
@@ -558,8 +590,10 @@ public class StateManagerImpl
             return assignObjectId(!preFlushing, preFlushing);
 
         // for other fields just assign the field or flush if needed
-        if (_broker.getStoreManager().assignField(this, field, preFlushing))
+        if (_broker.getStoreManager().assignField(this, field, preFlushing)) {
+            fmd.set_generated(true);
             return true;
+        }
         if (!preFlushing)
             _broker.flush();
         return !preFlushing;
@@ -733,6 +767,58 @@ public class StateManagerImpl
 
     public void storeField(int field, Object val) {
         storeField(field, val, this);
+    }
+
+    /**
+     * <p>Checks whether or not <code>_pc</code> is dirty. In the cases where
+     * field tracking is not happening (see below), this method will do a
+     * state comparison to find whether <code>_pc</code> is dirty, and will
+     * update this instance with this information. In the cases where field
+     * tracking is happening, this method is a no-op.</p>
+     *
+     * <p>Fields are tracked for all classes that are run through the OpenJPA
+     * enhancer prior to or during deployment, and all classes (enhanced or
+     * unenhanced) in a Java 6 environment or newer.</p>
+     *
+     * <p>In a Java 5 VM or older:
+     * <br>- instances of unenhanced classes that use
+     * property access and obey the property access limitations are tracked
+     * when the instances are loaded from the database by OpenJPA, and are
+     * not tracked when the instances are created by application code.
+     * <br>- instances of unenhanced classes that use field access are
+     * never tracked.</p>
+     *
+     * @since 1.0.0
+     */
+    public void dirtyCheck() {
+        if (!needsDirtyCheck())
+            return;
+
+        SaveFieldManager saved = getSaveFieldManager();
+        if (saved == null)
+            throw new InternalException(_loc.get("no-saved-fields"));
+
+        FieldMetaData[] fmds = getMetaData().getFields();
+        for (int i = 0; i < fmds.length; i++) {
+            // pk and version fields cannot be mutated; don't mark them
+            // as such. ##### validate?
+            if (!fmds[i].isPrimaryKey() && !fmds[i].isVersion()
+                && _loaded.get(i)) {
+                if (!saved.isFieldEqual(i, fetch(i))) {
+                    dirty(i);
+                }
+            }
+        }
+    }
+
+    private boolean needsDirtyCheck() {
+        if (isIntercepting())
+            return false;
+        if (isDeleted())
+            return false;
+        if (isNew() && !isFlushed())
+            return false;
+        return true;
     }
 
     public Object fetchInitialField(int field) {
@@ -1375,7 +1461,8 @@ public class StateManagerImpl
         FieldMetaData fmd = _meta.getField(field);
         if (fmd == null)
             throw translate(new UserException(_loc.get("no-field", field,
-                _pc.getClass())).setFailedObject(getManagedInstance()));
+                ImplHelper.getManagedInstance(_pc).getClass()))
+                .setFailedObject(getManagedInstance()));
 
         dirty(fmd.getIndex(), null, true);
     }
@@ -1505,7 +1592,7 @@ public class StateManagerImpl
     /**
      * Fire post-dirty events after field value changes.
      *
-     * @param status return value from {@link #dirty(int,boolean,boolean)}
+     * @param status return value from {@link #dirty(int, Boolean, boolean)}
      */
     private void postDirty(Boolean status) {
         if (Boolean.TRUE.equals(status))
@@ -1836,7 +1923,8 @@ public class StateManagerImpl
      */
     void assertNotManagedObjectId(Object val) {
         if (val != null
-            && ((PersistenceCapable) val).pcGetGenericContext() != null)
+            && (ImplHelper.toPersistenceCapable(val,
+                 getContext().getConfiguration())).pcGetGenericContext()!= null)
             throw translate(new InvalidStateException(_loc.get
                 ("managed-oid", Exceptions.toString(val),
                     Exceptions.toString(getManagedInstance()))).
@@ -2486,6 +2574,9 @@ public class StateManagerImpl
      * are not cleared.
      */
     void clearFields() {
+        if (!isIntercepting())
+            return;
+
         fireLifecycleEvent(LifecycleEvent.BEFORE_CLEAR);
 
         // unproxy all fields
@@ -2569,8 +2660,14 @@ public class StateManagerImpl
      * to that of the last call to {@link #saveFields}.
      */
     void clearSavedFields() {
-        _flags &= ~FLAG_SAVE;
-        _saved = null;
+        if (isIntercepting()) {
+            _flags &= ~FLAG_SAVE;
+            _saved = null;
+        }
+    }
+
+    public SaveFieldManager getSaveFieldManager() {
+        return _saved;
     }
 
     /**
@@ -2681,6 +2778,8 @@ public class StateManagerImpl
                         _single.clear();
                 }
             }
+
+            dirtyCheck();
         } finally {
             unlock();
         }

@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.jdbc.schema;
 
+import java.security.AccessController;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.SQLException;
@@ -39,6 +40,7 @@ import org.apache.openjpa.lib.jdbc.JDBCEventConnectionDecorator;
 import org.apache.openjpa.lib.jdbc.JDBCListener;
 import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.util.ImplHelper;
@@ -110,7 +112,9 @@ public class DataSourceFactory {
             // see if their driver name is actually a data source
             if (DataSource.class.isAssignableFrom(driverClass)) {
                 return (DataSource) Configurations.newInstance(driver,
-                    conf, props, DataSource.class.getClassLoader());
+                    conf, props, (ClassLoader) AccessController.doPrivileged(
+                        J2DoPrivHelper.getClassLoaderAction(
+                            DataSource.class))); 
             }
         }
         catch (OpenJPAException ke) {
@@ -152,7 +156,8 @@ public class DataSourceFactory {
 
             // ask the DriverDataSource to provide any additional decorators
             if (ds instanceof DriverDataSource) {
-                List decs = ((DriverDataSource)ds).createConnectionDecorators();
+                List decs = ((DriverDataSource) ds).
+                    createConnectionDecorators();
                 if (decs != null)
                     decorators.addAll(decs);
             }

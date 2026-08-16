@@ -22,7 +22,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.ListIterator;
 
-import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.Broker;
@@ -31,7 +30,9 @@ import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.meta.XMLMetaData;
 import org.apache.openjpa.util.InternalException;
+import org.apache.openjpa.util.ImplHelper;
 
 /**
  * A field traversal starting with a constant filter parameter.
@@ -127,7 +128,8 @@ class ConstPath
             action = itr.next();
             if (action instanceof Class) {
                 try {
-                    cstate.value = Filters.convert(cstate.value, (Class)action);
+                    cstate.value = Filters.convert(cstate.value,
+                        (Class) action);
                     continue;
                 } catch (ClassCastException cce) {
                     failed = true;
@@ -139,8 +141,10 @@ class ConstPath
             // be proxyable
             sm = null;
             tmpBroker = null;
-            if (cstate.value instanceof PersistenceCapable)
-                sm = (OpenJPAStateManager) ((PersistenceCapable) cstate.value).
+            if (ImplHelper.isManageable(cstate.value))
+                sm = (OpenJPAStateManager) (ImplHelper.toPersistenceCapable(
+                    cstate.value,
+                    this.getMetaData().getRepository().getConfiguration())).
                     pcGetStateManager();
             if (sm == null) {
                 tmpBroker = ctx.store.getContext().getBroker();
@@ -202,5 +206,15 @@ class ConstPath
         public ConstPathExpState(ExpState constantState) {
             this.constantState = constantState;
         }
+    }
+    
+    public void get(FieldMetaData fmd, XMLMetaData meta) {
+    }
+
+    public void get(XMLMetaData meta, String name) {
+    }
+
+    public XMLMetaData getXmlMapping() {
+        return null;
     }
 }

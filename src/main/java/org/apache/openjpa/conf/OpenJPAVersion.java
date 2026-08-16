@@ -20,8 +20,11 @@ package org.apache.openjpa.conf;
 
 import java.io.File;
 import java.io.InputStream;
+import java.security.AccessController;
 import java.util.Properties;
 import java.util.StringTokenizer;
+
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 
 /**
  * This class contains version information for OpenJPA. It uses
@@ -42,8 +45,21 @@ public class OpenJPAVersion {
     public static final String REVISION_NUMBER;
 
     static {
-        Package pack = OpenJPAVersion.class.getPackage();
-        String vers = pack == null ? null : pack.getImplementationVersion();
+        Properties revisionProps = new Properties();
+        try {
+            InputStream in = OpenJPAVersion.class.getResourceAsStream
+                ("/META-INF/org.apache.openjpa.revision.properties");
+            if (in != null) {
+                try {
+                    revisionProps.load(in);
+                } finally {
+                    in.close();
+                }
+            }
+        } catch (Exception e) {
+        }
+
+        String vers = revisionProps.getProperty("openjpa.version");
         if (vers == null || "".equals(vers.trim()))
             vers = "0.0.0";
         VERSION_NUMBER = vers;
@@ -68,21 +84,7 @@ public class OpenJPAVersion {
             patch = 0;
         }
 
-        String revision = "";
-        try {
-            InputStream in = OpenJPAVersion.class.getResourceAsStream
-                ("/META-INF/org.apache.openjpa.revision.properties");
-            if (in != null) {
-                try {
-                    Properties props = new Properties();
-                    props.load(in);
-                    revision = props.getProperty("revision.number");
-                } finally {
-                    in.close();
-                }
-            }
-        } catch (Exception e) {
-        }
+        String revision = revisionProps.getProperty("revision.number");
 
         MAJOR_RELEASE = major;
         MINOR_RELEASE = minor;
@@ -110,7 +112,9 @@ public class OpenJPAVersion {
 
         buf.append("java.class.path:\n");
         StringTokenizer tok = new StringTokenizer
-            (System.getProperty("java.class.path"), File.pathSeparator);
+            ((String) AccessController.doPrivileged(
+                J2DoPrivHelper.getPropertyAction("java.class.path")),
+            File.pathSeparator);
         while (tok.hasMoreTokens()) {
             buf.append("\t").append(tok.nextToken());
             buf.append("\n");
@@ -132,6 +136,8 @@ public class OpenJPAVersion {
     }
 
     private StringBuffer appendProperty(String prop, StringBuffer buf) {
-        return buf.append(prop).append(": ").append(System.getProperty(prop));
+        return buf.append(prop).append(": ")
+            .append((String) AccessController.doPrivileged(
+                J2DoPrivHelper.getPropertyAction(prop)));
     }
 }

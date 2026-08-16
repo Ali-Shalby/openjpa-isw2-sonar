@@ -59,11 +59,12 @@ import serp.bytecode.Project;
  * WASManagedRuntime provides the wrapper classes needed to interact with the
  * WAS proprietary interface and the OpenJPA kernel.
  *
- * @author Michael Dick, Kevin Sutter
+ * @author Kevin Sutter
  */
-public class WASManagedRuntime implements ManagedRuntime, Configurable {
+public class WASManagedRuntime extends AbstractManagedRuntime
+        implements ManagedRuntime, Configurable {
 
-    private static Localizer _loc =
+    private static final Localizer _loc =
         Localizer.forPackage(WASManagedRuntime.class);
 
     private Object _extendedTransaction = null;
@@ -98,7 +99,7 @@ public class WASManagedRuntime implements ManagedRuntime, Configurable {
         javax.transaction.Transaction {
 
         public int getStatus() throws SystemException {
-            int rval = Status.STATUS_UNKNOWN;
+            int rval;
             try {
                 if (getGlobalId() != null) {
                     rval = Status.STATUS_ACTIVE;
@@ -150,14 +151,12 @@ public class WASManagedRuntime implements ManagedRuntime, Configurable {
          *         occurs. byte[] id if a global transaction is active.
          */
         private byte[] getGlobalId() {
-            byte[] rval = null;
             try {
-                rval = (byte[]) _getGlobalId.invoke(_extendedTransaction, null);
+                return (byte[]) _getGlobalId.invoke(_extendedTransaction, null);
             } catch (Exception e) {
                 throw new InvalidStateException(_loc
                     .get("was-reflection-exception")).setCause(e);
             }
-            return rval;
         }
 
         /**

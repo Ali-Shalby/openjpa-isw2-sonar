@@ -22,6 +22,7 @@ import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.security.AccessController;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -38,10 +39,11 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.enhance.PCRegistry;
-import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.enhance.Reflection;
+import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.SourceTracker;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.xml.Commentable;
 import org.apache.openjpa.util.ByteId;
@@ -59,6 +61,7 @@ import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.ShortId;
 import org.apache.openjpa.util.StringId;
 import org.apache.openjpa.util.UnsupportedException;
+import org.apache.openjpa.util.ImplHelper;
 import serp.util.Strings;
 
 /**
@@ -182,6 +185,7 @@ public class ClassMetaData
     private FieldMetaData[] _allListingFields = null;
     private FetchGroup[] _fgs = null;
     private FetchGroup[] _customFGs = null;
+    private boolean _intercepting = false;
 
     /**
      * Constructor. Supply described type and repository.
@@ -232,6 +236,8 @@ public class ClassMetaData
             (type.getSuperclass().getName()))
             throw new MetaDataException(_loc.get("enum", type));
         _type = type;
+        if (PersistenceCapable.class.isAssignableFrom(type))
+            setIntercepting(true);
     }
 
     /**
@@ -687,6 +693,22 @@ public class ClassMetaData
     }
 
     /**
+     * Whether the type's fields are actively intercepted, either by
+     * redefinition or enhancement.
+     */
+    public boolean isIntercepting() {
+        return _intercepting;
+    }
+
+    /**
+     * Whether the type's fields are actively intercepted, either by
+     * redefinition or enhancement.
+     */
+    public void setIntercepting(boolean intercepting) {
+        _intercepting = intercepting;
+    }
+
+    /**
      * Whether the type is a managed interface.
      */
     public boolean isManagedInterface() {
@@ -843,7 +865,8 @@ public class ClassMetaData
         if (getDeclaredField(field) != null)
             return true;
         if (_staticFields == null) {
-            Field[] fields = _type.getDeclaredFields();
+            Field[] fields = (Field[]) AccessController.doPrivileged(
+                J2DoPrivHelper.getDeclaredFieldsAction(_type)); 
             Set names = new HashSet((int) (fields.length * 1.33 + 1));
             for (int i = 0; i < fields.length; i++)
                 if (Modifier.isStatic(fields[i].getModifiers()))
@@ -1573,7 +1596,8 @@ public class ClassMetaData
 
         int val = _repos.getValidate();
         boolean runtime = (val & _repos.VALIDATE_RUNTIME) != 0;
-        boolean validate = !PersistenceCapable.class.isAssignableFrom(_type)
+        boolean validate =
+            !ImplHelper.isManagedType(getRepository().getConfiguration(), _type)
             || (val & MetaDataRepository.VALIDATE_UNENHANCED) == 0;
 
         // we only do any actions for metadata mode
@@ -1602,8 +1626,8 @@ public class ClassMetaData
             log.trace(_loc.get((embed) ? "resolve-embed-meta" : "resolve-meta",
                 this + "@" + System.identityHashCode(this)));
 
-        if (runtime && !_type.isInterface() && 
-            !PersistenceCapable.class.isAssignableFrom(_type))
+        if (runtime && !_type.isInterface() &&
+            !ImplHelper.isManagedType(getRepository().getConfiguration(),_type))
             throw new MetaDataException(_loc.get("not-enhanced", _type));
 
         // are we the target of an embedded value?
@@ -1707,7 +1731,7 @@ public class ClassMetaData
         validateDataCache();
         validateDetachable();
         validateExtensionKeys();
-        validateIdentity(runtime);
+        validateIdentity();
         validateAccessType();
     }
 
@@ -1766,7 +1790,7 @@ public class ClassMetaData
     /**
      * Assert that the identity handling for this class is valid.
      */
-    private void validateIdentity(boolean runtime) {
+    private void validateIdentity() {
         // make sure identity types are consistent
         ClassMetaData sup = getPCSuperclassMetaData();
         int id = getIdentityType();
@@ -1790,7 +1814,7 @@ public class ClassMetaData
         if (id == ID_APPLICATION) {
             if (_idStrategy != ValueStrategies.NONE)
                 throw new MetaDataException(_loc.get("appid-strategy", _type));
-            validateAppIdClass(runtime);
+            validateAppIdClass();
         } else if (id != ID_UNKNOWN)
             validateNoPKFields();
 
@@ -1806,7 +1830,7 @@ public class ClassMetaData
     /**
      * Make sure the application identity class is valid.
      */
-    private void validateAppIdClass(boolean runtime) {
+    private void validateAppIdClass() {
         // base types must declare an oid class if not single-field identity
         FieldMetaData[] pks = getPrimaryKeyFields();
         if (getObjectIdType() == null) {
@@ -1945,7 +1969,7 @@ public class ClassMetaData
                     throw new MetaDataException(_loc.get("invalid-id",
                         _type, fmds[i].getName()));
                 m = Reflection.findSetter(oid, fmds[i].getName(),
-                    fmds[i].getDeclaredType(), false);
+                    fmds[i].getObjectIdFieldType(), false);
                 if (m == null || m.getReturnType() != void.class)
                     throw new MetaDataException(_loc.get("invalid-id",
                         _type, fmds[i].getName()));

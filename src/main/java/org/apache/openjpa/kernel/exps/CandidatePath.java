@@ -23,13 +23,14 @@ import java.util.LinkedList;
 import java.util.ListIterator;
 
 import org.apache.commons.lang.ObjectUtils;
-import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.meta.XMLMetaData;
+import org.apache.openjpa.util.ImplHelper;
 
 /**
  * A path represents a traversal into fields of a candidate object.
@@ -125,8 +126,9 @@ class CandidatePath
             // be proxyable
             sm = null;
             tmpBroker = null;
-            if (candidate instanceof PersistenceCapable)
-                sm = (OpenJPAStateManager) ((PersistenceCapable) candidate).
+            if (ImplHelper.isManageable(candidate))
+                sm = (OpenJPAStateManager) (ImplHelper.toPersistenceCapable(
+                    candidate, ctx.getConfiguration())).
                     pcGetStateManager();
             if (sm == null) {
                 tmpBroker = ctx.getBroker();
@@ -184,4 +186,14 @@ class CandidatePath
             return ((Traversal) other).field.equals(field);
         }
 	}
+
+    public void get(FieldMetaData fmd, XMLMetaData meta) {
+    }
+    
+    public void get(XMLMetaData meta, String name) {
+    }
+    
+    public XMLMetaData getXmlMapping() {
+        return null;
+    }
 }

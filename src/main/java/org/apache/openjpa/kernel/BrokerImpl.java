@@ -20,6 +20,7 @@ package org.apache.openjpa.kernel;
 
 import java.io.Serializable;
 import java.lang.reflect.Modifier;
+import java.security.AccessController;
 import java.util.AbstractCollection;
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -32,16 +33,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import javax.resource.NotSupportedException;
-import javax.resource.ResourceException;
-import javax.resource.cci.Connection;
-import javax.resource.cci.ConnectionMetaData;
-import javax.resource.cci.Interaction;
-import javax.resource.cci.InteractionSpec;
-import javax.resource.cci.LocalTransaction;
-import javax.resource.cci.Record;
-import javax.resource.cci.ResourceWarning;
-import javax.resource.cci.ResultSetInfo;
 import javax.transaction.Status;
 import javax.transaction.Synchronization;
 
@@ -62,6 +53,7 @@ import org.apache.openjpa.event.TransactionEvent;
 import org.apache.openjpa.event.TransactionEventManager;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.ReferenceHashMap;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
@@ -158,7 +150,6 @@ public class BrokerImpl
     private ManagedRuntime _runtime = null;
     private LockManager _lm = null;
     private InverseManager _im = null;
-    private JCAHelper _jca = null;
     private ReentrantLock _lock = null;
     private OpCallbacks _call = null;
     private RuntimeExceptionTranslator _extrans = null;
@@ -182,6 +173,7 @@ public class BrokerImpl
     private Set _updatedClss = null;
     private Set _deletedClss = null;
     private Set _pending = null;
+    private int findAllDepth = 0;
 
     // track instances that become transactional after the first savepoint
     // (the first uses the transactional cache)
@@ -228,7 +220,8 @@ public class BrokerImpl
     private int _lifeCallbackMode = 0;
 
     private boolean _initializeWasInvoked = false;
-    
+    private static final Object[] EMPTY_OBJECTS = new Object[0];
+
     /**
      * Set the persistence manager's authentication. This is the first
      * method called after construction.
@@ -256,8 +249,8 @@ public class BrokerImpl
     public void initialize(AbstractBrokerFactory factory,
         DelegatingStoreManager sm, boolean managed, int connMode) {
         _initializeWasInvoked = true;
-        _loader = Thread.currentThread().getContextClassLoader();
-        _jca = new JCAHelper();
+        _loader = (ClassLoader) AccessController.doPrivileged(
+            J2DoPrivHelper.getContextClassLoaderAction());
         _conf = factory.getConfiguration();
         _compat = _conf.getCompatibilityInstance();
         _factory = factory;
@@ -318,30 +311,6 @@ public class BrokerImpl
      */
     protected Map newManagedObjectCache() {
         return new ReferenceHashMap(ReferenceMap.HARD, ReferenceMap.SOFT);
-    }
-
-    //////////////////////////////////////////
-    // Implementation of Connection interface
-    //////////////////////////////////////////
-
-    public ConnectionMetaData getMetaData()
-        throws ResourceException {
-        return _jca;
-    }
-
-    public Interaction createInteraction()
-        throws ResourceException {
-        return _jca;
-    }
-
-    public LocalTransaction getLocalTransaction()
-        throws ResourceException {
-        return this;
-    }
-
-    public ResultSetInfo getResultSetInfo()
-        throws ResourceException {
-        return _jca;
     }
 
     //////////////////////////////////
@@ -581,11 +550,11 @@ public class BrokerImpl
         _populateDataCache = cache;
     }
 
-    public boolean isLargeTransaction() {
+    public boolean isTrackChangesByType() {
         return _largeTransaction;
     }
 
-    public void setLargeTransaction(boolean largeTransaction) {
+    public void setTrackChangesByType(boolean largeTransaction) {
         assertOpen();
         _largeTransaction = largeTransaction;
     }
@@ -731,8 +700,6 @@ public class BrokerImpl
 
     /**
      * Fire given transaction event, handling any exceptions appropriately.
-     *
-     * @return whether events are being processed at this time
      */
     private void fireTransactionEvent(TransactionEvent trans) {
         if (_transEventManager != null)
@@ -788,7 +755,7 @@ public class BrokerImpl
                     // after making instance transactional for locking
                     if (!sm.isTransactional() && useTransactionalState(fetch))
                         sm.transactional();
-                    boolean loaded = false;
+                    boolean loaded;
                     try {
                         loaded = sm.load(fetch, StateManagerImpl.LOAD_FGS, 
                             exclude, edata, false);
@@ -900,6 +867,8 @@ public class BrokerImpl
      */
     protected Object[] findAll(Collection oids, FetchConfiguration fetch,
         BitSet exclude, Object edata, int flags, FindCallbacks call) {
+        findAllDepth ++;
+
         // throw any exceptions for null oids up immediately
         if (oids == null)
             throw new NullPointerException("oids == null");
@@ -909,7 +878,9 @@ public class BrokerImpl
         // we have to use a map of oid->sm rather than a simple
         // array, so that we make sure not to create multiple sms for equivalent
         // oids if the user has duplicates in the given array
-        _loading = new HashMap((int) (oids.size() * 1.33 + 1));
+        if (_loading == null)
+            _loading = new HashMap((int) (oids.size() * 1.33 + 1));
+
         if (call == null)
             call = this;
         if (fetch == null)
@@ -1004,7 +975,9 @@ public class BrokerImpl
         } catch (RuntimeException re) {
             throw new GeneralException(re);
         } finally {
-            _loading = null;
+            findAllDepth--;
+            if (findAllDepth == 0)
+                _loading = null;
             endOperation();
         }
     }
@@ -1576,7 +1549,7 @@ public class BrokerImpl
             Collection saved = save.rollback(_savepoints.values());
             if (_savepointCache != null)
                 _savepointCache.clear();
-            if (_transCache != null) {
+            if (hasTransactionalObjects()) {
                 // build up a new collection of states
                 TransactionalCache oldTransCache = _transCache;
                 TransactionalCache newTransCache = new TransactionalCache
@@ -2148,8 +2121,10 @@ public class BrokerImpl
         _fc.setWriteLockLevel(LOCK_NONE);
         _fc.setLockTimeout(-1);
 
-        Collection transStates = _transCache;
-        if (transStates == null)
+        Collection transStates;
+        if (hasTransactionalObjects())
+            transStates = _transCache;
+        else
             transStates = Collections.EMPTY_LIST;
 
         // fire after rollback/commit event
@@ -3106,7 +3081,7 @@ public class BrokerImpl
         if (objs == null)
             return null;
         if (objs.isEmpty())
-            return new Object[0];
+            return EMPTY_OBJECTS;
         if (call == null)
             call = _call;
 
@@ -3193,7 +3168,7 @@ public class BrokerImpl
         if (objs == null)
             return null;
         if (objs.isEmpty())
-            return new Object[0];
+            return EMPTY_OBJECTS;
 
         beginOperation(true);
         try {
@@ -3742,16 +3717,26 @@ public class BrokerImpl
      * Return a copy of all transactional state managers.
      */
     protected Collection getTransactionalStates() {
-        if (_transCache == null)
+        if (!hasTransactionalObjects())
             return Collections.EMPTY_LIST;
         return _transCache.copy();
+    }
+
+    /**
+     * Whether or not there are any transactional objects in the current
+     * persistence context. If there are any instances with untracked state,
+     * this method will cause those instances to be scanned.
+     */
+    private boolean hasTransactionalObjects() {
+        _cache.dirtyCheck();
+        return _transCache != null;
     }
 
     /**
      * Return a copy of all dirty state managers.
      */
     protected Collection getDirtyStates() {
-        if (_transCache == null)
+        if (!hasTransactionalObjects())
             return Collections.EMPTY_LIST;
 
         return _transCache.copyDirty();
@@ -3815,7 +3800,7 @@ public class BrokerImpl
 
         lock();
         try {
-            if (_transCache == null)
+            if (!hasTransactionalObjects())
                 _transCache = new TransactionalCache(_orderDirty);
             _transCache.addClean(sm);
         } finally {
@@ -3831,6 +3816,8 @@ public class BrokerImpl
         lock();
         try {
             if (_transCache != null)
+                // intentional direct access; we don't want to recompute
+                // dirtiness while removing instances from the transaction
                 _transCache.remove(sm);
             if (_derefCache != null && !sm.isPersistent())
                 _derefCache.remove(sm);
@@ -3858,7 +3845,7 @@ public class BrokerImpl
             lock();
             try {
                 // cache dirty instance
-                if (_transCache == null)
+                if (!hasTransactionalObjects())
                     _transCache = new TransactionalCache(_orderDirty);
                 _transCache.addDirty(sm);
 
@@ -4131,7 +4118,9 @@ public class BrokerImpl
         // 1.5 doesn't initialize classes without a true Class.forName
         if (!PCRegistry.isRegistered(cls)) {
             try {
-                Class.forName(cls.getName(), true, cls.getClassLoader());
+                Class.forName(cls.getName(), true, 
+                    (ClassLoader) AccessController.doPrivileged(
+                        J2DoPrivHelper.getClassLoaderAction(cls)));
             } catch (Throwable t) {
             }
         }
@@ -4140,8 +4129,9 @@ public class BrokerImpl
 
     public Object getObjectId(Object obj) {
         assertOpen();
-        if (obj instanceof PersistenceCapable)
-            return ((PersistenceCapable) obj).pcFetchObjectId();
+        if (ImplHelper.isManageable(obj))
+            return (ImplHelper.toPersistenceCapable(obj, _conf))
+                .pcFetchObjectId();
         return null;
     }
 
@@ -4158,58 +4148,62 @@ public class BrokerImpl
 
     public Object getVersion(Object obj) {
         assertOpen();
-        if (obj instanceof PersistenceCapable)
-            return ((PersistenceCapable) obj).pcGetVersion();
+        if (ImplHelper.isManageable(obj))
+            return (ImplHelper.toPersistenceCapable(obj, _conf)).pcGetVersion();
         return null;
     }
 
     public boolean isDirty(Object obj) {
         assertOpen();
-        if (obj instanceof PersistenceCapable)
-            return ((PersistenceCapable) obj).pcIsDirty();
+        if (ImplHelper.isManageable(obj)) {
+            PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, _conf);
+            return pc.pcIsDirty();
+        }
         return false;
     }
 
     public boolean isTransactional(Object obj) {
         assertOpen();
-        if (obj instanceof PersistenceCapable)
-            return ((PersistenceCapable) obj).pcIsTransactional();
+        if (ImplHelper.isManageable(obj))
+            return (ImplHelper.toPersistenceCapable(obj, _conf))
+                .pcIsTransactional();
         return false;
     }
 
     public boolean isPersistent(Object obj) {
         assertOpen();
-        if (obj instanceof PersistenceCapable)
-            return ((PersistenceCapable) obj).pcIsPersistent();
+        if (ImplHelper.isManageable(obj))
+            return (ImplHelper.toPersistenceCapable(obj, _conf)).pcIsPersistent();
         return false;
     }
 
     public boolean isNew(Object obj) {
         assertOpen();
-        if (obj instanceof PersistenceCapable)
-            return ((PersistenceCapable) obj).pcIsNew();
+        if (ImplHelper.isManageable(obj))
+            return (ImplHelper.toPersistenceCapable(obj, _conf)).pcIsNew();
         return false;
     }
 
     public boolean isDeleted(Object obj) {
         assertOpen();
-        if (obj instanceof PersistenceCapable)
-            return ((PersistenceCapable) obj).pcIsDeleted();
+        if (ImplHelper.isManageable(obj))
+            return (ImplHelper.toPersistenceCapable(obj, _conf)).pcIsDeleted();
         return false;
     }
 
     public boolean isDetached(Object obj) {
-        if (!(obj instanceof PersistenceCapable))
+        if (!(ImplHelper.isManageable(obj)))
             return false;
 
-        PersistenceCapable pc = (PersistenceCapable) obj;
+        PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, _conf);
         Boolean detached = pc.pcIsDetached();
         if (detached != null)
             return detached.booleanValue();
 
         // last resort: instance is detached if it has a store record
         ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
-            getMetaData(pc.getClass(), _loader, true);
+            getMetaData(ImplHelper.getManagedInstance(pc).getClass(),
+                _loader, true);
         Object oid = ApplicationIds.create(pc, meta);
         if (oid == null)
             return false;
@@ -4229,8 +4223,8 @@ public class BrokerImpl
      */
     protected StateManagerImpl getStateManagerImpl(Object obj,
         boolean assertThisContext) {
-        if (obj instanceof PersistenceCapable) {
-            PersistenceCapable pc = (PersistenceCapable) obj;
+        if (ImplHelper.isManageable(obj)) {
+            PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, _conf);
             if (pc.pcGetGenericContext() == this)
                 return (StateManagerImpl) pc.pcGetStateManager();
             if (assertThisContext && pc.pcGetGenericContext() != null)
@@ -4260,18 +4254,22 @@ public class BrokerImpl
     protected PersistenceCapable assertPersistenceCapable(Object obj) {
         if (obj == null)
             return null;
-        if (obj instanceof PersistenceCapable)
-            return (PersistenceCapable) obj;
+        if (ImplHelper.isManageable(obj))
+            return ImplHelper.toPersistenceCapable(obj, _conf);
 
-        // check for difference instances of the PersistenceCapable interface
+        // check for different instances of the PersistenceCapable interface
         // and throw a better error that mentions the class loaders
         Class[] intfs = obj.getClass().getInterfaces();
         for (int i = 0; intfs != null && i < intfs.length; i++) {
             if (intfs[i].getName().equals(PersistenceCapable.class.getName())) {
                 throw new UserException(_loc.get("pc-loader-different",
                     Exceptions.toString(obj),
-                    PersistenceCapable.class.getClassLoader(),
-                    intfs[i].getClassLoader())).setFailedObject(obj);
+                    (ClassLoader) AccessController.doPrivileged(
+                        J2DoPrivHelper.getClassLoaderAction(
+                            PersistenceCapable.class)),
+                    (ClassLoader) AccessController.doPrivileged(
+                        J2DoPrivHelper.getClassLoaderAction(intfs[i]))))
+                    .setFailedObject(obj);
             }
         }
 
@@ -4357,6 +4355,7 @@ public class BrokerImpl
         private Map _conflicts = null; // conflict oid -> new sm
         private Map _news = null; // tmp id -> new sm
         private Collection _embeds = null; // embedded/non-persistent sms
+        private Collection _untracked = null; // hard refs to untracked sms
 
         /**
          * Constructor; supply primary cache map.
@@ -4407,6 +4406,12 @@ public class BrokerImpl
          * Call this method when a new state manager initializes itself.
          */
         public void add(StateManagerImpl sm) {
+            if (!sm.isIntercepting()) {
+                if (_untracked == null)
+                    _untracked = new HashSet();
+                _untracked.add(sm);
+            }
+
             if (!sm.isPersistent() || sm.isEmbedded()) {
                 if (_embeds == null)
                     _embeds = new ReferenceHashSet(ReferenceHashSet.WEAK);
@@ -4455,12 +4460,15 @@ public class BrokerImpl
                             _conflicts.put(id, orig); // put back
                     }
                 }
-            } else
-            if ((_embeds == null || !_embeds.remove(sm)) && _news != null) {
+            } else if ((_embeds == null || !_embeds.remove(sm))
+                && _news != null) {
                 orig = _news.remove(id);
                 if (orig != null && orig != sm)
                     _news.put(id, orig); // put back
             }
+
+            if (_untracked != null)
+                _untracked.remove(sm);
         }
 
         /**
@@ -4584,6 +4592,8 @@ public class BrokerImpl
                 _news.clear();
             if (_embeds != null)
                 _embeds.clear();
+            if (_untracked != null)
+                _untracked.clear();
         }
 
         /**
@@ -4592,6 +4602,14 @@ public class BrokerImpl
         public void clearNew() {
             if (_news != null)
                 _news.clear();
+        }
+
+        private void dirtyCheck() {
+            if (_untracked == null)
+                return;
+
+            for (Iterator iter = _untracked.iterator(); iter.hasNext(); )
+                ((StateManagerImpl) iter.next()).dirtyCheck();
         }
     }
 
@@ -4843,108 +4861,6 @@ public class BrokerImpl
                     throw new UnsupportedException();
                 }
             };
-        }
-    }
-
-    /**
-     * Helper class to implement JCA interfaces. This is placed in a
-     * separate class so that its methods do not interfere with the
-     * persistence manager APIs.
-     */
-    private class JCAHelper
-        implements Interaction, ResultSetInfo, ConnectionMetaData {
-        ///////////////////////////////////////////
-        // Implementation of Interaction interface
-        ///////////////////////////////////////////
-
-        public void clearWarnings() {
-        }
-
-        public Record execute(InteractionSpec spec, Record input)
-            throws ResourceException {
-            throw new NotSupportedException("execute");
-        }
-
-        public boolean execute(InteractionSpec spec, Record input,
-            Record output)
-            throws ResourceException {
-            throw new NotSupportedException("execute");
-        }
-
-        public Connection getConnection() {
-            return BrokerImpl.this;
-        }
-
-        public ResourceWarning getWarnings() {
-            return null;
-        }
-
-        public void close() {
-        }
-
-        /////////////////////////////////////////////
-        // Implementation of ResultSetInfo interface
-        /////////////////////////////////////////////
-
-        public boolean deletesAreDetected(int type) {
-            return true;
-        }
-
-        public boolean insertsAreDetected(int type) {
-            return true;
-        }
-
-        public boolean othersDeletesAreVisible(int type) {
-            return true;
-        }
-
-        public boolean othersInsertsAreVisible(int type) {
-            return true;
-        }
-
-        public boolean othersUpdatesAreVisible(int type) {
-            return true;
-        }
-
-        public boolean ownDeletesAreVisible(int type) {
-            return true;
-        }
-
-        public boolean ownInsertsAreVisible(int type) {
-            return true;
-        }
-
-        public boolean ownUpdatesAreVisible(int type) {
-            return true;
-        }
-
-        public boolean supportsResultSetType(int type) {
-            return true;
-        }
-
-        public boolean supportsResultTypeConcurrency(int type,
-            int concurrency) {
-            return true;
-        }
-
-        public boolean updatesAreDetected(int type) {
-            return true;
-        }
-
-        ///////////////////////////////////////////////////
-        // Implementation of ConnectionMetaData interface
-        ///////////////////////////////////////////////////
-
-        public String getEISProductName() {
-            return _conf.getConnectionDriverName();
-        }
-
-        public String getEISProductVersion() {
-            return "";
-        }
-
-        public String getUserName() {
-            return _user;
         }
     }
 }

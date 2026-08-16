@@ -39,6 +39,8 @@ import java.io.StringWriter;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -57,6 +59,7 @@ import org.apache.openjpa.lib.log.LogFactory;
 import org.apache.openjpa.lib.log.LogFactoryImpl;
 import org.apache.openjpa.lib.log.NoneLogFactory;
 import org.apache.openjpa.lib.util.Closeable;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.MultiClassLoader;
 import org.apache.openjpa.lib.util.ParseException;
@@ -99,7 +102,7 @@ import serp.util.Strings;
 public class ConfigurationImpl
     implements Configuration, Externalizable, ValueListener {
 
-    private static final String SEP = System.getProperty("line.separator");
+    private static final String SEP = J2DoPrivHelper.getLineSeparator();
 
     private static final Localizer _loc = Localizer.forPackage
         (ConfigurationImpl.class);
@@ -162,8 +165,10 @@ public class ConfigurationImpl
      * {@link ProductDerivation}s, and from System properties.
      */
     public boolean loadGlobals() {
-        MultiClassLoader loader = new MultiClassLoader();
-        loader.addClassLoader(Thread.currentThread().getContextClassLoader());
+        MultiClassLoader loader = (MultiClassLoader) AccessController
+            .doPrivileged(J2DoPrivHelper.newMultiClassLoaderAction()); 
+        loader.addClassLoader((ClassLoader) AccessController.doPrivileged(
+            J2DoPrivHelper.getContextClassLoaderAction()));
         loader.addClassLoader(getClass().getClassLoader());
         ConfigurationProvider provider = ProductDerivations.loadGlobals(loader);
         if (provider != null)
@@ -171,7 +176,9 @@ public class ConfigurationImpl
 
         // let system properties override other globals
         try {
-            fromProperties(new HashMap(System.getProperties()));
+            fromProperties(new HashMap(
+                (Properties) AccessController.doPrivileged(
+                    J2DoPrivHelper.getPropertiesAction())));
         } catch (SecurityException se) {
             // security manager might disallow
         }
@@ -413,7 +420,7 @@ public class ConfigurationImpl
                 descs.add(new MethodDescriptor(read));
             }
         }
-        _mds = (MethodDescriptor[])descs.
+        _mds = (MethodDescriptor[]) descs.
             toArray(new MethodDescriptor[descs.size()]);
         return _mds;
     }
@@ -796,7 +803,7 @@ public class ConfigurationImpl
         ConfigurationImpl conf = (ConfigurationImpl) other;
         Map p1 = (_props == null) ? toProperties(false) : _props;
         Map p2 = (conf._props == null) ? conf.toProperties(false) : conf._props;
-        return p1.equals(p2);
+        return excludeDynamic(p1).equals(excludeDynamic(p2));
     }
 
     /**
@@ -804,9 +811,8 @@ public class ConfigurationImpl
      * {@link #toProperties}.
      */
     public int hashCode() {
-        if (_props != null)
-            return _props.hashCode();
-        return toProperties(false).hashCode();
+    	Map copy = (_props == null) ? toProperties(false) : _props;
+    	return excludeDynamic(copy).hashCode();
     }
 
     /**
@@ -981,5 +987,36 @@ public class ConfigurationImpl
         PluginListValue val = new PluginListValue(property);
         addValue(val);
         return val;
+    }
+    
+    public void modifyDynamic(String property, Object newValue) {
+    	if (!isDynamic(property)) 
+    		throw new RuntimeException(_loc.get("not-dynamic", property)
+    			.toString());
+    	Value value = getValue(property);
+    	value.setObject(newValue);
+    }
+    
+    public boolean isDynamic(String property) {
+    	Value[] dynamicValues = getDynamicValues();
+    	for (int i=0; i<dynamicValues.length; i++) 
+    		if (dynamicValues[i].getProperty().equals(property))
+    			return true;
+    	return false;
+    }
+    
+    public Value[] getDynamicValues() {
+    	return new Value[0];
+    }
+    
+    Map excludeDynamic(Map map) {
+    	if (map == null)
+    		return null;
+    	Map copy = new HashMap(map);
+    	Value[] dynamicValues = getDynamicValues();
+    	for (int i=0; i<dynamicValues.length; i++) {
+    		Configurations.removeProperty(dynamicValues[i].getProperty(), copy);
+    	}
+    	return copy;
     }
 }

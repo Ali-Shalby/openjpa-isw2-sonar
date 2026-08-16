@@ -23,8 +23,10 @@ import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.lang.reflect.Method;
+import java.security.AccessController;
 import java.util.Arrays;
 
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.UserException;
 
@@ -82,7 +84,8 @@ public class MethodLifecycleCallbacks
     public void makeCallback(Object obj, Object arg, int eventType)
         throws Exception {
         if (!_callback.isAccessible())
-            _callback.setAccessible(true);
+            AccessController.doPrivileged(J2DoPrivHelper.setAccessibleAction(
+                _callback, true));
 
         if (_arg)
             _callback.invoke(obj, new Object[]{ arg });
@@ -101,7 +104,8 @@ public class MethodLifecycleCallbacks
     protected static Method getMethod(Class cls, String method, Class[] args) {
         Class currentClass = cls;
         do {
-            Method[] methods = currentClass.getDeclaredMethods();
+            Method[] methods = (Method[]) AccessController.doPrivileged(
+                J2DoPrivHelper.getDeclaredMethodsAction(currentClass)); 
             for (int i = 0; i < methods.length; i++) {
                 if (!method.equals(methods[i].getName()))
                     continue;

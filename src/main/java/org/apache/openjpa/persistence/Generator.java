@@ -18,8 +18,6 @@
  */
 package org.apache.openjpa.persistence;
 
-import org.apache.openjpa.kernel.Seq;
-
 /**
  * Represents a store sequence.
  *
@@ -31,11 +29,6 @@ public interface Generator {
 
     public static final String UUID_HEX = "uuid-hex";
     public static final String UUID_STRING = "uuid-string";
-
-    /**
-     * Delegate.
-     */
-    public Seq getDelegate();
 
     /**
      * The sequence name.

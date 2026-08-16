@@ -31,6 +31,7 @@ import java.util.List;
 
 import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
@@ -592,6 +593,30 @@ public final class SQLBuffer
             && ObjectUtils.equals(_params, buf._params);
     }
 
+    /**
+     * Replace SQL '?' with CAST string if required by DB platform
+     * @param oper
+     * @param val
+     */
+    public void addCastForParam(String oper, Val val) {
+        if (_sql.charAt(_sql.length() - 1) == '?') {
+            String castString = _dict.addCastAsType(oper, val);
+            if (castString != null)
+                _sql.replace(_sql.length() - 1, _sql.length(), castString);
+        }
+    }
+
+    /**
+     * Replace current buffer string with the new string
+     * 
+     * @param start replace start position
+     * @param end replace end position
+     * @param newString
+     */
+    public void replaceSqlString(int start, int end, String newString) {
+        _sql.replace(start, end, newString);
+    }
+    
     /**
      * Represents a subselect.
      */

@@ -41,6 +41,7 @@ import org.apache.openjpa.kernel.StoreManager;
 import org.apache.openjpa.kernel.StoreQuery;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.MetaDataRepository;
+import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.OptimisticException;
 
 /**
@@ -230,7 +231,7 @@ public class DataCacheStoreManager
         // if we were in largeTransaction mode, then we have recorded
         // the classes of updated/deleted objects and these now need to be
         // evicted
-        if (_ctx.isLargeTransaction()) {
+        if (_ctx.isTrackChangesByType()) {
             evictTypes(_ctx.getDeletedTypes());
             evictTypes(_ctx.getUpdatedTypes());
         }
@@ -409,6 +410,8 @@ public class DataCacheStoreManager
             return super.loadAll(sms, state, load, fetch, edata);
 
         Map unloaded = null;
+        List smList = null;
+        Map caches = new HashMap();
         OpenJPAStateManager sm;
         DataCache cache;
         DataCachePCData data;
@@ -422,28 +425,57 @@ public class DataCacheStoreManager
                 continue;
             }
 
-            if (sm.getManagedInstance() == null) {
-                data = cache.get(sm.getObjectId());
-                if (data != null) {
-                    //### the 'data.type' access here probably needs
-                    //### to be addressed for bug 511
-                    sm.initialize(data.getType(), state);
-                    data.load(sm, fetch, edata);
-                } else
-                    unloaded = addUnloaded(sm, null, unloaded);
-            } else if (load != FORCE_LOAD_NONE
+            if (sm.getManagedInstance() == null
+                || load != FORCE_LOAD_NONE
                 || sm.getPCState() == PCState.HOLLOW) {
-                data = cache.get(sm.getObjectId());
-                if (data != null) {
-                    // load unloaded fields
-                    fields = sm.getUnloaded(fetch);
-                    data.load(sm, fields, fetch, edata);
-                    if (fields.length() > 0)
-                        unloaded = addUnloaded(sm, fields, unloaded);
-                } else
-                    unloaded = addUnloaded(sm, null, unloaded);
+                smList = (List) caches.get(cache);
+                if (smList == null) {
+                    smList = new ArrayList();
+                    caches.put(cache, smList);
+                }
+                smList.add(sm);
             } else if (!cache.contains(sm.getObjectId()))
                 unloaded = addUnloaded(sm, null, unloaded);
+        }
+        
+        for (Iterator itr = caches.keySet().iterator(); itr.hasNext();) {
+            cache = (DataCache) itr.next();
+            smList = (List) caches.get(cache);
+            List oidList = new ArrayList(smList.size());
+
+            for (itr=smList.iterator();itr.hasNext();) {
+                sm = (OpenJPAStateManager) itr.next();
+                oidList.add((OpenJPAId) sm.getObjectId());
+            }
+            
+            Map dataMap = cache.getAll(oidList);
+
+            for (itr=smList.iterator();itr.hasNext();) {
+                sm = (OpenJPAStateManager) itr.next();
+                data = (DataCachePCData) dataMap.get(
+                        (OpenJPAId) sm.getObjectId());
+
+                if (sm.getManagedInstance() == null) {
+                    if (data != null) {
+                        //### the 'data.type' access here probably needs
+                        //### to be addressed for bug 511
+                        sm.initialize(data.getType(), state);
+                        data.load(sm, fetch, edata);
+                    } else
+                        unloaded = addUnloaded(sm, null, unloaded);
+                } else if (load != FORCE_LOAD_NONE
+                        || sm.getPCState() == PCState.HOLLOW) {
+                    data = cache.get(sm.getObjectId());
+                    if (data != null) {
+                        // load unloaded fields
+                        fields = sm.getUnloaded(fetch);
+                        data.load(sm, fields, fetch, edata);
+                        if (fields.length() > 0)
+                            unloaded = addUnloaded(sm, fields, unloaded);
+                    } else
+                        unloaded = addUnloaded(sm, null, unloaded);
+                }
+            }
         }
 
         if (unloaded == null)
@@ -513,13 +545,13 @@ public class DataCacheStoreManager
             for (Iterator iter = exceps.iterator(); iter.hasNext(); ) {
                 Exception e = (Exception) iter.next();
                 if (e instanceof OptimisticException)
-                    evictOptimisticLockFailure((OptimisticException) e);
+                    notifyOptimisticLockFailure((OptimisticException) e);
             }
             return exceps;
         }
 
         // if large transaction mode don't record individual changes
-        if (_ctx.isLargeTransaction())
+        if (_ctx.isTrackChangesByType())
             return exceps;
 
         OpenJPAStateManager sm;
@@ -552,22 +584,25 @@ public class DataCacheStoreManager
     }
 
     /**
-     * Evict from the cache the OID (if available) that resulted in an
-     * optimistic lock exception iff the version information in the cache 
-     * matches the version information in the state manager for the failed
-     * instance. This means that we will evict data from the cache for records 
-     * that should have successfully committed according to the data cache but 
+     * Fire local staleness detection events from the cache the OID (if
+     * available) that resulted in an optimistic lock exception iff the
+     * version information in the cache matches the version information
+     * in the state manager for the failed instance. This means that we
+     * will evict data from the cache for records that should have
+     * successfully committed according to the data cache but
      * did not. The only predictable reason that could cause this behavior
      * is a concurrent out-of-band modification to the database that was not 
      * communicated to the cache. This logic makes OpenJPA's data cache 
      * somewhat tolerant of such behavior, in that the cache will be cleaned 
      * up as failures occur.
      */
-    private void evictOptimisticLockFailure(OptimisticException e) {
-        Object o = ((OptimisticException) e).getFailedObject();
+    private void notifyOptimisticLockFailure(OptimisticException e) {
+        Object o = e.getFailedObject();
         OpenJPAStateManager sm = _ctx.getStateManager(o);
         if (sm == null)
             return;
+        Object oid = sm.getId();
+        boolean remove;
 
         // this logic could be more efficient -- we could aggregate
         // all the cache->oid changes, and then use DataCache.removeAll() 
@@ -579,11 +614,10 @@ public class DataCacheStoreManager
 
         cache.writeLock();
         try {
-            DataCachePCData data = cache.get(sm.getId());
+            DataCachePCData data = cache.get(oid);
             if (data == null)
                 return;
 
-            boolean remove;
             switch (compareVersion(sm, sm.getVersion(), data.getVersion())) {
                 case StoreManager.VERSION_LATER:
                 case StoreManager.VERSION_SAME:
@@ -614,10 +648,17 @@ public class DataCacheStoreManager
                     break;
             }
             if (remove)
+                // remove directly instead of via the RemoteCommitListener
+                // since we have a write lock here already, so this is more
+                // efficient than read-locking and then write-locking later.
                 cache.remove(sm.getId());
         } finally {
             cache.writeUnlock();
         }
+
+        // fire off a remote commit stalenesss detection event.
+        _ctx.getConfiguration().getRemoteCommitEventManager()
+            .fireLocalStaleNotification(oid);
     }
 
     public StoreQuery newQuery(String language) {

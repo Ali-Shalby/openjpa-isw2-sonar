@@ -18,9 +18,9 @@
  */
 package org.apache.openjpa.persistence.jdbc;
 
-import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
-import org.apache.openjpa.jdbc.kernel.LRSSizes;
-import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
+import java.util.Collection;
+import javax.persistence.LockModeType;
+
 import org.apache.openjpa.persistence.FetchPlan;
 
 /**
@@ -32,91 +32,67 @@ import org.apache.openjpa.persistence.FetchPlan;
  * @published
  */
 public interface JDBCFetchPlan
-    extends FetchPlan, EagerFetchModes, LRSSizes, JoinSyntaxes {
+    extends FetchPlan {
 
     /**
      * Eager fetch mode in loading relations.
-     * 
-     * @see EagerFetchModes
      */
-    public int getEagerFetchMode();
+    public FetchMode getEagerFetchMode();
 
     /**
      * Eager fetch mode in loading relations.
-     * 
-     * @see EagerFetchModes
      */
-    public JDBCFetchPlan setEagerFetchMode(int mode);
+    public JDBCFetchPlan setEagerFetchMode(FetchMode mode);
 
     /**
      * Eager fetch mode in loading subclasses.
-     * 
-     * @see EagerFetchModes
      */
-    public int getSubclassFetchMode();
+    public FetchMode getSubclassFetchMode();
 
     /**
      * Eager fetch mode in loading subclasses.
-     * 
-     * @see EagerFetchModes
      */
-    public JDBCFetchPlan setSubclassFetchMode(int mode);
+    public JDBCFetchPlan setSubclassFetchMode(FetchMode mode);
 
     /**
      * Type of JDBC result set to use for query results.
-     * 
-     * @see java.sql.ResultSet
      */
-    public int getResultSetType();
+    public ResultSetType getResultSetType();
 
     /**
      * Type of JDBC result set to use for query results.
-     * 
-     * @see java.sql.ResultSet
      */
-    public JDBCFetchPlan setResultSetType(int type);
+    public JDBCFetchPlan setResultSetType(ResultSetType type);
 
     /**
      * Result set fetch direction.
-     * 
-     * @see java.sql.ResultSet
      */
-    public int getFetchDirection();
+    public FetchDirection getFetchDirection();
 
     /**
      * Result set fetch direction.
-     * 
-     * @see java.sql.ResultSet
      */
-    public JDBCFetchPlan setFetchDirection(int direction);
+    public JDBCFetchPlan setFetchDirection(FetchDirection direction);
 
     /**
      * How to determine the size of a large result set.
-     * 
-     * @see LRSSizes
      */
-    public int getLRSSize();
+    public LRSSizeAlgorithm getLRSSizeAlgorithm();
 
     /**
      * How to determine the size of a large result set.
-     * 
-     * @see LRSSizes
      */
-    public JDBCFetchPlan setLRSSize(int lrsSize);
+    public JDBCFetchPlan setLRSSizeAlgorithm(LRSSizeAlgorithm lrsSizeAlgorithm);
 
     /**
      * SQL join syntax.
-     *
-     * @see JoinSyntaxes
      */
-    public int getJoinSyntax();
+    public JoinSyntax getJoinSyntax();
 
     /**
      * SQL join syntax.
-     *
-     * @see JoinSyntaxes
      */
-    public JDBCFetchPlan setJoinSyntax(int syntax);
+    public JDBCFetchPlan setJoinSyntax(JoinSyntax syntax);
 
     /**
      * The isolation level for queries issued to the database. This overrides
@@ -135,4 +111,35 @@ public interface JDBCFetchPlan
      * @since 0.9.7
      */
     public JDBCFetchPlan setIsolation(IsolationLevel level);
+
+
+    // covariant type support for return vals
+
+    public JDBCFetchPlan addFetchGroup(String group);
+    public JDBCFetchPlan addFetchGroups(Collection groups);
+    public JDBCFetchPlan addFetchGroups(String... groups);
+    public JDBCFetchPlan addField(Class cls, String field);
+    public JDBCFetchPlan addField(String field);
+    public JDBCFetchPlan addFields(Class cls, Collection fields);
+    public JDBCFetchPlan addFields(Class cls, String... fields);
+    public JDBCFetchPlan addFields(Collection fields);
+    public JDBCFetchPlan addFields(String... fields);
+    public JDBCFetchPlan clearFetchGroups();
+    public JDBCFetchPlan clearFields();
+    public JDBCFetchPlan removeFetchGroup(String group);
+    public JDBCFetchPlan removeFetchGroups(Collection groups);
+    public JDBCFetchPlan removeFetchGroups(String... groups);
+    public JDBCFetchPlan removeField(Class cls, String field);
+    public JDBCFetchPlan removeField(String field);
+    public JDBCFetchPlan removeFields(Class cls, Collection fields);
+    public JDBCFetchPlan removeFields(Class cls, String... fields);
+    public JDBCFetchPlan removeFields(String... fields);
+    public JDBCFetchPlan removeFields(Collection fields);
+    public JDBCFetchPlan resetFetchGroups();
+    public JDBCFetchPlan setEnlistInQueryResultCache(boolean cache);
+    public JDBCFetchPlan setFetchBatchSize(int fetchBatchSize);
+    public JDBCFetchPlan setLockTimeout(int timeout);
+    public JDBCFetchPlan setMaxFetchDepth(int depth);
+    public JDBCFetchPlan setReadLockMode(LockModeType mode);
+    public JDBCFetchPlan setWriteLockMode(LockModeType mode);
 }

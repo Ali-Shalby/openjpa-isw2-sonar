@@ -20,6 +20,7 @@ package org.apache.openjpa.persistence.jdbc;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Modifier;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -57,6 +58,7 @@ import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.ClassMappingInfo;
+import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.MappingInfo;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
@@ -70,6 +72,7 @@ import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Unique;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
@@ -88,6 +91,7 @@ import org.apache.openjpa.util.UserException;
  * @author Pinaki Poddar
  * @author Steve Kim
  * @author Abe White
+ * @nojavadoc
  */
 public class AnnotationPersistenceMappingParser
     extends AnnotationPersistenceMetaDataParser {
@@ -261,6 +265,12 @@ public class AnnotationPersistenceMappingParser
                 case DISCRIM_VAL:
                     cm.getDiscriminator().getMappingInfo().setValue
                         (((DiscriminatorValue) anno).value());
+                    if (Modifier.isAbstract(cm.getDescribedType().
+                            getModifiers()) && getLog().isInfoEnabled()) {
+                        getLog().info(
+                            _loc.get("discriminator-on-abstract-class", cm
+                                    .getDescribedType().getName()));
+                    }
                     break;
                 case INHERITANCE:
                     parseInheritance(cm, (Inheritance) anno);
@@ -524,18 +534,22 @@ public class AnnotationPersistenceMappingParser
             col.setName(dcol.name());
         if (!StringUtils.isEmpty(dcol.columnDefinition()))
             col.setTypeName(dcol.columnDefinition());
+        Discriminator discrim = cm.getDiscriminator();
         switch (dcol.discriminatorType()) {
             case CHAR:
                 col.setJavaType(JavaTypes.CHAR);
+                discrim.setJavaType(JavaTypes.CHAR);
                 break;
             case INTEGER:
                 col.setJavaType(JavaTypes.INT);
                 if (dcol.length() != 31)
                     col.setSize(dcol.length());
+                discrim.setJavaType(JavaTypes.INT);
                 break;
             default:
                 col.setJavaType(JavaTypes.STRING);
                 col.setSize(dcol.length());
+                discrim.setJavaType(JavaTypes.STRING);
         }
         cm.getDiscriminator().getMappingInfo().setColumns
             (Arrays.asList(new Column[]{ col }));
@@ -630,7 +644,7 @@ public class AnnotationPersistenceMappingParser
             fk.setName(name);
         fk.setDeferred(deferred);
         fk.setDeleteAction(toForeignKeyAction(deleteAction));
-        fk.setUpdateAction(toForeignKeyAction(deleteAction));
+        fk.setUpdateAction(toForeignKeyAction(updateAction));
         info.setForeignKey(fk);
     }
 
@@ -732,8 +746,8 @@ public class AnnotationPersistenceMappingParser
     /**
      * Translate the fetch mode enum value to the internal OpenJPA constant.
      */
-    private static int toEagerFetchModeConstant(EagerFetchType type) {
-        switch (type) {
+    private static int toEagerFetchModeConstant(FetchMode mode) {
+        switch (mode) {
             case NONE:
                 return EagerFetchModes.EAGER_NONE;
             case JOIN:
@@ -990,8 +1004,10 @@ public class AnnotationPersistenceMappingParser
         if (!cols.isEmpty() && cols.size() != 1)
             throw new MetaDataException(_loc.get("num-cols-mismatch", fm,
                 String.valueOf(cols.size()), "1"));
-        if (cols.isEmpty())
+        if (cols.isEmpty()) {
             cols = Arrays.asList(new Column[]{ new Column() });
+            fm.getValueInfo().setColumns(cols);
+        }
 
         Column col = (Column) cols.get(0);
         switch (anno.value()) {
@@ -1021,6 +1037,14 @@ public class AnnotationPersistenceMappingParser
             throw new MetaDataException(_loc.get("num-cols-mismatch", fm,
                 String.valueOf(cols.size()), String.valueOf(pcols.length)));
 
+        // cache the JAXB XmlType class if it is present so we do not
+        // have a hard-wired dependency on JAXB here
+        Class xmlTypeClass = null;
+        try {
+            xmlTypeClass = Class.forName("javax.xml.bind.annotation.XmlType");
+        } catch (Exception e) {
+        }
+
         int unique = 0;
         String secondary = null;
         for (int i = 0; i < pcols.length; i++) {
@@ -1030,6 +1054,16 @@ public class AnnotationPersistenceMappingParser
                 if (cols.isEmpty())
                     cols = new ArrayList<Column>(pcols.length);
                 cols.add(newColumn(pcols[i]));
+            }
+            
+            if (xmlTypeClass != null
+                && StringUtils.isEmpty(pcols[i].columnDefinition())
+                && fm.getDeclaredType().isAnnotationPresent(xmlTypeClass)) {
+                DBDictionary dict = ((MappingRepository) getRepository())
+                    .getDBDictionary();
+                if (dict.supportsXMLColumn)
+                    // column maps to xml type
+                    ((Column) cols.get(i)).setTypeName(dict.xmlTypeName);
             }
 
             unique |= (pcols[i].unique()) ? TRUE : FALSE;

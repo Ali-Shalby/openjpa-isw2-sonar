@@ -23,6 +23,8 @@ import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLDecoder;
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,9 +40,9 @@ import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.meta.SourceTracker;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.MultiClassLoader;
-import org.apache.openjpa.lib.util.TemporaryClassLoader;
 import org.apache.openjpa.util.ClassResolver;
 
 /**
@@ -91,8 +93,9 @@ public class PersistenceUnitInfoImpl
     }
 
     public ClassLoader getNewTempClassLoader() {
-        return new TemporaryClassLoader(Thread.currentThread().
-            getContextClassLoader());
+        return (ClassLoader) AccessController.doPrivileged(J2DoPrivHelper
+            .newTemporaryClassLoaderAction((ClassLoader) AccessController
+                .doPrivileged(J2DoPrivHelper.getContextClassLoaderAction())));
     }
 
     public String getPersistenceUnitName() {
@@ -198,24 +201,31 @@ public class PersistenceUnitInfoImpl
     }
 
     public void addJarFileName(String name) {
-        MultiClassLoader loader = new MultiClassLoader();
+        MultiClassLoader loader = (MultiClassLoader) AccessController
+            .doPrivileged(J2DoPrivHelper.newMultiClassLoaderAction());
         loader.addClassLoader(getClass().getClassLoader());
         loader.addClassLoader(MultiClassLoader.THREAD_LOADER);
-        URL url = loader.getResource(name);
+        URL url = (URL) AccessController.doPrivileged(
+            J2DoPrivHelper.getResourceAction(loader, name));
         if (url != null) {
             addJarFile(url);
             return;
         }
 
         // jar file is not a resource; check classpath
-        String[] cp = System.getProperty("java.class.path").
-            split(System.getProperty("path.separator"));
+        String[] cp = ((String) AccessController.doPrivileged(
+            J2DoPrivHelper.getPropertyAction("java.class.path"))) 
+            .split(J2DoPrivHelper.getPathSeparator());
         for (int i = 0; i < cp.length; i++) {
             if (cp[i].equals(name)
                 || cp[i].endsWith(File.separatorChar + name)) {
                 try {
-                    addJarFile(new File(cp[i]).toURL());
+                    addJarFile((URL) AccessController
+                        .doPrivileged(J2DoPrivHelper
+                            .toURLAction(new File(cp[i]))));
                     return;
+                } catch (PrivilegedActionException pae) {
+                    break;
                 } catch (MalformedURLException mue) {
                     break;
                 }

@@ -28,6 +28,7 @@ import java.util.Iterator;
 
 import org.apache.openjpa.conf.OpenJPAVersion;
 import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.JavaVersions;
 
 /**
@@ -41,7 +42,7 @@ public class Exceptions {
 
     public static final Throwable[] EMPTY_THROWABLES = new Throwable[0];
 
-    static final String SEP = System.getProperty("line.separator");
+    static final String SEP = J2DoPrivHelper.getLineSeparator();
 
     private static final OutputStream DEV_NULL = new OutputStream() {
         public void write(int b) {
@@ -63,7 +64,7 @@ public class Exceptions {
 
         // don't serialize persistent objects exceptions to prevent
         // reading in all the state
-        if (!ImplHelper.isManagedType(ob.getClass()))
+        if (!ImplHelper.isManagedType(null, ob.getClass()))
             return false;
 
         // now do an actual test to see if we will be
@@ -93,7 +94,7 @@ public class Exceptions {
             return ob.getClass().getName() + "-" + oid.toString();
         }
 
-        if (ImplHelper.isManagedType(ob.getClass())) {
+        if (ImplHelper.isManagedType(null, ob.getClass())) {
             // never call toString() on a PersistenceCapable, since
             // it may access persistent fields; fall-back to using
             // the standard object stringification mechanism. New
@@ -138,8 +139,8 @@ public class Exceptions {
         int type = e.getType();
         StringBuffer buf = new StringBuffer();
         buf.append("<").
-            append(OpenJPAVersion.VERSION_NUMBER).
-            append(OpenJPAVersion.RELEASE_STATUS).append(' ').
+            append(OpenJPAVersion.VERSION_ID).
+            append(' ').
             append(e.isFatal() ? "fatal " : "nonfatal ").
             append (type == ExceptionInfo.GENERAL ? "general error" :
                 type == ExceptionInfo.INTERNAL ? "internal error" :
@@ -248,10 +249,13 @@ public class Exceptions {
      * <code>null</code> otherwise.
      */
     private static Object getObjectId(Object ob) {
-        if (ob instanceof PersistenceCapable
-            && !((PersistenceCapable) ob).pcIsNew())
-            return ((PersistenceCapable) ob).pcFetchObjectId();
+        if (!ImplHelper.isManageable(ob))
+            return null;
+
+        PersistenceCapable pc = ImplHelper.toPersistenceCapable(ob, null);
+        if (pc == null || pc.pcIsNew())
+            return null;
         else
-			return null;
+            return pc.pcFetchObjectId();
 	}
 }

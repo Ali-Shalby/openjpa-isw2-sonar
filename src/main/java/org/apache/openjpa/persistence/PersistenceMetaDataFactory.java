@@ -21,6 +21,7 @@ package org.apache.openjpa.persistence;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.security.AccessController;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -45,6 +46,7 @@ import org.apache.openjpa.lib.meta.ClassAnnotationMetaDataFilter;
 import org.apache.openjpa.lib.meta.ClassArgParser;
 import org.apache.openjpa.lib.meta.MetaDataFilter;
 import org.apache.openjpa.lib.meta.MetaDataParser;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.meta.AbstractCFMetaDataFactory;
@@ -62,6 +64,7 @@ import org.apache.openjpa.util.MetaDataException;
  *
  * @author Steve Kim
  * @since 0.4.0
+ * @nojavadoc
  */
 public class PersistenceMetaDataFactory
     extends AbstractCFMetaDataFactory
@@ -73,6 +76,7 @@ public class PersistenceMetaDataFactory
     private final PersistenceMetaDataDefaults _def = 
         new PersistenceMetaDataDefaults();
     private AnnotationPersistenceMetaDataParser _annoParser = null;
+    private AnnotationPersistenceXMLMetaDataParser _annoXMLParser = null;
     private XMLPersistenceMetaDataParser _xmlParser = null;
     private Map<URL, Set> _xml = null; // xml rsrc -> class names
     private Set<URL> _unparsed = null; // xml rsrc
@@ -122,6 +126,15 @@ public class PersistenceMetaDataFactory
      */
     protected AnnotationPersistenceMetaDataParser newAnnotationParser() {
         return new AnnotationPersistenceMetaDataParser
+            (repos.getConfiguration());
+    }
+
+    /**
+     * Create a new annotation serializer.
+     */
+    protected AnnotationPersistenceMetaDataSerializer
+        newAnnotationSerializer() {
+        return new AnnotationPersistenceMetaDataSerializer
             (repos.getConfiguration());
     }
 
@@ -429,10 +442,12 @@ public class PersistenceMetaDataFactory
     private File defaultXMLFile() {
         ClassLoader loader = repos.getConfiguration().
             getClassResolverInstance().getClassLoader(getClass(), null);
-        URL rsrc = loader.getResource("META-INF/orm.xml");
+        URL rsrc = (URL) AccessController.doPrivileged(
+            J2DoPrivHelper.getResourceAction(loader, "META-INF/orm.xml"));
         if (rsrc != null) {
             File file = new File(rsrc.getFile());
-            if (file.exists())
+            if (((Boolean) AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(file))).booleanValue())
                 return file;
         }
         return new File("orm.xml");
@@ -453,5 +468,43 @@ public class PersistenceMetaDataFactory
 
     public void setInto(Options opts) {
         opts.keySet().retainAll(opts.setInto(_def).keySet());
+    }
+
+    /**
+     * Return JAXB XML annotation parser, 
+     * creating it if it does not already exist.
+     */
+    public AnnotationPersistenceXMLMetaDataParser getXMLAnnotationParser() {
+        if (_annoXMLParser == null) {
+            _annoXMLParser = newXMLAnnotationParser();
+            _annoXMLParser.setRepository(repos);
+        }
+        return _annoXMLParser;
+    }
+
+    /**
+     * Set the JAXB XML annotation parser.
+     */
+    public void setXMLAnnotationParser(
+        AnnotationPersistenceXMLMetaDataParser parser) {
+        if (_annoXMLParser != null)
+            _annoXMLParser.setRepository(null);
+        if (parser != null)
+            parser.setRepository(repos);
+        _annoXMLParser = parser;
+    }
+
+    /**
+     * Create a new JAXB XML annotation parser.
+     */
+    protected AnnotationPersistenceXMLMetaDataParser newXMLAnnotationParser() {
+        return new AnnotationPersistenceXMLMetaDataParser
+            (repos.getConfiguration());
+    }
+
+    public void loadXMLMetaData(FieldMetaData fmd) {
+        AnnotationPersistenceXMLMetaDataParser parser
+            = getXMLAnnotationParser();
+        parser.parse(fmd);
     }
 }

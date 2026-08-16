@@ -58,6 +58,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
 import javax.sql.DataSource;
 
 import org.apache.commons.lang.StringUtils;
@@ -67,6 +68,8 @@ import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.exps.ExpContext;
 import org.apache.openjpa.jdbc.kernel.exps.ExpState;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
+import org.apache.openjpa.jdbc.kernel.exps.Lit;
+import org.apache.openjpa.jdbc.kernel.exps.Param;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
@@ -83,6 +86,7 @@ import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.kernel.Filters;
+import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.jdbc.ConnectionDecorator;
@@ -90,7 +94,6 @@ import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Localizer.Message;
-import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.OpenJPAException;
@@ -212,6 +215,7 @@ public class DBDictionary
     public boolean requiresCastForMathFunctions = false;
     public boolean requiresCastForComparisons = false;
     public boolean supportsModOperator = false;
+    public boolean supportsXMLColumn = false;
 
     // functions
     public String castFunction = "CAST({0} AS {1})";
@@ -273,6 +277,8 @@ public class DBDictionary
     public String tinyintTypeName = "TINYINT";
     public String varbinaryTypeName = "VARBINARY";
     public String varcharTypeName = "VARCHAR";
+    public String xmlTypeName = "XML";
+    public String getStringVal = "";
 
     // schema metadata
     public boolean useSchemaName = true;
@@ -886,6 +892,8 @@ public class DBDictionary
             setDate(stmnt, idx, new java.sql.Date(val.getTime()), null, col);
         else if (col != null && col.getType() == Types.TIME)
             setTime(stmnt, idx, new Time(val.getTime()), null, col);
+        else if (val instanceof Timestamp)
+            setTimestamp(stmnt, idx,(Timestamp) val, null, col);   
         else
             setTimestamp(stmnt, idx, new Timestamp(val.getTime()), null, col);
     }
@@ -1878,12 +1886,23 @@ public class DBDictionary
         sql.append(" SET ");
         ExpContext ctx = new ExpContext(store, params, 
             store.getFetchConfiguration());
+
+        // If the updates map contains any version fields, assume that the
+        // optimistic lock version data is being handled properly by the
+        // caller. Otherwise, give the version indicator an opportunity to
+        // add more update clauses as needed.
+        boolean augmentUpdates = true;
+
         for (Iterator i = updateParams.entrySet().iterator(); i.hasNext();) {
             Map.Entry next = (Map.Entry) i.next();
-            FieldMetaData fmd = (FieldMetaData) next.getKey();
+            FieldMapping fmd = (FieldMapping) next.getKey();
+
+            if (fmd.isVersion())
+                augmentUpdates = false;
+
             Val val = (Val) next.getValue();
 
-            Column col = ((FieldMapping) fmd).getColumns()[0];
+            Column col = fmd.getColumns()[0];
             sql.append(col.getName());
             sql.append(" = ");
 
@@ -1898,6 +1917,21 @@ public class DBDictionary
 
             if (i.hasNext())
                 sql.append(", ");
+        }
+
+        if (augmentUpdates) {
+            ClassMapping meta =
+                ((FieldMapping) updateParams.keySet().iterator().next())
+                    .getDeclaringMapping();
+            Map updates = meta.getVersion().getBulkUpdateValues();
+            for (Iterator iter = updates.entrySet().iterator();
+                iter.hasNext(); ) {
+                Map.Entry e = (Map.Entry) iter.next();
+                Column col = (Column) e.getKey();
+                String val = (String) e.getValue();
+                sql.append(", ").append(col.getName())
+                    .append(" = ").append(val);
+            }
         }
     }
     
@@ -2424,6 +2458,12 @@ public class DBDictionary
      */
     public void comparison(SQLBuffer buf, String op, FilterValue lhs,
         FilterValue rhs) {
+        boolean lhsxml = lhs.getXPath() != null;
+        boolean rhsxml = rhs.getXPath() != null;
+        if (lhsxml || rhsxml) {
+            appendXmlComparison(buf, op, lhs, rhs, lhsxml, rhsxml);
+            return;
+        }
         boolean castlhs = false;
         boolean castrhs = false;
         Class lc = Filters.wrap(lhs.getType());
@@ -2450,6 +2490,15 @@ public class DBDictionary
             appendCast(buf, rhs, type);
         else
             rhs.appendTo(buf);
+    }
+
+    /**
+     * If this dictionary supports XML type,
+     * use this method to append xml predicate.
+     */
+    public void appendXmlComparison(SQLBuffer buf, String op, FilterValue lhs,
+        FilterValue rhs, boolean lhsxml, boolean rhsxml) {
+        assertSupport(supportsXMLColumn, "SupportsXMLColumn");
     }
 
     /**
@@ -2486,9 +2535,25 @@ public class DBDictionary
         val.appendTo(buf);
         buf.append(mid);
         buf.append(getTypeName(type));
+        appendLength(buf, type);
         buf.append(post);
     }
     
+    protected void appendLength(SQLBuffer buf, int type) {        
+    }
+
+    
+    /**
+     * add CAST for a function operator where operand is a param
+     * @param func  function name
+     * @param val 
+     * @return updated func
+     */
+    public String addCastAsType(String func, Val val) {
+        return null;
+    }    
+
+
     ///////////
     // DDL SQL
     ///////////
@@ -2973,7 +3038,7 @@ public class DBDictionary
             return null;
         if (fk.getDeleteAction() == ForeignKey.ACTION_NONE)
             return null;
-        if (fk.isDeferred() && !supportsDeferredConstraints)
+        if (fk.isDeferred() && !supportsDeferredForeignKeyConstraints())
             return null;
         if (!supportsDeleteAction(fk.getDeleteAction())
             || !supportsUpdateAction(fk.getUpdateAction()))
@@ -3010,12 +3075,22 @@ public class DBDictionary
             buf.append(" ON UPDATE ").append(upAction);
         if (fk.isDeferred())
             buf.append(" INITIALLY DEFERRED");
-        if (supportsDeferredConstraints)
+        if (supportsDeferredForeignKeyConstraints())
             buf.append(" DEFERRABLE");
         if (fk.getName() != null
             && CONS_NAME_AFTER.equals(constraintNameMode))
             buf.append(" CONSTRAINT ").append(fk.getName());
         return buf.toString();
+    }
+
+    /**
+     * Whether or not this dictionary supports deferred foreign key constraints.
+     * This implementation returns {@link #supportsUniqueConstraints}.
+     *
+     * @since 1.1.0
+     */
+    protected boolean supportsDeferredForeignKeyConstraints() {
+        return supportsDeferredConstraints;
     }
 
     /**
@@ -3086,7 +3161,7 @@ public class DBDictionary
      */
     protected String getUniqueConstraintSQL(Unique unq) {
         if (!supportsUniqueConstraints
-            || (unq.isDeferred() && !supportsDeferredConstraints))
+            || (unq.isDeferred() && !supportsDeferredUniqueConstraints()))
             return null;
 
         StringBuffer buf = new StringBuffer();
@@ -3100,12 +3175,22 @@ public class DBDictionary
             append(")");
         if (unq.isDeferred())
             buf.append(" INITIALLY DEFERRED");
-        if (supportsDeferredConstraints)
+        if (supportsDeferredUniqueConstraints())
             buf.append(" DEFERRABLE");
         if (unq.getName() != null
             && CONS_NAME_AFTER.equals(constraintNameMode))
             buf.append(" CONSTRAINT ").append(unq.getName());
         return buf.toString();
+    }
+
+    /**
+     * Whether or not this dictionary supports deferred unique constraints.
+     * This implementation returns {@link #supportsUniqueConstraints}.
+     *
+     * @since 1.1.0
+     */
+    protected boolean supportsDeferredUniqueConstraints() {
+        return supportsUniqueConstraints;
     }
 
     /////////////////////
@@ -3807,4 +3892,26 @@ public class DBDictionary
             this.bytes = bytes;
         }
     }
+    
+    /**
+     * Return version column name
+     * @param column
+     * @param tableAlias : this is needed for platform specific version column
+     * @return
+     */
+    public String getVersionColumn(Column column, String tableAlias) {
+        return column.toString();
+    }
+    
+    /**
+     * Attach CAST to the current function if necessary
+     * 
+     * @param val operand value
+     * @parma func the sql function statement
+     * @return a String with the correct CAST function syntax
+     */
+    public String getCastFunction(Val val, String func) {
+        return func;
+    }
+   
 }

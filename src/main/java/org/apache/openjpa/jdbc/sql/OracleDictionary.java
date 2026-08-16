@@ -130,6 +130,8 @@ public class OracleDictionary
             "CTXSYS", "MDSYS", "SYS", "SYSTEM", "WKSYS", "WMSYS", "XDB",
         }));
 
+        supportsXMLColumn = true;
+        xmlTypeName = "XMLType";
         bigintTypeName = "NUMBER{0}";
         bitTypeName = "NUMBER{0}";
         decimalTypeName = "NUMBER{0}";
@@ -182,15 +184,23 @@ public class OracleDictionary
                 driverVendor = VENDOR_ORACLE + meta.getDriverMajorVersion()
                     + meta.getDriverMinorVersion();
 
+                String productVersion = meta.getDatabaseProductVersion()
+                    .split("Release ",0)[1].split("\\.",0)[0];
+                int release = Integer.parseInt(productVersion);
+                
                 // warn sql92
-                if (meta.getDatabaseProductVersion().indexOf("Release 8.") > 0)
-                {
+                if (release == 8) {
                     if (joinSyntax == SYNTAX_SQL92 && log.isWarnEnabled())
                         log.warn(_loc.get("oracle-syntax"));
                     joinSyntax = SYNTAX_DATABASE;
                     dateTypeName = "DATE"; // added oracle 9
                     timestampTypeName = "DATE"; // added oracle 9
+                    supportsXMLColumn = false;
                 }
+                else 
+                    // select of an xml column requires ".getStringVal()"
+                    // suffix. eg. t0.xmlcol.getStringVal()
+                    getStringVal = ".getStringVal()";
             } else if (metadataClassName.startsWith("com.ddtek.")
                 || url.indexOf("jdbc:datadirect:oracle:") != -1
                 || "Oracle".equals(driverName)) {
@@ -499,7 +509,8 @@ public class OracleDictionary
         throws SQLException {
         if (colType == Types.BLOB && _driverBehavior == BEHAVE_ORACLE)
             stmnt.setBlob(idx, getEmptyBlob());
-        else if (colType == Types.CLOB && _driverBehavior == BEHAVE_ORACLE)
+        else if (colType == Types.CLOB && _driverBehavior == BEHAVE_ORACLE
+            && !col.isXML())
             stmnt.setClob(idx, getEmptyClob());
         else if ((colType == Types.STRUCT || colType == Types.OTHER)
             && col != null && col.getTypeName() != null)
@@ -509,7 +520,7 @@ public class OracleDictionary
         else if (colType == Types.DATE)
             super.setNull(stmnt, idx, Types.TIMESTAMP, col);
         // the Oracle driver does not support Types.OTHER with setNull
-        else if (colType == Types.OTHER)
+        else if (colType == Types.OTHER || col.isXML())
             super.setNull(stmnt, idx, Types.NULL, col);
         else
             super.setNull(stmnt, idx, colType, col);
@@ -901,7 +912,7 @@ public class OracleDictionary
     /**
      * Returns a OpenJPA 3-compatible name for an auto-assign sequence.
      */
-    private String getOpenJPA3GeneratedKeySequenceName(Column col) {
+    protected String getOpenJPA3GeneratedKeySequenceName(Column col) {
         Table table = col.getTable();
         return makeNameValid("SEQ_" + table.getName(), table.getSchema().
             getSchemaGroup(), maxTableNameLength, NAME_ANY);
@@ -910,7 +921,7 @@ public class OracleDictionary
     /**
      * Returns a OpenJPA 3-compatible name for an auto-assign trigger.
      */
-    private String getOpenJPA3GeneratedKeyTriggerName(Column col) {
+    protected String getOpenJPA3GeneratedKeyTriggerName(Column col) {
         Table table = col.getTable();
         return makeNameValid("TRIG_" + table.getName(), table.getSchema().
             getSchemaGroup(), maxTableNameLength, NAME_ANY);
@@ -1026,5 +1037,64 @@ public class OracleDictionary
         } catch (Exception e) {
             return false;
         }
+    }
+    
+    /**
+     * If this dictionary supports XML type,
+     * use this method to append xml predicate.
+     * 
+     * @param buf the SQL buffer to write the comparison
+     * @param op the comparison operation to perform
+     * @param lhs the left hand side of the comparison
+     * @param rhs the right hand side of the comparison
+     */
+    public void appendXmlComparison(SQLBuffer buf, String op, FilterValue lhs,
+        FilterValue rhs, boolean lhsxml, boolean rhsxml) {
+        super.appendXmlComparison(buf, op, lhs, rhs, lhsxml, rhsxml);
+        if (lhsxml && rhsxml)
+            appendXmlComparison2(buf, op, lhs, rhs);
+        else if (lhsxml)
+            appendXmlComparison1(buf, op, lhs, rhs);
+        else 
+            appendXmlComparison1(buf, op, rhs, lhs);
+    }
+    
+    /**
+     * Append an xml comparison predicate
+     *
+     * @param buf the SQL buffer to write the comparison
+     * @param op the comparison operation to perform
+     * @param lhs the left hand side of the comparison (maps to xml column)
+     * @param rhs the right hand side of the comparison
+     */
+    private void appendXmlComparison1(SQLBuffer buf, String op,
+        FilterValue lhs, FilterValue rhs) {
+        appendXmlExtractValue(buf, lhs);
+        buf.append(" ").append(op).append(" ");
+        rhs.appendTo(buf);
+    }
+    
+    /**
+     * Append an xml comparison predicate (both operands map to xml column)
+     *
+     * @param buf the SQL buffer to write the comparison
+     * @param op the comparison operation to perform
+     * @param lhs the left hand side of the comparison (maps to xml column)
+     * @param rhs the right hand side of the comparison (maps to xml column)
+     */
+    private void appendXmlComparison2(SQLBuffer buf, String op, 
+        FilterValue lhs, FilterValue rhs) {
+        appendXmlExtractValue(buf, lhs);
+        buf.append(" ").append(op).append(" ");
+        appendXmlExtractValue(buf, rhs);
+    }
+    
+    private void appendXmlExtractValue(SQLBuffer buf, FilterValue val) {
+        buf.append("extractValue(").
+            append(val.getColumnAlias(
+            val.getFieldMapping().getColumns()[0])).
+            append(",'/*/");
+        val.appendTo(buf);
+        buf.append("')");
     }
 }

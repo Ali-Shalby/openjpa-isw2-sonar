@@ -31,6 +31,7 @@ import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.event.OrphanedKeyAction;
 import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.RemoteCommitProvider;
+import org.apache.openjpa.event.BrokerFactoryEventManager;
 import org.apache.openjpa.kernel.AutoClear;
 import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.ConnectionRetainModes;
@@ -130,6 +131,7 @@ public class OpenJPAConfigurationImpl
     public ObjectValue orphanedKeyPlugin;
     public ObjectValue compatibilityPlugin;
     public QueryCompilationCacheValue queryCompilationCachePlugin;
+    public BooleanValue runtimeClassOptimization;
 
     // custom values
     public BrokerFactoryValue brokerFactoryPlugin;
@@ -140,6 +142,8 @@ public class OpenJPAConfigurationImpl
     private String spec = null;
     private final StoreFacadeTypeRegistry _storeFacadeRegistry =
         new StoreFacadeTypeRegistry();
+    private BrokerFactoryEventManager _brokerFactoryEventManager =
+        new BrokerFactoryEventManager(this);
 
     /**
      * Default constructor. Attempts to load global properties.
@@ -409,9 +413,11 @@ public class OpenJPAConfigurationImpl
 
         readLockLevel = addInt("ReadLockLevel");
         aliases =
-            new String[] { "read", String.valueOf(LockLevels.LOCK_READ),
-                "write", String.valueOf(LockLevels.LOCK_WRITE), "none",
-                String.valueOf(LockLevels.LOCK_NONE), };
+            new String[] {
+                "read", String.valueOf(LockLevels.LOCK_READ),
+                "write", String.valueOf(LockLevels.LOCK_WRITE),
+                "none", String.valueOf(LockLevels.LOCK_NONE),
+            };
         readLockLevel.setAliases(aliases);
         readLockLevel.setDefault(aliases[0]);
         readLockLevel.set(LockLevels.LOCK_READ);
@@ -419,9 +425,11 @@ public class OpenJPAConfigurationImpl
 
         writeLockLevel = addInt("WriteLockLevel");
         aliases =
-            new String[] { "read", String.valueOf(LockLevels.LOCK_READ),
-                "write", String.valueOf(LockLevels.LOCK_WRITE), "none",
-                String.valueOf(LockLevels.LOCK_NONE), };
+            new String[] {
+                "read", String.valueOf(LockLevels.LOCK_READ),
+                "write", String.valueOf(LockLevels.LOCK_WRITE),
+                "none", String.valueOf(LockLevels.LOCK_NONE),
+            };
         writeLockLevel.setAliases(aliases);
         writeLockLevel.setDefault(aliases[1]);
         writeLockLevel.set(LockLevels.LOCK_WRITE);
@@ -433,7 +441,8 @@ public class OpenJPAConfigurationImpl
 
         connectionRetainMode = addInt("ConnectionRetainMode");
         aliases =
-            new String[] { "on-demand",
+            new String[] {
+                "on-demand",
                 String.valueOf(ConnectionRetainModes.CONN_RETAIN_DEMAND),
                 "transaction",
                 String.valueOf(ConnectionRetainModes.CONN_RETAIN_TRANS),
@@ -441,7 +450,8 @@ public class OpenJPAConfigurationImpl
                 String.valueOf(ConnectionRetainModes.CONN_RETAIN_ALWAYS),
                 // deprecated
                 "persistence-manager",
-                String.valueOf(ConnectionRetainModes.CONN_RETAIN_ALWAYS), };
+                String.valueOf(ConnectionRetainModes.CONN_RETAIN_ALWAYS),
+            };
         connectionRetainMode.setAliases(aliases);
         connectionRetainMode.setDefault(aliases[0]);
         connectionRetainMode.setAliasListComprehensive(true);
@@ -470,6 +480,10 @@ public class OpenJPAConfigurationImpl
             "getQueryCompilationCacheInstance");
         addValue(queryCompilationCachePlugin);
         
+        runtimeClassOptimization = addBoolean("RuntimeClassOptimization");
+        runtimeClassOptimization.setDefault("true");
+        runtimeClassOptimization.set(true);
+
         // initialize supported options that some runtimes may not support
         supportedOptions.add(OPTION_NONTRANS_READ);
         supportedOptions.add(OPTION_OPTIMISTIC);
@@ -1408,7 +1422,24 @@ public class OpenJPAConfigurationImpl
     public StoreFacadeTypeRegistry getStoreFacadeTypeRegistry() {
         return _storeFacadeRegistry;
     }
-    
+
+    public BrokerFactoryEventManager getBrokerFactoryEventManager() {
+        return _brokerFactoryEventManager;
+    }
+
+    public boolean getRuntimeClassOptimization() {
+        return runtimeClassOptimization.get();
+    }
+
+    public void setRuntimeClassOptimization(Boolean enabled) {
+        setRuntimeClassOptimization(enabled.booleanValue());
+    }
+
+    public void setRuntimeClassOptimization(boolean enabled) {
+        assertNotReadOnly();
+        runtimeClassOptimization.set(enabled);
+    }
+
     public void instantiateAll() {
         super.instantiateAll();
         getMetaDataRepositoryInstance();
@@ -1423,5 +1454,9 @@ public class OpenJPAConfigurationImpl
 
     public Log getConfigurationLog() {
         return getLog(LOG_RUNTIME);
+    }
+    
+    public Value[] getDynamicValues() {
+    	return new Value[] { dataCacheTimeout, fetchBatchSize, lockTimeout };
     }
 }

@@ -22,12 +22,15 @@ import java.io.Externalizable;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.io.Serializable;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -45,11 +48,11 @@ import java.util.TimeZone;
 import org.apache.commons.collections.comparators.ComparatorChain;
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
-import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
@@ -59,6 +62,7 @@ import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
+import org.apache.openjpa.util.ImplHelper;
 import serp.util.Strings;
 
 /**
@@ -167,12 +171,17 @@ public class FieldMetaData
     private String _extString = null;
     private Map _extValues = Collections.EMPTY_MAP;
     private Map _fieldValues = Collections.EMPTY_MAP;
+    private Boolean _enumField = null;
+    private Boolean _lobField = null;
+    private Boolean _serializableField = null;
+    private boolean _generated = false;
 
     // Members aren't serializable. Use a proxy that can provide a Member
     // to avoid writing the full Externalizable implementation.
     private transient MemberProvider _backingMember = null;
+    private String _backingFieldName = null;
     
-    // Members aren't serializable. Initializing _extMethod and _factMethod to 
+    // Members aren't serializable. Initializing _extMethod and _factMethod to
     // DEFAULT_METHOD is sufficient to trigger lazy population of these fields.
     private transient Method _extMethod = DEFAULT_METHOD;
     private transient Member _factMethod = DEFAULT_METHOD;
@@ -586,7 +595,17 @@ public class FieldMetaData
                 switch (getTypeCode()) {
                     case JavaTypes.OBJECT:
                     case JavaTypes.PC:
+                        if (isSerializable() || isEnum())
+                            _dfg = DFG_TRUE;
+                        else
+                            _dfg = DFG_FALSE;
+                        break;
                     case JavaTypes.ARRAY:
+                        if (isLobArray())
+                            _dfg = DFG_TRUE;
+                        else
+                            _dfg = DFG_FALSE;
+                        break;
                     case JavaTypes.COLLECTION:
                     case JavaTypes.MAP:
                     case JavaTypes.PC_UNTYPED:
@@ -598,6 +617,39 @@ public class FieldMetaData
             }
         }
         return (_dfg & DFG_TRUE) > 0;
+    }
+
+    private boolean isEnum() {
+        if (_enumField == null) {
+            Class dt = getDeclaredType();
+            _enumField = JavaVersions.isEnumeration(dt)
+                ? Boolean.TRUE : Boolean.FALSE;
+        }
+        return _enumField.booleanValue();
+    }
+
+    private boolean isSerializable() {
+        if (_serializableField == null) {
+            Class dt = getDeclaredType();
+            if (Serializable.class.isAssignableFrom(dt))
+                _serializableField = Boolean.TRUE;
+            else
+                _serializableField = Boolean.FALSE;
+        }
+        return _serializableField.booleanValue();
+    }
+
+    private boolean isLobArray() {
+        // check for byte[], Byte[], char[], Character[]
+        if (_lobField == null) {
+            Class dt = getDeclaredType();
+            if (dt == byte[].class || dt == Byte[].class ||
+                dt == char[].class || dt == Character[].class)
+                _lobField = Boolean.TRUE;
+            else
+                _lobField = Boolean.FALSE;
+        }
+        return _lobField.booleanValue();
     }
 
     /**
@@ -1213,7 +1265,8 @@ public class FieldMetaData
 
         try {
             if (val == null && getNullValue() == NULL_DEFAULT)
-                return getDeclaredType().newInstance();
+                return AccessController.doPrivileged(
+                    J2DoPrivHelper.newInstanceAction(getDeclaredType())); 
 
             // invoke either the constructor for the field type,
             // or the static type.toField(val[, ctx]) method
@@ -1246,6 +1299,8 @@ public class FieldMetaData
 
             if (e instanceof OpenJPAException)
                 throw (OpenJPAException) e;
+            if (e instanceof PrivilegedActionException)
+                e = ((PrivilegedActionException) e).getException();
             throw new MetaDataException(_loc.get("factory-err", this,
                 Exceptions.toString(val), e.toString())).setCause(e);
         }
@@ -1509,6 +1564,10 @@ public class FieldMetaData
             getFullName(true));
     }
 
+    public int hashCode() {
+        return getFullName(true).hashCode();
+    }
+
     public int compareTo(Object other) {
         if (other == null)
             return 1;
@@ -1581,8 +1640,8 @@ public class FieldMetaData
         MetaDataRepository repos = getRepository();
         int validate = repos.getValidate();
         if ((validate & MetaDataRepository.VALIDATE_META) != 0
-            && (!PersistenceCapable.class.isAssignableFrom
-            (_owner.getDescribedType())
+            && (!ImplHelper.isManagedType(repos.getConfiguration(),
+                _owner.getDescribedType())
             || (validate & MetaDataRepository.VALIDATE_UNENHANCED) == 0)) {
             validateLRS();
             if ((validate & repos.VALIDATE_RUNTIME) == 0)
@@ -1723,6 +1782,10 @@ public class FieldMetaData
         _fieldValues = Collections.EMPTY_MAP;
         _primKey = field.isPrimaryKey();
         _backingMember = field._backingMember;
+        _enumField = field._enumField;
+        _lobField = field._lobField;
+        _serializableField = field._serializableField;
+        _generated = field._generated;
 
         // embedded fields can't be versions
         if (_owner.getEmbeddingMetaData() == null && _version == null)
@@ -1939,7 +2002,7 @@ public class FieldMetaData
         private transient Member _member;
         
         private MemberProvider(Member member) {
-            if (_member instanceof Constructor)
+            if (member instanceof Constructor)
                 throw new IllegalArgumentException();
 
             _member = member;
@@ -1956,22 +2019,23 @@ public class FieldMetaData
             String memberName = (String) in.readObject();
             try {
                 if (isField)
-                    _member = cls.getDeclaredField(memberName);
+                    _member = (Field) AccessController.doPrivileged(
+                        J2DoPrivHelper.getDeclaredFieldAction(
+                            cls,memberName)); 
                 else {
                     Class[] parameterTypes = (Class[]) in.readObject();
-                    _member = cls.getDeclaredMethod(memberName, parameterTypes);
+                    _member = (Method) AccessController.doPrivileged(
+                        J2DoPrivHelper.getDeclaredMethodAction(
+                            cls, memberName, parameterTypes));
                 }
             } catch (SecurityException e) {
                 IOException ioe = new IOException(e.getMessage());
                 ioe.initCause(e);
                 throw ioe;
-            } catch (NoSuchFieldException e) {
-                IOException ioe = new IOException(e.getMessage());
-                ioe.initCause(e);
-                throw ioe;
-            } catch (NoSuchMethodException e) {
-                IOException ioe = new IOException(e.getMessage());
-                ioe.initCause(e);
+            } catch (PrivilegedActionException pae) {
+                IOException ioe = new IOException(
+                    pae.getException().getMessage());
+                ioe.initCause(pae);
                 throw ioe;
             }
         }
@@ -1985,5 +2049,13 @@ public class FieldMetaData
             if (!isField)
                 out.writeObject(((Method) _member).getParameterTypes());
         }
+    }
+
+    public boolean is_generated() {
+        return _generated;
+    }
+
+    public void set_generated(boolean _generated) {
+        this._generated = _generated;
     }
 }

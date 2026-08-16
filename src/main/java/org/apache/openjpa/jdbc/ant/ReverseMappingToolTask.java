@@ -20,6 +20,9 @@ package org.apache.openjpa.jdbc.ant;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.util.Properties;
 
 import org.apache.commons.lang.StringUtils;
@@ -33,6 +36,7 @@ import org.apache.openjpa.lib.conf.ConfigurationImpl;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.util.CodeFormat;
 import org.apache.openjpa.lib.util.Files;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.tools.ant.types.EnumeratedAttribute;
 
 /**
@@ -123,6 +127,14 @@ public class ReverseMappingToolTask
     }
 
     /**
+     * Set whether to use generic collections on one-to-many and many-to-many
+     * relations instead of untyped collections.
+     */
+    public void setUseGenericCollections(boolean useGenericCollections) {
+        flags.useGenericCollections = useGenericCollections; 
+    }
+
+    /**
      * Set the SQL type map overrides.
      */
     public void setTypeMap(String typeMap) {
@@ -202,6 +214,22 @@ public class ReverseMappingToolTask
     }
 
     /**
+     * Whether to generate annotations along with generated code. Defaults
+     * to false.
+     */
+    public void setGenerateAnnotations(boolean genAnnotations) {
+        flags.generateAnnotations = genAnnotations;
+    }
+
+    /**
+     * Whether to use field or property-based access on generated code.
+     * Defaults to field-based access.
+     */
+    public void setAccessType(AccessType accessType) {
+        flags.accessType = accessType.getValue();
+    }
+    
+    /**
      * Set a customizer class to use.
      */
     public void setCustomizerClass(String customizerClass) {
@@ -234,14 +262,25 @@ public class ReverseMappingToolTask
         // load customizer properties
         Properties customProps = new Properties();
         File propsFile = Files.getFile(customizerProperties, loader);
-        if (propsFile != null && propsFile.exists())
-            customProps.load(new FileInputStream(propsFile));
+        if (propsFile != null && ((Boolean) AccessController.doPrivileged(
+            J2DoPrivHelper.existsAction(propsFile))).booleanValue()) {
+            FileInputStream fis = null;
+            try {
+                fis = (FileInputStream) AccessController.doPrivileged(
+                    J2DoPrivHelper.newFileInputStreamAction(propsFile));
+            } catch (PrivilegedActionException pae) {
+                 throw (FileNotFoundException) pae.getException();
+            }
+            customProps.load(fis);
+        }
 
         // create and configure customizer
         JDBCConfiguration conf = (JDBCConfiguration) getConfiguration();
         flags.customizer = (ReverseCustomizer) Configurations.
             newInstance(customizerClass, conf, null,
-                ReverseCustomizer.class.getClassLoader());
+                (ClassLoader) AccessController.doPrivileged(
+                    J2DoPrivHelper.getClassLoaderAction(
+                        ReverseCustomizer.class)));
         if (flags.customizer != null)
             flags.customizer.setConfiguration(customProps);
 
@@ -255,6 +294,18 @@ public class ReverseMappingToolTask
             return new String[]{
                 "package",
                 "class",
+                "none"
+            };
+        }
+    }
+
+    public static class AccessType
+        extends EnumeratedAttribute {
+
+        public String[] getValues() {
+            return new String[]{
+                "field",
+                "property"
             };
         }
     }

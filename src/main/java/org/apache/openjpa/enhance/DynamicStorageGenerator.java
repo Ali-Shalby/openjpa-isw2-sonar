@@ -19,8 +19,10 @@
 package org.apache.openjpa.enhance;
 
 import java.lang.reflect.Constructor;
+import java.security.AccessController;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InternalException;
 import serp.bytecode.BCClass;
@@ -94,8 +96,10 @@ public class DynamicStorageGenerator {
 
     // the project/classloader for the classes.
     private final Project _project = new Project();
-    private final BCClassLoader _loader = new BCClassLoader(_project,
-        DynamicStorage.class.getClassLoader());
+    private final BCClassLoader _loader = (BCClassLoader) AccessController
+        .doPrivileged(J2DoPrivHelper.newBCClassLoaderAction(_project,
+            (ClassLoader) AccessController.doPrivileged(J2DoPrivHelper
+                .getClassLoaderAction(DynamicStorage.class))));
 
     /**
      * Generate a generic {@link DynamicStorage} instance with the given

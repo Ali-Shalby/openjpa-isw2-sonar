@@ -19,6 +19,7 @@
 package org.apache.openjpa.kernel;
 
 import java.io.Serializable;
+import java.security.AccessController;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -45,6 +46,7 @@ import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultList;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
 import org.apache.openjpa.lib.util.concurrent.ReentrantLock;
@@ -59,6 +61,7 @@ import org.apache.openjpa.util.NoResultException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
+import org.apache.openjpa.util.ImplHelper;
 import serp.util.Numbers;
 import serp.util.Strings;
 
@@ -1081,7 +1084,8 @@ public class QueryImpl
 
             OpenJPAStateManager sm = _broker.getStateManager(ob);
             int i = fmd.getIndex();
-            PersistenceCapable into = (PersistenceCapable) ob;
+            PersistenceCapable into = ImplHelper.toPersistenceCapable(ob,
+                _broker.getConfiguration());
 
             // set the actual field in the instance
             int set = OpenJPAStateManager.SET_USER;
@@ -1555,7 +1559,8 @@ public class QueryImpl
 
         // first check the aliases map in the MetaDataRepository
         ClassLoader loader = (_class == null) ? _loader
-            : _class.getClassLoader();
+            : (ClassLoader) AccessController.doPrivileged(
+                J2DoPrivHelper.getClassLoaderAction(_class)); 
         ClassMetaData meta = _broker.getConfiguration().
             getMetaDataRepositoryInstance().getMetaData(name, loader, false);
         if (meta != null)

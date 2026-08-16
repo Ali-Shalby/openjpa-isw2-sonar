@@ -22,6 +22,7 @@ import java.io.PrintStream;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.security.AccessController;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -43,6 +44,7 @@ import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.kernel.exps.Subquery;
 import org.apache.openjpa.kernel.exps.Value;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -1086,7 +1088,7 @@ public class JPQLExpressionBuilder
         if (fmd == null)
             return;
 
-        Class type = fmd.getType();
+        Class type = path.isXPath() ? path.getType() : fmd.getType();
         if (type == null)
             return;
 
@@ -1296,6 +1298,11 @@ public class JPQLExpressionBuilder
         // walk through the children and assemble the path
         boolean allowNull = !inner;
         for (int i = 1; i < node.children.length; i++) {
+            if (path.isXPath()) {
+                for (int j = i; j <node.children.length; j++)
+                    path = (Path) traverseXPath(path, node.children[j].text);
+                return path;
+            }
             path = (Path) traversePath(path, node.children[i].text, pcOnly,
                 allowNull);
 

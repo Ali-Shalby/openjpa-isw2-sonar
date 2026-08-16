@@ -28,6 +28,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.security.AccessController;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -86,6 +87,7 @@ import org.apache.openjpa.kernel.QueryLanguages;
 import org.apache.openjpa.kernel.jpql.JPQLParser;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.DelegatingMetaDataFactory;
@@ -659,14 +661,18 @@ public class AnnotationPersistenceMetaDataParser
             cls = cls.getEnclosingClass();
 
         String rsrc = StringUtils.replace(cls.getName(), ".", "/");
-        ClassLoader loader = cls.getClassLoader();
+        ClassLoader loader = (ClassLoader) AccessController.doPrivileged(
+            J2DoPrivHelper.getClassLoaderAction(cls)); 
         if (loader == null)
-            loader = ClassLoader.getSystemClassLoader();
+            loader = (ClassLoader) AccessController.doPrivileged(
+                J2DoPrivHelper.getSystemClassLoaderAction()); 
         if (loader == null)
             return null;
-        URL url = loader.getResource(rsrc + ".java");
+        URL url = (URL) AccessController.doPrivileged(
+            J2DoPrivHelper.getResourceAction(loader, rsrc + ".java")); 
         if (url == null) {
-            url = loader.getResource(rsrc + ".class");
+            url = (URL) AccessController.doPrivileged(
+                J2DoPrivHelper.getResourceAction(loader, rsrc + ".class")); 
             if (url == null)
                 return null;
         }
@@ -745,12 +751,14 @@ public class AnnotationPersistenceMetaDataParser
         if (detached != null) {
             if (!detached.enabled())
                 meta.setDetachedState(null);
-            else if (!StringUtils.isEmpty(detached.fieldName()))
+            else if (StringUtils.isEmpty(detached.fieldName()))
                 meta.setDetachedState(ClassMetaData.SYNTHETIC);
             else
                 meta.setDetachedState(detached.fieldName());
         } else {
-            Field[] fields = meta.getDescribedType().getDeclaredFields();
+            Field[] fields = (Field[]) AccessController.doPrivileged(
+                J2DoPrivHelper.getDeclaredFieldsAction(
+                    meta.getDescribedType())); 
             for (int i = 0; i < fields.length; i++)
                 if (fields[i].isAnnotationPresent(DetachedState.class))
                     meta.setDetachedState(fields[i].getName());
@@ -790,7 +798,8 @@ public class AnnotationPersistenceMetaDataParser
         MethodKey key;
         Set<MethodKey> seen = new HashSet<MethodKey>();
         do {
-            for (Method m : sup.getDeclaredMethods()) {
+            for (Method m : (Method[]) AccessController.doPrivileged(
+                J2DoPrivHelper.getDeclaredMethodsAction(sup))) {
                 mods = m.getModifiers();
                 if (Modifier.isStatic(mods) || Modifier.isFinal(mods) ||
                     Object.class.equals(m.getDeclaringClass()))
@@ -1041,7 +1050,7 @@ public class AnnotationPersistenceMetaDataParser
                     break;
                 case LOAD_FETCH_GROUP:
                 	if (isMetaDataMode())
-                		fmd.setLoadFetchGroup(((LoadFetchGroup)anno).value());
+                		fmd.setLoadFetchGroup(((LoadFetchGroup) anno).value());
                 	break;
                 case LRS:
                     if (isMetaDataMode())
@@ -1101,21 +1110,30 @@ public class AnnotationPersistenceMetaDataParser
      * Sets value generation information for the given field.
      */
     private void parseGeneratedValue(FieldMetaData fmd, GeneratedValue gen) {
-        int strat = getGeneratedValueStrategy(fmd, gen.strategy(),
-            gen.generator());
+        GenerationType strategy = gen.strategy();
+        String generator = gen.generator();
+        parseGeneratedValue(fmd, strategy, generator);
+    }
+
+    /**
+     * Sets value generation information for the given field.
+     */
+    static void parseGeneratedValue(FieldMetaData fmd, GenerationType strategy,
+        String generator) {
+        int strat = getGeneratedValueStrategy(fmd, strategy, generator);
         if (strat != -1)
             fmd.setValueStrategy(strat);
         else {
-            switch (gen.strategy()) {
+            switch (strategy) {
                 case TABLE:
                 case SEQUENCE:
                     // technically we should have separate system table and
                     // sequence generators, but it's easier to just rely on
                     // the system org.apache.openjpa.Sequence setting for both
-                    if (StringUtils.isEmpty(gen.generator()))
+                    if (StringUtils.isEmpty(generator))
                         fmd.setValueSequenceName(SequenceMetaData.NAME_SYSTEM);
                     else
-                        fmd.setValueSequenceName(gen.generator());
+                        fmd.setValueSequenceName(generator);
                     break;
                 case AUTO:
                     fmd.setValueSequenceName(SequenceMetaData.NAME_SYSTEM);
@@ -1124,7 +1142,7 @@ public class AnnotationPersistenceMetaDataParser
                     fmd.setValueStrategy(ValueStrategies.AUTOASSIGN);
                     break;
                 default:
-                    throw new UnsupportedException(gen.strategy().toString());
+                    throw new UnsupportedException(strategy.toString());
             }
         }
     }
@@ -1553,7 +1571,7 @@ public class AnnotationPersistenceMetaDataParser
             meta.setQueryString(query.query());
             meta.setLanguage(QueryLanguages.LANG_SQL);
             Class res = query.resultClass();
-            if (ImplHelper.isManagedType(res))
+            if (ImplHelper.isManagedType(getConfiguration(), res))
                 meta.setCandidateType(res);
             else if (!void.class.equals(res))
                 meta.setResultType(res);

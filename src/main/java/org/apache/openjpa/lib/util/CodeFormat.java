@@ -26,7 +26,7 @@ package org.apache.openjpa.lib.util;
  */
 public final class CodeFormat implements Cloneable {
 
-    private static final String _sep = System.getProperty("line.separator");
+    private static final String _sep = J2DoPrivHelper.getLineSeparator();
 
     private String _tab = "\t";
     private boolean _spaceBeforeParen = false;
@@ -306,6 +306,22 @@ public final class CodeFormat implements Cloneable {
         for (int i = 0; i < tabLevel; i++)
             tabs.append(_tab);
         return tabs.toString();
+    }
+
+
+    /**
+     * Returns parametrized type string for given type(s).
+     */
+    public String getParametrizedType(String[] typenames) {
+        StringBuffer buf = new StringBuffer ();
+        buf.append("<");
+        for (int i = 0; i < typenames.length; i++) {
+            if (i > 0)
+                buf.append(", ");
+            buf.append(typenames[i]);
+        }
+        buf.append(">");
+        return buf.toString();
     }
 
     /**

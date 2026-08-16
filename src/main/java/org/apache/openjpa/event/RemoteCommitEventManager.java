@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Collections;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.Broker;
@@ -92,6 +93,21 @@ public class RemoteCommitEventManager
         _transmitPersIds = transmit;
     }
 
+    /**
+     * Adds an OpenJPA-internal listener to this RemoteCommitEventManager.
+     * Listeners so registered will be fired before any that are registered
+     * via {@link #addListener}. This means that the external listeners can
+     * rely on internal caches and data structures being up-to-date by the
+     * time that they are invoked.
+     *
+     * @since 1.0.0
+     */
+    public void addInternalListener(RemoteCommitListener listen) {
+        if (_provider == null)
+            throw new UserException(_loc.get("no-provider"));
+        ((List) _listeners).add(0, listen);
+    }
+
     public void addListener(RemoteCommitListener listen) {
         if (_provider == null)
             throw new UserException(_loc.get("no-provider"));
@@ -114,6 +130,19 @@ public class RemoteCommitEventManager
         RemoteCommitListener listen = (RemoteCommitListener) listener;
         RemoteCommitEvent ev = (RemoteCommitEvent) event;
         listen.afterCommit(ev);
+    }
+
+    /**
+     * Fire an event to local listeners only notifying them of a detected
+     * stale record.
+     *
+     * @since 1.0.0
+     */
+    public void fireLocalStaleNotification(Object oid) {
+        RemoteCommitEvent ev = new RemoteCommitEvent(
+            RemoteCommitEvent.PAYLOAD_LOCAL_STALE_DETECTION,
+            null, null, Collections.singleton(oid), null);
+        fireEvent(ev);
     }
 
     //////////////////////////////////////
@@ -139,7 +168,7 @@ public class RemoteCommitEventManager
         Collection updates = null;
         Collection deletes = null;
 
-        if (broker.isLargeTransaction()) {
+        if (broker.isTrackChangesByType()) {
             payload = RemoteCommitEvent.PAYLOAD_EXTENTS;
             addClassNames = toClassNames(event.getPersistedTypes());
             updates = toClassNames(event.getUpdatedTypes());

@@ -23,6 +23,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
@@ -93,10 +94,10 @@ public class PostgresDictionary
         // PostgreSQL requires double-escape for strings
         searchStringEscape = "\\\\";
 
-        maxTableNameLength = 31;
-        maxColumnNameLength = 31;
-        maxIndexNameLength = 31;
-        maxConstraintNameLength = 31;
+        maxTableNameLength = 63;
+        maxColumnNameLength = 63;
+        maxIndexNameLength = 63;
+        maxConstraintNameLength = 63;
         schemaCase = SCHEMA_CASE_LOWER;
         rangePosition = RANGE_POST_LOCK;
         requiresAliasForSubselect = true;
@@ -230,6 +231,15 @@ public class PostgresDictionary
         stmnt.setBoolean(idx, val);
     }
 
+    public void setNull(PreparedStatement stmnt, int idx, int colType,
+        Column col)
+        throws SQLException {
+        // OPENJPA-
+        if (colType == Types.BLOB)
+            colType = Types.BINARY;
+        stmnt.setNull(idx, colType);
+    }
+
     protected void appendSelectRange(SQLBuffer buf, long start, long end) {
         if (end != Long.MAX_VALUE)
             buf.append(" LIMIT ").appendValue(end - start);
@@ -259,6 +269,11 @@ public class PostgresDictionary
         if (seq.getAllocate() > 1)
             sql[0] += " CACHE " + seq.getAllocate();
         return sql;
+    }
+
+    protected boolean supportsDeferredUniqueConstraints() {
+        // Postgres only supports deferred foreign key constraints.
+        return false;
     }
 
     protected String getSequencesSQL(String schemaName, String sequenceName) {

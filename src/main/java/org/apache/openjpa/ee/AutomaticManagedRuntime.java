@@ -20,6 +20,8 @@ package org.apache.openjpa.ee;
 
 import java.util.LinkedList;
 import java.util.List;
+
+import javax.transaction.SystemException;
 import javax.transaction.TransactionManager;
 
 import org.apache.openjpa.lib.conf.Configurable;
@@ -47,7 +49,7 @@ import org.apache.openjpa.util.InvalidStateException;
  *
  * @author Marc Prud'hommeaux
  */
-public class AutomaticManagedRuntime
+public class AutomaticManagedRuntime extends AbstractManagedRuntime
     implements ManagedRuntime, Configurable {
 
     private static final String [] JNDI_LOCS = new String []{
@@ -66,6 +68,8 @@ public class AutomaticManagedRuntime
         "com.inprise.visitransact.jta.TransactionManagerImpl."
             + "getTransactionManagerImpl", // borland
     };
+
+    private static final ManagedRuntime REGISTRY;
     private static final WLSManagedRuntime WLS;
     private static final SunOneManagedRuntime SUNONE;
     private static final WASManagedRuntime WAS;
@@ -75,6 +79,19 @@ public class AutomaticManagedRuntime
 
     static {
         ManagedRuntime mr = null;
+
+        mr = null;
+        try {
+            mr = (ManagedRuntime) Class.
+                forName("org.apache.openjpa.ee.RegistryManagedRuntime").
+                    newInstance();
+        } catch (Throwable t) {
+            // might be JTA version lower than 1.1, which doesn't have 
+            // TransactionSynchronizationRegistry
+        }
+        REGISTRY = mr;
+
+        mr = null;
         try {
             mr = new WLSManagedRuntime();
         } catch (Throwable t) {
@@ -92,7 +109,7 @@ public class AutomaticManagedRuntime
         try {
             mr = new WASManagedRuntime();
         }
-        catch(Throwable t) {
+        catch (Throwable t) {
         }
         WAS= (WASManagedRuntime) mr;
     }
@@ -107,6 +124,20 @@ public class AutomaticManagedRuntime
 
         List errors = new LinkedList();
         TransactionManager tm = null;
+
+        // first try the registry, which is the official way to obtain
+        // transaction synchronication in JTA 1.1
+        if (REGISTRY != null) {
+            try {
+                tm = REGISTRY.getTransactionManager();
+            } catch (Throwable t) {
+                errors.add(t);
+            }
+            if (tm != null) {
+                _runtime = REGISTRY;
+                return tm;
+            }
+        }
 
         if (WLS != null) {
             try {
@@ -213,6 +244,16 @@ public class AutomaticManagedRuntime
         if (_runtime != null)
             return _runtime.getRollbackCause();
 
+        return null;
+    }
+    
+    public Object getTransactionKey() throws Exception, SystemException {
+        if(_runtime == null) 
+            getTransactionManager();
+        
+        if(_runtime != null )
+            return _runtime.getTransactionKey();
+        
         return null;
     }
 }

@@ -18,6 +18,8 @@
  */
 package org.apache.openjpa.jdbc.sql;
 
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
@@ -25,8 +27,11 @@ import javax.sql.DataSource;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
+import org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl;
 import org.apache.openjpa.lib.conf.Configurations;
+import org.apache.openjpa.lib.conf.PluginValue;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UserException;
@@ -50,12 +55,6 @@ import org.apache.openjpa.util.UserException;
  */
 public class DBDictionaryFactory {
 
-    // pcl: can't use these classes directly because they rely on native libs
-    private static final String ORACLE_DICT_NAME =
-        "org.apache.openjpa.jdbc.sql.OracleDictionary";
-    private static final String HSQL_DICT_NAME =
-        "org.apache.openjpa.jdbc.sql.HSQLDictionary";
-
     private static final Localizer _loc = Localizer.forPackage
         (DBDictionaryFactory.class);
 
@@ -74,9 +73,9 @@ public class DBDictionaryFactory {
      */
     public static DBDictionary calculateDBDictionary(JDBCConfiguration conf,
         String url, String driver, String props) {
-        String dclass = dictionaryClassForString(url);
+        String dclass = dictionaryClassForString(url, conf);
         if (dclass == null)
-            dclass = dictionaryClassForString(driver);
+            dclass = dictionaryClassForString(driver, conf);
         if (dclass == null)
             return null;
         return newDBDictionary(conf, dclass, props);
@@ -91,10 +90,10 @@ public class DBDictionaryFactory {
         try {
             conn = ds.getConnection();
             DatabaseMetaData meta = conn.getMetaData();
-            String dclass = dictionaryClassForString(meta.getURL());
+            String dclass = dictionaryClassForString(meta.getURL(), conf);
             if (dclass == null)
                 dclass = dictionaryClassForString
-                    (meta.getDatabaseProductName());
+                    (meta.getDatabaseProductName(), conf);
             if (dclass == null)
                 dclass = DBDictionary.class.getName();
             return newDBDictionary(conf, dclass, props, conn);
@@ -117,9 +116,15 @@ public class DBDictionaryFactory {
         String dclass, String props, Connection conn) {
         DBDictionary dict = null;
         try {
-            dict = (DBDictionary) Class.forName(dclass, true,
-                DBDictionary.class.getClassLoader()).newInstance();
+            Class c = Class.forName(dclass, true,
+                (ClassLoader) AccessController.doPrivileged(
+                    J2DoPrivHelper.getClassLoaderAction(
+                        DBDictionary.class)));
+            dict = (DBDictionary) AccessController.doPrivileged(
+                J2DoPrivHelper.newInstanceAction(c));
         } catch (Exception e) {
+            if (e instanceof PrivilegedActionException)
+                e = ((PrivilegedActionException) e).getException();
             throw new UserException(e).setFatal(true);
         }
 
@@ -161,31 +166,35 @@ public class DBDictionaryFactory {
     /**
      * Guess the dictionary class name to use based on the product string.
      */
-    private static String dictionaryClassForString(String prod) {
+    private static String dictionaryClassForString(String prod
+        , JDBCConfiguration conf) {
         if (StringUtils.isEmpty(prod))
             return null;
         prod = prod.toLowerCase();
 
+        PluginValue dbdictionaryPlugin = ((JDBCConfigurationImpl) conf)
+            .dbdictionaryPlugin;
+
         if (prod.indexOf("oracle") != -1)
-            return ORACLE_DICT_NAME;
+            return dbdictionaryPlugin.unalias("oracle");
         if (prod.indexOf("sqlserver") != -1)
-            return SQLServerDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("sqlserver");
         if (prod.indexOf("jsqlconnect") != -1)
-            return SQLServerDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("sqlserver");
         if (prod.indexOf("mysql") != -1)
-            return MySQLDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("mysql");
         if (prod.indexOf("postgres") != -1)
-            return PostgresDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("postgres");
         if (prod.indexOf("sybase") != -1)
-            return SybaseDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("sybase");
         if (prod.indexOf("adaptive server") != -1)
-            return SybaseDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("sybase");
         if (prod.indexOf("informix") != -1)
-            return InformixDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("informix");
         if (prod.indexOf("hsql") != -1)
-            return HSQL_DICT_NAME;
+            return dbdictionaryPlugin.unalias("hsql");
         if (prod.indexOf("foxpro") != -1)
-            return FoxProDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("foxpro");
         if (prod.indexOf("interbase") != -1)
             return InterbaseDictionary.class.getName();
         if (prod.indexOf("jdatastore") != -1)
@@ -193,17 +202,17 @@ public class DBDictionaryFactory {
         if (prod.indexOf("borland") != -1)
             return JDataStoreDictionary.class.getName();
         if (prod.indexOf("access") != -1)
-            return AccessDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("access");
         if (prod.indexOf("pointbase") != -1)
-            return PointbaseDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("pointbase");
         if (prod.indexOf("empress") != -1)
-            return EmpressDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("empress");
         if (prod.indexOf("firebird") != -1)
             return FirebirdDictionary.class.getName();
         if (prod.indexOf("cache") != -1)
             return CacheDictionary.class.getName();
         if (prod.indexOf("derby") != -1)
-            return DerbyDictionary.class.getName();
+            return dbdictionaryPlugin.unalias("derby");
         // test h2 in a special way, because there's a decent chance the string 
         // h2 could appear in the URL of another database
         if (prod.indexOf("jdbc:h2:") != -1)
@@ -214,7 +223,7 @@ public class DBDictionaryFactory {
         // appear in the URL of another database (like if the db is named
         // "testdb2" or something)
         if (prod.indexOf("db2") != -1 || prod.indexOf("as400") != -1)
-            return DB2Dictionary.class.getName();
+            return dbdictionaryPlugin.unalias("db2");
 
         // known dbs that we don't support
         if (prod.indexOf("cloudscape") != -1)
@@ -226,6 +235,10 @@ public class DBDictionaryFactory {
         if (prod.indexOf("idb") != -1) // instantdb
             return DBDictionary.class.getName();
 
+        String prodClassName = dbdictionaryPlugin.unalias(prod);
+        if (!StringUtils.equals(prod, prodClassName))
+            return prodClassName;
+        
         // give up
         return null;
     }
@@ -236,7 +249,7 @@ public class DBDictionaryFactory {
      */
     public static String toString(DatabaseMetaData meta)
         throws SQLException {
-        String lineSep = System.getProperty("line.separator");
+        String lineSep = J2DoPrivHelper.getLineSeparator();
         StringBuffer buf = new StringBuffer();
         try {
             buf.append("catalogSeparator: ")

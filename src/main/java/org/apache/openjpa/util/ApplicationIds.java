@@ -20,16 +20,19 @@ package org.apache.openjpa.util;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.util.Date;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.enhance.FieldManager;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.kernel.ObjectIdStateManager;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.kernel.StateManagerImpl;
 import org.apache.openjpa.kernel.StoreManager;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -47,6 +50,8 @@ public class ApplicationIds {
 
     private static final Localizer _loc = Localizer.forPackage
         (ApplicationIds.class);
+    private static final Localizer _loc2 = Localizer.forPackage
+        (StateManagerImpl.class);
 
     /**
      * Return the primary key values for the given object id. The values
@@ -123,41 +128,41 @@ public class ApplicationIds {
                     if (!convert && !(val instanceof Byte))
                         throw new ClassCastException("!(x instanceof Byte)");
                     return new ByteId(meta.getDescribedType(),
-                        ((Number) val).byteValue());
+                        val == null ? 0 : ((Number) val).byteValue());
                 case JavaTypes.CHAR:
                 case JavaTypes.CHAR_OBJ:
                     return new CharId(meta.getDescribedType(),
-                        ((Character) val).charValue());
+                        val == null ? 0 : ((Character) val).charValue());
                 case JavaTypes.DOUBLE:
                 case JavaTypes.DOUBLE_OBJ:
                     if (!convert && !(val instanceof Double))
                         throw new ClassCastException("!(x instanceof Double)");
                     return new DoubleId(meta.getDescribedType(),
-                        ((Number) val).doubleValue());
+                        val == null ? 0 : ((Number) val).doubleValue());
                 case JavaTypes.FLOAT:
                 case JavaTypes.FLOAT_OBJ:
                     if (!convert && !(val instanceof Float))
                         throw new ClassCastException("!(x instanceof Float)");
                     return new FloatId(meta.getDescribedType(),
-                        ((Number) val).floatValue());
+                        val == null ? 0 : ((Number) val).floatValue());
                 case JavaTypes.INT:
                 case JavaTypes.INT_OBJ:
                     if (!convert && !(val instanceof Integer))
                         throw new ClassCastException("!(x instanceof Integer)");
                     return new IntId(meta.getDescribedType(),
-                        ((Number) val).intValue());
+                        val == null ? 0 : ((Number) val).intValue());
                 case JavaTypes.LONG:
                 case JavaTypes.LONG_OBJ:
                     if (!convert && !(val instanceof Long))
                         throw new ClassCastException("!(x instanceof Long)");
                     return new LongId(meta.getDescribedType(),
-                        ((Number) val).longValue());
+                        val == null ? 0 : ((Number) val).longValue());
                 case JavaTypes.SHORT:
                 case JavaTypes.SHORT_OBJ:
                     if (!convert && !(val instanceof Short))
                         throw new ClassCastException("!(x instanceof Short)");
                     return new ShortId(meta.getDescribedType(),
-                        ((Number) val).shortValue());
+                        val == null ? 0 : ((Number) val).shortValue());
                 case JavaTypes.STRING:
                     return new StringId(meta.getDescribedType(), (String) val);
                 case JavaTypes.DATE:
@@ -188,8 +193,11 @@ public class ApplicationIds {
             throw new UserException(_loc.get("objectid-abstract", meta));
         Object copy = null;
         try {
-            copy = oidType.newInstance();
+            copy = AccessController.doPrivileged(
+                J2DoPrivHelper.newInstanceAction(oidType));
         } catch (Throwable t) {
+            if (t instanceof PrivilegedActionException)
+                t = ((PrivilegedActionException) t).getException();
             throw new GeneralException(t);
         }
 
@@ -319,8 +327,11 @@ public class ApplicationIds {
         Class oidType = oid.getClass();
         Object copy = null;
         try {
-            copy = oidType.newInstance();
+            copy = AccessController.doPrivileged(
+                J2DoPrivHelper.newInstanceAction(oidType));
         } catch (Throwable t) {
+            if (t instanceof PrivilegedActionException)
+                t = ((PrivilegedActionException) t).getException();
             throw new GeneralException(t);
         }
 
@@ -422,15 +433,25 @@ public class ApplicationIds {
     }
 
     /**
-     * Assign generated values to given fields.
+     * Assign generated values to given primary key fields.
      */
     private static boolean assign(OpenJPAStateManager sm, StoreManager store,
         FieldMetaData[] pks, boolean preFlush) {
         for (int i = 0; i < pks.length; i++)
-            if (pks[i].getValueStrategy() != ValueStrategies.NONE
-                && sm.isDefaultValue(pks[i].getIndex())
-                && !store.assignField(sm, pks[i].getIndex(), preFlush))
-                return false;
+            // If we are generating values...
+            if (pks[i].getValueStrategy() != ValueStrategies.NONE) {
+                // If a value already exists on this field, throw exception.
+                // This is considered an application coding error.
+                if (!sm.isDefaultValue(pks[i].getIndex()))
+                    throw new InvalidStateException(_loc2.get(
+                            "existing-value-override-excep", pks[i]
+                                    .getFullName(false)));
+                // Assign the generated value
+                if (store.assignField(sm, pks[i].getIndex(), preFlush))
+                    pks[i].set_generated(true);
+                else
+                    return false;
+            }
         return true;
     }
 

@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.persistence.jdbc;
 
+import java.lang.reflect.Modifier;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -197,6 +198,7 @@ public class XMLPersistenceMappingParser
                 ret = startSecondaryTable(attrs);
                 break;
             case DISCRIM_COL:
+                parseDiscriminatorColumn(attrs);
                 _discCol = parseColumn(attrs);
                 ret = true;
                 break;
@@ -314,20 +316,21 @@ public class XMLPersistenceMappingParser
             cm.getMappingInfo().setColumns(_supJoinCols);
 
         if (_discCol != null) {
-            DiscriminatorMappingInfo dinfo = cm.getDiscriminator().
-                getMappingInfo();
-            if (_discType != null) {
-                switch (_discType) {
-                    case CHAR:
-                        _discCol.setJavaType(JavaTypes.CHAR);
-                        break;
-                    case INTEGER:
-                        _discCol.setJavaType(JavaTypes.INT);
-                        break;
-                    default:
-                        _discCol.setJavaType(JavaTypes.STRING);
-                        break;
-                }
+            DiscriminatorMappingInfo dinfo = cm.getDiscriminator()
+                    .getMappingInfo();
+            switch (_discType) {
+                case CHAR:
+                    _discCol.setJavaType(JavaTypes.CHAR);
+                    cm.getDiscriminator().setJavaType(JavaTypes.CHAR);
+                    break;
+                case INTEGER:
+                    _discCol.setJavaType(JavaTypes.INT);
+                    cm.getDiscriminator().setJavaType(JavaTypes.INT);
+                    break;
+                default:
+                    _discCol.setJavaType(JavaTypes.STRING);
+                    cm.getDiscriminator().setJavaType(JavaTypes.STRING);
+                    break;
             }
             dinfo.setColumns(Arrays.asList(new Column[]{ _discCol }));
         }
@@ -439,6 +442,13 @@ public class XMLPersistenceMappingParser
 
         ClassMapping cm = (ClassMapping) currentElement();
         cm.getDiscriminator().getMappingInfo().setValue(val);
+
+        if (Modifier.isAbstract(cm.getDescribedType().getModifiers())
+                && getLog().isInfoEnabled()) {
+            getLog().info(
+                    _loc.get("discriminator-on-abstract-class", cm
+                            .getDescribedType().getName()));
+        }
     }
 
     /**
@@ -886,10 +896,10 @@ public class XMLPersistenceMappingParser
      * ClassMappingInfo. 
      */
     private void endUniqueConstraint() {
-        Unique unique = (Unique)popElement();
+        Unique unique = (Unique) popElement();
         Object current = currentElement();
         if (current instanceof ClassMapping && _secondaryTable == null)
-            ((ClassMapping)current).getMappingInfo().addUnique(unique);
+            ((ClassMapping) current).getMappingInfo().addUnique(unique);
     }
     
     /**
@@ -899,7 +909,7 @@ public class XMLPersistenceMappingParser
     private boolean endColumnName() {
         Object current = currentElement();
         if (current instanceof Unique) {
-            Unique unique = (Unique)current;
+            Unique unique = (Unique) current;
             Column column = new Column();
             column.setName(this.currentText());
             unique.addColumn(column);
@@ -915,5 +925,16 @@ public class XMLPersistenceMappingParser
 	{
 		TRUE,
 		FALSE
+	}
+	
+	private void parseDiscriminatorColumn(Attributes attrs) { 
+	    String val = attrs.getValue("discriminator-type");
+        if (val != null) {
+            _discType = Enum.valueOf(DiscriminatorType.class, val);
+        }
+        else {
+            _discType = DiscriminatorType.STRING;
+        }
+            
 	}
 }

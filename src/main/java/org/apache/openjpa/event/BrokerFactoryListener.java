@@ -14,18 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
-package org.apache.openjpa.persistence.jdbc;
+package org.apache.openjpa.event;
 
 /**
- * Type of fetching to employ.
+ * Interface for listening to {@link BrokerFactoryEvent} objects. Should be
+ * registered with a {@link OpenJPAConfiguration}'s
+ * {@link BrokerFactoryEventManager}.
  *
- * @author Abe White
- * @since 0.4.0
+ * @since 1.0.0
  */
-public enum EagerFetchType {
+public interface BrokerFactoryListener {
 
-    NONE,
-    JOIN,
-    PARALLEL };
+    /**
+     * Invoked after a {@link BrokerFactory} has been fully created.
+     * This happens after the factory has been made read-only.
+     */
+    public void eventFired(BrokerFactoryEvent event);
+}

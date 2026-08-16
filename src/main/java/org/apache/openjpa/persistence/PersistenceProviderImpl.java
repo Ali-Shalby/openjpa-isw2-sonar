@@ -23,20 +23,20 @@ import java.lang.instrument.IllegalClassFormatException;
 import java.security.ProtectionDomain;
 import java.util.Map;
 import javax.persistence.EntityManager;
-import javax.persistence.EntityManagerFactory;
-import javax.persistence.Persistence;
 import javax.persistence.spi.ClassTransformer;
 import javax.persistence.spi.PersistenceProvider;
 import javax.persistence.spi.PersistenceUnitInfo;
 
+import org.apache.openjpa.conf.BrokerValue;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
-import org.apache.openjpa.conf.BrokerValue;
 import org.apache.openjpa.enhance.PCClassFileTransformer;
 import org.apache.openjpa.kernel.Bootstrap;
 import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.conf.Configurations;
+import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.ClassResolver;
@@ -46,12 +46,16 @@ import org.apache.openjpa.util.ClassResolver;
  * Bootstrapping class that allows the creation of a stand-alone
  * {@link EntityManager}.
  *
- * @see Persistence#createEntityManagerFactory(String,Map)
+ * @see javax.persistence.Persistence#createEntityManagerFactory(String,Map)
+ * @published
  */
 public class PersistenceProviderImpl
     implements PersistenceProvider {
 
     static final String CLASS_TRANSFORMER_OPTIONS = "ClassTransformerOptions";
+
+    private static final Localizer _loc = Localizer.forPackage(
+        PersistenceProviderImpl.class);
 
     /**
      * Loads the entity manager specified by <code>name</code>, applying
@@ -63,7 +67,7 @@ public class PersistenceProviderImpl
      * resource or the name of the jar that the resource is contained in.
      * This does no pooling of EntityManagersFactories.
      */
-    public EntityManagerFactory createEntityManagerFactory(String name,
+    public OpenJPAEntityManagerFactory createEntityManagerFactory(String name,
         String resource, Map m) {
         PersistenceProductDerivation pd = new PersistenceProductDerivation();
         try {
@@ -72,17 +76,18 @@ public class PersistenceProviderImpl
                 return null;
 
             BrokerFactory factory = Bootstrap.newBrokerFactory(cp, null);
-            return OpenJPAPersistence.toEntityManagerFactory(factory);
+            return JPAFacadeHelper.toEntityManagerFactory(factory);
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
         }
     }
 
-    public EntityManagerFactory createEntityManagerFactory(String name, Map m) {
+    public OpenJPAEntityManagerFactory createEntityManagerFactory(String name,
+        Map m) {
         return createEntityManagerFactory(name, null, m);
     }
 
-    public EntityManagerFactory createContainerEntityManagerFactory(
+    public OpenJPAEntityManagerFactory createContainerEntityManagerFactory(
         PersistenceUnitInfo pui, Map m) {
         PersistenceProductDerivation pd = new PersistenceProductDerivation();
         try {
@@ -91,10 +96,16 @@ public class PersistenceProviderImpl
                 return null;
 
             // add enhancer
+            Exception transformerException = null;
             String ctOpts = (String) Configurations.getProperty
                 (CLASS_TRANSFORMER_OPTIONS, pui.getProperties());
-            pui.addTransformer(new ClassTransformerImpl(cp, ctOpts, 
-                pui.getNewTempClassLoader()));
+            try {
+                pui.addTransformer(new ClassTransformerImpl(cp, ctOpts,
+                    pui.getNewTempClassLoader()));
+            } catch (Exception e) {
+                // fail gracefully
+                transformerException = e;
+            }
 
             // if the BrokerImpl hasn't been specified, switch to the
             // non-finalizing one, since anything claiming to be a container
@@ -107,7 +118,19 @@ public class PersistenceProviderImpl
 
             BrokerFactory factory = Bootstrap.newBrokerFactory(cp, 
                 pui.getClassLoader());
-            return OpenJPAPersistence.toEntityManagerFactory(factory);
+            if (transformerException != null) {
+                Log log = factory.getConfiguration().getLog(
+                    OpenJPAConfiguration.LOG_RUNTIME);
+                if (log.isTraceEnabled()) {
+                    log.warn(
+                        _loc.get("transformer-registration-error-ex", pui),
+                        transformerException);
+                } else {
+                    log.warn(
+                        _loc.get("transformer-registration-error", pui));
+                }
+            }
+            return JPAFacadeHelper.toEntityManagerFactory(factory);
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
         }

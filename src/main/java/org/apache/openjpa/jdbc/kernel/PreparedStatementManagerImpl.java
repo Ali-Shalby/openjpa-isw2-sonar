@@ -40,18 +40,18 @@ import org.apache.openjpa.util.OptimisticException;
  *
  * @author Abe White
  */
-class PreparedStatementManagerImpl 
+public class PreparedStatementManagerImpl 
     implements PreparedStatementManager {
 
     private final static Localizer _loc = Localizer
         .forPackage(PreparedStatementManagerImpl.class);
 
-    private final JDBCStore _store;
-    private final Connection _conn;
-    private final DBDictionary _dict;
+    protected final JDBCStore _store;
+    protected final Connection _conn;
+    protected final DBDictionary _dict;
 
     // track exceptions
-    private final Collection _exceptions = new LinkedList();
+    protected final Collection _exceptions = new LinkedList();
 
     /**
      * Constructor. Supply connection.
@@ -79,7 +79,7 @@ class PreparedStatementManagerImpl
     /**
      * Flush the given row.
      */
-    private void flushInternal(RowImpl row) throws SQLException {
+    protected void flushInternal(RowImpl row) throws SQLException {
         // can't batch rows with auto-inc columns
         Column[] autoAssign = null;
         if (row.getAction() == Row.ACTION_INSERT)
