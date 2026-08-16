@@ -29,6 +29,7 @@ import java.util.List;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
+import org.apache.openjpa.kernel.exps.Value;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -128,6 +129,10 @@ public class LogicalUnion
     public SQLBuffer toSelect(boolean forUpdate, JDBCFetchConfiguration fetch) {
         return dict.toSelect(sels[0], forUpdate, fetch);
     }
+    
+    public SQLBuffer getSQL() {
+        return sels.length == 1 ? sels[0].getSQL() : null;
+    }
 
     public SQLBuffer toSelectCount() {
         return dict.toSelectCount(sels[0]);
@@ -193,6 +198,12 @@ public class LogicalUnion
         return true;
     }
 
+    public boolean hasMultipleSelects() {
+        if (sels != null && sels.length > 1)
+            return true;
+        return sels[0].hasMultipleSelects();
+    }
+
     public int getCount(JDBCStore store)
         throws SQLException {
         int count = 0;
@@ -202,32 +213,20 @@ public class LogicalUnion
     }
 
     public Result execute(JDBCStore store, JDBCFetchConfiguration fetch)
-            throws SQLException {
-        return execute(store, fetch, null);
-    }    
-
-    public Result execute(JDBCStore store, JDBCFetchConfiguration fetch,
-        int lockLevel)
-        throws SQLException {
-        return execute(store, fetch, lockLevel, null);
-    }
-    
-    public Result execute(JDBCStore store, JDBCFetchConfiguration fetch, 
-        List params)
         throws SQLException {
         if (fetch == null)
             fetch = store.getFetchConfiguration();
-        return execute(store, fetch, fetch.getReadLockLevel(), params);
+        return execute(store, fetch, fetch.getReadLockLevel());
     }
 
     public Result execute(JDBCStore store, JDBCFetchConfiguration fetch,
-        int lockLevel, List params)
+        int lockLevel)
         throws SQLException {
         if (fetch == null)
             fetch = store.getFetchConfiguration();
 
         if (sels.length == 1) {
-            Result res = sels[0].execute(store, fetch, lockLevel, params);
+            Result res = sels[0].execute(store, fetch, lockLevel);
             ((AbstractResult) res).setBaseMapping(mappings[0]);
             return res;
         }
@@ -236,7 +235,7 @@ public class LogicalUnion
             AbstractResult res;
             for (int i = 0; i < sels.length; i++) {
                 res = (AbstractResult) sels[i].execute(store, fetch,
-                    lockLevel, params);
+                    lockLevel);
                 res.setBaseMapping(mappings[i]);
                 res.setIndexOf(i);
 
@@ -268,7 +267,7 @@ public class LogicalUnion
             List l;
             for (int i = 0; i < res.length; i++) {
                 res[i] = (AbstractResult) sels[i].execute(store, fetch,
-                    lockLevel, params);
+                    lockLevel);
                 res[i].setBaseMapping(mappings[i]);
                 res[i].setIndexOf(i);
 
@@ -358,6 +357,10 @@ public class LogicalUnion
             JDBCFetchConfiguration fetch) {
             return sel.toSelect(forUpdate, fetch);
         }
+        
+        public SQLBuffer getSQL() {
+            return sel.getSQL();
+        }
 
         public SQLBuffer toSelectCount() {
             return sel.toSelectCount();
@@ -403,21 +406,13 @@ public class LogicalUnion
             return sel.supportsLocking();
         }
 
+        public boolean hasMultipleSelects() {
+            return sel.hasMultipleSelects();
+        }
+
         public int getCount(JDBCStore store)
             throws SQLException {
             return sel.getCount(store);
-        }
-
-        public Result execute(JDBCStore store, JDBCFetchConfiguration fetch, 
-            List params)
-            throws SQLException {
-            return sel.execute(store, fetch, params);
-        }
-
-        public Result execute(JDBCStore store, JDBCFetchConfiguration fetch,
-            int lockLevel, List params)
-            throws SQLException {
-            return sel.execute(store, fetch, lockLevel, params);
         }
 
         public Result execute(JDBCStore store, JDBCFetchConfiguration fetch)
@@ -430,7 +425,7 @@ public class LogicalUnion
             throws SQLException {
             return sel.execute(store, fetch, lockLevel);
         }
-        
+
         public List getSubselects() {
             return Collections.EMPTY_LIST;
         }
@@ -499,14 +494,6 @@ public class LogicalUnion
             return sel.getHaving();
         }
 
-        public SQLBuffer getSQL() {
-            return sel.getSQL();
-        }
-        
-        public void setSQL(JDBCStore store, JDBCFetchConfiguration fetch) {
-            sel.setSQL(store, fetch);
-        }
-        
         public void addJoinClassConditions() {
             sel.addJoinClassConditions();
         }
@@ -537,6 +524,10 @@ public class LogicalUnion
 
         public String getColumnAlias(Column col, Joins joins) {
             return sel.getColumnAlias(col, joins);
+        }
+
+        public String getColumnAlias(Column col, Object alias) {
+            return sel.getColumnAlias(col, alias);
         }
 
         public String getColumnAlias(String col, Table table) {
@@ -721,14 +712,15 @@ public class LogicalUnion
             return sel.orderBy(cols, asc, joins, select, isUnion());
         }
 
-        public boolean orderBy(SQLBuffer sql, boolean asc, boolean select) {
-            return orderBy(sql, asc, null, select);
+        public boolean orderBy(SQLBuffer sql, boolean asc, boolean select,
+            Value selAs) {
+            return orderBy(sql, asc, null, select, selAs);
         }
 
         public boolean orderBy(SQLBuffer sql, boolean asc, Joins joins,
-            boolean select) {
+            boolean select, Value selAs) {
             recordOrder(sql.getSQL(false), asc);
-            return sel.orderBy(sql, asc, joins, select, isUnion());
+            return sel.orderBy(sql, asc, joins, select, isUnion(), selAs);
         }
 
         public boolean orderBy(String sql, boolean asc, boolean select) {
@@ -749,15 +741,6 @@ public class LogicalUnion
             JDBCStore store) {
             sel.wherePrimaryKey(oid, mapping, store);
         }
-        
-        public int wherePrimaryKey(ClassMapping mapping, Column[] toCols, 
-            Column[] fromCols, Object oid, JDBCStore store, PathJoins pj,
-            SQLBuffer buf, List parmList) {
-            return sel.wherePrimaryKey(mapping, toCols, fromCols, oid, store, pj, 
-                buf, parmList);
-        }
-        
-        
 
         public void whereForeignKey(ForeignKey fk, Object oid,
             ClassMapping mapping, JDBCStore store) {

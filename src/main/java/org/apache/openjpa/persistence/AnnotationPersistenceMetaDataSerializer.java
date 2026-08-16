@@ -696,6 +696,10 @@ public class AnnotationPersistenceMetaDataSerializer
             ab.add("initialValue", meta.getInitialValue());
         if (meta.getAllocate() != 50 && meta.getAllocate() != -1)
             ab.add("allocationSize", meta.getAllocate());
+        if (meta.getSchema() != null)
+            ab.add("schema", meta.getSchema());
+        if (meta.getCatalog() != null)
+            ab.add("catalog", meta.getCatalog());
     }
 
     /**
@@ -1008,7 +1012,10 @@ public class AnnotationPersistenceMetaDataSerializer
         if (vmd.getCascadeRefresh() == ValueMetaData.CASCADE_IMMEDIATE) {
             cascades.add(CascadeType.REFRESH);
         }
-        if (cascades.size() == 4) // ALL
+        if (vmd.getCascadeDetach() == ValueMetaData.CASCADE_IMMEDIATE) {
+            cascades.add(CascadeType.CLEAR);
+        }
+        if (cascades.size() == 5) // ALL
         {
             cascades.clear();
             cascades.add(CascadeType.ALL);
@@ -1198,7 +1205,7 @@ public class AnnotationPersistenceMetaDataSerializer
 
     public void serialize(File file, int flags) throws IOException {
         try {
-            FileWriter out = new FileWriter((String) AccessController
+            FileWriter out = new FileWriter(AccessController
                 .doPrivileged(J2DoPrivHelper.getCanonicalPathAction(file)),
                 (flags & APPEND) > 0);
             serialize(out, flags);
@@ -1277,6 +1284,14 @@ public class AnnotationPersistenceMetaDataSerializer
             return _seqs[0].getResourceName();
         }
 
+        public int getLineNumber() {
+            return _seqs[0].getLineNumber();
+        }
+
+        public int getColNumber() {
+            return _seqs[0].getColNumber();
+        }
+        
         public int compareTo(ClassSeqs other) {
             if (other == this)
                 return 0;
@@ -1346,6 +1361,14 @@ public class AnnotationPersistenceMetaDataSerializer
             return _queries[0].getResourceName();
         }
 
+        public int getLineNumber() {
+            return _queries[0].getLineNumber();
+        }
+
+        public int getColNumber() {
+            return _queries[0].getColNumber();
+        }
+        
         public int compareTo(ClassQueries other) {
             if (other == this)
                 return 0;

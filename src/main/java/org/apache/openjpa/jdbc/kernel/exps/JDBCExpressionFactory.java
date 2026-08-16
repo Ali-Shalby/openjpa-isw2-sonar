@@ -23,6 +23,7 @@ import java.io.Serializable;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.jdbc.sql.Raw;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.Arguments;
 import org.apache.openjpa.kernel.exps.Expression;
@@ -246,6 +247,10 @@ public class JDBCExpressionFactory
         return new Lit(val, ptype);
     }
 
+    public Literal newTypeLiteral(Object val, int ptype) {
+        return new TypeLit(val, ptype);
+    }
+
     public Value getThis() {
         return new PCPath(_type);
     }
@@ -266,8 +271,12 @@ public class JDBCExpressionFactory
         return CURRENT_TIMESTAMP;
     }
 
-    public Parameter newParameter(String name, Class type) {
+    public Parameter newParameter(Object name, Class type) {
         return new Param(name, type);
+    }
+
+    public Parameter newCollectionValuedParameter(Object key, Class type) {
+        return new CollectionParam(key, type);
     }
 
     public Value newExtension(FilterListener listener, Value target,
@@ -390,6 +399,28 @@ public class JDBCExpressionFactory
         return new Size((Val) val);
     }
 
+    public Value index(Value val) {
+        ((PCPath) val).verifyIndexedField();
+        return new Index((Val) val);
+    }
+
+    public Value type(Value val) {
+        return new Type((Val) val);
+    }
+
+    public Value mapEntry(Value key, Value val) {
+        return new MapEntry((Val) key, (Val) val);
+    }
+
+    public Value mapKey(Value key, Value val) {
+        return new MapKey((Val) key);
+    }
+
+    public Value getKey(Value val) {
+        ((PCPath) val).getKey();
+        return val;
+    }
+
     public Value getObjectId(Value val) {
         if (val instanceof Const)
             return new ConstGetObjectId((Const) val);
@@ -399,5 +430,84 @@ public class JDBCExpressionFactory
     public Value getMapValue(Value map, Value arg) {
         return new GetMapValue((Val) map, (Val) arg, 
             "gmv" + _getMapValueAlias++);
+    }
+
+    public Value simpleCaseExpression(Value caseOperand, Expression[] exp,
+            Value val1) {
+        Exp[] exps = new Exp[exp.length];
+        for (int i = 0; i < exp.length; i++)
+            exps[i] = (Exp) exp[i];
+        if (val1 instanceof Lit) {
+            Lit val = (Lit) val1;
+            StringBuffer value = new StringBuffer(val.getValue().toString());
+            if (val.getParseType() == Literal.TYPE_SQ_STRING)
+                value.insert(0, "'").append("'");
+            val.setValue(new Raw(value.toString()));
+        }
+        return new SimpleCaseExpression((Val) caseOperand, exps,
+            (Val) val1);
+    }
+
+    public Value generalCaseExpression(Expression[] exp,
+            Value val) {
+        Exp[] exps = new Exp[exp.length];
+        for (int i = 0; i < exp.length; i++)
+            exps[i] = (Exp) exp[i];
+        return new GeneralCaseExpression(exps, (Val) val);
+    }
+
+    public Expression whenCondition(Expression exp, Value val) {
+        return new WhenCondition((Exp) exp, (Val) val);
+    }
+
+    public Expression whenScalar(Value val1, Value val2) {
+        if (val1 instanceof Lit) {
+            Lit val = (Lit) val1;
+            StringBuffer value = new StringBuffer(val.getValue().toString());
+            if (val.getParseType() == Literal.TYPE_SQ_STRING)
+                value.insert(0, "'").append("'");
+            val.setValue(new Raw(value.toString()));
+        }
+        if (val2 instanceof Lit) {
+            Lit val = (Lit) val2;
+            StringBuffer value = new StringBuffer(val.getValue().toString());
+            if (val.getParseType() == Literal.TYPE_SQ_STRING)
+                value.insert(0, "'").append("'");
+            val.setValue(new Raw(value.toString()));
+        }
+        return new WhenScalar((Val) val1, (Val) val2);
+    }
+
+    public Value coalesceExpression(Value[] vals) {;
+        Object[] values = new Val[vals.length];
+        for (int i = 0; i < vals.length; i++) {
+            if (vals[i] instanceof Lit) {
+                Lit val = (Lit) vals[i];
+                StringBuffer value = new StringBuffer(val.getValue().toString());
+                if (val.getParseType() == Literal.TYPE_SQ_STRING)
+                    value.insert(0, "'").append("'");
+                val.setValue(new Raw(value.toString()));
+            }
+            values[i] = vals[i];
+        }
+        return new CoalesceExpression((Val[]) values);
+    }
+
+    public Value nullIfExpression(Value val1, Value val2) {
+        if (val1 instanceof Lit) {
+            Lit val = (Lit) val1;
+            StringBuffer value = new StringBuffer(val.getValue().toString());
+            if (val.getParseType() == Literal.TYPE_SQ_STRING)
+                value.insert(0, "'").append("'");
+            val.setValue(new Raw(value.toString()));
+        }
+        if (val2 instanceof Lit) {
+            Lit val = (Lit) val2;
+            StringBuffer value = new StringBuffer(val.getValue().toString());
+            if (val.getParseType() == Literal.TYPE_SQ_STRING)
+                value.insert(0, "'").append("'");
+            val.setValue(new Raw(value.toString()));
+        }
+        return new NullIfExpression((Val) val1, (Val) val2);
     }
 }

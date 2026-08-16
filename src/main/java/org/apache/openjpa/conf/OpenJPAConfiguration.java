@@ -24,23 +24,25 @@ import java.util.Map;
 import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.datacache.DataCacheManager;
 import org.apache.openjpa.ee.ManagedRuntime;
+import org.apache.openjpa.enhance.RuntimeUnenhancedClasssesModes;
+import org.apache.openjpa.event.BrokerFactoryEventManager;
 import org.apache.openjpa.event.OrphanedKeyAction;
 import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.RemoteCommitProvider;
 import org.apache.openjpa.kernel.AutoClear;
 import org.apache.openjpa.kernel.AutoDetach;
-import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.ConnectionRetainModes;
 import org.apache.openjpa.kernel.FetchConfiguration;
+import org.apache.openjpa.kernel.FinderCache;
 import org.apache.openjpa.kernel.InverseManager;
 import org.apache.openjpa.kernel.LockManager;
+import org.apache.openjpa.kernel.PreparedQueryCache;
 import org.apache.openjpa.kernel.QueryFlushModes;
 import org.apache.openjpa.kernel.RestoreState;
 import org.apache.openjpa.kernel.SavepointManager;
 import org.apache.openjpa.kernel.Seq;
-import org.apache.openjpa.event.BrokerFactoryEventManager;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.lib.conf.Configuration;
@@ -212,20 +214,50 @@ public interface OpenJPAConfiguration
     public Collection supportedOptions();
 
     /**
-     * A configuration can be set with defaults for a specific specification.
+     * Get a name of the Specification. Specification determines various 
+     * important default behaviors.
      */
     public String getSpecification();
     
     /**
-     * Set the specification that this configuration should use for the
-     * various properties that need to have different defaults for different
-     * spec environments. This should be invoked before any configuration
-     * options are set, as it will mutate various values.
-     * You can only assign the specification once, though it is not fatal
-     * to attempt to do so multiple times. Attempts to set to null will
-     * be ignored.
+     * Get the Specification. Specification determines various important default 
+     * behaviors.
+     * 
+     * @since 2.0.0
      */
-    public boolean setSpecification(String spec);
+    public Specification getSpecificationInstance();
+    
+    /**
+     * Set the Specification for this configuration.
+     * Specification determines various default properties and behavior.
+     * For example, {@link Compatibility compatibility} options during runtime.
+     *   
+     * This change will trigger all registered Product Derivations to mutate 
+     * other configuration properties.
+     *
+     * @param fullname of the specification that possibly encodes major and
+     * minor version information. For encoding format
+     * @see Specification
+     * 
+     * @since 1.1.0
+     */
+    public void setSpecification(String spec);
+    
+    /**
+     * Set the Specification for this configuration.
+     * Specification determines various default properties and behavior.
+     * For example, {@link Compatibility compatibility} options during runtime.
+     *   
+     * This change will trigger all registered Product Derivations to mutate 
+     * other configuration properties.
+     *
+     * @param fullname of the specification that possibly encodes major and
+     * minor version information. For encoding format
+     * @see Specification
+     * 
+     * @since 2.0.0
+     */
+    public void setSpecification(Specification spec);
 
     /**
      * The plugin string for the {@link ClassResolver} to use for custom
@@ -1171,6 +1203,22 @@ public interface OpenJPAConfiguration
     public void setLockTimeout(Integer timeout);
 
     /**
+     * The time to wait for a query to execute in milliseconds, or -1 for no
+     * timeout.
+     *
+     * @since 2.0.0
+     */
+    public int getQueryTimeout();
+
+    /**
+     * The time to wait for a query to execute in milliseconds, or -1 for no
+     * timeout.
+     *
+     * @since 0.3.1
+     */
+    public void setQueryTimeout(int timeout);
+
+    /**
      * The default read lock level to use during non-optimistic transactions.
      * Defaults to <code>read</code>.
      *
@@ -1399,6 +1447,28 @@ public interface OpenJPAConfiguration
 	 * Backwards compatibility options.
 	 */
 	public Compatibility getCompatibilityInstance ();
+	
+	/**
+	 * Options for configuring callbacks as a String.
+     *
+     * @since 2.0.0
+	 */
+	public String getCallbackOptions();
+
+	/**
+	 * Options for configuring callbacks.
+	 * 
+	 * @since 2.0.0
+	 */
+	public CallbackOptions getCallbackOptionsInstance();
+	
+    /**
+     * Options for configuring callbacks set as a comma-separated string value
+     * pair.
+     * 
+     * @since 2.0.0
+     */
+	public void setCallbackOptions(String options);
 
     /**
      * Configuration settings for the query compilation cache to use. 
@@ -1510,4 +1580,69 @@ public interface OpenJPAConfiguration
      * @since 1.1.0 
      */
     public Map getCacheMarshallerInstances();
+    
+    /**
+     * Affirms if all configured elements are initialized eagerly as opposed
+     * to lazily on-demand.
+     * 
+     * @since 1.3.0
+     */
+    public boolean isInitializeEagerly();
+    
+    /**
+     * Sets whether all configured elements will be initialized eagerly or
+     * lazily on-demand.
+     * 
+     * @since 1.3.0
+     */
+    public void setInitializeEagerly(boolean flag);
+    
+    /**
+     * Return PreparedQueryCache used for caching datastore queries.
+     * 
+     * @since 2.0.0
+     */
+    public PreparedQueryCache getQuerySQLCacheInstance();
+        
+    /**
+     * Gets the configuration of QuerySQLCache.
+     * 
+     * @since 2.0.0
+     */
+    public String getQuerySQLCache();
+    
+    /**
+     * Sets QuerySQLCache with the given cache.
+     * 
+     * @since 2.0.0
+     */
+    public void setQuerySQLCache(PreparedQueryCache cache);   
+    
+    /**
+     * Sets QuerySQLCache with the given configuration.
+     * 
+     * @since 2.0.0
+     */
+    public void setQuerySQLCache(String config);    
+    
+    /**
+     * Get the cache of finder queries.
+     * 
+     * @since 2.0.0
+     */
+    public FinderCache getFinderCacheInstance();
+    
+    /**
+     * Get the string configuration of the finder cache.
+     * 
+     * @since 2.0.0
+     */
+    public String getFinderCache();
+    
+    /**
+     * Set the finder cache from a string configuration. 
+     * 
+     * @since 2.0.0
+     */
+    public void setFinderCache(String cache);
 }

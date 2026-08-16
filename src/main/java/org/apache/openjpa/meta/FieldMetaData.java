@@ -142,6 +142,7 @@ public class FieldMetaData
     private String _fullName = null;
     private String _embedFullName = null;
     private int _resMode = MODE_NONE;
+    private String _mappedByIdValue = null;
 
     // load/store info
     private String[] _comments = null;
@@ -209,6 +210,7 @@ public class FieldMetaData
     private String _orderDec = null;
     // indicate if this field is used by other field as "order by" value 
     private boolean _usedInOrderBy = false;
+    private boolean _isElementCollection = false;
 
     /**
      * Constructor.
@@ -347,6 +349,14 @@ public class FieldMetaData
                     getFieldMetaData().getFullName(true) + "." + _fullName;
         }
         return (embedOwner) ? _embedFullName : _fullName;
+    }
+
+    /**
+     * The field name, qualified by the defining class.
+     */
+    public String getRealName() {
+    	// Added to support OPENJPA-704
+        return getDefiningMetaData().getDescribedType().getName() + "." + _name;
     }
 
     /**
@@ -555,7 +565,7 @@ public class FieldMetaData
      */
     public Class getObjectIdFieldType() {
         ClassMetaData relmeta = getDeclaredTypeMetaData();
-        if (relmeta == null)
+        if (relmeta == null || getValue().isEmbedded())
             return getDeclaredType();
         switch (relmeta.getIdentityType()) {
             case ClassMetaData.ID_DATASTORE:
@@ -835,7 +845,7 @@ public class FieldMetaData
             }
 
             FieldMetaData field = (meta == null) ? null
-                : meta.getField(_mappedBy);
+                : getMappedByField(meta, _mappedBy);
             if (field == null)
                 throw new MetaDataException(_loc.get("no-mapped-by", this,
                     _mappedBy));
@@ -847,6 +857,25 @@ public class FieldMetaData
         return _mappedByMeta;
     }
 
+    public FieldMetaData getMappedByField(ClassMetaData meta, String mappedBy) {
+        FieldMetaData field = meta.getField(mappedBy);
+        if (field != null)
+            return field;
+        int dotIdx = mappedBy.indexOf("."); 
+        if ( dotIdx == -1)
+            return null;
+        String fieldName = mappedBy.substring(0, dotIdx);
+        FieldMetaData field1 = meta.getField(fieldName);
+        if (field1 == null)
+            return null;
+        ClassMetaData meta1 = field1.getEmbeddedMetaData();
+        if (meta1 == null)
+            return null;
+        String mappedBy1 = mappedBy.substring(dotIdx + 1);
+        return getMappedByField(meta1, mappedBy1);
+    }
+    
+    
     /**
      * Logical inverse field.
      */
@@ -883,6 +912,7 @@ public class FieldMetaData
                     break;
                 case JavaTypes.ARRAY:
                 case JavaTypes.COLLECTION:
+                case JavaTypes.MAP:
                     meta = _elem.getTypeMetaData();
                     break;
             }
@@ -1985,6 +2015,14 @@ public class FieldMetaData
     public void setCascadeAttach(int attach) {
         _val.setCascadeAttach(attach);
     }
+    
+    public int getCascadeDetach() {
+        return _val.getCascadeDetach();
+    }
+
+    public void setCascadeDetach(int detach) {
+        _val.setCascadeDetach(detach);
+    }
 
     public int getCascadeRefresh() {
         return _val.getCascadeRefresh();
@@ -2079,12 +2117,12 @@ public class FieldMetaData
             String memberName = (String) in.readObject();
             try {
                 if (isField)
-                    _member = (Field) AccessController.doPrivileged(
+                    _member = AccessController.doPrivileged(
                         J2DoPrivHelper.getDeclaredFieldAction(
                             cls, memberName)); 
                 else {
                     Class[] parameterTypes = (Class[]) in.readObject();
-                    _member = (Method) AccessController.doPrivileged(
+                    _member = AccessController.doPrivileged(
                         J2DoPrivHelper.getDeclaredMethodAction(
                             cls, memberName, parameterTypes));
                 }
@@ -2117,5 +2155,25 @@ public class FieldMetaData
 
     public void setValueGenerated(boolean generated) {
         this._generated = generated;
+    }
+
+    public boolean isElementCollection() {
+        return _isElementCollection;
+    }
+
+    public void setElementCollection(boolean isElementCollection) {
+        this._isElementCollection = isElementCollection;
+    }
+
+    public String getMappedByIdValue() {
+        return _mappedByIdValue;
+    }
+
+    public void setMappedByIdValue(String mappedByIdValue) {
+        this._mappedByIdValue = mappedByIdValue;
+    }
+    
+    public boolean isMappedById() {
+    	return (_mappedByIdValue != null);
     }
 }

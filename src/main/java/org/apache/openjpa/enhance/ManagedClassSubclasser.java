@@ -43,6 +43,7 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.GeneratedClasses;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
+import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.UserException;
 import serp.bytecode.BCClass;
 
@@ -133,10 +134,16 @@ public class ManagedClassSubclasser {
 
             // set this before enhancement as well as after since enhancement
             // uses a different metadata repository, and the metadata config
-            // matters in the enhancement contract. Don't do any warning here,
+            // matters in the enhancement contract. In order to avoid a 
+            // NullPointerException, check for no metadata and throw an
+            // exception if none exists. Otherwise, don't do any warning here,
             // since we'll issue warnings when we do the final metadata
             // reconfiguration at the end of this method.
-            configureMetaData(enhancer.getMetaData(), conf, redefine, false);
+            ClassMetaData meta = enhancer.getMetaData();
+            if (meta == null) {
+                throw new MetaDataException(_loc.get("no-meta", cls)).setFatal(true);
+            }
+            configureMetaData(meta, conf, redefine, false);
 
             unspecified = collectRelatedUnspecifiedTypes(enhancer.getMetaData(),
                 classes, unspecified);
@@ -196,7 +203,8 @@ public class ManagedClassSubclasser {
     private static Set<Class> collectUnspecifiedType(Class cls,
         Collection<? extends Class> classes, Set<Class> unspecified) {
         if (cls != null && !classes.contains(cls)
-            && !ImplHelper.isManagedType(null, cls)) {
+            && !ImplHelper.isManagedType(null, cls)
+            && !cls.isInterface()) {
             if (unspecified == null)
                 unspecified = new HashSet<Class>();
             unspecified.add(cls);

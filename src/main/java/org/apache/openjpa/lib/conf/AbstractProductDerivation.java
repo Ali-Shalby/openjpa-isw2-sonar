@@ -19,8 +19,9 @@
 package org.apache.openjpa.lib.conf;
 
 import java.io.File;
-import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Abstract no-op product derivation for easy extension.
@@ -64,11 +65,11 @@ public abstract class AbstractProductDerivation
         return null;
     }
 
-    public List getAnchorsInFile(File file) throws Exception {
+    public List<String> getAnchorsInFile(File file) throws Exception {
         return null;
     }
 
-    public List getAnchorsInResource(String resource) throws Exception {
+    public List<String> getAnchorsInResource(String resource) throws Exception {
         return null;
     }
 
@@ -85,5 +86,9 @@ public abstract class AbstractProductDerivation
     }
     
     public void beforeConfigurationClose(Configuration conf) {
+    }
+        
+    public Set<String> getSupportedQueryHints() {
+        return Collections.EMPTY_SET;
     }
 }

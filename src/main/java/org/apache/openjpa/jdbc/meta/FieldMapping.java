@@ -19,10 +19,14 @@
 package org.apache.openjpa.jdbc.meta;
 
 import java.sql.SQLException;
+import java.util.List;
 
+import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.strats.NoneFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.PrimitiveFieldStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
@@ -38,13 +42,16 @@ import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.jdbc.sql.SelectExecutor;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.kernel.StateManagerImpl;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
-import org.apache.tools.ant.taskdefs.condition.IsReference;
+import org.apache.openjpa.util.ObjectId;
 
 /**
  * Specialization of metadata for relational databases.
@@ -142,6 +149,23 @@ public class FieldMapping
             return _fk.getTable();
         if (_val.getForeignKey() != null)
             return _val.getForeignKey().getTable();
+        
+        // if this is a map of bi-directional relation,
+        // the column of this field should be in the table 
+        // of the entity that is the value of the map
+        if (_val.getDeclaredTypeCode() == JavaTypes.MAP) {
+            ClassMapping meta = _elem.getDeclaredTypeMapping();
+            if (meta != null)
+                return meta.getTable();
+        }
+        
+        ValueMappingImpl vm = (ValueMappingImpl)getDefiningMapping().
+            getEmbeddingMetaData();
+        if (vm != null && vm.getValueMappedBy() != null) {
+            return vm.getFieldMapping().getElementMapping().
+                getDeclaredTypeMapping().getTable();
+        }
+        
         return getDefiningMapping().getTable();
     }
 
@@ -579,7 +603,79 @@ public class FieldMapping
 
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
+    	setPKValueFromMappedByIdField(sm);
         assertStrategy().insert(sm, store, rm);
+    }
+
+    private void setPKValueFromMappedByIdField(OpenJPAStateManager sm) {
+        if (sm instanceof StateManagerImpl) {
+            List mappedByIdFields = ((StateManagerImpl)sm).
+                getMappedByIdFields();
+            if (mappedByIdFields == null)
+                return;
+            if (!mappedByIdFields.contains(this))
+                return;
+            if (!isMappedById()) 
+                return;
+            PersistenceCapable pc = (PersistenceCapable)sm.
+                fetchObject(getIndex());
+            if (pc == null)
+                return;
+            StateManagerImpl pkSm = (StateManagerImpl)pc.
+                pcGetStateManager();
+            Object pkVal = getPKValue(pkSm);
+            if (pkVal == null)
+                return;
+            setPKValue((StateManagerImpl)sm, pkVal);
+            sm.setObjectId(
+            ApplicationIds.create(sm.getPersistenceCapable(), 
+                sm.getMetaData()));
+        }
+    }
+    
+    private Object getPKValue(StateManagerImpl pkSm) {
+        ClassMetaData pkMeta = pkSm.getMetaData();
+        FieldMetaData[] fmds = pkMeta.getPrimaryKeyFields();
+        // MappedById is for single value primary key or embeddable id
+        if (fmds.length == 0)
+            return null;
+        else 
+            return ApplicationIds.getKey(pkSm.getObjectId(), pkMeta);
+    }
+    
+    private void setPKValue(StateManagerImpl sm, Object pkVal) {
+        ClassMetaData meta = sm.getMetaData();
+        FieldMetaData[] fmds = meta.getPrimaryKeyFields();
+        if (fmds.length == 0)
+            return;
+
+        Strategy strat = ((FieldMapping)fmds[0]).getStrategy();
+        // single value primary key
+        if (strat instanceof PrimitiveFieldStrategy) 
+            ((PrimitiveFieldStrategy)strat).setAutoAssignedValue(sm, null, null,
+            pkVal);
+        else {
+            //composite key
+            String mappedByIdFieldName = getMappedByIdValue();
+            if (mappedByIdFieldName != null && 
+                mappedByIdFieldName.length() > 0) {
+                //The name of the attribute within the composite key to which 
+                //the relationship attribute corresponds.
+                Object target = ((ObjectId)sm.getObjectId()).getId();
+                if (target == null)
+                    return;
+                setMappedByIdValue(target, pkVal, mappedByIdFieldName);
+                pkVal = target;
+            }
+            sm.storeObjectField(fmds[0].getIndex(), pkVal);
+        }
+    }
+    
+    public void setMappedByIdValue(Object target, 
+        Object val, String mappedByIdFieldName) {
+        Reflection.set(target, 
+            Reflection.findField(target.getClass(), mappedByIdFieldName, true), 
+            val);
     }
 
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
@@ -848,6 +944,14 @@ public class FieldMapping
 
     public void appendSize(SQLBuffer sql, Select sel, Joins joins) {
         assertStrategy().appendSize(sql, sel, joins);
+    }
+
+    public void appendIndex(SQLBuffer sql, Select sel, Joins joins) {
+        assertStrategy().appendIndex(sql, sel, joins);
+    }
+
+    public void appendType(SQLBuffer sql, Select sel, Joins joins) {
+        assertStrategy().appendType(sql, sel, joins);
     }
 
     public Joins join(Joins joins, boolean forceOuter) {

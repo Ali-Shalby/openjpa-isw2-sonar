@@ -18,41 +18,49 @@
  */
 package org.apache.openjpa.persistence;
 
+import static org.apache.openjpa.kernel.QueryLanguages.LANG_PREPARED_SQL;
+
 import java.io.Serializable;
-import java.lang.reflect.Method;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 import javax.persistence.FlushModeType;
+import javax.persistence.LockModeType;
+import javax.persistence.NoResultException;
+import javax.persistence.NonUniqueResultException;
 import javax.persistence.Query;
 import javax.persistence.TemporalType;
-import javax.swing.text.Position;
 
-import org.apache.commons.collections.map.LinkedMap;
-import org.apache.openjpa.enhance.Reflection;
+import org.apache.openjpa.conf.OpenJPAConfiguration;
+import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.DelegatingQuery;
 import org.apache.openjpa.kernel.DelegatingResultList;
-import org.apache.openjpa.kernel.Filters;
+import org.apache.openjpa.kernel.FetchConfiguration;
+import org.apache.openjpa.kernel.PreparedQuery;
+import org.apache.openjpa.kernel.PreparedQueryCache;
 import org.apache.openjpa.kernel.QueryLanguages;
 import org.apache.openjpa.kernel.QueryOperations;
+import org.apache.openjpa.kernel.QueryStatistics;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
+import org.apache.openjpa.kernel.jpql.JPQLParser;
+import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.rop.ResultList;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Implementation of {@link Query} interface.
@@ -63,33 +71,33 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  */
 public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 
-	private static final Object[] EMPTY_ARRAY = new Object[0];
-
+    private static final List EMPTY_LIST = new ArrayList(0);
+    private static final String SELECT = "SELECT ";
 	private static final Localizer _loc = Localizer.forPackage(QueryImpl.class);
 
-	private final DelegatingQuery _query;
+	private DelegatingQuery _query;
 	private transient EntityManagerImpl _em;
 	private transient FetchPlan _fetch;
 
 	private Map<String, Object> _named;
 	private Map<Integer, Object> _positional;
-
-	private static Object GAP_FILLER = new Object();
+	private String _id;
+    private transient ReentrantLock _lock = null;
+	private final HintHandler _hintHandler;
 
 	/**
 	 * Constructor; supply factory exception translator and delegate.
 	 * 
-	 * @param em
-	 *            The EntityManager which created this query
-	 * @param ret
-	 *            Exception translater for this query
-	 * @param query
-	 *            The underlying "kernel" query.
+	 * @param em  The EntityManager which created this query
+	 * @param ret Exception translator for this query
+	 * @param query The underlying "kernel" query.
 	 */
 	public QueryImpl(EntityManagerImpl em, RuntimeExceptionTranslator ret,
 			org.apache.openjpa.kernel.Query query) {
 		_em = em;
 		_query = new DelegatingQuery(query, ret);
+		_hintHandler = new HintHandler(this);
+		_lock = new ReentrantLock();
 	}
 
 	/**
@@ -245,169 +253,26 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 		_query.compile();
 		return this;
 	}
-
+	
 	private Object execute() {
-		if (_query.getOperation() != QueryOperations.OP_SELECT)
+		if (!isNative() && _query.getOperation() != QueryOperations.OP_SELECT)
 			throw new InvalidStateException(_loc.get("not-select-query", _query
 					.getQueryString()), null, null, false);
-
-		validateParameters();
-
-		// handle which types of parameters we are using, if any
-		if (_positional != null)
-			return _query.execute(_positional);
-		if (_named != null)
-			return _query.execute(_named);
-		return _query.execute();
-	}
-	
-	/**
-	 * Validate that the types of the parameters are correct.
-	 * The idea is to catch as many validation error as possible at the facade
-	 * layer itself.
-	 * 
-	 * The expected parameters are parsed from the query and in a LinkedMap 
-	 *	key   : name of the parameter as declared in query
-	 *  value : expected Class of allowed value
-	 *  
-	 * The bound parameters depends on positional or named parameter style
-	 * 
-	 * TreeMap<Integer, Object> for positional parameters:
-	 *   key   : 1-based Integer index
-	 *   value : bound value. GAP_FILLER if the position is not set. This
-	 *   simplifies validation at the kernel layer
-	 *   
-	 * Map<String, Object> for named parameters:
-	 *   key   : parameter name
-	 *   value : the bound value
-	 *   
-	 *  Validation accounts for 
-	 *    a) gaps in positional parameters
-	 *       SELECT p FROM PObject p WHERE p.a1=?1 AND p.a3=?3
-	 *    
-	 *    b) repeated parameters
-	 *       SELECT p FROM PObject p WHERE p.a1=?1 AND p.a2=?1 AND p.a3=?2
-	 *       
-	 *    c) parameter is bound but not declared
-	 *    
-	 *    d) parameter is declared but not bound
-	 *    
-	 *    e) parameter does not match the value type
-	 *    
-	 *    f) parameter is primitive type but bound to null value
-	 */
-	private void validateParameters() {
-		String query = getQueryString();
-		if (_positional != null) {
-			LinkedMap expected = _query.getParameterTypes();
-			Map<Integer, Object> actual = _positional;
-			for (Object o : expected.keySet()) {
-				String position = (String) o;
-				Class expectedParamType = (Class) expected.get(position);
-				try {
-					Integer.parseInt(position);
-				} catch (NumberFormatException ex) {
-					newValidationException("param-style-mismatch", query,
-							expected.asList(),
-							Arrays.toString(actual.keySet().toArray()));
-				}
-				Object actualValue = actual.get(Integer.parseInt(position));
-				boolean valueUnspecified = (actualValue == GAP_FILLER)
-						|| (actualValue == null && (actual.size() < expected
-								.size()));
-				if (valueUnspecified) 
-					newValidationException("param-missing", position, query,
-							Arrays.toString(actual.keySet().toArray()));
-				
-				if (expectedParamType.isPrimitive() && actualValue == null)
-					newValidationException("param-type-null", 
-							position, query, expectedParamType.getName());
-				if (actualValue != null &&
-				   !Filters.wrap(expectedParamType).isInstance(actualValue)) 
-					newValidationException("param-type-mismatch",
-							position, query, actualValue,
-							actualValue.getClass().getName(),
-							expectedParamType.getName());
-				
-			}
-			for (Integer position : actual.keySet()) {
-				Object actualValue = actual.get(position);
-				Class expectedParamType = (Class) expected.get("" + position);
-				boolean paramExpected = expected.containsKey("" + position);
-				if (actualValue == GAP_FILLER) {
-					if (paramExpected) {
-						newValidationException("param-missing", position, query,
-								Arrays.toString(actual.keySet().toArray()));
-					}
-				} else {
-					if (!paramExpected)
-						newValidationException("param-extra", position, query,
-								expected.asList());
-					if (expectedParamType.isPrimitive() && actualValue == null)
-						newValidationException("param-type-null", 
-								position, query, expectedParamType.getName());
-					if (actualValue != null 
-					 && !Filters.wrap(expectedParamType).isInstance(actualValue)) 
-						newValidationException("param-type-mismatch",
-								position, query, actualValue,
-								actualValue.getClass().getName(),
-								expectedParamType.getName());
-					
-				}
-			}
-
-		} else if (_named != null) {
-			LinkedMap expected = _query.getParameterTypes();
-			// key : name of the parameter used while binding
-			// value : user supplied parameter value. null may mean either
-			// user has supplied a value or not specified at all
-			Map<String, Object> actual = _named;
-			for (Object o : expected.keySet()) {
-				String expectedName = (String) o;
-				Class expectedParamType = (Class) expected.get(expectedName);
-				Object actualValue = actual.get(expectedName);
-				boolean valueUnspecified = !actual.containsKey(expectedName);
-				if (valueUnspecified) {
-					newValidationException("param-missing", expectedName, query,
-							Arrays.toString(actual.keySet().toArray()));
-				}
-				if (expectedParamType.isPrimitive() && actualValue == null)
-					newValidationException("param-type-null", 
-							expectedName, query, expectedParamType.getName());
-				if (actualValue != null 
-				 && !Filters.wrap(expectedParamType).isInstance(actualValue)) {
-					newValidationException("param-type-mismatch",
-							expectedName, query, actualValue,
-							actualValue.getClass().getName(),
-							expectedParamType.getName());
-				}
-			}
-			for (String actualName : actual.keySet()) {
-				Object actualValue = actual.get(actualName);
-				Class expectedParamType = (Class) expected.get(actualName);
-				boolean paramExpected = expected.containsKey(actualName);
-				if (!paramExpected) {
-					newValidationException("param-extra", actualName, query,
-							expected.asList());
-				}
-				if (expectedParamType.isPrimitive() && actualValue == null)
-					newValidationException("param-type-null", 
-							actualName, query, expectedParamType.getName());
-				if (actualValue != null 
-				 && !Filters.wrap(expectedParamType).isInstance(actualValue)) {
-					newValidationException("param-type-mismatch",
-							actualName, query, actualValue,
-							actualValue.getClass().getName(),
-							expectedParamType.getName());
-				}
-			}
+		try {
+		    lock();
+            Map params = _positional != null ? _positional 
+                : _named != null ? _named : new HashMap();
+            boolean registered = preExecute(params);
+            Object result = _query.execute(params);
+            if (registered) {
+                postExecute(result);
+            }
+            return result;
+		} finally {
+		    unlock();
 		}
 	}
-
-	void newValidationException(String msgKey, Object...args) {
-		throw new ArgumentException(_loc.get(msgKey, args), null, null, false);
-	}
-
+	
 	public List getResultList() {
 		_em.assertNotCloseInvoked();
 		Object ob = execute();
@@ -428,14 +293,19 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 	 */
 	public Object getSingleResult() {
 		_em.assertNotCloseInvoked();
-		// temporarily set query to unique so that a single result is validated
-		// and returned; unset again in case the user executes query again
-		// via getResultList
-		_query.setUnique(true);
+		setHint("openjpa.hint.OptimizeResultCount", 1); // for DB2 optimization
+		List result = getResultList();
+		if (result == null || result.isEmpty())
+			throw new NoResultException(_loc.get("no-result", getQueryString())
+				.getMessage());
+		if (result.size() > 1)
+			throw new NonUniqueResultException(_loc.get("non-unique-result",
+				getQueryString(), result.size()).getMessage());
 		try {
-			return execute();
-		} finally {
-			_query.setUnique(false);
+		    return result.get(0);
+		} catch (Exception e) {
+            throw new NoResultException(_loc.get("no-result", getQueryString())
+                .getMessage());
 		}
 	}
 
@@ -482,72 +352,6 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 		_query.getFetchConfiguration().setFlushBeforeQueries(
 				EntityManagerImpl.toFlushBeforeQueries(flushMode));
 		return this;
-	}
-
-	public OpenJPAQuery setHint(String key, Object value) {
-		_em.assertNotCloseInvoked();
-		if (key == null || !key.startsWith("openjpa."))
-			return this;
-		String k = key.substring("openjpa.".length());
-
-		try {
-			if ("Subclasses".equals(k)) {
-				if (value instanceof String)
-					value = Boolean.valueOf((String) value);
-				setSubclasses(((Boolean) value).booleanValue());
-			} else if ("FilterListener".equals(k))
-				addFilterListener(Filters.hintToFilterListener(value, _query
-						.getBroker().getClassLoader()));
-			else if ("FilterListeners".equals(k)) {
-				FilterListener[] arr = Filters.hintToFilterListeners(value,
-						_query.getBroker().getClassLoader());
-				for (int i = 0; i < arr.length; i++)
-					addFilterListener(arr[i]);
-			} else if ("AggregateListener".equals(k))
-				addAggregateListener(Filters.hintToAggregateListener(value,
-						_query.getBroker().getClassLoader()));
-			else if ("FilterListeners".equals(k)) {
-				AggregateListener[] arr = Filters.hintToAggregateListeners(
-						value, _query.getBroker().getClassLoader());
-				for (int i = 0; i < arr.length; i++)
-					addAggregateListener(arr[i]);
-			} else if (k.startsWith("FetchPlan.")) {
-				k = k.substring("FetchPlan.".length());
-				hintToSetter(getFetchPlan(), k, value);
-			} else if (k.startsWith("hint.")) {
-				if ("hint.OptimizeResultCount".equals(k)) {
-					if (value instanceof String) {
-						try {
-							value = new Integer((String) value);
-						} catch (NumberFormatException nfe) {
-						}
-					}
-					if (!(value instanceof Number)
-							|| ((Number) value).intValue() < 0)
-						throw new ArgumentException(_loc.get(
-								"bad-query-hint-value", key, value), null,
-								null, false);
-				}
-				_query.getFetchConfiguration().setHint(key, value);
-			} else
-				throw new ArgumentException(_loc.get("bad-query-hint", key),
-						null, null, false);
-			return this;
-		} catch (Exception e) {
-			throw PersistenceExceptions.toPersistenceException(e);
-		}
-	}
-
-	private void hintToSetter(FetchPlan fetchPlan, String k, Object value) {
-		if (fetchPlan == null || k == null)
-			return;
-
-		Method setter = Reflection.findSetter(fetchPlan.getClass(), k, true);
-		Class paramType = setter.getParameterTypes()[0];
-		if (Enum.class.isAssignableFrom(paramType) && value instanceof String)
-			value = Enum.valueOf(paramType, (String) value);
-
-		Filters.hintToSetter(fetchPlan, k, value);
 	}
 
 	public OpenJPAQuery setParameter(int position, Calendar value,
@@ -603,10 +407,6 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 				_positional = new TreeMap<Integer, Object>();
 
 			_positional.put(position, value);
-			for (int i = 1; i < position; i++)
-				if (!_positional.containsKey(i))
-					_positional.put(i, GAP_FILLER);
-
 			return this;
 		} finally {
 			_query.unlock();
@@ -654,21 +454,21 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 		return _positional != null;
 	}
 
-	/**
-	 * Gets the array of positional parameter values. A value of
-	 * <code>GAP_FILLER</code> indicates that user has not set the
-	 * corresponding positional parameter. A value of null implies that user has
-	 * set the value as null.
-	 */
-	public Object[] getPositionalParameters() {
-		_query.lock();
-		try {
-			return (_positional == null) ? EMPTY_ARRAY : _positional.values()
-					.toArray();
-		} finally {
-			_query.unlock();
-		}
-	}
+    /**
+     * Gets the list of positional parameter values. A value of
+     * <code>GAP_FILLER</code> indicates that user has not set the
+     * corresponding positional parameter. A value of null implies that user has
+     * set the value as null.
+     */
+    public List getPositionalParameters() {
+        _query.lock();
+        try {
+            return (_positional == null) ? EMPTY_LIST : 
+                    new ArrayList<Object>(_positional.values());
+        } finally {
+            _query.unlock();
+        }
+    }
 
 	public OpenJPAQuery setParameters(Object... params) {
 		_query.assertOpen();
@@ -686,7 +486,7 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 		}
 	}
 
-	public Map getNamedParameters() {
+	public Map<String, Object> getNamedParameters() {
 		_query.lock();
 		try {
 			return (_named == null) ? Collections.EMPTY_MAP : Collections
@@ -721,6 +521,20 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 		return _query.getDataStoreActions(params);
 	}
 
+    public LockModeType getLockMode() {
+        assertQueryLanguage(JPQLParser.LANG_JPQL, 
+            QueryLanguages.LANG_PREPARED_SQL);
+        return _fetch.getReadLockMode();
+    }
+
+    public Query setLockMode(LockModeType lockMode) {
+        assertQueryLanguage(JPQLParser.LANG_JPQL, 
+            QueryLanguages.LANG_PREPARED_SQL);
+    
+       _fetch.setReadLockMode(lockMode);
+       return this;
+    }
+
 	public int hashCode() {
 		return _query.hashCode();
 	}
@@ -732,4 +546,168 @@ public class QueryImpl implements OpenJPAQuerySPI, Serializable {
 			return false;
 		return _query.equals(((QueryImpl) other)._query);
 	}
+
+	/**
+	 * Get all the active hints and their values.
+	 * 
+	 */
+    //TODO: JPA 2.0 Hints that are not set to FetchConfiguration 
+    public Map<String, Object> getHints() {
+        return _hintHandler.getHints();
+    }
+
+    public OpenJPAQuery setHint(String key, Object value) {
+        _em.assertNotCloseInvoked();
+        _hintHandler.setHint(key, value);
+        return this;
+    }
+
+    public Set<String> getSupportedHints() {
+        return _hintHandler.getSupportedHints();
+    }
+
+    /**
+     * Returns the innermost implementation that is an instance of the given 
+     * class. 
+     * 
+     * @throws PersistenceException if none in the delegate chain is an 
+     * instance of the given class.
+     * 
+     * @since 2.0.0
+     */
+    public <T> T unwrap(Class<T> cls) {
+        Object[] delegates = new Object[]{_query.getInnermostDelegate(), 
+            _query.getDelegate(), _query, this};
+        for (Object o : delegates) {
+            if (cls.isInstance(o))
+                return (T)o;
+        }
+        throw new PersistenceException(_loc.get("unwrap-query-invalid", cls)
+            .toString(), null, this, false);
+    }
+    
+    //
+    // Prepared Query Cache related methods
+    //
+    
+    /**
+     * Invoked before a query is executed.
+     * If this receiver is cached as a {@linkplain PreparedQuery prepared query}
+     * then re-parameterizes the given user parameters. The given map is cleared
+     * and re-parameterized values are filled in. 
+     * 
+     * @param params user supplied parameter key-values. Always supply a 
+     * non-null map even if the user has not specified any parameter, because 
+     * the same map will to be populated by re-parameterization.
+     * 
+     * @return true if this invocation caused the query being registered in the
+     * cache. 
+     */
+    private boolean preExecute(Map params) {
+        PreparedQueryCache cache = _em.getPreparedQueryCache();
+        if (cache == null) {
+            return false;
+        }
+        FetchConfiguration fetch = _query.getFetchConfiguration();
+        Boolean registered = cache.register(_id, _query, fetch);
+        boolean alreadyCached = (registered == null);
+        String lang = _query.getLanguage();
+        QueryStatistics<String> stats = cache.getStatistics();
+        if (alreadyCached && LANG_PREPARED_SQL.equals(lang)) {
+            PreparedQuery pq = _em.getPreparedQuery(_id);
+            if (pq.isInitialized()) {
+                try {
+                    Map rep = pq.reparametrize(params, _em.getBroker());
+                    params.clear();
+                    params.putAll(rep);
+                } catch (UserException ue) {
+                    invalidatePreparedQuery();
+                    Log log = _em.getConfiguration().getLog(
+                        OpenJPAConfiguration.LOG_RUNTIME);
+                    if (log.isWarnEnabled())
+                        log.warn(ue.getMessage());
+                    return false;
+                }
+            }
+            stats.recordExecution(pq.getOriginalQuery(), alreadyCached);
+        } else {
+            stats.recordExecution(_query.getQueryString(), alreadyCached);
+        }
+        return registered == Boolean.TRUE;
+    }
+    
+    /**
+     * Initialize the registered Prepared Query from the given opaque object.
+     * 
+     * @param result an opaque object representing execution result of a query
+     * 
+     * @return true if the prepared query can be initialized.
+     */
+    private boolean postExecute(Object result) {
+        PreparedQueryCache cache = _em.getPreparedQueryCache();
+        if (cache == null) {
+            return false;
+        }
+        return cache.initialize(_id, result) != null;
+    }
+    
+    /**
+     * Remove this query from PreparedQueryCache. 
+     */
+    boolean invalidatePreparedQuery() {
+        PreparedQueryCache cache = _em.getPreparedQueryCache();
+        if (cache == null)
+            return false;
+        ignorePreparedQuery();
+        return cache.invalidate(_id);
+    }
+    
+    /**
+     * Ignores this query from PreparedQueryCache by recreating the original
+     * query if it has been cached. 
+     */
+    void ignorePreparedQuery() {
+        PreparedQuery cached = _em.getPreparedQuery(_id);
+        if (cached == null)
+            return;
+        Broker broker = _em.getBroker();
+        // Critical assumption: Only JPQL queries are cached and more 
+        // importantly, the identifier of the prepared query is the original
+        // JPQL String
+        String JPQL = JPQLParser.LANG_JPQL;
+        String jpql = _id;
+        
+        org.apache.openjpa.kernel.Query newQuery = broker.newQuery(JPQL, jpql);
+        newQuery.getFetchConfiguration().copy(_query.getFetchConfiguration());
+        newQuery.compile();
+        _query = new DelegatingQuery(newQuery, _em.getExceptionTranslator());
+    }
+    
+    QueryImpl setId(String id) {
+        _id = id;
+        return this;
+    }
+    
+    void lock() {
+        if (_lock != null) 
+            _lock.lock();
+    }
+
+    void unlock() {
+        if (_lock != null)
+            _lock.unlock();
+    }
+
+    void assertQueryLanguage(String... langs) {
+        for (String lang : langs) {
+            if (lang.equals(getLanguage())) {
+                String q = _query.getQueryString();
+                if (q != null && q.length() > SELECT.length() 
+                 && SELECT.equalsIgnoreCase(q.substring(SELECT.length())))
+                 return;
+            }
+        }
+        throw new IllegalStateException(_loc.get("assert-query-language",
+            getLanguage()).toString());
+    }
 }

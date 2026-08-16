@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.sql.Array;
 import java.sql.BatchUpdateException;
 import java.sql.Blob;
+import java.sql.CallableStatement;
 import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -221,60 +222,107 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
 
         protected PreparedStatement prepareStatement(String sql, boolean wrap)
             throws SQLException {
+            SQLException err = null;
             try {
                 PreparedStatement stmnt = super.prepareStatement(sql, false);
                 return new LoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
-                throw wrap(se, sql);
+                err = wrap(se, sql);
+                throw err;
+            }  finally {
+                handleSQLErrors(err);
             }
         }
 
         protected PreparedStatement prepareStatement(String sql, int rsType,
             int rsConcur, boolean wrap) throws SQLException {
+            SQLException err = null;
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, rsType, rsConcur, false);
                 return new LoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
-                throw wrap(se, sql);
+                err =  wrap(se, sql);
+                throw err;
+            } finally {
+                handleSQLErrors(err);
             }
         }
 
         protected Statement createStatement(boolean wrap) throws SQLException {
-            Statement stmnt = super.createStatement(false);
-            return new LoggingStatement(stmnt);
+            SQLException err = null;
+            try {
+                Statement stmnt = super.createStatement(false);
+                return new LoggingStatement(stmnt);
+            }catch (SQLException se) {
+                err = se;
+                throw se;
+            } finally {
+                handleSQLErrors(err);
+            }
         }
 
         protected Statement createStatement(int type, int concurrency,
             boolean wrap) throws SQLException {
-            Statement stmnt = super.createStatement(type, concurrency, false);
-            return new LoggingStatement(stmnt);
+            SQLException err = null;
+            try {
+                Statement stmnt = super.createStatement(type, concurrency, 
+                    false);
+                return new LoggingStatement(stmnt);
+            } catch (SQLException se) {
+                err = se;
+                throw se;
+            } finally {
+                handleSQLErrors(err);
+            }
+        }
+        
+        protected CallableStatement prepareCall(String sql, boolean wrap) 
+            throws SQLException {
+            SQLException err = null;
+            try {
+                CallableStatement stmt = super.prepareCall(sql, wrap);
+                return new LoggingCallableStatement(stmt, sql);
+            } catch (SQLException se) {
+                err = wrap(se, sql);
+                throw err;
+            } finally {
+                handleSQLErrors(err);
+            }
         }
 
         public void commit() throws SQLException {
             long start = System.currentTimeMillis();
+            SQLException err = null;            
             try {
                 super.commit();
+            } catch (SQLException se) {
+                err = se;
+                throw se;
             } finally {
                 if (_logs.isJDBCEnabled())
                     _logs.logJDBC("commit", start, this);
-                handleSQLWarning();
+                handleSQLErrors(err);
             }
         }
 
         public void rollback() throws SQLException {
             long start = System.currentTimeMillis();
+            SQLException err = null;            
             try {
                 super.rollback();
+            } catch (SQLException se) {
+                err = se;
+                throw se;
             } finally {
                 if (_logs.isJDBCEnabled())
                     _logs.logJDBC("rollback", start, this);
-                handleSQLWarning();
+                handleSQLErrors(err);
             }
         }
 
         public void close() throws SQLException {
-            long start = System.currentTimeMillis();
+            long start = System.currentTimeMillis();       
             try {
                 super.close();
             } finally {
@@ -285,30 +333,42 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
 
         public Savepoint setSavepoint() throws SQLException {
             long start = System.currentTimeMillis();
+            SQLException err = null;            
             try {
                 return super.setSavepoint();
+            } catch (SQLException se) {
+                err = se;
+                throw se;
             } finally {
                 if (_logs.isJDBCEnabled())
                     _logs.logJDBC("savepoint", start, this);
-                handleSQLWarning();
+                handleSQLErrors(err);
             }
         }
 
         public Savepoint setSavepoint(String name) throws SQLException {
             long start = System.currentTimeMillis();
+            SQLException err = null;            
             try {
                 return super.setSavepoint(name);
+            } catch (SQLException se) {
+                err = se;
+                throw se;
             } finally {
                 if (_logs.isJDBCEnabled())
                     _logs.logJDBC("savepoint: " + name, start, this);
-                handleSQLWarning();
+                handleSQLErrors(err);
             }
         }
 
         public void rollback(Savepoint savepoint) throws SQLException {
             long start = System.currentTimeMillis();
+            SQLException err = null;            
             try {
                 super.rollback(savepoint);
+            } catch (SQLException se) {
+                err = se;
+                throw se;
             } finally {
                 if (_logs.isJDBCEnabled()) {
                     String name = null;
@@ -319,14 +379,18 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                     }
                     _logs.logJDBC("rollback: " + name, start, this);
                 }
-                handleSQLWarning();
+                handleSQLErrors(err);
             }
         }
 
         public void releaseSavepoint(Savepoint savepoint) throws SQLException {
             long start = System.currentTimeMillis();
+            SQLException err = null;            
             try {
                 super.releaseSavepoint(savepoint);
+            } catch (SQLException se) {
+                err = se;
+                throw se;
             } finally {
                 if (_logs.isJDBCEnabled()) {
                     String name = null;
@@ -337,66 +401,85 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                     }
                     _logs.logJDBC("release: " + name, start, this);
                 }
-                handleSQLWarning();
+                handleSQLErrors(err);
             }
         }
 
         protected Statement createStatement(int resultSetType,
             int resultSetConcurrency, int resultSetHoldability, boolean wrap)
             throws SQLException {
-            Statement stmnt = super.createStatement(resultSetType,
-                resultSetConcurrency, resultSetHoldability, false);
-            handleSQLWarning();
-            return new LoggingStatement(stmnt);
+            SQLException err = null;
+            try {
+                Statement stmnt = super.createStatement(resultSetType,
+                    resultSetConcurrency, resultSetHoldability, false);
+                return new LoggingStatement(stmnt);
+            }catch (SQLException se) {
+                err = se;
+                throw se;
+            } finally {
+                handleSQLErrors(err);
+            }
         }
 
         protected PreparedStatement prepareStatement(String sql,
             int resultSetType, int resultSetConcurrency,
             int resultSetHoldability, boolean wrap) throws SQLException {
+            SQLException err = null;
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, resultSetType, resultSetConcurrency,
                         resultSetHoldability, false);
-                handleSQLWarning();
                 return new LoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
-                throw wrap(se, sql);
+                err = wrap(se, sql);
+                throw err;
+            } finally {
+                handleSQLErrors(err);
             }
         }
 
         protected PreparedStatement prepareStatement(String sql,
             int autoGeneratedKeys, boolean wrap) throws SQLException {
+            SQLException err = null;
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, autoGeneratedKeys, false);
-                handleSQLWarning();
                 return new LoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
-                throw wrap(se, sql);
+                err = wrap(se, sql);
+                throw err;
+            } finally {
+                handleSQLErrors(err);
             }
         }
 
         protected PreparedStatement prepareStatement(String sql,
             int[] columnIndexes, boolean wrap) throws SQLException {
+            SQLException err = null;
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, columnIndexes, false);
-                handleSQLWarning();
                 return new LoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
-                throw wrap(se, sql);
+                err = wrap(se, sql);
+                throw err;
+            } finally {
+                handleSQLErrors(err);
             }
         }
 
         protected PreparedStatement prepareStatement(String sql,
             String[] columnNames, boolean wrap) throws SQLException {
+            SQLException err = null;
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, columnNames, false);
-                handleSQLWarning();
                 return new LoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
-                throw wrap(se, sql);
+                err = wrap(se, sql);
+                throw err;
+            } finally {
+                handleSQLErrors(err);
             }
         }
 
@@ -428,18 +511,23 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             if (_logs.isSQLEnabled())
                 _logs.logSQL("executing batch " + stmnt, this);
         }
-
+        
         /**
          * Handle any {@link SQLWarning}s on the current {@link Connection}.
-         *
+         * Chain throwed SQLWarnings to SQLException.
          * @see #handleSQLWarning(SQLWarning)
          */
-        private void handleSQLWarning() throws SQLException {
+        private void handleSQLErrors(SQLException err) throws SQLException {
             if (_warningAction == WARN_IGNORE)
                 return;
 
             try {
                 handleSQLWarning(getWarnings());
+            } catch (SQLException warning) {
+                if (err != null)
+                    err.setNextException(warning);
+                else
+                    throw warning;
             } finally {
                 clearWarnings();
             }
@@ -447,36 +535,50 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
 
         /**
          * Handle any {@link SQLWarning}s on the specified {@link Statement}.
+         * Chain throwed SQLWarnings to SQLException.
          *
          * @see #handleSQLWarning(SQLWarning)
          */
-        private void handleSQLWarning(Statement stmnt) throws SQLException {
+        private void handleSQLErrors(Statement stmnt, SQLException err) 
+            throws SQLException {
             if (_warningAction == WARN_IGNORE)
-                return;
-
+                return; 
+            
             try {
                 handleSQLWarning(stmnt.getWarnings());
+            } catch (SQLException warning) {
+                if (err != null)
+                    err.setNextException(warning);
+                else
+                    throw warning;
             } finally {
                 stmnt.clearWarnings();
             }
-        }
-
+        }        
+        
         /**
          * Handle any {@link SQLWarning}s on the specified {@link ResultSet}.
-         *
+         * Chain throwed SQLWarnings to SQLException.
+         * 
          * @see #handleSQLWarning(SQLWarning)
          */
-        private void handleSQLWarning(ResultSet rs) throws SQLException {
+        private void handleSQLErrors(ResultSet rs, SQLException err) 
+            throws SQLException {
             if (_warningAction == WARN_IGNORE)
                 return;
-
+            
             try {
                 handleSQLWarning(rs.getWarnings());
+            } catch (SQLException warning){
+                if (err != null)
+                    err.setNextException(warning);
+                else
+                    throw warning;
             } finally {
                 rs.clearWarnings();
             }
         }
-
+        
         /**
          * Handle the specified {@link SQLWarning} depending on the
          * setting of the {@link #setWarningAction} attribute.
@@ -742,13 +844,15 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 _sql = sql;
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.executeQuery(sql, wrap);
-                } catch (SQLException se) {
-                    throw wrap(se, LoggingStatement.this);
+                } catch (SQLException se) {               	
+                    err = wrap(se, LoggingStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
-                    handleSQLWarning(LoggingStatement.this);
+                    handleSQLErrors(LoggingStatement.this, err);
                 }
             }
 
@@ -756,13 +860,15 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 _sql = sql;
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.executeUpdate(sql);
-                } catch (SQLException se) {
-                    throw wrap(se, LoggingStatement.this);
+                } catch (SQLException se) {                	
+                    err = wrap(se, LoggingStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
-                    handleSQLWarning(LoggingStatement.this);
+                    handleSQLErrors(LoggingStatement.this, err);
                 }
             }
 
@@ -770,13 +876,15 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 _sql = sql;
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.execute(sql);
                 } catch (SQLException se) {
-                    throw wrap(se, LoggingStatement.this);
+                    err = wrap(se, LoggingStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
-                    handleSQLWarning(LoggingStatement.this);
+                    handleSQLErrors(LoggingStatement.this, err);
                 }
             }
         }
@@ -785,8 +893,8 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             extends DelegatingPreparedStatement {
 
             private final String _sql;
-            private List _params = null;
-            private List _paramBatch = null;
+            private List<String> _params = null;
+            private List<List<String>> _paramBatch = null;
 
             public LoggingPreparedStatement(PreparedStatement stmnt, String sql)
                 throws SQLException {
@@ -804,76 +912,87 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 throws SQLException {
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.executeQuery(sql, wrap);
                 } catch (SQLException se) {
-                    throw wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
                     clearLogParameters(true);
-                    handleSQLWarning(LoggingPreparedStatement.this);
+                    handleSQLErrors(LoggingPreparedStatement.this, err);
                 }
             }
 
             public int executeUpdate(String sql) throws SQLException {
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.executeUpdate(sql);
                 } catch (SQLException se) {
-                    throw wrap(se, LoggingPreparedStatement.this);
+                    err =  wrap(se, LoggingPreparedStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
                     clearLogParameters(true);
-                    handleSQLWarning(LoggingPreparedStatement.this);
+                    handleSQLErrors(LoggingPreparedStatement.this, err);
                 }
             }
 
             public boolean execute(String sql) throws SQLException {
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.execute(sql);
                 } catch (SQLException se) {
-                    throw wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
                     clearLogParameters(true);
-                    handleSQLWarning(LoggingPreparedStatement.this);
+                    handleSQLErrors(LoggingPreparedStatement.this, err);
                 }
             }
 
             protected ResultSet executeQuery(boolean wrap) throws SQLException {
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.executeQuery(wrap);
                 } catch (SQLException se) {
-                    throw wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
                     clearLogParameters(true);
-                    handleSQLWarning(LoggingPreparedStatement.this);
+                    handleSQLErrors(LoggingPreparedStatement.this, err);
                 }
             }
 
             public int executeUpdate() throws SQLException {
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.executeUpdate();
                 } catch (SQLException se) {
-                    throw wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
                     clearLogParameters(true);
-                    handleSQLWarning(LoggingPreparedStatement.this);
+                    handleSQLErrors(LoggingPreparedStatement.this, err);
                 }
             }
 
             public int[] executeBatch() throws SQLException {
                 logBatchSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.executeBatch();
                 } catch (SQLException se) {
@@ -892,7 +1011,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                             for (int i = 0; i < count.length; i++) {
                                 // -3 is Statement.STATEMENT_FAILED, but is
                                 // only available in JDK 1.4+
-                                if (count[i] == -3) {
+                                if (count[i] == Statement.EXECUTE_FAILED) {
                                     index = i;
                                     break;
                                 }
@@ -906,28 +1025,31 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
 
                             // set the current params to the saved values
                             if (index < _paramBatch.size())
-                                _params = (List) _paramBatch.get(index);
+                                _params = (List<String>) _paramBatch.get(index);
                         }
                     }
-                    throw wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
                     clearLogParameters(true);
-                    handleSQLWarning(LoggingPreparedStatement.this);
+                    handleSQLErrors(LoggingPreparedStatement.this, err);
                 }
             }
 
             public boolean execute() throws SQLException {
                 logSQL(this);
                 long start = System.currentTimeMillis();
+                SQLException err = null;
                 try {
                     return super.execute();
                 } catch (SQLException se) {
-                    throw wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this);
+                    throw err;
                 } finally {
                     logTime(start);
                     clearLogParameters(true);
-                    handleSQLWarning(LoggingPreparedStatement.this);
+                    handleSQLErrors(LoggingPreparedStatement.this, err);
                 }
             }
 
@@ -1016,6 +1138,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 super.setAsciiStream(i1, is, i2);
             }
 
+            @Deprecated
             public void setUnicodeStream(int i1, InputStream is, int i2)
                 throws SQLException {
                 setLogParameter(i1, "InputStream", is);
@@ -1059,10 +1182,12 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                     if (shouldTrackParameters()) {
                         // make sure our list is initialized
                         if (_paramBatch == null)
-                            _paramBatch = new ArrayList();
+                            _paramBatch = new ArrayList<List<String>>();
                         // copy parameters since they will be re-used
-                        if (_params != null)
-                            _paramBatch.add(new ArrayList(_params));
+                        if (_params != null) {
+                            List<String> copyParms = new ArrayList<String>(_params);
+                            _paramBatch.add(copyParms);
+                        }
                         else
                             _paramBatch.add(null);
                     }
@@ -1136,7 +1261,8 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 StringBuffer paramBuf = null;
                 if (_params != null && !_params.isEmpty()) {
                     paramBuf = new StringBuffer();
-                    for (Iterator itr = _params.iterator(); itr.hasNext();) {
+                    for (Iterator<String> itr = _params.iterator(); itr
+                        .hasNext();) {
                         paramBuf.append(itr.next());
                         if (itr.hasNext())
                             paramBuf.append(", ");
@@ -1205,7 +1331,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
 
             private void setLogParameter(int index, String val) {
                 if (_params == null)
-                    _params = new ArrayList();
+                    _params = new ArrayList<String>();
                 while (_params.size() < index)
                     _params.add(null);
                 if (val.length() > 80)
@@ -1224,76 +1350,568 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             }
 
             public boolean next() throws SQLException {
+                SQLException err = null;
                 try {
                     return super.next();
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public void close() throws SQLException {
+                SQLException err = null;            	
                 try {
                     super.close();
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public void beforeFirst() throws SQLException {
+                SQLException err = null;            	
                 try {
                     super.beforeFirst();
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public void afterLast() throws SQLException {
+                SQLException err = null;            	
                 try {
                     super.afterLast();
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public boolean first() throws SQLException {
+                SQLException err = null;            	
                 try {
                     return super.first();
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public boolean last() throws SQLException {
+                SQLException err = null;            	
                 try {
                     return super.last();
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public boolean absolute(int a) throws SQLException {
+                SQLException err = null;            	
                 try {
                     return super.absolute(a);
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public boolean relative(int a) throws SQLException {
+                SQLException err = null;            	
                 try {
                     return super.relative(a);
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
 
             public boolean previous() throws SQLException {
+                SQLException err = null;            	
                 try {
                     return super.previous();
+                } catch (SQLException se) {
+                    err = se;
+                    throw se;
                 } finally {
-                    handleSQLWarning(LoggingResultSet.this);
+                    handleSQLErrors(LoggingResultSet.this, err);
                 }
             }
         }
-    }
+        
+        /**
+         * CallableStatement decorated with logging.
+         * Similar to {@link LoggingPreparedStatement} but can not be extended
+         * due to the existing delegation hierarchy.
+         */
+        private class LoggingCallableStatement extends 
+            DelegatingCallableStatement {
+            private final String _sql;
+            private List<String> _params = null;
+            private List<List<String>> _paramBatch = null;
+
+            public LoggingCallableStatement(CallableStatement stmt, String sql) 
+                throws SQLException {
+        		super(stmt, LoggingConnection.this);
+        		_sql = sql;
+        	}
+        	
+            protected ResultSet wrapResult(ResultSet rs, boolean wrap) {
+                if (!wrap || rs == null)
+                    return super.wrapResult(wrap, rs);
+                return new LoggingResultSet(rs, this);
+            }
+
+            protected ResultSet executeQuery(String sql, boolean wrap)
+                throws SQLException {
+                logSQL(this);
+                long start = System.currentTimeMillis();
+                SQLException err = null;
+                try {
+                    return super.executeQuery(sql, wrap);
+                } catch (SQLException se) {
+                    err = wrap(se, LoggingCallableStatement.this);
+                    throw err;
+                } finally {
+                    logTime(start);
+                    clearLogParameters(true);
+                    handleSQLErrors(LoggingCallableStatement.this, err);
+                }
+            }
+
+            public int executeUpdate(String sql) throws SQLException {
+                logSQL(this);
+                long start = System.currentTimeMillis();
+                SQLException err = null;
+                try {
+                    return super.executeUpdate(sql);
+                } catch (SQLException se) {
+                    err = wrap(se, LoggingCallableStatement.this);
+                    throw err;
+                } finally {
+                    logTime(start);
+                    clearLogParameters(true);
+                    handleSQLErrors(LoggingCallableStatement.this, err);
+                }
+            }
+
+            public boolean execute(String sql) throws SQLException {
+                logSQL(this);
+                long start = System.currentTimeMillis();
+                SQLException err = null;
+                try {
+                    return super.execute(sql);
+                } catch (SQLException se) {
+                    err = wrap(se, LoggingCallableStatement.this);
+                    throw err;
+                } finally {
+                    logTime(start);
+                    clearLogParameters(true);
+                    handleSQLErrors(LoggingCallableStatement.this, err);
+                }
+            }
+
+            protected ResultSet executeQuery(boolean wrap) throws SQLException {
+                logSQL(this);
+                long start = System.currentTimeMillis();
+                SQLException err = null;
+                try {
+                    return super.executeQuery(wrap);
+                } catch (SQLException se) {
+                    err = wrap(se, LoggingCallableStatement.this);
+                    throw err;
+                } finally {
+                    logTime(start);
+                    clearLogParameters(true);
+                    handleSQLErrors(LoggingCallableStatement.this, err);
+                }
+            }
+
+            public int executeUpdate() throws SQLException {
+                logSQL(this);
+                long start = System.currentTimeMillis();
+                SQLException err = null;                
+                try {
+                    return super.executeUpdate();
+                } catch (SQLException se) {
+                    err = wrap(se, LoggingCallableStatement.this);
+                    throw err;
+                } finally {
+                    logTime(start);
+                    clearLogParameters(true);
+                    handleSQLErrors(LoggingCallableStatement.this, err);
+                }
+            }
+
+            public int[] executeBatch() throws SQLException {
+                logBatchSQL(this);
+                long start = System.currentTimeMillis();
+                SQLException err = null;                
+                try {
+                    return super.executeBatch();
+                } catch (SQLException se) {
+                    // if the exception is a BatchUpdateException, and
+                    // we are tracking parameters, then set the current
+                    // parameter set to be the index of the failed
+                    // statement so that the ReportingSQLException will
+                    // show the correct param
+                    if (se instanceof BatchUpdateException
+                        && _paramBatch != null && shouldTrackParameters()) {
+                        int[] count = ((BatchUpdateException) se).
+                            getUpdateCounts();
+                        if (count != null && count.length <= _paramBatch.size())
+                        {
+                            int index = -1;
+                            for (int i = 0; i < count.length; i++) {
+                                // -3 is Statement.STATEMENT_FAILED, but is
+                                // only available in JDK 1.4+
+                                if (count[i] == Statement.EXECUTE_FAILED) {
+                                    index = i;
+                                    break;
+                                }
+                            }
+
+                            // no -3 element: it may be that the server stopped
+                            // processing, so the size of the count will be
+                            // the index
+                            if (index == -1)
+                                index = count.length + 1;
+
+                            // set the current params to the saved values
+                            if (index < _paramBatch.size())
+                                _params = (List<String>) _paramBatch.get(index);
+                        }
+                    }
+                    err = wrap(se, LoggingCallableStatement.this);
+                    throw err;
+                } finally {
+                    logTime(start);
+                    clearLogParameters(true);
+                    handleSQLErrors(LoggingCallableStatement.this, err);
+                }
+            }
+
+            public boolean execute() throws SQLException {
+                logSQL(this);
+                long start = System.currentTimeMillis();
+                SQLException err = null;                
+                try {
+                    return super.execute();
+                } catch (SQLException se) {
+                    err = wrap(se, LoggingCallableStatement.this);
+                    throw err;
+                } finally {
+                    logTime(start);
+                    clearLogParameters(true);
+                    handleSQLErrors(LoggingCallableStatement.this, err);
+                }
+            }
+
+            public void cancel() throws SQLException {
+                if (_logs.isJDBCEnabled())
+                    _logs.logJDBC("cancel " + this + ": " + _sql,
+                        LoggingConnection.this);
+
+                super.cancel();
+            }
+
+            public void setNull(int i1, int i2) throws SQLException {
+                setLogParameter(i1, "null", null);
+                super.setNull(i1, i2);
+            }
+
+            public void setBoolean(int i, boolean b) throws SQLException {
+                setLogParameter(i, b);
+                super.setBoolean(i, b);
+            }
+
+            public void setByte(int i, byte b) throws SQLException {
+                setLogParameter(i, b);
+                super.setByte(i, b);
+            }
+
+            public void setShort(int i, short s) throws SQLException {
+                setLogParameter(i, s);
+                super.setShort(i, s);
+            }
+
+            public void setInt(int i1, int i2) throws SQLException {
+                setLogParameter(i1, i2);
+                super.setInt(i1, i2);
+            }
+
+            public void setLong(int i, long l) throws SQLException {
+                setLogParameter(i, l);
+                super.setLong(i, l);
+            }
+
+            public void setFloat(int i, float f) throws SQLException {
+                setLogParameter(i, f);
+                super.setFloat(i, f);
+            }
+
+            public void setDouble(int i, double d) throws SQLException {
+                setLogParameter(i, d);
+                super.setDouble(i, d);
+            }
+
+            public void setBigDecimal(int i, BigDecimal bd)
+                throws SQLException {
+                setLogParameter(i, "BigDecimal", bd);
+                super.setBigDecimal(i, bd);
+            }
+
+            public void setString(int i, String s) throws SQLException {
+                setLogParameter(i, "String", s);
+                super.setString(i, s);
+            }
+
+            public void setBytes(int i, byte[] b) throws SQLException {
+                setLogParameter(i, "byte[]", b);
+                super.setBytes(i, b);
+            }
+
+            public void setDate(int i, Date d) throws SQLException {
+                setLogParameter(i, "Date", d);
+                super.setDate(i, d);
+            }
+
+            public void setTime(int i, Time t) throws SQLException {
+                setLogParameter(i, "Time", t);
+                super.setTime(i, t);
+            }
+
+            public void setTimestamp(int i, Timestamp t) throws SQLException {
+                setLogParameter(i, "Timestamp", t);
+                super.setTimestamp(i, t);
+            }
+
+            public void setAsciiStream(int i1, InputStream is, int i2)
+                throws SQLException {
+                setLogParameter(i1, "InputStream", is);
+                super.setAsciiStream(i1, is, i2);
+            }
+
+            @Deprecated
+            public void setUnicodeStream(int i1, InputStream is, int i2)
+                throws SQLException {
+                setLogParameter(i1, "InputStream", is);
+                super.setUnicodeStream(i2, is, i2);
+            }
+
+            public void setBinaryStream(int i1, InputStream is, int i2)
+                throws SQLException {
+                setLogParameter(i1, "InputStream", is);
+                super.setBinaryStream(i1, is, i2);
+            }
+
+            public void clearParameters() throws SQLException {
+                clearLogParameters(false);
+                super.clearParameters();
+            }
+
+            public void setObject(int i1, Object o, int i2, int i3)
+                throws SQLException {
+                setLogParameter(i1, "Object", o);
+                super.setObject(i1, o, i2, i3);
+            }
+
+            public void setObject(int i1, Object o, int i2)
+                throws SQLException {
+                setLogParameter(i1, "Object", o);
+                super.setObject(i1, o, i2);
+            }
+
+            public void setObject(int i, Object o) throws SQLException {
+                setLogParameter(i, "Object", o);
+                super.setObject(i, o);
+            }
+
+            public void addBatch() throws SQLException {
+                if (_logs.isSQLEnabled())
+                    _logs.logSQL("batching " + this, LoggingConnection.this);
+                long start = System.currentTimeMillis();
+                try {
+                    super.addBatch();
+                    if (shouldTrackParameters()) {
+                        // make sure our list is initialized
+                        if (_paramBatch == null)
+                            _paramBatch = new ArrayList<List<String>>();
+                        // copy parameters since they will be re-used
+                        if (_params != null) {
+                            List<String> copyParams =
+                                new ArrayList<String>(_params);
+                            _paramBatch.add(copyParams);
+                        }
+                        else
+                            _paramBatch.add(null);
+                    }
+                }
+                finally {
+                    logTime(start);
+                }
+            }
+
+            public void setCharacterStream(int i1, Reader r, int i2)
+                throws SQLException {
+                setLogParameter(i1, "Reader", r);
+                super.setCharacterStream(i1, r, i2);
+            }
+
+            public void setRef(int i, Ref r) throws SQLException {
+                setLogParameter(i, "Ref", r);
+                super.setRef(i, r);
+            }
+
+            public void setBlob(int i, Blob b) throws SQLException {
+                setLogParameter(i, "Blob", b);
+                super.setBlob(i, b);
+            }
+
+            public void setClob(int i, Clob c) throws SQLException {
+                setLogParameter(i, "Clob", c);
+                super.setClob(i, c);
+            }
+
+            public void setArray(int i, Array a) throws SQLException {
+                setLogParameter(i, "Array", a);
+                super.setArray(i, a);
+            }
+
+            public ResultSetMetaData getMetaData() throws SQLException {
+                return super.getMetaData();
+            }
+
+            public void setDate(int i, Date d, Calendar c) throws SQLException {
+                setLogParameter(i, "Date", d);
+                super.setDate(i, d, c);
+            }
+
+            public void setTime(int i, Time t, Calendar c) throws SQLException {
+                setLogParameter(i, "Time", t);
+                super.setTime(i, t, c);
+            }
+
+            public void setTimestamp(int i, Timestamp t, Calendar c)
+                throws SQLException {
+                setLogParameter(i, "Timestamp", t);
+                super.setTimestamp(i, t, c);
+            }
+
+            public void setNull(int i1, int i2, String s) throws SQLException {
+                setLogParameter(i1, "null", null);
+                super.setNull(i1, i2, s);
+            }
+
+            protected void appendInfo(StringBuffer buf) {
+                buf.append(" ");
+                if (_formatter != null) {
+                    buf.append(SEP);
+                    buf.append(_formatter.prettyPrint(_sql));
+                    buf.append(SEP);
+                } else {
+                    buf.append(_sql);
+                }
+
+                StringBuffer paramBuf = null;
+                if (_params != null && !_params.isEmpty()) {
+                    paramBuf = new StringBuffer();
+                    for (Iterator<String> itr = _params.iterator(); itr
+                        .hasNext();) {
+                        paramBuf.append(itr.next());
+                        if (itr.hasNext())
+                            paramBuf.append(", ");
+                    }
+                }
+
+                if (paramBuf != null) {
+                    if (!_prettyPrint)
+                        buf.append(" ");
+                    buf.append("[params=").
+                        append(paramBuf.toString()).append("]");
+                }
+                super.appendInfo(buf);
+            }
+
+            protected void clearLogParameters(boolean batch) {
+                if (_params != null)
+                    _params.clear();
+                if (batch && _paramBatch != null)
+                    _paramBatch.clear();
+            }
+
+            private boolean shouldTrackParameters() {
+                return _trackParameters || _logs.isSQLEnabled();
+            }
+
+            private void setLogParameter(int index, boolean val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(boolean) " + val);
+            }
+
+            private void setLogParameter(int index, byte val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(byte) " + val);
+            }
+
+            private void setLogParameter(int index, double val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(double) " + val);
+            }
+
+            private void setLogParameter(int index, float val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(float) " + val);
+            }
+
+            private void setLogParameter(int index, int val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(int) " + val);
+            }
+
+            private void setLogParameter(int index, long val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(long) " + val);
+            }
+
+            private void setLogParameter(int index, short val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(short) " + val);
+            }
+
+            private void setLogParameter(int index, String type, Object val) {
+                if (shouldTrackParameters())
+                    setLogParameter(index, "(" + type + ") " + val);
+            }
+
+            private void setLogParameter(int index, String val) {
+                if (_params == null)
+                    _params = new ArrayList<String>();
+                while (_params.size() < index)
+                    _params.add(null);
+                if (val.length() > 80)
+                    val = val.substring(0, 77) + "...";
+                _params.set(index - 1, val);
+            }
+        }
+    }   
 }

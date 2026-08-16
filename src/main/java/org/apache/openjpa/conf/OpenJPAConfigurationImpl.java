@@ -28,23 +28,35 @@ import org.apache.openjpa.datacache.ConcurrentQueryCache;
 import org.apache.openjpa.datacache.DataCacheManager;
 import org.apache.openjpa.datacache.DataCacheManagerImpl;
 import org.apache.openjpa.ee.ManagedRuntime;
+import org.apache.openjpa.enhance.RuntimeUnenhancedClasssesModes;
+import org.apache.openjpa.event.BrokerFactoryEventManager;
 import org.apache.openjpa.event.OrphanedKeyAction;
 import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.RemoteCommitProvider;
-import org.apache.openjpa.event.BrokerFactoryEventManager;
 import org.apache.openjpa.kernel.AutoClear;
 import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.ConnectionRetainModes;
+import org.apache.openjpa.kernel.FinderCache;
 import org.apache.openjpa.kernel.InverseManager;
 import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.LockManager;
+import org.apache.openjpa.kernel.PreparedQueryCache;
 import org.apache.openjpa.kernel.QueryFlushModes;
 import org.apache.openjpa.kernel.RestoreState;
 import org.apache.openjpa.kernel.SavepointManager;
 import org.apache.openjpa.kernel.Seq;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
-import org.apache.openjpa.lib.conf.*;
+import org.apache.openjpa.lib.conf.BooleanValue;
+import org.apache.openjpa.lib.conf.ConfigurationImpl;
+import org.apache.openjpa.lib.conf.Configurations;
+import org.apache.openjpa.lib.conf.IntValue;
+import org.apache.openjpa.lib.conf.ObjectValue;
+import org.apache.openjpa.lib.conf.PluginListValue;
+import org.apache.openjpa.lib.conf.PluginValue;
+import org.apache.openjpa.lib.conf.ProductDerivations;
+import org.apache.openjpa.lib.conf.StringListValue;
+import org.apache.openjpa.lib.conf.StringValue;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.MetaDataFactory;
@@ -53,7 +65,6 @@ import org.apache.openjpa.util.ClassResolver;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.StoreFacadeTypeRegistry;
-import org.apache.openjpa.enhance.RuntimeUnenhancedClasssesModes;
 
 /**
  * Implementation of the {@link OpenJPAConfiguration} interface.
@@ -90,6 +101,7 @@ public class OpenJPAConfigurationImpl
     public StringListValue fetchGroups;
     public IntValue flushBeforeQueries;
     public IntValue lockTimeout;
+    public IntValue queryTimeout;
     public IntValue readLockLevel;
     public IntValue writeLockLevel;
     public ObjectValue seqPlugin;
@@ -132,10 +144,15 @@ public class OpenJPAConfigurationImpl
     public ObjectValue savepointManagerPlugin;
     public ObjectValue orphanedKeyPlugin;
     public ObjectValue compatibilityPlugin;
+    public ObjectValue callbackPlugin;
     public QueryCompilationCacheValue queryCompilationCachePlugin;
     public IntValue runtimeUnenhancedClasses;
     public CacheMarshallersValue cacheMarshallerPlugins;
-
+    public BooleanValue eagerInitialization;
+    public PluginValue preparedQueryCachePlugin;
+    public PluginValue finderCachePlugin;
+    public ObjectValue specification;
+    
     // custom values
     public BrokerFactoryValue brokerFactoryPlugin;
     public RemoteCommitProviderValue remoteProviderPlugin;
@@ -319,14 +336,24 @@ public class OpenJPAConfigurationImpl
 
 
         connectionUserName = addString("ConnectionUserName");
+        connectionUserName.addEquivalentKey("javax.persistence.jdbc.user");
+        
         connectionPassword = addString("ConnectionPassword");
+        connectionPassword.addEquivalentKey("javax.persistence.jdbc.password");
+        connectionPassword.setVisible(false);
+
         connectionURL = addString("ConnectionURL");
+        connectionURL.addEquivalentKey("javax.persistence.jdbc.url");
+        
         connectionDriverName = addString("ConnectionDriverName");
+        connectionDriverName.addEquivalentKey("javax.persistence.jdbc.driver");
+        
         connectionFactoryName = addString("ConnectionFactoryName");
         connectionProperties = addString("ConnectionProperties");
         connectionFactoryProperties = addString("ConnectionFactoryProperties");
         connection2UserName = addString("Connection2UserName");
         connection2Password = addString("Connection2Password");
+        connection2Password.setVisible(false);
         connection2URL = addString("Connection2URL");
         connection2DriverName = addString("Connection2DriverName");
         connection2Properties = addString("Connection2Properties");
@@ -419,8 +446,8 @@ public class OpenJPAConfigurationImpl
         flushBeforeQueries.setAliasListComprehensive(true);
 
         lockTimeout = addInt("LockTimeout");
+        lockTimeout.addEquivalentKey("javax.persistence.lock.timeout");
         lockTimeout.setDefault("-1");
-        lockTimeout.set(-1);
         lockTimeout.setDynamic(true);
         
         readLockLevel = addInt("ReadLockLevel");
@@ -486,6 +513,13 @@ public class OpenJPAConfigurationImpl
         compatibilityPlugin.setString(aliases[0]);
         compatibilityPlugin.setInstantiatingGetter("getCompatibilityInstance");
         
+        callbackPlugin = addPlugin("Callbacks", true);
+        aliases = new String[] { "default", CallbackOptions.class.getName() };
+        callbackPlugin.setAliases(aliases);
+        callbackPlugin.setDefault(aliases[0]);
+        callbackPlugin.setString(aliases[0]);
+        callbackPlugin.setInstantiatingGetter("getCallbackOptionsInstance");
+           
         queryCompilationCachePlugin = new QueryCompilationCacheValue(
             "QueryCompilationCache");
         queryCompilationCachePlugin.setInstantiatingGetter(
@@ -507,7 +541,17 @@ public class OpenJPAConfigurationImpl
 
         cacheMarshallerPlugins = (CacheMarshallersValue)
             addValue(new CacheMarshallersValue(this));
-
+        
+        eagerInitialization = addBoolean("InitializeEagerly");
+        
+        specification = new SpecificationPlugin(this, "Specification"); 
+        addValue(specification);
+        specification.setInstantiatingGetter("getSpecificationInstance");
+        
+        queryTimeout = addInt("javax.persistence.query.timeout");
+        queryTimeout.setDefault("-1");
+        queryTimeout.setDynamic(true);
+        
         // initialize supported options that some runtimes may not support
         supportedOptions.add(OPTION_NONTRANS_READ);
         supportedOptions.add(OPTION_OPTIMISTIC);
@@ -535,24 +579,32 @@ public class OpenJPAConfigurationImpl
         return supportedOptions;
     }
 
+    /**
+     * Get the name of the Specification only (not the version or other 
+     * information) or an empty String if not set.
+     * 
+     */
     public String getSpecification() {
-        return spec;
+        Specification spec = getSpecificationInstance();
+        return spec == null ? "" : spec.getName();
+    }
+    
+    public Specification getSpecificationInstance() {
+        return (Specification)specification.get();
     }
 
-    public boolean setSpecification(String spec) {
-        if (spec == null)
-            return false;
-
-        if (this.spec != null) {
-            if (!this.spec.equals(spec)
-                && getConfigurationLog().isWarnEnabled())
-                getConfigurationLog().warn(
-                    _loc.get("diff-specs", this.spec, spec));
-            return false;
-        }
-        this.spec = spec;
-        ProductDerivations.afterSpecificationSet(this);
-        return true;
+    /**
+     * Sets Specification from the given String.
+     * 
+     * @param spec should be encoded in the format specified in {@link 
+     * Specification}.
+     */
+    public void setSpecification(String spec) {
+        specification.setString(spec);
+    }
+    
+    public void setSpecification(Specification newSpec) {
+        specification.set(newSpec);
     }
 
     public void setClassResolver(String classResolver) {
@@ -1249,6 +1301,14 @@ public class OpenJPAConfigurationImpl
         return lockTimeout.get();
     }
 
+    public int getQueryTimeout() {
+        return queryTimeout.get();
+    }
+    
+    public void setQueryTimeout(int timeout) {
+         queryTimeout.set(timeout);
+    }
+
     public void setReadLockLevel(String level) {
         readLockLevel.setString(level);
     }
@@ -1377,6 +1437,20 @@ public class OpenJPAConfigurationImpl
             compatibilityPlugin.instantiate(Compatibility.class, this);
         return (Compatibility) compatibilityPlugin.get();
     }
+    
+    public String getCallbackOptions() {
+        return callbackPlugin.getString();
+    }
+    
+    public void setCallbackOptions(String options) {
+        callbackPlugin.setString(options);
+    }
+    
+    public CallbackOptions getCallbackOptionsInstance() {
+        if (callbackPlugin.get() == null)
+            callbackPlugin.instantiate(CallbackOptions.class, this);
+        return (CallbackOptions) callbackPlugin.get();
+    }
 
     public String getQueryCompilationCache() {
         return queryCompilationCachePlugin.getString();
@@ -1427,12 +1501,24 @@ public class OpenJPAConfigurationImpl
     public Map getCacheMarshallerInstances() {
         return cacheMarshallerPlugins.getInstancesAsMap();
     }
+    
+    public boolean isInitializeEagerly() {
+    	return eagerInitialization.get();
+    }
+    
+    public void setInitializeEagerly(boolean retry) {
+    	eagerInitialization.set(retry);
+    }
 
     public void instantiateAll() {
         super.instantiateAll();
         getMetaDataRepositoryInstance();
         getRemoteCommitEventManager();
         cacheMarshallerPlugins.initialize();
+        if (isInitializeEagerly()) {
+        	getConnectionFactory();
+        	getConnectionFactory2();
+        }
     }
 
     protected void preClose() {
@@ -1443,5 +1529,39 @@ public class OpenJPAConfigurationImpl
 
     public Log getConfigurationLog() {
         return getLog(LOG_RUNTIME);
+    }
+    
+    public void setQuerySQLCache(String querySQLCache) {
+        preparedQueryCachePlugin.setString(querySQLCache);
+    }
+    
+    public void setQuerySQLCache(PreparedQueryCache querySQLCache) {
+        preparedQueryCachePlugin.set(querySQLCache);
+    }
+
+    public String getQuerySQLCache() {
+        return preparedQueryCachePlugin.getString();
+    }
+    
+    public PreparedQueryCache getQuerySQLCacheInstance() {
+        if (preparedQueryCachePlugin.get() == null) {
+            preparedQueryCachePlugin.instantiate(PreparedQueryCache.class, this);
+        }
+        return (PreparedQueryCache)preparedQueryCachePlugin.get();
+    }
+
+    public void setFinderCache(String finderCache) {
+        finderCachePlugin.setString(finderCache);
+    }
+    
+    public String getFinderCache() {
+        return finderCachePlugin.getString();
+    }
+    
+    public FinderCache getFinderCacheInstance() {
+        if (finderCachePlugin.get() == null) {
+            finderCachePlugin.instantiate(FinderCache.class, this);
+        }
+        return (FinderCache)finderCachePlugin.get();
     }
 }

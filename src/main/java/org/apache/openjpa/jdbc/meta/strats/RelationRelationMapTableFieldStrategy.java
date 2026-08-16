@@ -25,6 +25,7 @@ import org.apache.openjpa.lib.util.*;
 import org.apache.openjpa.meta.*;
 import org.apache.openjpa.kernel.*;
 import org.apache.openjpa.util.*;
+import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.jdbc.meta.*;
 import org.apache.openjpa.jdbc.kernel.*;
 import org.apache.openjpa.jdbc.schema.*;
@@ -110,6 +111,7 @@ public class RelationRelationMapTableFieldStrategy
 
                 // order before select in case we're faking union with
                 // multiple selects; order vals used to merge results
+                FieldMapping mapped = field.getMappedByMapping();
                 Joins joins = joinValueRelation(sel.newJoins(), vals[idx]);
                 sel.orderBy(field.getKeyMapping().getColumns(), true, true);
                 sel.select(vals[idx], field.getElementMapping().
@@ -163,7 +165,10 @@ public class RelationRelationMapTableFieldStrategy
 
     public Joins joinValueRelation(Joins joins, ClassMapping val) {
         ValueMapping vm = field.getElementMapping();
-        return joins.joinRelation(field.getName(), vm.getForeignKey(val), val,
+        ForeignKey fk = vm.getForeignKey(val);
+        if (fk == null)
+            return joins;
+        return joins.joinRelation(field.getName(), fk, val,
             vm.getSelectSubclasses(), false, false);
     }
 
@@ -176,11 +181,18 @@ public class RelationRelationMapTableFieldStrategy
         ValueMapping val = field.getElementMapping();
         if (val.getTypeCode() != JavaTypes.PC || val.isEmbeddedPC())
             throw new MetaDataException(_loc.get("not-relation", val));
-        assertNotMappedBy();
-
-        field.mapJoin(adapt, true);
-        mapTypeJoin(key, "key", adapt);
-        mapTypeJoin(val, "value", adapt);
+        FieldMapping mapped = field.getMappedByMapping();
+        DBDictionary dict = field.getMappingRepository().getDBDictionary();
+        String keyName = null;
+        if (mapped != null) {         
+            handleMappedBy(adapt);
+            keyName = dict.getValidColumnName("vkey", field.getTable());
+         } else {
+            field.mapJoin(adapt, true);
+            mapTypeJoin(val, "value", adapt);
+            keyName = dict.getValidColumnName("key", field.getTable());
+        }
+        mapTypeJoin(key, keyName, adapt);
 
         field.mapPrimaryKey(adapt);
     }
@@ -205,12 +217,16 @@ public class RelationRelationMapTableFieldStrategy
 
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
-        insert(sm, rm, (Map) sm.fetchObject(field.getIndex()));
+        insert(sm, rm, (Map) sm.fetchObject(field.getIndex()), store);
     }
 
-    private void insert(OpenJPAStateManager sm, RowManager rm, Map map)
+    private void insert(OpenJPAStateManager sm, RowManager rm, Map map, 
+        JDBCStore store)
         throws SQLException {
         if (map == null || map.isEmpty())
+            return;
+        
+        if (field.getMappedBy() != null)
             return;
 
         Row row = rm.getSecondaryRow(field.getTable(), Row.ACTION_INSERT);
@@ -228,12 +244,24 @@ public class RelationRelationMapTableFieldStrategy
             valsm = RelationStrategies.getStateManager(entry.getValue(), ctx);
             key.setForeignKey(row, keysm);
             val.setForeignKey(row, valsm);
-            rm.flushSecondaryRow(row);
+            
+            // so far, we poplulated the key/value of each
+            // map element owned by the entity.
+            // In the case of ToMany, and both sides
+            // use Map to represent the relation,
+            // we need to populate the key value of the owner
+            // from the view point of the owned side
+            PersistenceCapable obj = sm.getPersistenceCapable();
+            if (!populateKey(row, valsm, obj, ctx, rm, store))
+                rm.flushSecondaryRow(row);
         }
     }
 
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
+        if (field.getMappedBy() != null)
+            return;
+        
         Map map = (Map) sm.fetchObject(field.getIndex());
         ChangeTracker ct = null;
         if (map instanceof Proxy) {
@@ -245,7 +273,7 @@ public class RelationRelationMapTableFieldStrategy
         // if no fine-grained change tracking then just delete and reinsert
         if (ct == null || !ct.isTracking()) {
             delete(sm, store, rm);
-            insert(sm, rm, map);
+            insert(sm, rm, map, store);
             return;
         }
 
@@ -336,12 +364,15 @@ public class RelationRelationMapTableFieldStrategy
                 throw RelationStrategies.unjoinable(val);
             return joins;
         }
+        ForeignKey fk = val.getForeignKey(clss[0]);
+        if (fk == null)
+            return joins;
         if (forceOuter)
             return joins.outerJoinRelation(field.getName(),
-                val.getForeignKey(clss[0]), clss[0], val.getSelectSubclasses(),
+                fk, clss[0], val.getSelectSubclasses(),
                 false, false);
         return joins.joinRelation(field.getName(),
-            val.getForeignKey(clss[0]), clss[0], val.getSelectSubclasses(),
+            fk, clss[0], val.getSelectSubclasses(),
             false, false);
     }
 

@@ -61,6 +61,8 @@ public class Table
     private Index[] _idxs = null;
     private Unique[] _unqs = null;
     private String _comment = null;
+    private int _lineNum = 0;  
+    private int _colNum = 0;  
 
     /**
      * Default constructor.
@@ -294,6 +296,26 @@ public class Table
         _cols = null;
         return col;
     }
+
+
+    /**
+     * Add a colum with a shortened (i.e., validated) name to the table
+     */
+    public Column addColumn(String name, String validName) {
+        addName(name, true);
+        Schema schema = getSchema();
+        Column col;
+        if (schema != null && schema.getSchemaGroup() != null)
+            col = schema.getSchemaGroup().newColumn(validName, this);
+        else
+            col = new Column(validName, this);
+        if (_colMap == null)
+            _colMap = new LinkedHashMap();
+        _colMap.put(name.toUpperCase(), col);
+        _cols = null;
+        return col;
+    }
+
 
     /**
      * Remove the given column from the table.
@@ -717,5 +739,21 @@ public class Table
 
     public void setComment(String comment) {
         _comment = comment;
+    }
+    
+    public int getLineNumber() {
+        return _lineNum;
+    }
+
+    public void setLineNumber(int lineNum) {
+        _lineNum = lineNum;
+    }
+
+    public int getColNumber() {
+        return _colNum;
+    }
+
+    public void setColNumber(int colNum) {
+        _colNum = colNum;
     }
 }

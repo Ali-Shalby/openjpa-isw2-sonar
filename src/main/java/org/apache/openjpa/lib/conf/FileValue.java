@@ -37,7 +37,7 @@ public class FileValue extends Value {
         super(prop);
     }
 
-    public Class getValueType() {
+    public Class<File> getValueType() {
         return File.class;
     }
 
@@ -60,7 +60,7 @@ public class FileValue extends Value {
     }
 
     protected String getInternalString() {
-        return (value == null) ? null : (String) AccessController.doPrivileged(
+        return (value == null) ? null : AccessController.doPrivileged(
             J2DoPrivHelper.getAbsolutePathAction(value));
     }
 

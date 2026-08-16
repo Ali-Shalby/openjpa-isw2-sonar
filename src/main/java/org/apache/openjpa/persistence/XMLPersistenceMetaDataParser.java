@@ -18,9 +18,12 @@
  */
 package org.apache.openjpa.persistence;
 
+import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
+import java.net.URL;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.ArrayList;
@@ -32,10 +35,13 @@ import java.util.Set;
 import java.util.Stack;
 import javax.persistence.CascadeType;
 import javax.persistence.GenerationType;
+import javax.persistence.LockModeType;
+
 import static javax.persistence.CascadeType.*;
 
 import org.apache.commons.lang.StringUtils;
 import org.xml.sax.Attributes;
+import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.PersistenceCapable;
@@ -48,6 +54,7 @@ import org.apache.openjpa.kernel.jpql.JPQLParser;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.CFMetaDataParser;
+import org.apache.openjpa.lib.meta.XMLVersionParser;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
@@ -66,6 +73,7 @@ import org.apache.openjpa.meta.ValueMetaData;
 import static org.apache.openjpa.persistence.MetaDataTag.*;
 import static org.apache.openjpa.persistence.PersistenceStrategy.*;
 import org.apache.openjpa.util.ImplHelper;
+import serp.util.Numbers;
 
 /**
  * Custom SAX parser used by the system to quickly parse persistence i
@@ -139,6 +147,7 @@ public class XMLPersistenceMetaDataParser
         _elems.put("generated-value", GENERATED_VALUE);
         _elems.put("map-key", MAP_KEY);
         _elems.put("order-by", ORDER_BY);
+        _elems.put("order-column", ORDER_COLUMN);
         _elems.put("lob", LOB);
 
         _elems.put("basic", BASIC);
@@ -148,6 +157,8 @@ public class XMLPersistenceMetaDataParser
         _elems.put("one-to-many", ONE_MANY);
         _elems.put("many-to-many", MANY_MANY);
         _elems.put("transient", TRANSIENT);
+        _elems.put("element-collection", ELEM_COLL);
+        _elems.put("map-key-class", MAP_KEY_CLASS);
     }
 
     private static final Localizer _loc = Localizer.forPackage
@@ -176,6 +187,12 @@ public class XMLPersistenceMetaDataParser
     private int[] _highs = null;
     private boolean _isXMLMappingMetaDataComplete = false;
 
+    private String _ormVersion;
+    private String _schemaLocation;
+    
+    private static final String ORM_XSD_1_0 = "orm_1_0.xsd";
+    private static final String ORM_XSD_2_0 = "orm_2_0.xsd";
+    
     /**
      * Constructor; supply configuration.
      */
@@ -305,6 +322,37 @@ public class XMLPersistenceMetaDataParser
             _parser.setMode(mode);
     }
 
+    public void parse(URL url) throws IOException {
+        // peek at the doc to determine the version
+        XMLVersionParser vp = new XMLVersionParser("entity-mappings");
+        try {
+            vp.parse(url);
+            _ormVersion = vp.getVersion();
+            _schemaLocation = vp.getSchemaLocation();
+        } catch (Throwable t) {
+                Log log = getLog();
+                if (log.isInfoEnabled())
+                    log.trace(_loc.get("version-check-error", 
+                        url.toString()));
+        }       
+        super.parse(url);
+    }
+
+    public void parse(File file) throws IOException {        
+        // peek at the doc to determine the version
+        XMLVersionParser vp = new XMLVersionParser("entity-mappings");
+        try {
+            vp.parse(file);
+            _ormVersion = vp.getVersion();
+            _schemaLocation = vp.getSchemaLocation();
+        } catch (Throwable t) {
+                Log log = getLog();
+                if (log.isInfoEnabled())
+                    log.trace(_loc.get("version-check-error", 
+                        file.toString()));
+        }       
+        super.parse(file);
+    }
     /**
      * Convenience method for interpreting {@link #getMode}.
      */
@@ -353,6 +401,13 @@ public class XMLPersistenceMetaDataParser
     }
 
     /**
+     * Peek a parse element from the stack.
+     */
+    protected Object peekElement() {
+        return _elements.peek();
+    }
+    
+    /**
      * Return the current element being parsed. May be a class metadata,
      * field metadata, query metadata, etc.
      */
@@ -387,9 +442,19 @@ public class XMLPersistenceMetaDataParser
     }
 
     @Override
-    protected Object getSchemaSource() {
-        return XMLPersistenceMetaDataParser.class.getResourceAsStream
-            ("orm-xsd.rsrc");
+    protected Object getSchemaSource() {        
+        // use the latest schema by default.  'unknown' docs should parse
+        // with the latest schema.
+        String ormxsd = "orm_2_0-xsd.rsrc";
+        // if the version and/or schema location is for 1.0, use the 1.0 
+        // schema
+        if (_ormVersion != null &&
+            _ormVersion.equals(XMLVersionParser.VERSION_1_0) ||
+            (_schemaLocation != null && 
+            _schemaLocation.indexOf(ORM_XSD_1_0) != -1)) {
+            ormxsd = "orm-xsd.rsrc";
+        }        
+        return XMLPersistenceMetaDataParser.class.getResourceAsStream(ormxsd);
     }
 
     @Override
@@ -594,8 +659,14 @@ public class XMLPersistenceMetaDataParser
                 case MAP_KEY:
                     ret = startMapKey(attrs);
                     break;
+                case MAP_KEY_CLASS:
+                    ret = startMapKeyClass(attrs);
+                    break;
                 case FLUSH_MODE:
                     ret = startFlushMode(attrs);
+                    break;
+                case ORDER_COLUMN:
+                    ret = startOrderColumn(attrs);
                     break;
                 case ORDER_BY:
                 case ENTITY_LISTENERS:
@@ -787,9 +858,15 @@ public class XMLPersistenceMetaDataParser
         }
 
         boolean mappedSuper = "mapped-superclass".equals(elem);
+        meta.setAbstract(mappedSuper);
         if (isMetaDataMode()) {
             meta.setSource(getSourceFile(), meta.SRC_XML);
             meta.setSourceMode(MODE_META, true);
+            Locator locator = getLocation().getLocator();
+            if (locator != null) {
+                meta.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
+                meta.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+            }
             meta.setListingIndex(_clsPos);
             String name = attrs.getValue("name");
             if (!StringUtils.isEmpty(name))
@@ -892,6 +969,8 @@ public class XMLPersistenceMetaDataParser
         int initial = val == null ? 1 : Integer.parseInt(val);
         val = attrs.getValue("allocation-size");
         int allocate = val == null ? 50 : Integer.parseInt(val);
+        String schema = attrs.getValue("schema");
+        String catalog = attrs.getValue("catalog");
 
         String clsName, props;
         if (seq == null || seq.indexOf('(') == -1) {
@@ -907,11 +986,18 @@ public class XMLPersistenceMetaDataParser
         meta.setSequence(seq);
         meta.setInitialValue(initial);
         meta.setAllocate(allocate);
+        meta.setSchema(schema);
+        meta.setCatalog(catalog);
 
         Object cur = currentElement();
         Object scope = (cur instanceof ClassMetaData)
             ? ((ClassMetaData) cur).getDescribedType() : null;
         meta.setSource(getSourceFile(), scope, meta.SRC_XML);
+        Locator locator = getLocation().getLocator();
+        if (locator != null) {
+            meta.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
+            meta.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+        }
         return true;
     }
 
@@ -1073,6 +1159,9 @@ public class XMLPersistenceMetaDataParser
                 case MERGE:
                     vmd.setCascadeAttach(ValueMetaData.CASCADE_IMMEDIATE);
                     break;
+                case CLEAR:
+                    vmd.setCascadeDetach(ValueMetaData.CASCADE_IMMEDIATE);
+                    break;
                 case REMOVE:
                     vmd.setCascadeDelete(ValueMetaData.CASCADE_IMMEDIATE);
                     break;
@@ -1105,13 +1194,13 @@ public class XMLPersistenceMetaDataParser
                     String cap = StringUtils.capitalize(name);
                     type = meta.getDescribedType();
                     try {
-                        member = (Method) AccessController.doPrivileged(
+                        member = AccessController.doPrivileged(
                             J2DoPrivHelper.getDeclaredMethodAction(
                                 type, "get" + cap,
                                 (Class[]) null));// varargs disambiguate
                     } catch (Exception excep) {
                         try {
-                            member = (Method) AccessController.doPrivileged(
+                            member = AccessController.doPrivileged(
                                 J2DoPrivHelper.getDeclaredMethodAction(
                                     type, "is" + cap, (Class[]) null));
                         } catch (Exception excep2) {
@@ -1120,7 +1209,7 @@ public class XMLPersistenceMetaDataParser
                     }
                     type = ((Method) member).getReturnType();
                 } else {
-                    member = (Field) AccessController.doPrivileged(
+                    member = AccessController.doPrivileged(
                         J2DoPrivHelper.getDeclaredFieldAction(
                             meta.getDescribedType(), name));
                     type = ((Field) member).getType();
@@ -1263,6 +1352,8 @@ public class XMLPersistenceMetaDataParser
             case TRANSIENT:
                 fmd.setManagement(FieldMetaData.MANAGE_NONE);
                 break;
+            case ELEM_COLL:
+                parseElementCollection(fmd, attrs);
         }
     }
 
@@ -1307,6 +1398,9 @@ public class XMLPersistenceMetaDataParser
         fmd.setSerialized(false); // override any Lob annotation
         if (!fmd.isDefaultFetchGroupExplicit())
             fmd.setInDefaultFetchGroup(true);
+        boolean orphanRemoval = Boolean.valueOf(attrs.getValue(
+            "orphan-removal"));
+        setOrphanRemoval(fmd, orphanRemoval);
     }
 
     /**
@@ -1363,8 +1457,37 @@ public class XMLPersistenceMetaDataParser
             fmd.getElement().setDeclaredType(classForName(val));
         assertPCCollection(fmd, "OneToMany");
         fmd.setSerialized(false); // override any Lob annotation
+        boolean orphanRemoval = Boolean.valueOf(attrs.getValue(
+            "orphan-removal"));
+        setOrphanRemoval(fmd.getElement(), orphanRemoval);
     }
+    
+    protected void setOrphanRemoval(ValueMetaData vmd, boolean orphanRemoval) {
+        if (orphanRemoval) 
+            vmd.setCascadeDelete(ValueMetaData.CASCADE_AUTO);
+    }
+    
+    protected void parseElementCollection(FieldMetaData fmd, Attributes attrs)
+        throws SAXException {
+        String val = attrs.getValue("target-entity");
+        if (val != null)
+            fmd.getElement().setDeclaredType(classForName(val));
 
+        if (fmd.getDeclaredTypeCode() != JavaTypes.COLLECTION &&
+            fmd.getDeclaredTypeCode() != JavaTypes.MAP)
+            throw getException(_loc.get("bad-meta-anno", fmd, "ElementCollection"));
+
+        val = attrs.getValue("fetch");
+        if (val != null)
+            fmd.setInDefaultFetchGroup("EAGER".equals(val));
+        fmd.setElementCollection(true);
+        if (JavaTypes.maybePC(fmd.getElement())) {
+            fmd.getElement().setEmbedded(true);
+            if (fmd.getElement().getEmbeddedMetaData() == null)
+                fmd.getElement().addEmbeddedMetaData();
+        }
+    }
+    
     /**
      * Parse map-key.
      */
@@ -1382,6 +1505,30 @@ public class XMLPersistenceMetaDataParser
         return true;
     }
 
+    
+    /**
+     * Parse map-key-class.
+     */
+    private boolean startMapKeyClass(Attributes attrs)
+    throws SAXException {
+        if (!isMappingOverrideMode())
+            return false;
+
+        FieldMetaData fmd = (FieldMetaData) currentElement();
+        String mapKeyClass = attrs.getValue("class");
+
+        if (mapKeyClass != null) {
+            try {
+                fmd.getKey().setDeclaredType(Class.forName(mapKeyClass));
+            } catch (ClassNotFoundException e) {
+                throw new IllegalArgumentException("Class not found");
+            }
+        } else
+            throw new IllegalArgumentException(
+            "The value of the MapKeyClass cannot be null");
+        return true;
+    }
+    
     /**
      * Parse order-by.
      */
@@ -1407,15 +1554,30 @@ public class XMLPersistenceMetaDataParser
         if (log.isTraceEnabled())
             log.trace(_loc.get("parse-query", name));
 
-        QueryMetaData meta = getRepository().getCachedQueryMetaData(null, name);
-        if (meta != null && log.isWarnEnabled())
-            log.warn(_loc.get("override-query", name, currentLocation()));
+        QueryMetaData meta = getRepository().searchQueryMetaDataByName(name);
+        if (meta != null) {
+        	Class defType = meta.getDefiningType();
+            if ((defType != _cls) && log.isWarnEnabled()) {
+            	log.warn(_loc.get("dup-query", name, currentLocation(), defType));
+            }
+            pushElement(meta);
+            return true;
+        }
 
         meta = getRepository().addQueryMetaData(null, name);
         meta.setDefiningType(_cls);
         meta.setQueryString(attrs.getValue("query"));
         meta.setLanguage(JPQLParser.LANG_JPQL);
-
+        /** TODO: Uncomment when orm.xsd defines lockmode 
+        LockModeType lockMode = LockModeType.valueOf(attrs.getValue("lockMode"));
+        meta.addHint("openjpa.FetchPlan.ReadLockMode", 
+            JPA2LockLevels.toLockLevel(lockMode));
+        **/
+        Locator locator = getLocation().getLocator();
+        if (locator != null) {
+            meta.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
+            meta.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+        }
         Object cur = currentElement();
         Object scope = (cur instanceof ClassMetaData)
             ? ((ClassMetaData) cur).getDescribedType() : null;
@@ -1498,6 +1660,11 @@ public class XMLPersistenceMetaDataParser
         Object scope = (cur instanceof ClassMetaData)
             ? ((ClassMetaData) cur).getDescribedType() : null;
         meta.setSource(getSourceFile(), scope, meta.SRC_XML);
+        Locator locator = getLocation().getLocator();
+        if (locator != null) {
+            meta.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
+            meta.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+        }
         if (isMetaDataMode())
             meta.setSourceMode(MODE_META);
         else if (isMappingMode())
@@ -1604,7 +1771,7 @@ public class XMLPersistenceMetaDataParser
         throws SAXException {
         if (!isMetaDataMode())
             return false;
-        int[] events = MetaDataParsers.getEventTypes(callback);
+        int[] events = MetaDataParsers.getEventTypes(callback, _conf);
         if (events == null)
             return false;
 
@@ -1635,11 +1802,11 @@ public class XMLPersistenceMetaDataParser
             if (_listener != null) {
                 MetaDataParsers.validateMethodsForSameCallback(_listener,
                     _callbacks[event], ((BeanLifecycleCallbacks) adapter).
-                    getCallbackMethod(), callback, def, getLog());
+                    getCallbackMethod(), callback, _conf, getLog());
             } else {
                 MetaDataParsers.validateMethodsForSameCallback(_cls,
                     _callbacks[event], ((MethodLifecycleCallbacks) adapter).
-                    getCallbackMethod(), callback, def, getLog());
+                    getCallbackMethod(), callback, _conf, getLog());
 
             }
             if (_callbacks[event] == null)
@@ -1683,6 +1850,11 @@ public class XMLPersistenceMetaDataParser
         }
         _callbacks = null;
         _highs = null;
+    }
+
+    protected boolean startOrderColumn(Attributes attrs)
+        throws SAXException {
+        return true;
     }
 
     /**

@@ -44,10 +44,13 @@ public enum MetaDataTag {
     ID_CLASS,
     LOB,
     MAP_KEY,
+    MAP_KEY_CLASS,
+    MAPPED_BY_ID,
     NATIVE_QUERIES,
     NATIVE_QUERY,
     QUERY_STRING,
     ORDER_BY,
+    ORDER_COLUMN,
     QUERIES,
     QUERY,
     QUERY_HINT,
@@ -80,4 +83,5 @@ public enum MetaDataTag {
     MANAGED_INTERFACE,
     READ_ONLY,
     TYPE,
+    REPLICATED
 }

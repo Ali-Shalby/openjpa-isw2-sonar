@@ -64,6 +64,12 @@ public interface Val
     public final int INDEXOF_VAL = 10;
     public final int ABS_VAL = 11;
     public final int SQRT_VAL = 12;
+    public final int SIMPLECASE_VAL = 13;
+    public final int GENERALCASE_VAL = 14;
+    public final int WHENCONDITION_VAL = 15;
+    public final int WHENSCALAR_VAL = 16;
+    public final int COALESCE_VAL = 17;
+    public final int NULLIF_VAL = 18;
 
     /**
      * Initialize the value. This method should recursively initialize any
@@ -141,6 +147,18 @@ public interface Val
         SQLBuffer sql);
 
     /**
+     * Append the SQL checking the index of this value.
+     */
+    public void appendIndex(Select sel, ExpContext ctx, ExpState state, 
+        SQLBuffer sql);
+
+    /**
+     * Append the SQL checking the type of this value.
+     */
+    public void appendType(Select sel, ExpContext ctx, ExpState state, 
+        SQLBuffer sql);
+
+    /**
      * Append the SQL checking the size of this value.
      */
     public void appendSize(Select sel, ExpContext ctx, ExpState state, 
@@ -160,4 +178,6 @@ public interface Val
         SQLBuffer sql);
 
     public int getId();
+
+    public Value getSelectAs();
 }

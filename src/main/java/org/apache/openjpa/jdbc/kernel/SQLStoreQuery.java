@@ -27,11 +27,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.meta.QueryResultMapping;
@@ -47,6 +50,7 @@ import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.UserException;
+
 import serp.util.Numbers;
 
 /**
@@ -72,66 +76,6 @@ public class SQLStoreQuery
 
     public JDBCStore getStore() {
         return _store;
-    }
-
-    /**
-     * Utility method to substitute '?num' for parameters in the given SQL
-     * statement, and re-order the <code>params</code> array to match
-     * the order of the specified parameters.
-     */
-    private static String substituteParams(String sql, List params)
-        throws IOException {
-        // if there's no "?1" positional parameter, then we don't need to
-        // perform the parsing process
-        if (sql.indexOf("?1") == -1)
-            return sql;
-
-        List paramOrder = new ArrayList();
-        StreamTokenizer tok = new StreamTokenizer(new StringReader(sql));
-        tok.resetSyntax();
-        tok.quoteChar('\'');
-        tok.wordChars('0', '9');
-        tok.wordChars('?', '?');
-
-        StringBuffer buf = new StringBuffer(sql.length());
-        for (int ttype; (ttype = tok.nextToken()) != StreamTokenizer.TT_EOF;) {
-            switch (ttype) {
-                case StreamTokenizer.TT_WORD:
-                    // a token is a positional parameter if it starts with
-                    // a "?" and the rest of the token are all numbers
-                    if (tok.sval.startsWith("?") && tok.sval.length() > 1 &&
-                        tok.sval.substring(1).indexOf("?") == -1) {
-                        buf.append("?");
-                        paramOrder.add(Integer.valueOf(tok.sval.substring(1)));
-                    } else
-                        buf.append(tok.sval);
-                    break;
-                case'\'':
-                    buf.append('\'');
-                    if (tok.sval != null) {
-                        buf.append(tok.sval);
-                        buf.append('\'');
-                    }
-                    break;
-                default:
-                    buf.append((char) ttype);
-            }
-        }
-
-        // now go through the paramOrder list and re-order the params array
-        List translated = new ArrayList();
-        for (Iterator i = paramOrder.iterator(); i.hasNext();) {
-            int index = ((Number) i.next()).intValue() - 1;
-            if (index >= params.size())
-                throw new UserException(_loc.get("sqlquery-missing-params",
-                    sql, String.valueOf(index), params));
-            translated.add(params.get(index));
-        }
-
-        // transfer the translated list into the original params list
-        params.clear();
-        params.addAll(translated);
-        return buf.toString();
     }
 
     public boolean supportsParameterDeclarations() {
@@ -203,17 +147,7 @@ public class SQLStoreQuery
             DBDictionary dict = store.getDBDictionary();
             String sql = q.getContext().getQueryString();
 
-            List paramList;
-            if (params.length > 0) {
-                paramList = new ArrayList(Arrays.asList(params));
-                try {
-                    sql = substituteParams(sql, paramList);
-                } catch (IOException ioe) {
-                    throw new UserException(ioe);
-                }
-            } else
-                paramList = Collections.EMPTY_LIST;
-
+            List paramList = new ArrayList(Arrays.asList(params));
             SQLBuffer buf = new SQLBuffer(dict).append(sql);
             
             // we need to make sure we have an active store connection
@@ -224,12 +158,17 @@ public class SQLStoreQuery
 
             PreparedStatement stmnt = null;
             try {
-                stmnt = prepareCall(conn, buf);
-
+                if (_call)
+                    stmnt = prepareCall(conn, buf);
+                else
+                    stmnt = prepareStatement(conn, buf);
+                
                 buf.setParameters(paramList);
                 if (stmnt != null)
                     buf.setParameters(stmnt);
 
+                dict.setTimeouts(stmnt, fetch, true);
+                
                 int count = executeUpdate(store, conn, stmnt, buf);  
               
                 return Numbers.valueOf(count);
@@ -258,17 +197,7 @@ public class SQLStoreQuery
             DBDictionary dict = store.getDBDictionary();
             String sql = q.getContext().getQueryString();
 
-            List paramList;
-            if (params.length > 0) {
-                paramList = new ArrayList(Arrays.asList(params));
-                try {
-                    sql = substituteParams(sql, paramList);
-                } catch (IOException ioe) {
-                    throw new UserException(ioe);
-                }
-            } else
-                paramList = Collections.EMPTY_LIST;
-
+            List paramList = new ArrayList(Arrays.asList(params));
             SQLBuffer buf = new SQLBuffer(dict).append(sql);
             Connection conn = store.getConnection();
             JDBCFetchConfiguration fetch = (JDBCFetchConfiguration)
@@ -292,6 +221,7 @@ public class SQLStoreQuery
                     stmnt != null;)
                     dict.setUnknown(stmnt, ++index, i.next(), null);
 
+                dict.setTimeouts(stmnt, fetch, false);
                 ResultSet rs = executeQuery(store, conn, stmnt, buf, paramList);
                 ResultSetResult res = stmnt != null ? 
                     new ResultSetResult(conn, stmnt, rs, store) :
@@ -391,5 +321,89 @@ public class SQLStoreQuery
             throws SQLException {
             return stmnt.executeQuery();
         }
+        
+        /**
+         * The given query is parsed to find the parameter tokens of the form
+         * <code>?n</code> which is different than <code>?</code> tokens in
+         * actual SQL parameter tokens. These <code>?n</code> style tokens
+         * are replaced in the query string by <code>?</code> tokens. 
+         * 
+         * During the token parsing, the ordering of the tokens is recorded. 
+         * The given userParam must contain parameter keys as Integer and
+         * the same Integers must appear in the tokens. 
+         * 
+         */
+        public Object[] toParameterArray(StoreQuery q, Map userParams) {
+            if (userParams == null || userParams.isEmpty())
+                return StoreQuery.EMPTY_OBJECTS;
+            String sql = q.getContext().getQueryString();
+            List<Integer> paramOrder = new ArrayList<Integer>();
+            try {
+                sql = substituteParams(sql, paramOrder);
+            } catch (IOException ex) {
+                throw new UserException(ex.getLocalizedMessage());
+            }
+            
+            Object[] result = new Object[paramOrder.size()];
+            int idx = 0;
+            for (Integer key : paramOrder) {
+                if (!userParams.containsKey(key)) 
+                    throw new UserException(_loc.get("uparam-missing", 
+                        sql, key, userParams));
+                result[idx++] = userParams.get(key);
+            }
+            // modify original JPA-style SQL to proper SQL
+            q.getContext().getQuery().setQuery(sql);
+            return result;
+        }
+    }
+    
+    /**
+     * Utility method to substitute '?num' for parameters in the given SQL
+     * statement, and fill-in the order of the parameter tokens
+     */
+    public static String substituteParams(String sql, List<Integer> paramOrder)
+            throws IOException {
+            // if there's no "?" parameter marker, then we don't need to
+            // perform the parsing process
+            if (sql.indexOf("?") == -1)
+                return sql;
+
+            paramOrder.clear();
+            StreamTokenizer tok = new StreamTokenizer(new StringReader(sql));
+            tok.resetSyntax();
+            tok.quoteChar('\'');
+            tok.wordChars('0', '9');
+            tok.wordChars('?', '?');
+
+            StringBuffer buf = new StringBuffer(sql.length());
+            for (int ttype; (ttype = tok.nextToken()) != StreamTokenizer.TT_EOF;) {
+                switch (ttype) {
+                    case StreamTokenizer.TT_WORD:
+                        // a token is a positional parameter if it starts with
+                        // a "?" and the rest of the token are all numbers
+                        if (tok.sval.startsWith("?")) {
+                            buf.append("?");
+                            String pIndex = tok.sval.substring(1);
+                            if (pIndex.length() > 0) {
+                                paramOrder.add(Integer.valueOf(pIndex));
+                            } else { // or nothing
+                                paramOrder.add(paramOrder.size()+1);
+                            }
+                        } else
+                            buf.append(tok.sval);
+                        break;
+                    case'\'':
+                        buf.append('\'');
+                        if (tok.sval != null) {
+                            buf.append(tok.sval);
+                            buf.append('\'');
+                        }
+                        break;
+                    default:
+                        buf.append((char) ttype);
+                }
+            }
+            return buf.toString();
     }
 }

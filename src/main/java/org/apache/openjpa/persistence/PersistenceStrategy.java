@@ -36,6 +36,7 @@ public enum PersistenceStrategy {
     ONE_MANY,
     ONE_ONE,
     MANY_MANY,
+    ELEM_COLL,
     EMBEDDED,
     TRANSIENT,
     // openjpa extensions

@@ -26,10 +26,10 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 import java.util.Set;
-import javax.persistence.EntityManagerFactory;
 
+import javax.persistence.Cache;
+import javax.persistence.EntityManagerFactory;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.kernel.AutoDetach;
@@ -43,6 +43,8 @@ import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.Value;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Closeable;
+import org.apache.openjpa.persistence.query.OpenJPAQueryBuilder;
+import org.apache.openjpa.persistence.query.QueryBuilderImpl;
 import org.apache.openjpa.util.OpenJPAException;
 import serp.util.Strings;
 
@@ -96,9 +98,20 @@ public class EntityManagerFactoryImpl
     public OpenJPAConfiguration getConfiguration() {
         return _factory.getConfiguration();
     }
-
-    public Properties getProperties() {
-        return _factory.getProperties();
+    
+    /* 
+     * @see javax.persistence.EntityManagerFactory#getProperties()
+     * 
+     * This does not return the password property.
+     */
+    public Map getProperties() {
+        Map properties = _factory.getAllProperties();
+        
+        // Remove the password property
+        properties.remove("javax.persistence.jdbc.password");
+        properties.remove("openjpa.ConnectionPassword");
+        
+        return properties;
     }
 
     public Object putUserObject(Object key, Object val) {
@@ -332,4 +345,16 @@ public class EntityManagerFactoryImpl
             throw PersistenceExceptions.toPersistenceException(e);
         }
 	}
+
+    public Cache getCache() {
+        return getStoreCache();
+    }
+
+    public OpenJPAQueryBuilder getQueryBuilder() {
+    	return new QueryBuilderImpl(this);
+    }
+
+    public Set<String> getSupportedProperties() {
+        return _factory.getSupportedProperties();
+    }
 }

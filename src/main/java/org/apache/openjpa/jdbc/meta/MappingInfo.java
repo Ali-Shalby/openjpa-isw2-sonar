@@ -71,6 +71,7 @@ public abstract class MappingInfo
     private boolean _canIdx = true;
     private boolean _canUnq = true;
     private boolean _canFK = true;
+    private boolean _implicitRelation = false;
     private int _join = JOIN_NONE;
     private ColumnIO _io = null;
 
@@ -93,6 +94,21 @@ public abstract class MappingInfo
      */
     public List getColumns() {
         return (_cols == null) ? Collections.EMPTY_LIST : _cols;
+    }
+    
+    /**
+     * Gets the columns whose table name matches the given table name. 
+     */
+    public List getColumns(String tableName) {
+        if (_cols == null) 
+        	return Collections.EMPTY_LIST;
+        List result = new ArrayList();
+        for (Object col : _cols) {
+        	if (StringUtils.equals(((Column)col).getTableName(), 
+        			tableName)) 
+        		result.add(col);
+        }
+        return result;
     }
 
     /**
@@ -128,6 +144,30 @@ public abstract class MappingInfo
      */
     public void setCanIndex(boolean indexable) {
         _canIdx = indexable;
+    }
+
+    /** 
+	 *  Affirms if this instance represents an implicit relation. For example, a 
+	 *  relation expressed as the value of primary key of the related class and 
+	 *  not as object reference.
+     *
+     * @since 1.3.0
+     */
+    public boolean isImplicitRelation() {
+    	return _implicitRelation;
+    }
+    
+    /**
+     * Sets a marker to imply a logical relation that can not have any physical
+     * manifest in the database. For example, a relation expressed as the value
+     * of primary key of the related class and not as object reference.
+     * Populated from @ForeignKey(implicit=true) annotation.
+     * The mutator can only transit from false to true but not vice versa.
+     * 
+     * @since 1.3.0
+     */
+    public void setImplicitRelation(boolean flag) {
+    	_implicitRelation |= flag;
     }
 
     /**
@@ -280,7 +320,7 @@ public abstract class MappingInfo
             else
                 _canFK = info.canForeignKey();
         }
-
+        _implicitRelation = info.isImplicitRelation();
         List cols = getColumns();
         List icols = info.getColumns();
         if (!icols.isEmpty() && (cols.isEmpty()
@@ -386,10 +426,11 @@ public abstract class MappingInfo
     }
 
     /**
-     * Assert that the user did not try to place a foreign key on this mapping.
+     * Assert that the user did not try to place a foreign key on this mapping
+     * or placed an implicit foreign key. 
      */
     public void assertNoForeignKey(MetaDataContext context, boolean die) {
-        if (_fk == null)
+        if (_fk == null || isImplicitRelation())
             return;
 
         Message msg = _loc.get("unexpected-fk", context);
@@ -451,9 +492,10 @@ public abstract class MappingInfo
         }
 
         String fullName;
-        int dotIdx = given.lastIndexOf('.');
+        String sep = repos.getDBDictionary().catalogSeparator;
+        int dotIdx = given.lastIndexOf(sep);
         if (dotIdx == -1)
-            fullName = (schemaName == null) ? given : schemaName + "." + given;
+            fullName = (schemaName == null) ? given : schemaName + sep + given;
         else {
             fullName = given;
             schema = null;
@@ -505,10 +547,19 @@ public abstract class MappingInfo
         boolean fill = ((MappingRepository) context.getRepository()).
             getMappingDefaults().defaultMissingInfo();
         if ((!given.isEmpty() || (!adapt && !fill))
-            && given.size() != tmplates.length)
-            throw new MetaDataException(_loc.get(prefix + "-num-cols",
-                context, String.valueOf(tmplates.length),
-                String.valueOf(given.size())));
+            && given.size() != tmplates.length) {
+        	// also consider when this info has columns from multiple tables
+        	given = getColumns(table.getName());
+        	if ((!adapt && !fill) && given.size() != tmplates.length) {
+        		// try default table
+        		given = getColumns("");
+            	if ((!adapt && !fill) && given.size() != tmplates.length) {
+            		throw new MetaDataException(_loc.get(prefix + "-num-cols",
+            			context, String.valueOf(tmplates.length),
+            			String.valueOf(given.size())));
+            	}
+        	}
+        }
 
         Column[] cols = new Column[tmplates.length];
         _io = null;
@@ -520,6 +571,11 @@ public abstract class MappingInfo
             setIOFromColumnFlags(col, i);
         }
         return cols;
+    }
+    
+    boolean canMerge(List given, Column[] templates, boolean adapt, boolean fill) {
+    	return !((!given.isEmpty() || (!adapt && !fill)) 
+    			&& given.size() != templates.length);
     }
 
     /**
@@ -571,12 +627,15 @@ public abstract class MappingInfo
             throw new MetaDataException(_loc.get(prefix + "-no-col-name",
                 context));
 
+        MappingRepository repos = (MappingRepository) context.getRepository();
+        DBDictionary dict = repos.getDBDictionary();
+
         // determine the column name based on given info, or template if none;
         // also make sure that if the user gave a column name, he didn't try
         // to put the column in an unexpected table
         if (colName == null)
             colName = tmplate.getName();
-        int dotIdx = colName.lastIndexOf('.');
+        int dotIdx = colName.lastIndexOf(dict.catalogSeparator);
         if (dotIdx == 0)
             colName = colName.substring(1);
         else if (dotIdx != -1) {
@@ -591,15 +650,22 @@ public abstract class MappingInfo
             throw new MetaDataException(_loc.get(prefix + "-bad-col-name",
                 context, colName, table));
 
-        MappingRepository repos = (MappingRepository) context.getRepository();
-        DBDictionary dict = repos.getDBDictionary();
-
         // use information from template column by default, allowing any
         // user-given specifics to override it
         int type = tmplate.getType();
         int size = tmplate.getSize();
-        if (type == Types.OTHER)
-            type = dict.getJDBCType(tmplate.getJavaType(), size == -1);
+        if (type == Types.OTHER) {
+            int precis = 0;
+            int scale = 0;
+            if(given != null) {
+                precis = given.getSize();
+                scale = given.getDecimalDigits();
+            }
+            type =
+                dict.getJDBCType(tmplate.getJavaType(), size == -1, precis,
+                    scale);
+        }
+            
         boolean ttype = true;
         int otype = type;
         String typeName = tmplate.getTypeName();
@@ -610,7 +676,10 @@ public abstract class MappingInfo
         String defStr = tmplate.getDefaultString();
         boolean autoAssign = tmplate.isAutoAssigned();
         boolean relationId = tmplate.isRelationId();
+        boolean implicitRelation = tmplate.isImplicitRelation();
         String targetField = tmplate.getTargetField();
+        int base = tmplate.getBase();
+        boolean contiguous = tmplate.isContiguous();
         if (given != null) {
             // use given type if provided, but warn if it isn't compatible with
             // the expected column type
@@ -629,6 +698,8 @@ public abstract class MappingInfo
             typeName = given.getTypeName();
             size = given.getSize();
             decimals = given.getDecimalDigits();
+            base = given.getBase();
+            contiguous = given.isContiguous();
 
             // leave this info as the template defaults unless the user
             // explicitly turns it on in the given column
@@ -640,6 +711,8 @@ public abstract class MappingInfo
                 autoAssign = true;
             if (given.isRelationId())
                 relationId = true;
+            if (given.isImplicitRelation())
+            	implicitRelation = true;
         }
 
         // default char column size if original type is char (test original
@@ -684,7 +757,10 @@ public abstract class MappingInfo
         }
         col.setAutoAssigned(autoAssign);
         col.setRelationId(relationId);
+        col.setImplicitRelation(implicitRelation);
         col.setTargetField(targetField);
+        col.setContiguous(contiguous);
+        col.setBase(base);
 
         // we need this for runtime, and the dynamic schema factory might
         // not know it, so set it even if not adapting
@@ -705,6 +781,8 @@ public abstract class MappingInfo
 
         if (tmplate.hasComment())
             col.setComment(tmplate.getComment());
+        if (tmplate.isXML())
+            col.setXML(tmplate.isXML());
         return col;
     }
 
@@ -1627,7 +1705,7 @@ public abstract class MappingInfo
         Column copy = new Column();
         if (col.getTable() != colTable || inverse)
             copy.setName(dict.getFullName(col.getTable(), true)
-                + "." + col.getName());
+                + dict.catalogSeparator + col.getName());
         else
             copy.setName(col.getName());
 
@@ -1640,7 +1718,7 @@ public abstract class MappingInfo
                 if ((!inverse && tcol.getTable() != targetTable)
                     || (inverse && tcol.getTable() != colTable))
                     copy.setTarget(dict.getFullName(tcol.getTable(), true)
-                        + "." + tcol.getName());
+                        + dict.catalogSeparator + tcol.getName());
                 else if (!defaultTarget(col, tcol, num))
                     copy.setTarget(tcol.getName());
             } else if (target instanceof Number)

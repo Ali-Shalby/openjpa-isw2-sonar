@@ -21,6 +21,7 @@ package org.apache.openjpa.jdbc.kernel.exps;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
+import org.apache.openjpa.kernel.exps.Value;
 
 /**
  * Abstract value for easy extension.
@@ -32,6 +33,7 @@ abstract class AbstractVal
 
     protected static final String TRUE = "1 = 1";
     protected static final String FALSE = "1 <> 1";
+    private String _alias = null;
 
     public boolean isVariable() {
         return false;
@@ -72,6 +74,16 @@ abstract class AbstractVal
         sql.append(" IS NOT ").appendValue(null);
     }
 
+    public void appendIndex(Select sel, ExpContext ctx, ExpState state, 
+        SQLBuffer sql) {
+        sql.append("1");
+    }
+
+    public void appendType(Select sel, ExpContext ctx, ExpState state, 
+        SQLBuffer sql) {
+        sql.append("1");
+    }
+
     public void appendSize(Select sel, ExpContext ctx, ExpState state, 
         SQLBuffer sql) {
         sql.append("1");
@@ -84,6 +96,18 @@ abstract class AbstractVal
 
     public int getId() {
         return Val.VAL;
+    }
+
+    public String getAlias() {
+        return _alias;
+    }
+
+    public void setAlias(String alias) {
+        _alias = alias;
+    }
+
+    public Value getSelectAs() {
+        return _alias != null ? this : null;
     }
 }
 

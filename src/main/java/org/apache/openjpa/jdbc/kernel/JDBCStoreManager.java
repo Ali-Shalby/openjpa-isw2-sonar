@@ -29,20 +29,17 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import javax.sql.DataSource;
 
+import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.event.OrphanedKeyAction;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
-import org.apache.openjpa.jdbc.conf.QuerySQLCacheValue;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
-import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
 import org.apache.openjpa.jdbc.sql.Joins;
@@ -52,7 +49,9 @@ import org.apache.openjpa.jdbc.sql.SQLFactory;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.jdbc.sql.SelectExecutor;
 import org.apache.openjpa.jdbc.sql.Union;
+import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.FetchConfiguration;
+import org.apache.openjpa.kernel.FinderCache;
 import org.apache.openjpa.kernel.LockManager;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.PCState;
@@ -65,12 +64,10 @@ import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.lib.jdbc.DelegatingConnection;
 import org.apache.openjpa.lib.jdbc.DelegatingPreparedStatement;
 import org.apache.openjpa.lib.jdbc.DelegatingStatement;
-import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
-import org.apache.openjpa.meta.FetchGroup;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueStrategies;
@@ -106,11 +103,7 @@ public class JDBCStoreManager
 
     // track the pending statements so we can cancel them
     private Set _stmnts = Collections.synchronizedSet(new HashSet());
-    
-    private Map _sqlCache = null;
-    private boolean _isQuerySQLCache = true;
-    private static final Object _nullCacheValue = new Object();
-    
+
     public StoreContext getContext() {
         return _ctx;
     }
@@ -136,9 +129,6 @@ public class JDBCStoreManager
 
         if (_conf.getUpdateManagerInstance().orderDirty())
             ctx.setOrderDirtyObjects(true);
-        
-        _sqlCache = _conf.getQuerySQLCacheInstance();
-        _isQuerySQLCache = _conf.isQuerySQLCacheOn();
     }
 
     public JDBCConfiguration getConfiguration() {
@@ -279,7 +269,8 @@ public class JDBCStoreManager
         } catch (ClassNotFoundException cnfe) {
             throw new UserException(cnfe);
         } catch (SQLException se) {
-            throw SQLExceptions.getStore(se, _dict);
+            throw SQLExceptions.getStoreSQLException(sm, se, _dict,
+                fetch.getReadLockLevel());
         }
     }
 
@@ -354,7 +345,21 @@ public class JDBCStoreManager
                     getMappedByFieldMapping();
                 Object mappedByObject = info.result.getMappedByValue();
                 if (mappedByFieldMapping != null && mappedByObject != null)
-                    setMappedBy(sm, mappedByFieldMapping, mappedByObject);
+                    if (mappedByObject instanceof OpenJPAId &&
+                        mapping.getExtraFieldDataIndex(mappedByFieldMapping.
+                        getIndex()) != -1)
+                        // The inverse relation can not be set since
+                        // we are eagerly loading this sm for
+                        // a sm owner that is still in the process of 
+                        // initializing itself.
+                        // Remember owner oid by setIntermediate().
+                        // The inverse relation is set later by
+                        // setInverseRelation() when the sm owner is fully
+                        // initialized.
+                        sm.setIntermediate(mappedByFieldMapping.getIndex(),
+                            mappedByObject);
+                    else
+                        setMappedBy(sm, mappedByFieldMapping, mappedByObject);
             }
             // load the selected mappings into the given state manager
             if (res != null) {
@@ -362,11 +367,58 @@ public class JDBCStoreManager
                 mapping = (ClassMapping) sm.getMetaData();
                 load(mapping, sm, fetch, res);
                 getVersion(mapping, sm, res);
+                setInverseRelation(sm, mapping, res);
             }
             return true;
         } finally {
             if (res != null && (info == null || res != info.result))
                 res.close();
+        }
+    }
+
+    private void setInverseRelation(OpenJPAStateManager owner,
+        ClassMapping mapping, Result res) {
+        FieldMapping[] fms = mapping.getFieldMappings();
+
+        // At this point, the owner is fully initialized.
+        // Check if the owner has eagerly loaded ToMany relations.
+        for (int i = 0; i < fms.length; i++) {
+            if (res.getEager(fms[i]) != null) {
+                Object coll =  owner.fetchObject(fms[i].getIndex());
+                if (coll instanceof Collection && 
+                    ((Collection) coll).size() > 0) {
+                    // Found eagerly loaded collection.
+                    // Publisher (1) <==>  (M) Magazine
+                    //    publisher has a EAGER OneToMany relation
+                    //    magazine has a EAGER or LAZY ManyToOne publisher
+                    // For each member (Magazine) in the collection, 
+                    // set its inverse relation (Publisher).
+                    for (Iterator itr = ((Collection) coll).iterator();
+                        itr.hasNext();) {
+                        PersistenceCapable pc = (PersistenceCapable) itr.next();
+
+                        if (pc == null)
+                            continue;
+
+                        OpenJPAStateManager sm = (OpenJPAStateManager) pc.
+                            pcGetStateManager();
+                        FieldMapping[] fmd = ((ClassMapping) sm.getMetaData()).
+                            getFieldMappings();
+                        for (int j = 0; j < fmd.length; j++) {
+                            Object oid = sm.getIntermediate(fmd[j].getIndex());
+                            // if oid was setIntermediate() previously
+                            // and it is the same as the owner,
+                            // then set the inverse relation
+                            if (oid != null &&
+                                oid.equals(owner.getObjectId())) {
+                                sm.storeObject(fmd[j].getIndex(),
+                                    owner.getPersistenceCapable());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -435,86 +487,18 @@ public class JDBCStoreManager
     private Result getInitializeStateResult(OpenJPAStateManager sm,
         ClassMapping mapping, JDBCFetchConfiguration fetch, int subs)
         throws SQLException {
-        List params = new ArrayList();
-        Select sel = newSelect(sm, mapping, fetch, subs, params);
-        if (sel == null) return null;
-        return sel.execute(this, fetch, params);
-    }
-
-    private Select newSelect(OpenJPAStateManager sm,
-        ClassMapping mapping, JDBCFetchConfiguration fetch, int subs,
-        List params) {
-        if (!_isQuerySQLCache) 
-            return newSelect(sm, mapping, fetch, subs);       
-           
-        Map<SelectKey, Select> selectImplCacheMap = 
-            getCacheMapFromQuerySQLCache(JDBCStoreManager.class);
-        JDBCFetchConfiguration fetchClone = new JDBCFetchConfigurationImpl();
-        fetchClone.copy(fetch);
-        SelectKey selKey = new SelectKey(mapping, null, fetchClone);
-        Select sel = null;
-        boolean found = true;
-        Object obj = selectImplCacheMap.get(selKey);
-        if (obj == null) {
-            synchronized (selectImplCacheMap) {
-                obj = selectImplCacheMap.get(selKey);
-                if (obj == null) {
-                    // Not found in cache, create a new select
-                    obj = newSelect(sm, mapping, fetch, subs);
-                    found = false;
-                }
-                    
-                if (obj == null) {
-                    // If the generated SelectImpl is null, store a generic
-                    // known object in the cache as a placeholder. Some map 
-                    // implementations do not allow null values.
-                    obj = _nullCacheValue;
-                    found = false;
-                }
-                else if (obj != _nullCacheValue)
-                {
-                    sel = (Select)obj;
-                    if (sel.getSQL() == null) {
-                        sel.setSQL(this, fetch);
-                        found = false;
-                    }
-                }
-                if (!found) {
-                    addToSqlCache(selectImplCacheMap, selKey, obj);
-                }
-            }
-        }
-
-        if (obj != null && obj != _nullCacheValue)
-            sel = (Select) obj;
-
-        Log log = _conf.getLog(JDBCConfiguration.LOG_JDBC);
-        if (log.isTraceEnabled()) {
-            if (!found)
-                log.trace(_loc.get("cache-missed", mapping, this.getClass()));
-            else
-                log.trace(_loc.get("cache-hit", mapping, this.getClass()));
-        }
-
-        if (sel == null)
-            return null;
-        
-        Object oid = sm.getObjectId();
-        Column[] cols = mapping.getPrimaryKeyColumns();
-        sel.wherePrimaryKey(mapping, cols, cols, oid, this, 
-        	null, null, params);
-        return sel;
-    }
-
-    protected Select newSelect(OpenJPAStateManager sm,
-        ClassMapping mapping, JDBCFetchConfiguration fetch, int subs) {
+        FinderQueryImpl fq = getFinder(mapping, fetch);
+        if (fq != null)
+            return fq.execute(sm, this, fetch);
         Select sel = _sql.newSelect();
         if (!select(sel, mapping, subs, sm, null, fetch,
             JDBCFetchConfiguration.EAGER_JOIN, true, false))
             return null;
         sel.wherePrimaryKey(sm.getObjectId(), mapping, this);
         sel.setExpectedResultCount(1, false);
-        return sel;
+        Result result = sel.execute(this, fetch);
+        cacheFinder(mapping, sel, fetch);
+        return result;
     }
 
     /**
@@ -524,6 +508,9 @@ public class JDBCStoreManager
     private Result getInitializeStateUnionResult(final OpenJPAStateManager sm,
         ClassMapping mapping, final ClassMapping[] mappings,
         final JDBCFetchConfiguration fetch) throws SQLException {
+        FinderQueryImpl fq = getFinder(mapping, fetch);
+        if (fq != null)
+            return fq.execute(sm, this, fetch);
         final JDBCStoreManager store = this;
         final int eager = Math.min(fetch.getEagerFetchMode(),
             JDBCFetchConfiguration.EAGER_JOIN);
@@ -539,7 +526,9 @@ public class JDBCStoreManager
                 sel.wherePrimaryKey(sm.getObjectId(), mappings[i], store);
             }
         });
-        return union.execute(this, fetch);
+        Result result = union.execute(this, fetch);
+        cacheFinder(mapping, union, fetch);
+        return result;
     }
 
     /**
@@ -652,6 +641,11 @@ public class JDBCStoreManager
     }
 
     public Collection flush(Collection sms) {
+        try {
+            if (_conn != null && _conn.getInnermostDelegate().isReadOnly())
+                _conn.setReadOnly(false);
+        } catch (SQLException e) {
+        }
         return _conf.getUpdateManagerInstance().flush(sms, this);
     }
 
@@ -825,6 +819,8 @@ public class JDBCStoreManager
             return new JDBCStoreQuery(this, ep);
         if (QueryLanguages.LANG_SQL.equals(language))
             return new SQLStoreQuery(this);
+        if (QueryLanguages.LANG_PREPARED_SQL.equals(language))
+            return new PreparedSQLStoreQuery(this);
         return null;
     }
 
@@ -914,7 +910,27 @@ public class JDBCStoreManager
         ConnectionInfo info = new ConnectionInfo();
         info.result = result;
         info.mapping = mapping;
+
+        // if inverse relation is known, exclude loading during find
+        exclude = excludeInverseRelation(mapping, info, exclude);
         return _ctx.find(oid, fetch, exclude, info, 0);
+    }
+
+    private BitSet excludeInverseRelation(ClassMapping mapping,
+        ConnectionInfo info, BitSet exclude) {
+        FieldMapping inverse = info.result.getMappedByFieldMapping();
+        if (inverse != null) {
+            FieldMapping[] fms = mapping.getDefinedFieldMappings();
+            if (exclude == null)
+                exclude = new BitSet(fms.length);
+            for (int i = 0; i < fms.length; i++) {
+                if (fms[i] == inverse) {
+                    exclude.set(fms[i].getIndex());
+                    break;
+                }
+            }
+        }
+        return exclude;
     }
 
     /**
@@ -1352,6 +1368,24 @@ public class JDBCStoreManager
     private void afterExecuteStatement(Statement stmnt) {
         _stmnts.remove(stmnt);
     }
+    
+    FinderQueryImpl getFinder(ClassMapping mapping, FetchConfiguration fetch) {
+        FinderCache cache = getFinderCache();
+        return cache == null 
+             ? null : (FinderQueryImpl)cache.get(mapping, fetch);
+    }
+    
+    boolean cacheFinder(ClassMapping mapping, SelectExecutor select, 
+        FetchConfiguration fetch) {
+        FinderCache cache = getFinderCache();
+        return cache != null && cache.cache(mapping, select, fetch) != null;
+    }
+    
+    FinderCache getFinderCache() {
+        return (((BrokerImpl)getContext()).getCacheFinderQuery())
+             ? getConfiguration().getFinderCacheInstance() : null;
+    }
+
 
     /**
      * Connection returned to client code. Makes sure its wrapped connection
@@ -1523,165 +1557,6 @@ public class JDBCStoreManager
             } finally {
                 afterExecuteStatement(this);
             }
-        }
-    }
-    
-    public Map getCacheMapFromQuerySQLCache(Object key) {
-        synchronized(_sqlCache) {
-            //sqlCache is a map of map
-            Map cacheMap = (Map)_sqlCache.get(key);
-            if (cacheMap == null) {
-                cacheMap = createSQLCache();
-                _sqlCache.put(key, cacheMap);
-            }
-            return cacheMap;
-        }
-    }
-    
-    public void addToSqlCache(Map cacheMap, Object key, Object value) {
-        cacheMap.put(key, value);
-    }
-    
-    public Map createSQLCache() {
-        QuerySQLCacheValue querySQLCache = _conf.getQuerySQLCache();
-        return (Map)querySQLCache.newInstance();
-    }
-
-    public boolean isQuerySQLCacheOn() {
-        return _isQuerySQLCache;  
-    }
-    
-    public Map getQuerySQLCache() {
-        return _sqlCache;
-    }
-    
-    public static class SelectKey {
-        public ClassMapping mapping;
-        public FieldMapping fm;
-        public JDBCFetchConfiguration fetch;
-        
-        public SelectKey (ClassMapping mapping, FieldMapping fm, 
-            JDBCFetchConfiguration fetch) {
-            this.mapping = mapping;
-            this.fm = fm;
-            this.fetch = fetch;
-        }
-        
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-
-            SelectKey selectKey = (SelectKey) o;
-            if (fetch != null ? !equals(fetch, selectKey.fetch) :
-                selectKey.fetch != null) return false;
-            if (mapping != null ? !mapping.equals(selectKey.mapping) :
-                selectKey.mapping != null) return false;
-            if (fm != null ? !fm.equals(selectKey.fm) :
-                selectKey.fm != null) return false;
-            return true;
-        }
-        
-        public boolean equals(JDBCFetchConfiguration fetch1,
-        	JDBCFetchConfiguration fetch2) {
-            if (fetch1 == fetch2) 
-            	return true;
-
-            if (fetch1.getIsolation() != fetch2.getIsolation()) 
-            	return false;
-            if (fetch1.getFetchDirection() != fetch2.getFetchDirection()) 
-            	return false;
-            if (fetch1.getEagerFetchMode() != fetch2.getEagerFetchMode()) 
-            	return false;
-            if (fetch1.getSubclassFetchMode() != fetch2.getSubclassFetchMode()) 
-            	return false;
-            if (fetch1.getJoinSyntax() != fetch2.getJoinSyntax()) 
-            	return false;
-            Set joins1 = fetch1.getJoins();
-            Set joins2 = fetch2.getJoins();
-            if (joins1 != null ? !joins1.equals(joins2) : joins2 != null)
-                return false;
-            
-            if (fetch1.getMaxFetchDepth() != fetch2.getMaxFetchDepth()) 
-            	return false;
-            if (fetch1.getReadLockLevel() != fetch2.getReadLockLevel()) 
-            	return false;
-            if (fetch1.getWriteLockLevel() != fetch2.getWriteLockLevel()) 
-            	return false;
-            
-            boolean sameFetchGroup = false;
-            boolean hasFetchGroupAll = ((JDBCFetchConfigurationImpl)fetch1).
-            	hasFetchGroupAll();
-            boolean hasFetchGroupAll1 = ((JDBCFetchConfigurationImpl)fetch2).
-            	hasFetchGroupAll();
-            if (hasFetchGroupAll && hasFetchGroupAll1) 
-                sameFetchGroup = true;
-            else if (!hasFetchGroupAll && !hasFetchGroupAll1){
-                boolean hasFetchGroupDefault = 
-                	((JDBCFetchConfigurationImpl)fetch1).hasFetchGroupDefault();
-                boolean hasFetchGroupDefault1 = 
-                	((JDBCFetchConfigurationImpl)fetch2).hasFetchGroupDefault();
-                if (hasFetchGroupDefault && hasFetchGroupDefault1) 
-                    sameFetchGroup = true;
-            }
-            
-            if (!sameFetchGroup) {
-                Set fetchGroups = fetch1.getFetchGroups();
-                Set fetchGroups1 = fetch2.getFetchGroups();
-                if (fetchGroups != null ? !fetchGroups.equals(fetchGroups1) : 
-                	fetchGroups1 != null)
-                    return false;
-            }
-            
-            Set fields = fetch1.getFields();
-            Set fields1 = fetch2.getFields();
-            int size = fields.size();
-            int size1 = fields1.size();
-            if (size == 0 && size1 == 0)
-                return true;
-            else if (size != size1) 
-                return false;   
-            
-            if (fields != null ? !fields.equals(fields1) : fields1 != null)
-                return false;
-            
-            return true;
-        }
-        
-        
-        public int hashCode() {
-            int result = 0;
-            result = 31 * result + (mapping != null ? mapping.hashCode() : 0);
-            result = 31 * result + (fm != null ? fm.hashCode() : 0);
-            result = 31 * result + fetch.getIsolation();
-            result = 31 * result + fetch.getFetchDirection();
-            result = 31 * result + fetch.getEagerFetchMode();
-            result = 31 * result + fetch.getSubclassFetchMode();
-            result = 31 * result + fetch.getJoinSyntax();
-            Set joins = fetch.getJoins();
-            result = 31 * result + (joins != null ? joins.hashCode() : 0);
-            
-            result = 31 * result + fetch.getMaxFetchDepth();
-            result = 31 * result + fetch.getReadLockLevel();
-            result = 31 * result + fetch.getWriteLockLevel();
-        	
-            if (((JDBCFetchConfigurationImpl)fetch).hasFetchGroupAll()) 
-            	result = 31 * result + FetchGroup.NAME_ALL.hashCode();
-            else {
-                Set fetchGroups = fetch.getFetchGroups();
-                if (((JDBCFetchConfigurationImpl)fetch).hasFetchGroupDefault() 
-                	&& fetchGroups != null && fetchGroups.size() == 1)
-                    result = 31 * result + FetchGroup.NAME_DEFAULT.hashCode();
-                else {
-                    result = 31 * result + (fetchGroups != null && 
-                        fetchGroups.size() > 0 ? 
-                        fetchGroups.hashCode() : 0);
-                }
-            }
-            Set fields = fetch.getFields();
-        	result = 31 * result + (fields != null &&  fields.size() > 0 ? 
-        		fields.hashCode() : 0);
-            
-            return result;
         }
     }
 }

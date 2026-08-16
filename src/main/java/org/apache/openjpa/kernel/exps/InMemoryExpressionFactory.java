@@ -35,6 +35,7 @@ import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.ImplHelper;
+import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
 
 /**
@@ -480,6 +481,10 @@ public class InMemoryExpressionFactory
         return new Lit(val, parseType);
     }
 
+    public Literal newTypeLiteral(Object val, int parseType) {
+        return new TypeLit(val, parseType);
+    }
+
     public Value getThis() {
         return new This();
     }
@@ -500,8 +505,12 @@ public class InMemoryExpressionFactory
         return CURRENT_DATE;
     }
 
-    public Parameter newParameter(String name, Class type) {
+    public Parameter newParameter(Object name, Class type) {
         return new Param(name, type);
+    }
+
+    public Parameter newCollectionValuedParameter(Object name, Class type) {
+        return new CollectionParam(name, type);
     }
 
     public Value newExtension(FilterListener listener, Value target,
@@ -631,6 +640,26 @@ public class InMemoryExpressionFactory
         return new Size((Val) val);
     }
 
+    public Value index(Value val) {
+        return new Index((Val) val);
+    }
+
+    public Value type(Value val) {
+        return new Type((Val) val);
+    }
+
+    public Value mapEntry(Value key, Value val) {
+        throw new UnsupportedException("not implemented yet");
+    }
+
+    public Value mapKey(Value key, Value val) {
+        throw new UnsupportedException("not implemented yet");
+    }
+
+    public Value getKey(Value val) {
+        throw new UnsupportedException("not implemented yet");
+    }
+    
     public Value getObjectId(Value val) {
         return new GetObjectId((Val) val);
     }
@@ -725,4 +754,38 @@ public class InMemoryExpressionFactory
 			}
 		}
 	}
+
+    public Value generalCaseExpression(Expression[] exp, Value val) {
+        Exp[] exps = new Exp[exp.length];
+        for (int i = 0; i < exp.length; i++)
+            exps[i] = (Exp) exp[i];
+        return new GeneralCase(exps, (Val) val);
+    }
+
+    public Value simpleCaseExpression(Value caseOperand, Expression[] exp,
+        Value val) {
+            Exp[] exps = new Exp[exp.length];
+            for (int i = 0; i < exp.length; i++)
+                exps[i] = (Exp) exp[i];
+            return new SimpleCase((Val) caseOperand, exps, (Val) val);
+    }
+
+    public Expression whenCondition(Expression exp, Value val) {
+        return new WhenCondition((Exp) exp, (Val) val);
+    }
+
+    public Expression whenScalar(Value val1, Value val2) {
+        return new WhenScalar((Val) val1, (Val) val2);
+    }
+
+    public Value coalesceExpression(Value[] val) {
+        Val[] vals = new Val[val.length];
+        for (int i = 0; i < val.length; i++)
+            vals[i] = (Val) val[i];
+        return new Coalesce(vals);
+    }
+
+    public Value nullIfExpression(Value val1, Value val2) {
+        return new NullIf((Val) val1, (Val) val2);
+    }
 }

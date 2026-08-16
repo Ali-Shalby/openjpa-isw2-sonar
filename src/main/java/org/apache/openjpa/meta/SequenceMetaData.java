@@ -67,6 +67,8 @@ public class SequenceMetaData
     private static final String PROP_INITIAL_VALUE = "InitialValue";
     private static final String PROP_ALLOCATE = "Allocate";
     private static final String PROP_INCREMENT = "Increment";
+    private static final String PROP_SCHEMA = "Schema";
+    private static final String PROP_CATALOG = "Catalog";
 
     private static final Localizer _loc = Localizer.forPackage
         (SequenceMetaData.class);
@@ -80,11 +82,15 @@ public class SequenceMetaData
     private File _source = null;
     private Object _scope = null;
     private int _srcType = SRC_OTHER;
+    private int _lineNum = 0;  
+    private int _colNum = 0;  
     private String[] _comments = null;
     private String _sequence = null;
     private int _increment = -1;
     private int _allocate = -1;
     private int _initial = -1;
+    private String _schema = null;
+    private String _catalog = null;
 
     // instantiated lazily
     private transient Seq _instance = null;
@@ -129,6 +135,22 @@ public class SequenceMetaData
         _srcType = srcType;
     }
 
+    public int getLineNumber() {
+        return _lineNum;
+    }
+
+    public void setLineNumber(int lineNum) {
+        _lineNum = lineNum;
+    }
+
+    public int getColNumber() {
+        return _colNum;
+    }
+
+    public void setColNumber(int colNum) {
+        _colNum = colNum;
+    }
+    
     public String getResourceName() {
         return _name;
     }
@@ -255,7 +277,7 @@ public class SequenceMetaData
             String clsName = plugin.getClassName();
 
             Class cls = Class.forName(clsName, true,
-                (ClassLoader) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(Seq.class)));
             StringBuffer props = new StringBuffer();
             if (plugin.getProperties() != null)
@@ -288,6 +310,28 @@ public class SequenceMetaData
         }
     }
 
+    /*
+     * Set/Get the schema name
+     */
+    public void setSchema(String schema) {
+        this._schema = schema;
+    }
+
+    public String getSchema() {
+        return _schema;
+    }
+
+    /*
+     * Set/Get the catalog name
+     */
+    public void setCatalog(String catalog) {
+        this._catalog = catalog;
+    }
+
+    public String getCatalog() {
+        return _catalog;
+    }
+
     /**
      * Create a new plugin value for sequences. Returns a standard
      * {@link SeqValue} by default.
@@ -304,6 +348,8 @@ public class SequenceMetaData
         appendProperty(props, PROP_INITIAL_VALUE, _initial);
         appendProperty(props, PROP_ALLOCATE, _allocate);
         appendProperty(props, PROP_INCREMENT, _increment);
+        appendProperty(props, PROP_SCHEMA, _schema);
+        appendProperty(props, PROP_CATALOG, _catalog);
     }
 
     /**

@@ -20,6 +20,7 @@ package org.apache.openjpa.kernel;
 
 import java.io.Serializable;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.openjpa.lib.rop.ResultList;
@@ -147,6 +148,20 @@ public interface FetchConfiguration
      * The query automatic flush configuration.
      */
     public FetchConfiguration setFlushBeforeQueries(int flush);
+    
+    /**
+     * Affirms if extended path lookup feature is active.
+     * 
+     * @since 2.0.0
+     */
+    public boolean getExtendedPathLookup();
+    
+    /**
+     * Sets extended path lookup feature.
+     *
+     * @since 2.0.0
+     */
+    public FetchConfiguration setExtendedPathLookup(boolean flag);
 
     /**
      * Returns immutable set of names of the fetch groups that this component
@@ -253,6 +268,22 @@ public interface FetchConfiguration
      * @since 0.3.1
      */
     public FetchConfiguration setLockTimeout(int timeout);
+    
+    /**
+     * The number of milliseconds to wait for a query, or -1 for no
+     * limit.
+     *
+     * @since 2.0.0
+     */
+    public int getQueryTimeout();
+
+    /**
+     * The number of milliseconds to wait for a query, or -1 for no
+     * limit.
+     *
+     * @since 2.0.0
+     */
+    public FetchConfiguration setQueryTimeout(int timeout);
 
     /**
      * The lock level to use for locking loaded objects.
@@ -305,6 +336,13 @@ public interface FetchConfiguration
 	 * @since 0.4.0
 	 */
 	public Object getHint (String name);
+	
+	/**
+	 * Returns an immutable view of the currently active hints and their values. 
+	 * 
+	 * @since 2.0.0
+	 */
+	public Map<String, Object> getHints();
 
     /**
      * Root classes for recursive operations. This set is not thread safe.

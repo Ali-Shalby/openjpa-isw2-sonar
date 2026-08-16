@@ -22,6 +22,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
+
 import javax.persistence.LockModeType;
 
 import org.apache.openjpa.kernel.DelegatingFetchConfiguration;
@@ -232,24 +235,54 @@ public class FetchPlanImpl
         return this;
     }
 
+    public int getQueryTimeout() {
+        return _fetch.getQueryTimeout();
+    }
+
+    public FetchPlan setQueryTimeout(int timeout) {
+        _fetch.setQueryTimeout(timeout);
+        return this;
+    }
+
     public LockModeType getReadLockMode() {
-        return EntityManagerImpl.fromLockLevel(_fetch.getReadLockLevel());
+        return JPA2LockLevels.fromLockLevel(_fetch.getReadLockLevel());
     }
 
     public FetchPlan setReadLockMode(LockModeType mode) {
-        _fetch.setReadLockLevel(EntityManagerImpl.toLockLevel(mode));
+        _fetch.setReadLockLevel(JPA2LockLevels.toLockLevel(mode));
         return this;
     }
 
     public LockModeType getWriteLockMode() {
-        return EntityManagerImpl.fromLockLevel(_fetch.getWriteLockLevel());
+        return JPA2LockLevels.fromLockLevel(_fetch.getWriteLockLevel());
     }
 
     public FetchPlan setWriteLockMode(LockModeType mode) {
-        _fetch.setWriteLockLevel(EntityManagerImpl.toLockLevel(mode));
+        _fetch.setWriteLockLevel(JPA2LockLevels.toLockLevel(mode));
+        return this;
+    }
+    
+    public boolean getExtendedPathLookup() {
+        return _fetch.getExtendedPathLookup();
+    }
+    
+    public FetchPlan setExtendedPathLookup(boolean flag) {
+        _fetch.setExtendedPathLookup(flag);
         return this;
     }
 
+    public Object getHint(String key) {
+        return _fetch.getHint(key);
+    }
+    
+    public void setHint(String key, Object value) {
+        _fetch.setHint(key, value);
+    }
+    
+    public Map<String, Object> getHints() {
+        return _fetch.getHints();
+    }
+    
     public int hashCode() {
         return _fetch.hashCode();
     }

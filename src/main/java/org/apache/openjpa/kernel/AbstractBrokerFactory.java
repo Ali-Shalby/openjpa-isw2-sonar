@@ -23,12 +23,16 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.TreeSet;
+
 import javax.transaction.Status;
 import javax.transaction.Synchronization;
 import javax.transaction.Transaction;
@@ -108,6 +112,9 @@ public abstract class AbstractBrokerFactory
     // key under which this instance can be stored in the broker pool
     // and later identified
     private Object _poolKey;
+    
+    // Set of properties supported for the EntityManagerFactory
+    private Set<String> _supportedPropertyNames = new TreeSet<String>();
 
     /**
      * Return an internal factory pool key for the given configuration.
@@ -147,6 +154,13 @@ public abstract class AbstractBrokerFactory
         _conf = config;
         _brokers = newBrokerSet();
         getPcClassLoaders();
+        if (config.isInitializeEagerly()) {
+            newBroker(_conf.getConnectionUserName(), 
+            	_conf.getConnectionPassword(), 
+            	_conf.isConnectionFactoryModeManaged(),
+                _conf.getConnectionRetainModeConstant(), false).close(); 
+        }
+
     }
 
     /**
@@ -274,7 +288,7 @@ public abstract class AbstractBrokerFactory
         Collection toRedefine = new ArrayList();
         if (!_persistentTypesLoaded) {
             Collection clss = _conf.getMetaDataRepositoryInstance().
-                loadPersistentTypes(false, loader);
+                loadPersistentTypes(false, loader, _conf.isInitializeEagerly());
             if (clss.isEmpty())
                 _pcClassNames = Collections.EMPTY_SET;
             else {
@@ -418,6 +432,45 @@ public abstract class AbstractBrokerFactory
         props.setProperty("VersionNumber", OpenJPAVersion.VERSION_NUMBER);
         props.setProperty("VersionId", OpenJPAVersion.VERSION_ID);
         return props;
+    }
+
+    public Map<String, String> getAllProperties() {
+        Map<String, String> propertiesMap = _conf.getAllProperties();
+        Properties properties = getProperties();
+        Set<Object> propKeys = properties.keySet();
+        for (Object key : propKeys) {
+            String keyString = (String) key;
+            propertiesMap.put(keyString, (String) properties
+                .getProperty(keyString));
+        }
+
+        return propertiesMap;
+    }
+    
+    public Set<String> getSupportedProperties() {
+        if (_supportedPropertyNames.isEmpty()) {
+            synchronized (_supportedPropertyNames) {
+                if (_supportedPropertyNames.isEmpty()) {
+                    _supportedPropertyNames.add("AutoClear");
+                    _supportedPropertyNames.add("AutoDetach");
+                    _supportedPropertyNames.add("DetachState");
+                    _supportedPropertyNames.add("IgnoreChanges");
+                    _supportedPropertyNames.add("LockTimeout");
+                    _supportedPropertyNames.add("Multithreaded");
+                    _supportedPropertyNames.add("NontransactionalRead");
+                    _supportedPropertyNames.add("NontransactionalWrite");
+                    _supportedPropertyNames.add("Optimistic");
+                    _supportedPropertyNames.add("RestoreState");
+                    _supportedPropertyNames.add("RetainState");
+                }
+            }
+        }
+        Set<String> supportedProperties = new LinkedHashSet<String>();
+        for (String propertyName : _supportedPropertyNames) {
+            supportedProperties.addAll(_conf.getPropertyKeys(propertyName));
+        }
+        
+        return supportedProperties;
     }
 
     public Object getUserObject(Object key) {
@@ -644,7 +697,8 @@ public abstract class AbstractBrokerFactory
             // avoid synchronization
             _conf.setReadOnly(Configuration.INIT_STATE_FREEZING);
             _conf.instantiateAll();
-
+            if (_conf.isInitializeEagerly())
+            	_conf.setReadOnly(Configuration.INIT_STATE_FROZEN);
             // fire an event for all the broker factory listeners
             // registered on the configuration.
             _conf.getBrokerFactoryEventManager().fireEvent(

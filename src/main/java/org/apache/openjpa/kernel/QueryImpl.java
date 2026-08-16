@@ -39,8 +39,10 @@ import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.kernel.exps.Constant;
 import org.apache.openjpa.kernel.exps.Literal;
+import org.apache.openjpa.kernel.exps.Parameter;
 import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.kernel.exps.Val;
+import org.apache.openjpa.kernel.jpql.JPQLExpressionBuilder;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.rop.EagerResultList;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
@@ -84,7 +86,7 @@ public class QueryImpl
     private transient ClassLoader _loader = null;
 
     // query has its own internal lock
-    private final ReentrantLock _lock;
+    private ReentrantLock _lock;
 
     // unparsed state
     private Class _class = null;
@@ -138,8 +140,6 @@ public class QueryImpl
 
         if (_broker != null && _broker.getMultithreaded())
             _lock = new ReentrantLock();
-        else
-            _lock = null;
     }
 
     /**
@@ -838,9 +838,9 @@ public class QueryImpl
                 StoreQuery.Executor ex = (isInMemory(operation))
                     ? compileForInMemory(comp) : compileForDataStore(comp);
 
+                assertParameters(_storeQuery, ex, params);
                 Object[] arr = (params.isEmpty()) ? StoreQuery.EMPTY_OBJECTS :
-                    toParameterArray(ex.getParameterTypes(_storeQuery), params);
-                assertParameters(_storeQuery, ex, arr);
+                    ex.toParameterArray(_storeQuery, params);
                 if (_log.isTraceEnabled())
                     logExecution(operation, params);
 
@@ -854,7 +854,8 @@ public class QueryImpl
             } catch (OpenJPAException ke) {
                 throw ke;
             } catch (Exception e) {
-                throw new UserException(e);
+                throw new UserException(_loc.get("query-execution-error", 
+                		_query), e);
             } finally {
                 _broker.endOperation();
             }
@@ -888,53 +889,51 @@ public class QueryImpl
         return ((Number) execute(OP_UPDATE, params)).longValue();
     }
 
-    private Object[] toParameterArray(LinkedMap paramTypes, Map params) {
-        if (params == null || params.isEmpty())
-            return StoreQuery.EMPTY_OBJECTS;
-
-        Object[] arr = new Object[params.size()];
-        Map.Entry entry;
-        Object key;
-        int idx;
-        int base = -1;
-        for (Iterator itr = params.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
-            key = entry.getKey();
-            idx = (paramTypes == null) ? -1 : paramTypes.indexOf(key);
-
-            // allow positional parameters and natural order parameters
-            if (idx != -1)
-                arr[idx] = entry.getValue();
-            else if (key instanceof Number) {
-                if (base == -1)
-                    base = positionalParameterBase(params.keySet());
-                arr[((Number) key).intValue() - base] = entry.getValue();
-            } else
-                throw new UserException(_loc.get("bad-param-name", key));
-        }
-        return arr;
-    }
-
     /**
-     * Return the base (generally 0 or 1) to use for positional parameters.
+     * Converts the values of given <code>params</code> Map into an array in
+     * consultation of the <code>paramTypes</code> Map.
+     * 
+     * The indexing of the resultant array is significant for following 
+     * interrelated but tacit assumptions:
+     * The values in the returned Object[] is consumed by {@link Parameter}
+     * expressions. Query parsing creates these Parameters and sets their
+     * key and index. The index set on the Parameter by the parser is the
+     * same index used to access the Object[] elements returned by this method.
+     * 
+     * {@link JPQLExpressionBuilder} creates and populates parameters as follows:
+     * The parameter key is not the token encountered by the parser, but 
+     * converted to Integer or String based on the context in which the token 
+     * appeared. 
+     * The index for positional (Integer) parameter is the value of the key   
+     * minus 1. 
+     * The index for named (String) parameter is the order in which the  
+     * token appeared to parser during scanning. 
+     * 
+     * 
+     * The first LinkedMap argument to this method is the result of parsing.
+     * This LinkedMap contains the parameter key and their expected 
+     * (if determinable) value types. That it is a LinkedMap points to the 
+     * fact that an ordering is implicit. The ordering of the keys in this Map 
+     * is the same as the order in which parser encountered the parameter tokens.
+     * 
+     * For example, parsing result of the following two JPQL queries
+     *   a) UPDATE CompUser e SET e.name= ?1, e.age = ?2 WHERE e.userid = ?3
+     *   b) UPDATE CompUser e SET e.name= :name, e.age = :age WHERE e.userid = :id
+     * The parameter keys will appear in the order (3,2,1) or (:id, :name, :age) 
+     * in the given LinkedMap because WHERE clause is parsed before SET clause.
+     * The corresponding Parameter Expressions created by the parser will have
+     * following key and index:
+     *    a) 1:0, 2:1, 3:2
+     *    b) name:1, age:2, id:0
+     *    
+     * The purpose of this method is to produce an Object[] with an indexing
+     * scheme that matches the indexing of the Parameter Expression.
+     * The user map (the second argument) should produce the following Object[]
+     * in two above-mentioned cases
+     *   a) {1:"Shannon",2:29,3:5032} --> ["Shannon", 29, 5032]
+     *   b) {"name":"Shannon", "age":29, "id":5032} --> [5032, "Shannon", 29]
+     *   
      */
-    private static int positionalParameterBase(Collection params) {
-        int low = Integer.MAX_VALUE;
-        Object obj;
-        int val;
-        for (Iterator itr = params.iterator(); itr.hasNext();) {
-            obj = itr.next();
-            if (!(obj instanceof Number))
-                return 0; // use 0 base when params are mixed types
-
-            val = ((Number) obj).intValue();
-            if (val == 0)
-                return val;
-            if (val < low)
-                low = val;
-        }
-        return low;
-    }
 
     /**
      * Return whether we should execute this query in memory.
@@ -1227,7 +1226,7 @@ public class QueryImpl
         boolean lrs = range.lrs && !ex.isAggregate(q) && !ex.hasGrouping(q);
         ResultList res = (!detach && lrs) ? _fc.newResultList(rop)
             : new EagerResultList(rop);
-
+        res.setUserObject(rop);
         _resultLists.add(decorateResultList(res));
         return res;
     }
@@ -1398,9 +1397,8 @@ public class QueryImpl
             assertOpen();
 
             StoreQuery.Executor ex = compileForExecutor();
-            Object[] arr = toParameterArray(ex.getParameterTypes(_storeQuery),
-                params);
-            assertParameters(_storeQuery, ex, arr);
+            assertParameters(_storeQuery, ex, params);
+            Object[] arr = ex.toParameterArray(_storeQuery, params);
             StoreQuery.Range range = new StoreQuery.Range(_startIdx, _endIdx);
             if (!_rangeSet)
                 ex.getRange(_storeQuery, arr, range);
@@ -1548,9 +1546,22 @@ public class QueryImpl
     }
 
     public void unlock() {
-        if (_lock != null && _lock.isLocked())
+        if (_lock != null)
             _lock.unlock();
     }
+    
+    public synchronized void startLocking() {
+    	if (_lock == null) {
+    		_lock = new ReentrantLock();
+    	}
+    }
+    
+    public synchronized void stopLocking() {
+    	if (_lock != null && !_broker.getMultithreaded())
+    		_lock = null;
+    }
+    
+    
 
     /////////
     // Utils
@@ -1564,7 +1575,7 @@ public class QueryImpl
 
         // first check the aliases map in the MetaDataRepository
         ClassLoader loader = (_class == null) ? _loader
-            : (ClassLoader) AccessController.doPrivileged(
+            : AccessController.doPrivileged(
                 J2DoPrivHelper.getClassLoaderAction(_class)); 
         ClassMetaData meta = _broker.getConfiguration().
             getMetaDataRepositoryInstance().getMetaData(name, loader, false);
@@ -1686,6 +1697,35 @@ public class QueryImpl
                     entry.getKey()));
         }
     }
+    
+    protected void assertParameters(StoreQuery q, StoreQuery.Executor ex, 
+        Map params) {
+        if (!q.requiresParameterDeclarations())
+            return;
+
+        LinkedMap paramTypes = ex.getParameterTypes(q);
+        for (Object actual : params.keySet()) {
+            if (!paramTypes.containsKey(actual))
+            throw new UserException(_loc.get("unbound-params",
+                actual, paramTypes.keySet()));
+        }
+        for (Object expected : paramTypes.keySet()) {
+            if (!params.containsKey(expected))
+            throw new UserException(_loc.get("unbound-params",
+                params.keySet()));
+        }
+
+        Iterator itr = paramTypes.entrySet().iterator();
+        Map.Entry entry;
+        for (int i = 0; itr.hasNext(); i++) {
+            entry = (Map.Entry) itr.next();
+            if (((Class) entry.getValue()).isPrimitive() 
+                && params.get(entry.getKey()) == null)
+                throw new UserException(_loc.get("null-primitive-param",
+                    entry.getKey()));
+        }
+    }
+
 
     public String toString() {
         StringBuffer buf = new StringBuffer(64);
@@ -1922,6 +1962,11 @@ public class QueryImpl
         public LinkedMap getParameterTypes(StoreQuery q) {
             return _executors[0].getParameterTypes(q);
         }
+        
+        public Object[] toParameterArray(StoreQuery q, Map userParams) {
+            return _executors[0].toParameterArray(q, userParams);
+        }
+
 
         public Map getUpdates(StoreQuery q) {
             return _executors[0].getUpdates(q);
@@ -1931,7 +1976,7 @@ public class QueryImpl
     /**
      * Result object provider that packs results before returning them.
      */
-    private static class PackingResultObjectProvider
+    public static class PackingResultObjectProvider
         implements ResultObjectProvider {
 
         private final ResultObjectProvider _delegate;
@@ -1994,6 +2039,10 @@ public class QueryImpl
         public void handleCheckedException(Exception e) {
             _delegate.handleCheckedException(e);
         }
+        
+        public ResultObjectProvider getDelegate() {
+            return _delegate;
+        }
     }
 
     /**
@@ -2015,6 +2064,14 @@ public class QueryImpl
 
         public boolean isProviderOpen() {
             return _res.isProviderOpen();
+        }
+        
+        public Object getUserObject() {
+            return _res.getUserObject();
+        }
+        
+        public void setUserObject(Object opaque) {
+            _res.setUserObject(opaque);
         }
 
         public boolean isClosed() {

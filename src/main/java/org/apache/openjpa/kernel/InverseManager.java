@@ -20,6 +20,7 @@ package org.apache.openjpa.kernel;
 
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
@@ -131,7 +132,8 @@ public class InverseManager implements Configurable {
     public void correctRelations(OpenJPAStateManager sm, FieldMetaData fmd,
         Object value) {
         if (fmd.getDeclaredTypeCode() != JavaTypes.PC &&
-            (fmd.getDeclaredTypeCode() != JavaTypes.COLLECTION ||
+            ((fmd.getDeclaredTypeCode() != JavaTypes.COLLECTION  &&
+              fmd.getDeclaredTypeCode() != JavaTypes.MAP) ||
                 fmd.getElement().getDeclaredTypeCode() != JavaTypes.PC))
             return;
 
@@ -241,13 +243,22 @@ public class InverseManager implements Configurable {
             Object initial = sm.fetchInitialField(fmd.getIndex());
             clearInverseRelations(sm, initial, fmd, inverses);
         } else {
-            Collection initial = (Collection)
-                sm.fetchInitialField(fmd.getIndex());
+            Object obj = sm.fetchInitialField(fmd.getIndex());
+            Collection initial = null;
+            if (obj instanceof Collection)
+                initial = (Collection) obj;
+            else if (obj instanceof Map)
+                initial = ((Map)obj).values();
+            
             if (initial == null)
                 return;
 
             // clear all relations not also in the new value
-            Collection coll = (Collection) newValue;
+            Collection coll = null;
+            if (newValue instanceof Collection)
+                coll = (Collection) newValue;
+            else if (newValue instanceof Map)
+                coll = ((Map)newValue).values();
             Object elem;
             for (Iterator itr = initial.iterator(); itr.hasNext();) {
                 elem = itr.next();

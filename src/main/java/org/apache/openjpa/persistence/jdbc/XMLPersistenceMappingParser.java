@@ -32,8 +32,6 @@ import javax.persistence.InheritanceType;
 import javax.persistence.TemporalType;
 
 import org.apache.commons.lang.StringUtils;
-import org.xml.sax.Attributes;
-import org.xml.sax.SAXException;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.ClassMappingInfo;
@@ -44,24 +42,28 @@ import org.apache.openjpa.jdbc.meta.MappingInfo;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.meta.QueryResultMapping;
 import org.apache.openjpa.jdbc.meta.SequenceMapping;
+import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.meta.strats.EnumValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.FlatClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
-import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataParser;
 import org.apache.openjpa.util.InternalException;
+import org.xml.sax.Attributes;
+import org.xml.sax.Locator;
+import org.xml.sax.SAXException;
 
 import static org.apache.openjpa.persistence.jdbc.MappingTag.*;
-
+import serp.util.Numbers;
 /**
  * Custom SAX parser used by the system to parse persistence mapping files.
  *
@@ -77,6 +79,7 @@ public class XMLPersistenceMappingParser
     static {
         _elems.put("association-override", ASSOC_OVERRIDE);
         _elems.put("attribute-override", ATTR_OVERRIDE);
+        _elems.put("collection-table", COLLECTION_TABLE);
         _elems.put("column", COL);
         _elems.put("column-name", COLUMN_NAME);
         _elems.put("column-result", COLUMN_RESULT);
@@ -89,6 +92,9 @@ public class XMLPersistenceMappingParser
         _elems.put("join-column", JOIN_COL);
         _elems.put("inverse-join-column", COL);
         _elems.put("join-table", JOIN_TABLE);
+        _elems.put("map-key-column", MAP_KEY_COL);
+        _elems.put("map-key-join-column", MAP_KEY_JOIN_COL);
+        _elems.put("order-column", ORDER_COLUMN);
         _elems.put("primary-key-join-column", PK_JOIN_COL);
         _elems.put("secondary-table", SECONDARY_TABLE);
         _elems.put("sql-result-set-mapping", SQL_RESULT_SET_MAPPING);
@@ -253,6 +259,15 @@ public class XMLPersistenceMappingParser
             case COLUMN_NAME:
                 ret = true;
                 break;
+            case COLLECTION_TABLE:
+                ret = startCollectionTable(attrs);
+                break;
+            case MAP_KEY_COL:
+                ret = startMapKeyColumn(attrs);
+                break;
+            case MAP_KEY_JOIN_COL:
+                ret = startMapKeyJoinColumn(attrs);
+                break;
             default:
                 ret = false;
         }
@@ -273,6 +288,7 @@ public class XMLPersistenceMappingParser
             case DISCRIM_VAL:
                 endDiscriminatorValue();
                 break;
+            case ASSOC_OVERRIDE:                
             case ATTR_OVERRIDE:
                 endAttributeOverride();
                 break;
@@ -414,6 +430,11 @@ public class XMLPersistenceMappingParser
         Object scope = (cur instanceof ClassMetaData)
             ? ((ClassMetaData) cur).getDescribedType() : null;
         seq.setSource(getSourceFile(), scope, seq.SRC_XML);
+        Locator locator = getLocation().getLocator();
+        if (locator != null) {
+            seq.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
+            seq.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+        }
         pushElement(seq);
         return true;
     }
@@ -612,11 +633,11 @@ public class XMLPersistenceMappingParser
     private void endAttributeOverride()
         throws SAXException {
         Object elem = currentElement();
-        FieldMapping fm;
+        FieldMapping fm = null;
         if (elem instanceof ClassMapping)
             fm = getAttributeOverride((ClassMapping) elem);
         else
-            fm = getAttributeOverride((FieldMapping) elem);
+            fm = getAttributeOverrideForEmbeddable((FieldMapping) elem);
         if (_cols != null) {
             fm.getValueInfo().setColumns(_cols);
             if (_colTable != null)
@@ -642,17 +663,10 @@ public class XMLPersistenceMappingParser
     /**
      * Return the proper override.
      */
-    private FieldMapping getAttributeOverride(FieldMapping fm)
-        throws SAXException {
-        ClassMapping embed = fm.getEmbeddedMapping();
-        if (embed == null)
-            throw getException(_loc.get("not-embedded", fm));
-
-        FieldMapping efm = embed.getFieldMapping(_override);
-        if (efm == null)
-            throw getException(_loc.get("embed-override-name",
-                fm, _override));
-        return efm;
+    private FieldMapping getAttributeOverrideForEmbeddable(FieldMapping fm) 
+    throws SAXException {
+        return AnnotationPersistenceMappingParser.getEmbeddedFieldMapping(fm, 
+            _override);
     }
 
     /**
@@ -675,17 +689,37 @@ public class XMLPersistenceMappingParser
         throws SAXException {
         String table = toTableName(attrs.getValue("schema"),
             attrs.getValue("name"));
-        if (table != null)
-            ((FieldMapping) currentElement()).getMappingInfo().setTableName
-                (table);
+        if (table != null) {
+            Object elem = currentElement();
+            FieldMapping fm = null;
+            if (elem instanceof FieldMapping) {
+                fm = (FieldMapping) elem;
+                if (_override != null) 
+                    fm = getAttributeOverrideForEmbeddable(fm);
+            } else if (elem instanceof ClassMapping) {
+                ClassMapping cm = (ClassMapping) elem;
+                fm = getAttributeOverride(cm);
+            }
+            fm.getMappingInfo().setTableName(table);
+        }
         return true;
     }
 
     /**
      * Set the join table information back.
      */
-    private void endJoinTable() {
-        FieldMapping fm = (FieldMapping) currentElement();
+    private void endJoinTable() throws SAXException {
+        Object elem = currentElement();
+        FieldMapping fm = null;
+        if (elem instanceof FieldMapping) {
+            fm = (FieldMapping) elem;
+            if (_override != null)
+                fm = getAttributeOverrideForEmbeddable(fm);
+        } else if (elem instanceof ClassMapping){
+            ClassMapping cm = (ClassMapping) elem;
+            fm = getAttributeOverride(cm);
+        }
+
         if (_joinCols != null)
             fm.getMappingInfo().setColumns(_joinCols);
         if (_cols != null)
@@ -726,7 +760,17 @@ public class XMLPersistenceMappingParser
         throws SAXException {
         // only join cols in a join table join field table to class table;
         // others act as data fk cols
-        if (currentParent() != JOIN_TABLE)
+        Object currentParent = currentParent();
+        if (currentParent == COLLECTION_TABLE) {
+            FieldMapping fm = (FieldMapping) peekElement();
+            Column col = parseColumn(attrs);
+            List colList = new ArrayList();
+            colList.add(col);
+            fm.getMappingInfo().setColumns(colList);
+            return true;
+        }
+        
+        if (currentParent != JOIN_TABLE)
             return startColumn(attrs);
 
         if (_joinCols == null)
@@ -740,12 +784,62 @@ public class XMLPersistenceMappingParser
      */
     private boolean startColumn(Attributes attrs)
         throws SAXException {
+        Column col = parseColumn(attrs);
+        Object obj = peekElement();
+        if (obj instanceof FieldMapping) {
+            FieldMapping fm = (FieldMapping)obj;
+            // a collection of basic types
+            // the column is in a separate table
+            if (fm.isElementCollection() &&
+                fm.getElementMapping().getEmbeddedMapping() == null) {
+                List list = fm.getElementMapping().getValueInfo().getColumns();
+                if (list.size() == 0) {
+                    list = new ArrayList();
+                    fm.getElementMapping().getValueInfo().setColumns(list);
+                }
+                list.add(col);
+                return true;
+            }
+        }
         if (_cols == null)
             _cols = new ArrayList<Column>(3);
-        _cols.add(parseColumn(attrs));
+        _cols.add(col);
         return true;
     }
 
+    /**
+     * Parse map-key-column.
+     */
+    private boolean startMapKeyColumn(Attributes attrs)
+    throws SAXException {
+        FieldMapping fm = (FieldMapping) peekElement();
+        Column col = parseColumn(attrs);
+        MappingInfo info = fm.getKeyMapping().getValueInfo();
+        List cols = new ArrayList();
+        cols.add(col);
+        info.setColumns(cols);
+        return true;
+    }
+
+    /**
+     * Parse map-key-join-column.
+     */
+    private boolean startMapKeyJoinColumn(Attributes attrs)
+    throws SAXException {
+        boolean retVal = startMapKeyColumn(attrs);
+        // check if name is not set, set it to default: the
+        // concatenation of the name of the referencing property
+        // or field name, "-", "KEY"
+        FieldMapping fm = (FieldMapping) peekElement();
+        MappingInfo info = fm.getKeyMapping().getValueInfo();
+        List cols = info.getColumns();
+        Column col = (Column)cols.get(0);
+        if (col.getName() == null)
+            col.setName(fm.getName() + "_" + "KEY");
+
+        return retVal;
+    }
+    
     /**
      * Create a column with the given attributes.
      */
@@ -794,6 +888,35 @@ public class XMLPersistenceMappingParser
     }
 
     /**
+     * Parse collectionTable.
+     */
+    private boolean startCollectionTable(Attributes attrs)
+        throws SAXException {
+        FieldMapping fm = (FieldMapping) peekElement();
+
+        FieldMappingInfo info = fm.getMappingInfo();
+        Table ctbl = parseCollectionTable(attrs);
+        info.setTableName(toTableName(ctbl.getSchemaName(),
+            ctbl.getName()));
+        return true;
+    }
+
+    private Table parseCollectionTable(Attributes attrs) {
+        Table table = new Table();
+        String val = attrs.getValue("name");
+        if (val != null)
+            table.setName(val);
+        val = attrs.getValue("schema");
+        if (val != null)
+            table.setSchemaName(val);
+        //val = attrs.getValue("catalog");
+        //if (val != null)
+        //    table.setCatalog(val);
+                
+        return table; 
+    }
+  
+    /**
      * Return a table name for the given attributes.
      */
     private String toTableName(String schema, String table) {
@@ -829,7 +952,11 @@ public class XMLPersistenceMappingParser
         Object scope = (cur instanceof ClassMetaData)
             ? ((ClassMetaData) cur).getDescribedType() : null;
         result.setSource(getSourceFile(), scope, result.SRC_XML);
-
+        Locator locator = getLocation().getLocator();
+        if (locator != null) {
+            result.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
+            result.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+        }
         pushElement(result);
         return true;
     }
@@ -965,5 +1092,74 @@ public class XMLPersistenceMappingParser
             _discType = DiscriminatorType.STRING;
         }
             
-	}
+	}  
+    
+    /**
+     * Process OrderColumn.
+     */
+    protected boolean startOrderColumn(Attributes attrs)
+        throws SAXException {
+        Column col = parseOrderColumn(attrs);
+        Object obj = peekElement();
+        if (obj instanceof FieldMapping) {
+            FieldMapping fm = (FieldMapping)obj;
+            fm.getMappingInfo().setOrderColumn(col);
+
+            // If a table name is specified on the element and a table
+            // name has not been defined, set the table name to the name
+            // specified.  This will be the name of the join table or
+            // collection table.
+            if (!StringUtils.isEmpty(col.getTableName()) &&
+                StringUtils.isEmpty(fm.getMappingInfo().getTableName())) {
+                fm.getMappingInfo().setTableName(col.getTableName());
+            }
+        }
+        return true;
+    }
+    /**
+     * Create an order column with the given attributes.
+     */
+    private Column parseOrderColumn(Attributes attrs)
+        throws SAXException {
+
+        Column col = new Column();
+        String val = attrs.getValue("name");
+        if (val != null)
+            col.setName(val);
+        val = attrs.getValue("column-definition");
+        if (val != null)
+            col.setTypeName(val);
+        val = attrs.getValue("precision");
+        if (val != null)
+            col.setSize(Integer.parseInt(val));
+        val = attrs.getValue("length");
+        if (val != null)
+            col.setSize(Integer.parseInt(val));
+        val = attrs.getValue("scale");
+        if (val != null)
+            col.setDecimalDigits(Integer.parseInt(val));
+        val = attrs.getValue("nullable");
+        if (val != null)
+            col.setNotNull("false".equals(val));
+        val = attrs.getValue("insertable");
+        if (val != null)
+            col.setFlag(Column.FLAG_UNINSERTABLE, "false".equals(val));
+        val = attrs.getValue("updatable");
+        if (val != null)
+            col.setFlag(Column.FLAG_UNUPDATABLE, "false".equals(val));
+
+        val = attrs.getValue("base");
+        if (val != null)
+            col.setBase(Integer.parseInt(val));
+        
+        val = attrs.getValue("contiguous");
+        if (val != null)
+            col.setContiguous("false".equals(val));
+        
+        val = attrs.getValue("table");
+        if (val != null) {
+            col.setTableName(val);
+        }
+        return col;
+    }
 }

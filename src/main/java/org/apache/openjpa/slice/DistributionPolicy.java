@@ -19,29 +19,47 @@
 package org.apache.openjpa.slice;
 
 import java.util.List;
+import java.util.Random;
 
 
 /**
  * Policy to select one of the physical databases referred as <em>slice</em>
  * in which a given persistent instance will be stored.
  *  
+ * The user application is required to implement this interface. Slice will
+ * invoke the single method of this interface to determine the target slice for
+ * a newly persistent or a detached instance being merged.
+ *  
  * @author Pinaki Poddar 
  *
  */
 public interface DistributionPolicy {
 	/**
-	 * Gets the name of the slice where a given instance will be stored.
+	 * Gets the name of the target slice where the given newly persistent or
+	 * the detached, to-be-merged instance will be stored.
 	 *  
 	 * @param pc The newly persistent or to-be-merged object. 
 	 * @param slices list of names of the active slices. The ordering of 
 	 * the list is either explicit <code>openjpa.slice.Names</code> property
 	 * or implicit i.e. alphabetic order of available identifiers if 
 	 * <code>openjpa.slice.Names</code> is unspecified.  
-	 * @param context generic persistence context managing the given instance.
+	 * @param context the generic persistence context managing the given instance.
 	 * 
 	 * @return identifier of the slice. This name must match one of the
 	 * given slice names. 
 	 * @see DistributedConfiguration#getActiveSliceNames()
 	 */
 	String distribute(Object pc, List<String> slices, Object context);
+	
+	/**
+	 * Implements a default distribution policy to store the given 
+	 * instance to a randomly selected available slice.
+	 *
+	 */
+	public static class Default implements DistributionPolicy {
+		private static Random RNG = new Random();
+		public String distribute(Object pc, List<String> slices, Object ctx) {
+			return slices.get(RNG.nextInt(slices.size()));
+		}
+	}
 }

@@ -29,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
@@ -75,6 +76,8 @@ public class FetchConfigurationImpl
         public boolean queryCache = true;
         public int flushQuery = 0;
         public int lockTimeout = -1;
+        public int queryTimeout = -1;
+        public int lockMode = 0;
         public int readLockLevel = LOCK_NONE;
         public int writeLockLevel = LOCK_NONE;
         public Set fetchGroups = null;
@@ -82,9 +85,9 @@ public class FetchConfigurationImpl
         public Set rootClasses;
         public Set rootInstances;
         public Map hints = null;
-        
         public boolean fetchGroupContainsDefault = false;
         public boolean fetchGroupContainsAll = false;
+        public boolean extendedPathLookup = false;
     }
 
     private final ConfigurationState _state;
@@ -95,7 +98,7 @@ public class FetchConfigurationImpl
     private boolean _load = true;
     private int _availableRecursion;
     private int _availableDepth;
-    
+
     public FetchConfigurationImpl() {
         this(null);
     }
@@ -122,6 +125,7 @@ public class FetchConfigurationImpl
         setFetchBatchSize(conf.getFetchBatchSize());
         setFlushBeforeQueries(conf.getFlushBeforeQueriesConstant());
         setLockTimeout(conf.getLockTimeout());
+        setQueryTimeout(conf.getQueryTimeout());
         clearFetchGroups();
         addFetchGroups(Arrays.asList(conf.getFetchGroupsList()));
         setMaxFetchDepth(conf.getMaxFetchDepth());
@@ -156,10 +160,13 @@ public class FetchConfigurationImpl
         setMaxFetchDepth(fetch.getMaxFetchDepth());
         setQueryCacheEnabled(fetch.getQueryCacheEnabled());
         setFlushBeforeQueries(fetch.getFlushBeforeQueries());
+        setExtendedPathLookup(fetch.getExtendedPathLookup());
         setLockTimeout(fetch.getLockTimeout());
+        setQueryTimeout(fetch.getQueryTimeout());
         clearFetchGroups();
         addFetchGroups(fetch.getFetchGroups());
         clearFields();
+        copyHints(fetch);
         addFields(fetch.getFields());
 
         // don't use setters because require active transaction
@@ -167,6 +174,20 @@ public class FetchConfigurationImpl
         _state.writeLockLevel = fetch.getWriteLockLevel();
     }
 
+    
+    void copyHints(FetchConfiguration fetch) {
+        if (fetch instanceof FetchConfigurationImpl == false)
+            return;
+        FetchConfigurationImpl from = (FetchConfigurationImpl)fetch;
+        if (from._state == null || from._state.hints == null)
+            return;
+        if (this._state == null)
+            return;
+        if (this._state.hints == null)
+            this._state.hints = new HashMap();
+        this._state.hints.putAll(from._state.hints);
+    }
+    
     public int getFetchBatchSize() {
         return _state.fetchBatchSize;
     }
@@ -207,6 +228,15 @@ public class FetchConfigurationImpl
     public int getFlushBeforeQueries() {
         return _state.flushQuery;
     }
+    
+    public boolean getExtendedPathLookup() {
+        return _state.extendedPathLookup;
+    }
+    
+    public FetchConfiguration setExtendedPathLookup(boolean flag) {
+        _state.extendedPathLookup = flag;
+        return this;
+    }
 
     public FetchConfiguration setFlushBeforeQueries(int flush) {
         if (flush == DEFAULT && _state.ctx != null)
@@ -224,22 +254,20 @@ public class FetchConfigurationImpl
 
     public boolean hasFetchGroup(String group) {
         return _state.fetchGroups != null
-            && (hasFetchGroupAll()
-            ||  _state.fetchGroups.contains(group));
+            && (_state.fetchGroups.contains(group)
+            || _state.fetchGroups.contains(FetchGroup.NAME_ALL));
     }
 
-    public boolean hasFetchGroupDefault()
-    {
-        // Fetch group All includes fetch group Default by definition
-        return _state.fetchGroupContainsDefault || 
-            _state.fetchGroupContainsAll;
-    }
-    
-    public boolean hasFetchGroupAll()
-    {
-        return _state.fetchGroupContainsAll;
-    }
-    
+     public boolean hasFetchGroupDefault() {
+         // Fetch group All includes fetch group Default by definition
+         return _state.fetchGroupContainsDefault || 
+             _state.fetchGroupContainsAll;
+     }
+     
+     public boolean hasFetchGroupAll() {
+         return _state.fetchGroupContainsAll;
+     }
+     
     public FetchConfiguration addFetchGroup(String name) {
         if (StringUtils.isEmpty(name))
             throw new UserException(_loc.get("null-fg"));
@@ -399,8 +427,29 @@ public class FetchConfigurationImpl
             _state.lockTimeout = timeout;
         return this;
     }
+    
+    public int getQueryTimeout() {
+        return _state.queryTimeout;
+    }
+
+    public FetchConfiguration setQueryTimeout(int timeout) {
+        if (timeout == DEFAULT && _state.ctx != null)
+            _state.queryTimeout = _state.ctx.getConfiguration().getQueryTimeout();
+        else if (timeout != DEFAULT)
+            _state.queryTimeout = timeout;
+        return this;
+    }
+
 
     public int getReadLockLevel() {
+        String hintKey = "openjpa.FetchPlan.ReadLockLevel";
+        if (getHint(hintKey) != null) {
+            if (isActiveTransaction()) {
+                setReadLockLevel((Integer)removeHint(hintKey));
+            } else {
+                return (Integer)getHint(hintKey);
+            }
+        }
         return _state.readLockLevel;
     }
 
@@ -423,6 +472,14 @@ public class FetchConfigurationImpl
     }
 
     public int getWriteLockLevel() {
+        String hintKey = "openjpa.FetchPlan.WriteLockLevel";
+        if (getHint(hintKey) != null) {
+            if (isActiveTransaction()) {
+                setReadLockLevel((Integer)removeHint(hintKey));
+            } else {
+                return (Integer)getHint(hintKey);
+            }
+        }
         return _state.writeLockLevel;
     }
 
@@ -458,8 +515,12 @@ public class FetchConfigurationImpl
      * Throw an exception if no transaction is active.
      */
     private void assertActiveTransaction() {
-        if (_state.ctx != null && !_state.ctx.isActive())
+        if (!isActiveTransaction())
             throw new NoTransactionException(_loc.get("not-active"));
+    }
+    
+    private boolean isActiveTransaction() {
+        return (_state.ctx != null && _state.ctx.isActive());
     }
 
     public void setHint(String name, Object value) {
@@ -475,6 +536,20 @@ public class FetchConfigurationImpl
 
     public Object getHint(String name) {
         return (_state.hints == null) ? null : _state.hints.get(name);
+    }
+    
+    public Object removeHint(String name) {
+        return (_state.hints == null) ? null : _state.hints.remove(name);
+    }
+    
+    public Map<String, Object> getHints() {
+        if (_state.hints == null)
+            return (Map<String, Object>)Collections.EMPTY_MAP;
+        Map<String, Object> result = new TreeMap<String, Object>();
+        for (Object key : _state.hints.keySet()) {
+            result.put(key.toString(), _state.hints.get(key));
+        }
+        return result;
     }
 
     public Set getRootClasses() {
@@ -574,14 +649,14 @@ public class FetchConfigurationImpl
         clone._fromField = fm.getFullName(false);
         clone._fromType = type;
         clone._availableRecursion = getAvailableRecursionDepth(fm, type, true);
-        if (StringUtils.equals(_directRelationOwner, fm.getFullName()))
+        if (StringUtils.equals(_directRelationOwner, fm.getFullName(false)))
             clone._load = false;
         else
             clone._load = _load;
 
         FieldMetaData owner = fm.getMappedByMetaData();
         if (owner != null && owner.getTypeCode() == JavaTypes.PC)
-            clone._directRelationOwner = owner.getFullName();
+            clone._directRelationOwner = owner.getFullName(false);
         
         return clone;
     }
@@ -590,16 +665,23 @@ public class FetchConfigurationImpl
      * Whether our configuration state includes the given field.
      */
     private boolean includes(FieldMetaData fmd) {
-        if (hasFetchGroupAll()
-            || (fmd.isInDefaultFetchGroup() 
-            && hasFetchGroupDefault())
-            || hasField(fmd.getFullName(false)))
+        if ((hasFetchGroupDefault() && fmd.isInDefaultFetchGroup()) 
+        || hasFetchGroupAll()
+        || hasField(fmd.getFullName(false))
+        || hasExtendedLookupPath(fmd))
             return true;
         String[] fgs = fmd.getCustomFetchGroups();
         for (int i = 0; i < fgs.length; i++)
             if (hasFetchGroup(fgs[i]))
                 return true;
         return false; 
+    }
+    
+    private boolean hasExtendedLookupPath(FieldMetaData fmd) {
+        return getExtendedPathLookup()
+            && (hasField(fmd.getRealName())
+                || (_fromField != null 
+                && hasField(_fromField + "." + fmd.getName())));
     }
 
     /**

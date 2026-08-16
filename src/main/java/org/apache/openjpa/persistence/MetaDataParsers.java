@@ -21,6 +21,7 @@ package org.apache.openjpa.persistence;
 import java.lang.reflect.Method;
 import java.util.Collection;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.event.LifecycleCallbacks;
 import org.apache.openjpa.event.LifecycleEvent;
 import org.apache.openjpa.event.MethodLifecycleCallbacks;
@@ -42,12 +43,16 @@ class MetaDataParsers {
     /**
      * Return the event type constants for the given tag, or null if none.
      */
-    public static int[] getEventTypes(MetaDataTag tag) {
+    public static int[] getEventTypes(MetaDataTag tag, 
+        OpenJPAConfiguration conf) {
         switch (tag) {
             case PRE_PERSIST:
                 return new int[]{ LifecycleEvent.BEFORE_PERSIST };
             case POST_PERSIST:
-                return new int[]{ LifecycleEvent.AFTER_PERSIST_PERFORMED };
+                boolean immediate = conf.getCallbackOptionsInstance()
+                        .getPostPersistCallbackImmediate();
+                return new int[]{ immediate ? LifecycleEvent.AFTER_PERSIST 
+                                  : LifecycleEvent.AFTER_PERSIST_PERFORMED };
             case PRE_REMOVE:
                 return new int[]{ LifecycleEvent.BEFORE_DELETE };
             case POST_REMOVE:
@@ -57,8 +62,7 @@ class MetaDataParsers {
             case POST_UPDATE:
                 return new int[]{ LifecycleEvent.AFTER_UPDATE_PERFORMED };
             case POST_LOAD:
-                return new int[]{ LifecycleEvent.AFTER_LOAD,
-                    LifecycleEvent.AFTER_REFRESH };
+                return new int[]{ LifecycleEvent.AFTER_LOAD };
             default:
                 return null;
         }
@@ -70,7 +74,7 @@ class MetaDataParsers {
      */
     public static void validateMethodsForSameCallback(Class cls, 
         Collection<LifecycleCallbacks> callbacks, Method method, 
-        MetaDataTag tag, MetaDataDefaults def, Log log) {
+        MetaDataTag tag, OpenJPAConfiguration conf, Log log) {
         if (callbacks == null || callbacks.isEmpty())
             return;
 
@@ -78,29 +82,18 @@ class MetaDataParsers {
             if (!(lc instanceof MethodLifecycleCallbacks))
                 continue;
             Method exists = ((MethodLifecycleCallbacks) lc).getCallbackMethod();
-            if (!exists.getDeclaringClass().equals(method.getDeclaringClass()))
+            if (!exists.getDeclaringClass().equals(method.getDeclaringClass())
+             || exists.equals(method))
                 continue;
 
-            PersistenceMetaDataDefaults defaults = getPersistenceDefaults(def);
             Localizer.Message msg = _loc.get("multiple-methods-on-callback", 
                 new Object[] { method.getDeclaringClass().getName(), 
                 method.getName(), exists.getName(), tag.toString() });
-            if (defaults == null 
-                || defaults.getAllowsMultipleMethodsForSameCallback())
+            if (conf.getCallbackOptionsInstance()
+                .getAllowsMultipleMethodsForSameCallback())
                 log.warn(msg);
             else
                 throw new UserException(msg);
         }
-    }
-    
-    /**
-     * Return the {@link PersistenceMetaDataDefaults} in use, or null if not
-     * using JPA defaults.
-     */
-    private static PersistenceMetaDataDefaults getPersistenceDefaults
-        (MetaDataDefaults def) {
-        if (def instanceof PersistenceMetaDataDefaults)
-            return (PersistenceMetaDataDefaults) def;
-        return null;
     }
 }

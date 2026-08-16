@@ -23,6 +23,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
@@ -62,6 +63,7 @@ public class DerbyDictionary
         supportsDefaultDeleteAction = false;
         requiresCastForMathFunctions = true;
         requiresCastForComparisons = true;
+        supportsSimpleCaseExpression = false;
 
         supportsComments = true;
 
@@ -101,5 +103,20 @@ public class DerbyDictionary
                 // a successful shutdown
             }
         }
+    }
+    
+    @Override
+    protected Boolean matchErrorState(int subtype, Set<String> errorStates,
+        SQLException ex) {
+        Boolean recoverable = null;
+        String errorState = ex.getSQLState();
+        int errorCode = ex.getErrorCode();
+        if (errorStates.contains(errorState)) {
+            recoverable = Boolean.FALSE;
+            if ((subtype == StoreException.LOCK || subtype == StoreException.QUERY) && errorCode < 30000) {
+                recoverable = Boolean.TRUE;
+            }
+        }
+        return recoverable;
     }
 }

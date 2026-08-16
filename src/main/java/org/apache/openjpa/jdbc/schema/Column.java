@@ -65,6 +65,7 @@ public class Column
     private Boolean _notNull = null;
     private boolean _autoAssign = false;
     private boolean _rel = false;
+    private boolean _implicitRelation = false;
     private String _target = null;
     private String _targetField = null;
     private int _flags = 0;
@@ -73,7 +74,11 @@ public class Column
     private boolean _pk = false;
     private VersionStrategy _versionStrategy = null;
     private String _comment = null;
+    private boolean _XML = false;
 
+    private boolean _contiguous = true;
+    private int _base = 0;
+    
     /**
      * Default constructor.
      */
@@ -712,19 +717,34 @@ public class Column
             setAutoAssigned(from.isAutoAssigned());
         if (!isRelationId())
             setRelationId(from.isRelationId());
+        if (!isImplicitRelation())
+        	setImplicitRelation(from.isRelationId());
         if (getTarget() == null)
             setTarget(from.getTarget());
         if (getTargetField() == null)
             setTargetField(from.getTargetField());
         if (_flags == 0)
             _flags = from._flags;
+        if (!isXML())
+            setXML(from.isXML());
+        if (getBase() == 0)
+            setBase(from.getBase());
+        if (isContiguous())
+            setContiguous(from.isContiguous());
     }
     
     /**
-     * Whether this column is an XML type.
+     * Whether this column is of XML type.
      */
     public boolean isXML() {
-        return _typeName != null && _typeName.startsWith("XML");
+        return _XML;
+    }
+
+    /**
+     * Whether this column is of XML type.
+     */
+    public void setXML(boolean xml) {
+        _XML = xml;
     }
 
     public VersionStrategy getVersionStrategy() {
@@ -746,4 +766,64 @@ public class Column
     public void setComment(String comment) {
         _comment = comment;
     }
+    
+    /** 
+	 *  Affirms if this instance represents an implicit relation. For example, a 
+	 *  relation expressed as the value of primary key of the related class and 
+	 *  not as object reference.
+     *
+     * @since 1.3.0
+     */
+    public boolean isImplicitRelation() {
+    	return _implicitRelation;
+    }
+    
+    /**
+     * Sets a marker to imply a logical relation that can not have any physical
+     * manifest in the database. For example, a relation expressed as the value
+     * of primary key of the related class and not as object reference.
+     * Populated from @ForeignKey(implicit=true) annotation.
+     * The mutator can only transit from false to true but not vice versa.
+     * 
+     * @since 1.3.0
+     */
+    public void setImplicitRelation(boolean flag) {
+    	_implicitRelation |= flag;
+    }
+    
+    /**
+     * Sets whether the column values should be contiguous for a column
+     * purposed as an order column
+     * 
+     * @param contiguous
+     */
+    public void setContiguous(boolean contiguous) {
+        _contiguous = contiguous;
+    }
+
+    /**
+     * Gets whether the column values should be contiguous for a column
+     * purposed as an order column
+     * 
+     * @param contiguous
+     */
+    public boolean isContiguous() {
+        return _contiguous;
+    }
+    
+    /**
+     * Sets the base value for a column purposed as an order column
+     * @param base integral base value to begin ordering
+     */
+    public void setBase(int base) {
+        _base = base;
+    }
+    
+    /**
+     * Gets the base value for a column purposed as an order column
+     * @param base
+     */
+    public int getBase() {
+        return _base;
+    }  
 }

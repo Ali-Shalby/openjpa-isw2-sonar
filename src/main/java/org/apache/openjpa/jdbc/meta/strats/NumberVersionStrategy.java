@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.HashMap;
 
 import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.jdbc.schema.Column;
 import serp.util.Numbers;
 
@@ -58,7 +59,7 @@ public class NumberVersionStrategy
     protected int getJavaType() {
         return JavaTypes.INT;
     }
-
+    
     protected Object nextVersion(Object version) {
         if (version == null)
             return _initial;

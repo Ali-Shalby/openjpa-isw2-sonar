@@ -41,6 +41,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -143,7 +144,7 @@ public class PCEnhancer {
     static {
         Class[] classes = Services.getImplementorClasses(
             AuxiliaryEnhancer.class,
-            (ClassLoader) AccessController.doPrivileged(
+            AccessController.doPrivileged(
                 J2DoPrivHelper.getClassLoaderAction(AuxiliaryEnhancer.class)));
         List auxEnhancers = new ArrayList(classes.length);
         for (int i = 0; i < classes.length; i++) {
@@ -184,7 +185,7 @@ public class PCEnhancer {
      * repository.
      */
     public PCEnhancer(OpenJPAConfiguration conf, Class type) {
-        this(conf, (BCClass) AccessController.doPrivileged(J2DoPrivHelper
+        this(conf, AccessController.doPrivileged(J2DoPrivHelper
             .loadProjectClassAction(new Project(), type)),
             (MetaDataRepository) null);
     }
@@ -195,7 +196,7 @@ public class PCEnhancer {
      * and then loading from <code>conf</code>'s repository.
      */
     public PCEnhancer(OpenJPAConfiguration conf, ClassMetaData meta) {
-        this(conf, (BCClass) AccessController.doPrivileged(J2DoPrivHelper
+        this(conf, AccessController.doPrivileged(J2DoPrivHelper
             .loadProjectClassAction(new Project(), meta.getDescribedType())),
             meta.getRepository());
     }
@@ -729,7 +730,7 @@ public class PCEnhancer {
      * Package-protected and static for testing.
      */
     static BCField getReturnedField(BCMethod meth) {
-        return findField(meth, ((Code) AccessController.doPrivileged(
+        return findField(meth, (AccessController.doPrivileged(
             J2DoPrivHelper.newCodeAction())).xreturn()
             .setType(meth.getReturnType()), false);
     }
@@ -739,7 +740,7 @@ public class PCEnhancer {
      * Package-protected and static for testing.
      */
     static BCField getAssignedField(BCMethod meth) {
-        return findField(meth, ((Code) AccessController.doPrivileged(
+        return findField(meth, (AccessController.doPrivileged(
             J2DoPrivHelper.newCodeAction())).putfield(), true);
     }
 
@@ -790,7 +791,7 @@ public class PCEnhancer {
             // field that's being accessed
             if (!findAccessed && prevIns instanceof GetFieldInstruction) {
                 final FieldInstruction fPrevIns = (FieldInstruction) prevIns;
-                cur = (BCField) AccessController.doPrivileged(
+                cur = AccessController.doPrivileged(
                     J2DoPrivHelper.getFieldInstructionFieldAction(fPrevIns));
                 // if the middle instruction was an xload_1, then the
                 // matched instruction is the field that's being set.
@@ -798,7 +799,7 @@ public class PCEnhancer {
                 && ((LoadInstruction) prevIns).getParam() == 0) {
                 final FieldInstruction fTemplateIns =
                     (FieldInstruction) templateIns;
-                cur = (BCField) AccessController.doPrivileged(J2DoPrivHelper
+                cur = AccessController.doPrivileged(J2DoPrivHelper
                     .getFieldInstructionFieldAction(fTemplateIns));
             } else
                 return null;
@@ -855,7 +856,7 @@ public class PCEnhancer {
      */
     private void replaceAndValidateFieldAccess() throws NoSuchMethodException {
         // create template putfield/getfield instructions to search for
-        Code template = (Code) AccessController.doPrivileged(
+        Code template = AccessController.doPrivileged(
             J2DoPrivHelper.newCodeAction());
         Instruction put = template.putfield();
         Instruction get = template.getfield();
@@ -957,7 +958,7 @@ public class PCEnhancer {
                     loadManagedInstance(code, false);
                     final FieldInstruction fFi = fi;
                     code.getfield().setField(
-                        (BCField) AccessController.doPrivileged(J2DoPrivHelper
+                        AccessController.doPrivileged(J2DoPrivHelper
                             .getFieldInstructionFieldAction(fFi)));
                     int val = code.getNextLocalsIndex();
                     code.xstore().setLocal(val).setType(fi.getFieldType());
@@ -1568,55 +1569,55 @@ public class PCEnhancer {
         try {
             // pcGetGenericContext
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "get" + CONTEXTNAME, (Class[]) null)), false);
     
             // pcFetchObjectId
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "fetchObjectId", (Class[]) null)), false);
     
             // pcIsDeleted
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "isDeleted", (Class[]) null)), false);
     
             // pcIsDirty
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "isDirty", (Class[]) null)), true);
     
             // pcIsNew
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "isNew", (Class[]) null)), false);
     
             // pcIsPersistent
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "isPersistent", (Class[]) null)), false);
     
             // pcIsTransactional
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "isTransactional", (Class[]) null)), false);
     
             // pcSerializing
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "serializing", (Class[]) null)), false);
     
             // pcDirty
             translateFromStateManagerMethod(
-                (Method) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getDeclaredMethodAction(
                         SMTYPE, "dirty", new Class[]{ String.class })), false);
     
@@ -2485,14 +2486,23 @@ public class PCEnhancer {
             // new ObjectId (cls, oid)
             code.anew().setType(ObjectId.class);
             code.dup();
-            code.classconstant().setClass(getType(_meta));
+            if(_meta.isEmbeddedOnly()) {
+                code.aload().setThis();
+                code.invokevirtual().setMethod(Object.class, "getClass", Class.class, null);
+            }else
+                code.classconstant().setClass(getType(_meta));
         }
 
         // new <oid class> ();
         code.anew().setType(oidType);
         code.dup();
-        if (_meta.isOpenJPAIdentity() || (obj && usesClsString == Boolean.TRUE))
-            code.classconstant().setClass(getType(_meta));
+        if (_meta.isOpenJPAIdentity() || (obj && usesClsString == Boolean.TRUE)) {
+            if(_meta.isEmbeddedOnly()) {
+                code.aload().setThis();
+                code.invokevirtual().setMethod(Object.class, "getClass", Class.class, null);
+            }else
+                code.classconstant().setClass(getType(_meta));
+        }
         if (obj) {
             code.aload().setParam(0);
             code.checkcast().setType(String.class);
@@ -2566,7 +2576,7 @@ public class PCEnhancer {
         // or 'Object'; figure out what type to use
         String typeName = type.getName();
         if (type.isPrimitive())
-            typeName = typeName.substring(0, 1).toUpperCase()
+            typeName = typeName.substring(0, 1).toUpperCase(Locale.ENGLISH)
                 + typeName.substring(1);
         else if (type.equals(String.class))
             typeName = "String";
@@ -2594,7 +2604,7 @@ public class PCEnhancer {
         Class[] params = (Class[]) plist.toArray(new Class[plist.size()]);
         
         try {
-            return (Method) AccessController.doPrivileged(
+            return AccessController.doPrivileged(
                 J2DoPrivHelper.getDeclaredMethodAction(owner, name, params));
         } catch (PrivilegedActionException pae) {
              throw (NoSuchMethodException) pae.getException();
@@ -2955,7 +2965,7 @@ public class PCEnhancer {
             code.vreturn();
         }
 
-        Instruction tmplate = ((Code) AccessController.doPrivileged(
+        Instruction tmplate = (AccessController.doPrivileged(
             J2DoPrivHelper.newCodeAction())).vreturn();
         JumpInstruction toret;
         Instruction ret;
@@ -3266,7 +3276,7 @@ public class PCEnhancer {
         if (clinit != null) {
             code = clinit.getCode(true);
             if (replaceLast) {
-                Code template = (Code) AccessController.doPrivileged(
+                Code template = AccessController.doPrivileged(
                     J2DoPrivHelper.newCodeAction());
                 code.searchForward(template.vreturn());
                 code.previous();
@@ -3345,7 +3355,7 @@ public class PCEnhancer {
         }
 
         // create template super.clone () instruction to match against
-        Instruction template = ((Code) AccessController.doPrivileged(
+        Instruction template = (AccessController.doPrivileged(
             J2DoPrivHelper.newCodeAction())).invokespecial()
             .setMethod(superName, "clone", Object.class.getName(), null);
 
@@ -3719,7 +3729,7 @@ public class PCEnhancer {
         // next, find the field in the managed type hierarchy
         BCField field = null;
         outer: for (BCClass bc = _pc; bc != null; bc = bc.getSuperclassBC()) {
-            BCField[] fields = (BCField[]) AccessController
+            BCField[] fields = AccessController
                 .doPrivileged(J2DoPrivHelper.getBCClassFieldsAction(bc,
                     fieldName));
             for (int i = 0; i < fields.length; i++) {
@@ -3971,7 +3981,7 @@ public class PCEnhancer {
         String methName;
         if (type.isPrimitive()) {
             methName = type.getName();
-            methName = Character.toUpperCase(methName.charAt(0))
+            methName = methName.substring(0, 1).toUpperCase(Locale.ENGLISH)
                 + methName.substring(1);
             methName = "read" + methName;
         } else
@@ -4128,7 +4138,7 @@ public class PCEnhancer {
         String methName;
         if (type.isPrimitive()) {
             methName = type.getName();
-            methName = Character.toUpperCase(methName.charAt(0))
+            methName = methName.substring(0, 1).toUpperCase(Locale.ENGLISH)
                 + methName.substring(1);
             methName = "write" + methName;
         } else
@@ -4450,7 +4460,7 @@ public class PCEnhancer {
             loader = conf.getClassResolverInstance().
                 getClassLoader(PCEnhancer.class, null);
         if (flags.tmpClassLoader)
-            loader = (ClassLoader) AccessController.doPrivileged(J2DoPrivHelper
+            loader = AccessController.doPrivileged(J2DoPrivHelper
                 .newTemporaryClassLoaderAction(loader));
 
         if (repos == null) {

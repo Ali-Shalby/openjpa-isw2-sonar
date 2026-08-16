@@ -33,7 +33,9 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.TimeZone;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
@@ -147,6 +149,9 @@ public class StateManagerImpl
     // information about the owner of this instance, if it is embedded
     private StateManagerImpl _owner = null;
     private int _ownerIndex = -1;
+    private List _mappedByIdFields = null;
+    
+    private transient ReentrantLock _instanceLock = null;
 
     /**
      * Constructor; supply id, type metadata, and owning persistence manager.
@@ -157,6 +162,8 @@ public class StateManagerImpl
         _meta = meta;
         _broker = broker;
         _single = new SingleFieldManager(this, broker);
+        if (broker.getMultithreaded())
+        	_instanceLock = new ReentrantLock();
 
         if (_meta.getIdentityType() == ClassMetaData.ID_UNKNOWN)
             throw new UserException(_loc.get("meta-unknownid", _meta));
@@ -296,7 +303,17 @@ public class StateManagerImpl
             if (fmds[i].isPrimaryKey()
                 || fmds[i].getManagement() != fmds[i].MANAGE_PERSISTENT)
                 _loaded.set(i);
-
+            
+            if (_meta.getIdentityType() == ClassMetaData.ID_APPLICATION) {
+                String mappedByIdValue = fmds[i].getMappedByIdValue(); 
+                if (mappedByIdValue != null) { 
+                    if (!ApplicationIds.isIdSet(_id, _meta, mappedByIdValue)) {
+                        if (_mappedByIdFields == null)
+                            _mappedByIdFields = new ArrayList();
+                        _mappedByIdFields.add(fmds[i]);
+                    }
+                }
+            }
             // record whether there are any managed inverse fields
             if (_broker.getInverseManager() != null
                 && fmds[i].getInverseMetaDatas().length > 0)
@@ -311,7 +328,8 @@ public class StateManagerImpl
 
         // initialize our state and add ourselves to the broker's cache
         setPCState(state);
-        if (_broker.getStateManagerImplById(getObjectId(), false) == null) {
+        if ( _oid == null ||  
+            _broker.getStateManagerImplById(_oid, false) == null) {
         	_broker.setStateManager(_id, this, BrokerImpl.STATUS_INIT);
         }
         if (state == PCState.PNEW)
@@ -348,6 +366,10 @@ public class StateManagerImpl
      * Fire the given lifecycle event to all listeners.
      */
     private boolean fireLifecycleEvent(int type) {
+        if (type == LifecycleEvent.AFTER_PERSIST 
+        && _broker.getConfiguration().getCallbackOptionsInstance()
+                  .getPostPersistCallbackImmediate())
+            fetchObjectId();
         return _broker.fireLifecycleEvent(getManagedInstance(), null,
             _meta, type);
     }
@@ -362,7 +384,8 @@ public class StateManagerImpl
      */
     protected boolean load(FetchConfiguration fetch, int loadMode,
         BitSet exclude, Object sdata, boolean forWrite) {
-        if (!forWrite && (!isPersistent() || isNew() || isDeleted()))
+        if (!forWrite
+            && (!isPersistent() || (isNew() && !isFlushed()) || isDeleted()))
             return false;
 
         // if any fields being loaded, do state transitions for read
@@ -499,6 +522,12 @@ public class StateManagerImpl
             ((OpenJPAId) oid).setManagedInstanceType(_meta.getDescribedType());
     }
 
+    public StateManagerImpl getObjectIdOwner() {
+        StateManagerImpl sm = this;
+        while (sm.getOwner() != null)
+            sm = (StateManagerImpl) sm.getOwner();
+        return sm;
+    }
     public boolean assignObjectId(boolean flush) {
         lock();
         try {
@@ -512,7 +541,7 @@ public class StateManagerImpl
      * Ask store manager to assign our oid, optionally flushing and
      * optionally recaching on the new oid.
      */
-    private boolean assignObjectId(boolean flush, boolean preFlushing) {
+    boolean assignObjectId(boolean flush, boolean preFlushing) {
         if (_oid != null || isEmbedded() || !isPersistent())
             return true;
 
@@ -975,6 +1004,8 @@ public class StateManagerImpl
             boolean wasNew = isNew();
             boolean wasFlushed = isFlushed();
             boolean wasDeleted = isDeleted();
+            boolean needPostUpdate = !(wasNew && !wasFlushed)
+					&& (ImplHelper.getUpdateFields(this) != null);
 
             // all dirty fields were flushed
             _flush.or(_dirty);
@@ -1002,7 +1033,7 @@ public class StateManagerImpl
                 fireLifecycleEvent(LifecycleEvent.AFTER_PERSIST_PERFORMED);
             else if (wasDeleted)
                 fireLifecycleEvent(LifecycleEvent.AFTER_DELETE_PERFORMED);
-            else 
+            else if (needPostUpdate)
                 // updates and new-flushed with changes
                 fireLifecycleEvent(LifecycleEvent.AFTER_UPDATE_PERFORMED);
         } else if (reason == BrokerImpl.FLUSH_ROLLBACK) {
@@ -2812,7 +2843,8 @@ public class StateManagerImpl
             // BEFORE_PERSIST is handled during Broker.persist and Broker.attach
             if (isDeleted())
                 fireLifecycleEvent(LifecycleEvent.BEFORE_DELETE);
-            else if (!(isNew() && !isFlushed()))
+            else if (!(isNew() && !isFlushed())
+				&& (ImplHelper.getUpdateFields(this) != null))
                 fireLifecycleEvent(LifecycleEvent.BEFORE_UPDATE);
             _flags |= FLAG_PRE_FLUSHED;
         }
@@ -3179,19 +3211,16 @@ public class StateManagerImpl
      * Lock the state manager if the multithreaded option is set.
      */
     protected void lock() {
-        // use broker-level lock to avoid deadlock situations with the state
-        // manager lock and broker lock being obtained in different orders
-        _broker.lock();
+        if (_instanceLock != null)
+        	_instanceLock.lock();
     }
 
     /**
      * Unlock the state manager.
      */
-	protected void unlock ()
-	{
-		// use broker-level lock to avoid deadlock situations with the state 
-		// manager lock and broker lock being obtained in different orders
-		_broker.unlock ();
+	protected void unlock () {
+        if (_instanceLock != null)
+        	_instanceLock.unlock();
 	}
 
     private void writeObject(ObjectOutputStream oos) throws IOException {
@@ -3254,5 +3283,9 @@ public class StateManagerImpl
 
         pc.pcReplaceStateManager(this);
         return pc;
+    }
+    
+    public List getMappedByIdFields() {
+        return _mappedByIdFields;
     }
 }

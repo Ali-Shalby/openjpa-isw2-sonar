@@ -30,6 +30,7 @@ import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
+import org.apache.openjpa.kernel.exps.Parameter;
 
 /**
  * Tests whether a value is IN a collection.
@@ -91,7 +92,11 @@ class InExpression
     public void appendTo(Select sel, ExpContext ctx, ExpState state, 
         SQLBuffer buf) {
         InExpState istate = (InExpState) state; 
-        _const.calculateValue(sel, ctx, istate.constantState, null, null);
+        if (_val instanceof Type)
+            _const.calculateValue(sel, ctx, istate.constantState, _val,
+                istate.valueState);
+        else
+            _const.calculateValue(sel, ctx, istate.constantState, null, null);
         _val.calculateValue(sel, ctx, istate.valueState, null, null);
 
         List list = null;
@@ -150,7 +155,8 @@ class InExpression
 
         Column col = (cols != null && cols.length == 1) ? cols[0] : null;
         for (Iterator itr = coll.iterator(); itr.hasNext();) {
-            buf.appendValue(itr.next(), col);
+                buf.appendValue(itr.next(), col, _const instanceof Parameter 
+                    ? (Parameter)_const : null);
             if (itr.hasNext())
                 buf.append(", ");
         }

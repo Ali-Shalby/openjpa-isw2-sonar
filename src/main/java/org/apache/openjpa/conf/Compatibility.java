@@ -55,8 +55,11 @@ public class Compatibility {
     private boolean _nonOptimisticVersionCheck = false;
     private int _jpql = JPQL_WARN;
     private boolean _storeMapCollectionInEntityAsBlob = false;
-    private boolean _flushBeforeDetach = true; 
-
+    private boolean _flushBeforeDetach = false; 
+    private boolean _cascadeWithDetach = false;
+    private boolean _useJPA2DefaultOrderColumnName = true;
+    private boolean _copyOnDetach = false;
+    
     /**
      * Whether to require exact identity value types when creating object
      * ids from a class and value. Defaults to false.
@@ -268,5 +271,87 @@ public class Compatibility {
     public void setFlushBeforeDetach(boolean beforeDetach) {
         _flushBeforeDetach = beforeDetach;
     }
+    
+    /**
+     * Affirms if detached entities are copy of the managed instances.
+     * Before this option is introduced, detached entities were by default 
+     * copies of the managed entities unless the entire cache is detached, only 
+     * then the detachment was in-place.
+     * This option changes the default behavior such that detachment is now
+     * in-place by default. To emulate the previous copy-on-detach behavior
+     * set this option to true.  
+     * 
+     * If the entire cache is being detached (when the persistence context is
+     * closed, for example), the detachement 
+     * 
+     * @since 2.0.0
+     */
+    public boolean getCopyOnDetach() {
+        return _copyOnDetach;
+    }
+    
+    /**
+     * Sets if detached entities are copy of the managed instances.
+     * Before this option is introduced, detached entities were by default 
+     * copies of the managed entities unless the entire cache is detached, only 
+     * then the detachment was in-place.
+     * This option changes the default behavior such that detachment is now
+     * in-place by default. To emulate the previous copy-on-detach behavior
+     * set this option to true.   
+     * 
+     * @since 2.0.0
+     */
+    public void setCopyOnDetach(boolean copyOnDetach) {
+        _copyOnDetach = copyOnDetach;
+    }
 
+    /**
+     * Whether openjpa will always cascade on detach, regardless of the
+     * cascade setting.
+     * 
+     * @return true if cascade will always occur, false if cascade will only
+     * occur if it is specified in metadata
+     * 
+     * @since 2.0.0
+     */
+    public boolean getCascadeWithDetach() {
+        return _cascadeWithDetach;
+    }
+
+    /**
+     * Whether openjpa should always cascade on detach, regardless of the
+     * cascade setting.
+     * 
+     * @param cascadeWithDetach true if cascade should always occur, false if
+     * it should only occur if specified in metadata
+     * 
+     * @since 2.0.0
+     */
+    public void setCascadeWithDetach(boolean cascadeWithDetach) {
+        _cascadeWithDetach = cascadeWithDetach;
+    }
+    
+    /**
+     * Whether OpenJPA should use the new default order column name defined
+     * by JPA 2.0: name; "_"; "ORDER" or the pre-JPA 2.0 default name "ordr".
+     * 
+     * @since 2.0.0
+     * @return true if the JPA2 default name should be used
+     */
+    public boolean getUseJPA2DefaultOrderColumnName() {
+        return _useJPA2DefaultOrderColumnName;
+    }
+
+    /**
+     * Whether OpenJPA should use the new default order column name defined
+     * by JPA 2.0: name; "_"; "ORDER" or the pre-JPA 2.0 default name "ordr".
+     * 
+     * @param useJPA2 true if the JPA 2.0 default name should be used.  false if
+     * the 1.x name should be used.
+     * 
+     * @since 2.0.0
+     */
+    public void setUseJPA2DefaultOrderColumnName(boolean useJPA2Name) {
+        _useJPA2DefaultOrderColumnName = useJPA2Name;
+    }
 }

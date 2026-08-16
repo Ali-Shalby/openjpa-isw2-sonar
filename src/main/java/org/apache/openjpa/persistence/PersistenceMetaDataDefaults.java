@@ -33,6 +33,7 @@ import java.util.Set;
 import java.util.List;
 import java.util.ArrayList;
 import javax.persistence.Basic;
+import javax.persistence.ElementCollection;
 import javax.persistence.Embeddable;
 import javax.persistence.Embedded;
 import javax.persistence.EmbeddedId;
@@ -50,7 +51,7 @@ import javax.persistence.PreUpdate;
 import javax.persistence.Transient;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.openjpa.lib.util.J2DoPriv5Helper;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.meta.AbstractMetaDataDefaults;
@@ -72,8 +73,6 @@ import org.apache.openjpa.conf.OpenJPAConfiguration;
 public class PersistenceMetaDataDefaults
     extends AbstractMetaDataDefaults {
 
-    private boolean _allowsMultipleMethodsForSameCallback = false;
-
     private static final Localizer _loc = Localizer.forPackage
         (PersistenceMetaDataDefaults.class);
 
@@ -91,6 +90,7 @@ public class PersistenceMetaDataDefaults
         _strats.put(ManyToMany.class, MANY_MANY);
         _strats.put(Persistent.class, PERS);
         _strats.put(PersistentCollection.class, PERS_COLL);
+        _strats.put(ElementCollection.class, ELEM_COLL);
         _strats.put(PersistentMap.class, PERS_MAP);
 
         _ignoredAnnos.add(DetachedState.class.getName());
@@ -118,7 +118,7 @@ public class PersistenceMetaDataDefaults
         if (member == null)
             return null;
         AnnotatedElement el = (AnnotatedElement) member;
-        if (((Boolean) AccessController.doPrivileged(J2DoPriv5Helper
+        if ((AccessController.doPrivileged(J2DoPrivHelper
             .isAnnotationPresentAction(el, Transient.class))).booleanValue())
             return TRANSIENT;
         if (fmd != null
@@ -185,7 +185,7 @@ public class PersistenceMetaDataDefaults
         }
 
         //### EJB3: what if defined in XML?
-        if (((Boolean) AccessController.doPrivileged(J2DoPriv5Helper
+        if ((AccessController.doPrivileged(J2DoPrivHelper
             .isAnnotationPresentAction(type, Embeddable.class))).booleanValue())
             return EMBEDDED;
         if (Serializable.class.isAssignableFrom(type))
@@ -193,22 +193,6 @@ public class PersistenceMetaDataDefaults
         return null;
     }
     
-    /** 
-     * Flags if multiple methods of the same class can handle the same 
-     * callback event.
-     */
-    public boolean getAllowsMultipleMethodsForSameCallback() {
-        return _allowsMultipleMethodsForSameCallback;
-    }
-    
-    /** 
-     * Flags if multiple methods of the same class can handle the same 
-     * callback event.
-     */
-    public void setAllowsMultipleMethodsForSameCallback(boolean flag) {
-        _allowsMultipleMethodsForSameCallback = flag;
-    }
-
     /**
      * Auto-configuration method for the default access type of base classes 
      * with ACCESS_UNKNOWN
@@ -237,12 +221,13 @@ public class PersistenceMetaDataDefaults
     }
 
     /**
-     * Turns off auto cascading of persist, refresh, attach.
+     * Turns off auto cascading of persist, refresh, attach, detach.
      */
     static void setCascadeNone(ValueMetaData vmd) {
         vmd.setCascadePersist(ValueMetaData.CASCADE_NONE);
         vmd.setCascadeRefresh(ValueMetaData.CASCADE_NONE);
         vmd.setCascadeAttach(ValueMetaData.CASCADE_NONE);
+        vmd.setCascadeDetach(ValueMetaData.CASCADE_NONE);
     }
 
     @Override
@@ -260,10 +245,10 @@ public class PersistenceMetaDataDefaults
 
         int access = 0;
         if (annotated((Field[]) AccessController.doPrivileged(
-            J2DoPriv5Helper.getDeclaredFieldsAction(cls))).size() > 0)
+            J2DoPrivHelper.getDeclaredFieldsAction(cls))).size() > 0)
             access |= ClassMetaData.ACCESS_FIELD;
         if (annotated((Method[]) AccessController.doPrivileged(
-            J2DoPriv5Helper.getDeclaredMethodsAction(cls))).size() > 0
+            J2DoPrivHelper.getDeclaredMethodsAction(cls))).size() > 0
             || cls.isInterface()) // OpenJPA managed ifaces must use prop access
             access |= ClassMetaData.ACCESS_PROPERTY;
         return getAccessType(cls.getSuperclass()) | access;
@@ -272,13 +257,13 @@ public class PersistenceMetaDataDefaults
     @Override
     protected List getFieldAccessNames(ClassMetaData meta) {
         return annotated((Field[]) AccessController.doPrivileged(
-            J2DoPriv5Helper.getDeclaredFieldsAction(meta.getDescribedType())));
+            J2DoPrivHelper.getDeclaredFieldsAction(meta.getDescribedType())));
     }
 
     @Override
     protected List getPropertyAccessNames(ClassMetaData meta) {
         return annotated((Method[]) AccessController.doPrivileged(
-            J2DoPriv5Helper.getDeclaredMethodsAction(meta.getDescribedType())));
+            J2DoPrivHelper.getDeclaredMethodsAction(meta.getDescribedType())));
     }
 
     /**
@@ -290,7 +275,7 @@ public class PersistenceMetaDataDefaults
         String name;
         List annotated = new ArrayList(members.length);
         for (int i = 0; i < members.length; i++) {
-            annos = (Annotation[]) AccessController.doPrivileged(J2DoPriv5Helper
+            annos = (Annotation[]) AccessController.doPrivileged(J2DoPrivHelper
                 .getAnnotationsAction(members[i]));
             for (int j = 0; j < annos.length; j++) {
                 name = annos[j].annotationType().getName();
@@ -312,8 +297,8 @@ public class PersistenceMetaDataDefaults
         if (member instanceof Method) {
             try {
                 // check for setters for methods
-                Method setter = (Method) AccessController.doPrivileged(
-                    J2DoPriv5Helper.getDeclaredMethodAction(
+                Method setter = AccessController.doPrivileged(
+                    J2DoPrivHelper.getDeclaredMethodAction(
                         meta.getDescribedType(), "set" +
                         StringUtils.capitalize(name), new Class[] { 
                             ((Method) member).getReturnType() }));
@@ -337,7 +322,7 @@ public class PersistenceMetaDataDefaults
 
     private boolean isAnnotatedTransient(Member member) {
         return member instanceof AnnotatedElement
-            && ((Boolean) AccessController.doPrivileged(J2DoPriv5Helper
+            && (AccessController.doPrivileged(J2DoPrivHelper
                 .isAnnotationPresentAction(((AnnotatedElement) member),
                     Transient.class))).booleanValue();
     }

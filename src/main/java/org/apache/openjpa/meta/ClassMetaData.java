@@ -135,6 +135,8 @@ public class ClassMetaData
     private final LifecycleMetaData _lifeMeta = new LifecycleMetaData(this);
     private File _srcFile = null;
     private int _srcType = SRC_OTHER;
+    private int _lineNum = 0;  
+    private int _colNum = 0;  
     private String[] _comments = null;
     private int _listIndex = -1;
     private int _srcMode = MODE_META | MODE_MAPPING;
@@ -164,7 +166,8 @@ public class ClassMetaData
     private int _identity = ID_UNKNOWN;
     private int _idStrategy = ValueStrategies.NONE;
     private int _accessType = ACCESS_UNKNOWN;
-
+    private boolean _replicated = false;
+    
     private String _seqName = DEFAULT_STRING;
     private SequenceMetaData _seqMeta = null;
     private String _cacheName = DEFAULT_STRING;
@@ -191,7 +194,9 @@ public class ClassMetaData
     private FetchGroup[] _fgs = null;
     private FetchGroup[] _customFGs = null;
     private boolean _intercepting = false;
-
+    private Boolean _useIdClassFromParent = null;
+    private boolean _abstract = false;
+    
     /**
      * Constructor. Supply described type and repository.
      */
@@ -436,8 +441,17 @@ public class ClassMetaData
      * The metadata-specified class to use for the object ID.
      */
     public Class getObjectIdType() {
-        if (_objectId != null)
-            return _objectId;
+        // if this entity does not use IdClass from the parent entity,
+        // just return the _objectId set during annotation parsing time.
+        if (!useIdClassFromParent()) {
+            if (_objectId != null)
+                return _objectId;
+        } 
+        
+        // if this entity uses IdClass from the parent entity,
+        // the _objectId set during the parsing time should be
+        // ignored, and let Openjpa determine the objectId type
+        // of this entity.
         if (getIdentityType() != ID_APPLICATION)
             return null;
         ClassMetaData sup = getPCSuperclassMetaData();
@@ -501,6 +515,13 @@ public class ClassMetaData
 
     /**
      * The metadata-specified class to use for the object ID.
+     * When there is IdClass annotation, AnnotationMetaDataParser
+     * will call this method to set ObjectId type. However, if 
+     * this is a derived identity in the child entity where a 
+     * relation field (parent entity) is used as an id, and this 
+     * relation field has an IdClass, the IdClass annotation in 
+     * the child entity can be ignored as Openjpa will automatically   
+     * wrap parent's IdClass as child's IdClass. 
      */
     public void setObjectIdType(Class cls, boolean shared) {
         _objectId = null;
@@ -1858,7 +1879,8 @@ public class ClassMetaData
                 throw new MetaDataException(_loc.get("unsupported-id-type",
                     _type, pks[0].getName(),
                     pks[0].getDeclaredType().getName()));
-            throw new MetaDataException(_loc.get("no-id-class", _type));
+            throw new MetaDataException(_loc.get("no-id-class", _type, 
+            		Arrays.asList(toNames(pks))));
         }
         if (_objectId == null)
             return;
@@ -1876,7 +1898,9 @@ public class ClassMetaData
         if (_super != null) {
             // concrete superclass oids must match or be parent of ours
             ClassMetaData sup = getPCSuperclassMetaData();
-            if (!sup.getObjectIdType().isAssignableFrom(_objectId))
+            Class objectIdType = sup.getObjectIdType();
+            if (objectIdType != null && 
+                !objectIdType.isAssignableFrom(_objectId))
                 throw new MetaDataException(_loc.get("id-classes",
                     new Object[]{ _type, _objectId, _super,
                         sup.getObjectIdType() }));
@@ -1897,6 +1921,45 @@ public class ClassMetaData
             // make sure the app id class has all pk fields
             validateAppIdClassPKs(this, pks, _objectId);
         }
+    }
+    /**
+     * Return true if this class uses IdClass derived from idClass of the 
+     * parent entity which annotated as id in the child class. 
+     * In this case, there are no key fields in the child entity corresponding 
+     * to the fields in the IdClass.
+     */
+    public boolean useIdClassFromParent() {
+        if (_useIdClassFromParent == null) {
+            if (_objectId == null)
+                _useIdClassFromParent = false;
+            else {
+                FieldMetaData[] pks = getPrimaryKeyFields();
+                if (pks.length != 1) 
+                    _useIdClassFromParent = false;
+                else {
+                    ClassMetaData pkMeta = pks[0].getTypeMetaData();
+                    if (pkMeta == null)
+                        _useIdClassFromParent = false;
+                    else {
+                        Class pkType = pkMeta.getObjectIdType();
+                        if (pkType == ObjectId.class) //parent id is EmbeddedId
+                            pkType = pkMeta.getPrimaryKeyFields()[0].getType();
+                        if (pkType == _objectId)
+                            _useIdClassFromParent = true;
+                        else {
+                            Field f = Reflection.findField(_objectId, 
+                                pks[0].getName(), false);
+                            if (f != null) 
+                                _useIdClassFromParent = false;
+                            else 
+                                throw new MetaDataException(_loc.get("invalid-id",
+                                    _type, pks[0].getName()));
+                        }
+                    }
+                }
+            }
+        }
+        return _useIdClassFromParent.booleanValue();
     }
 
     /**
@@ -2172,6 +2235,23 @@ public class ClassMetaData
     public String getResourceName() {
         return _type.getName();
     }
+    
+    public int getLineNumber() {
+        return _lineNum;
+    }
+
+    public void setLineNumber(int lineNum) {
+        _lineNum = lineNum;
+    }
+
+    public int getColNumber() {
+        return _colNum;
+    }
+
+    public void setColNumber(int colNum) {
+        _colNum = colNum;
+    }
+    
 
     /**
      * The source mode this metadata has been loaded under.
@@ -2369,10 +2449,7 @@ public class ClassMetaData
     }
     
     public void valueChanged(Value val) {
-    	if (val ==  null)
-    		return;
-    	String key = val.getProperty();
-    	if ("DataCacheTimeout".equals(key)) {
+    	if (val != null && val.matches("DataCacheTimeout")) {
     		_cacheTimeout = Integer.MIN_VALUE;
     	}
     }
@@ -2400,5 +2477,29 @@ public class ClassMetaData
     	}
     	Collections.sort(result);
     	return result.toArray(new String[result.size()]);
+    }
+    
+    /**
+     * Affirms the persistence instances of this receiver is replicated across
+     * multiple databases.
+     */
+    public boolean isReplicated() {
+    	return _replicated;
+    }
+    
+    /**
+     * Sets the persistence instances of this receiver to be replicated across
+     * multiple databases.
+     */
+    public void setReplicated(boolean flag) {
+    	_replicated = flag;
+    }
+
+    public boolean isAbstract() {
+        return _abstract;
+    }
+
+    public void setAbstract(boolean flag) {
+        _abstract = flag;
     }
 }

@@ -21,6 +21,8 @@ package org.apache.openjpa.kernel;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.ee.ManagedRuntime;
@@ -173,6 +175,22 @@ public class DelegatingBroker
     public String getConnectionPassword() {
         try {
             return _broker.getConnectionPassword();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+    
+    public Map<String, String> getProperties() {
+        try {
+            return _broker.getProperties();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+    
+    public Set<String> getSupportedProperties() {
+        try {
+            return _broker.getSupportedProperties();
         } catch (RuntimeException re) {
             throw translate(re);
         }
@@ -1384,4 +1402,13 @@ public class DelegatingBroker
             throw translate(re);
         }
     }
+        
+    public boolean getCachePreparedQuery() {
+        return _broker.getCachePreparedQuery();
+    }
+    
+    public void setCachePreparedQuery(boolean flag) {
+        _broker.setCachePreparedQuery(flag);
+    }
+
 }

@@ -29,6 +29,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.MissingResourceException;
+import java.util.Set;
+import java.util.TreeSet;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
@@ -40,6 +42,7 @@ import org.apache.openjpa.lib.util.Services;
  * Utilities for running product derivations.
  *
  * @author Abe White
+ * @author Pinaki Poddar
  * @nojavadoc
  */
 public class ProductDerivations {
@@ -52,11 +55,12 @@ public class ProductDerivations {
     private static final Throwable[] _derivationErrors;
     private static String[] _prefixes;
     static {
-        ClassLoader l = (ClassLoader) AccessController.doPrivileged(
+        ClassLoader l = AccessController.doPrivileged(
             J2DoPrivHelper.getClassLoaderAction(ProductDerivation.class)); 
         _derivationNames = Services.getImplementors(ProductDerivation.class, l);
         _derivationErrors = new Throwable[_derivationNames.length];
-        List derivations = new ArrayList(_derivationNames.length);
+        List<ProductDerivation> derivations =
+            new ArrayList<ProductDerivation>(_derivationNames.length);
         for (int i = 0; i < _derivationNames.length; i++) {
             try {
                 ProductDerivation d = (ProductDerivation)
@@ -91,10 +95,10 @@ public class ProductDerivations {
         }
 
         Collections.sort(derivations, new ProductDerivationComparator());
-        _derivations = (ProductDerivation[]) derivations.toArray
-            (new ProductDerivation[derivations.size()]);
+        _derivations =
+            derivations.toArray(new ProductDerivation[derivations.size()]);
 
-        List prefixes = new ArrayList(2);
+        List<String> prefixes = new ArrayList<String>(2);
         for (int i = 0; i < _derivations.length; i++) {
             if (_derivations[i].getConfigurationPrefix() != null
                 && !"openjpa".equals(_derivations[i].getConfigurationPrefix()))
@@ -132,18 +136,22 @@ public class ProductDerivations {
     }
     
     /**
-     * Determine the full key name for <code>key</code>, given the registered
-     * prefixes and the entries in <code>map</code>. This method
+     * Determine the full key name for <code>partialKey</code>, given the 
+     * registered prefixes and the entries in <code>map</code>. This method
      * computes the appropriate configuration prefix to use by looking 
      * through <code>map</code> for a key starting with any of the known
-     * configuration prefixes and ending with <code>key</code> and, if a
+     * configuration prefixes and ending with <code>partialKey</code> and, if a
      * value is found, using the prefix of that key. Otherwise, it uses
      * the first registered prefix. 
      * 
+     * The given <code>partialKey</code> is first tested for containment in the
+     * given map without any prefix.
+     *  
      * @since 0.9.7
      */
     public static String getConfigurationKey(String partialKey, Map map) {
-        String firstKey = null;
+        String firstKey = (map != null && map.containsKey(partialKey)) 
+            ? partialKey : null;
         for (int i = 0; map != null && i < _prefixes.length; i++) {
             String fullKey = _prefixes[i] + "." + partialKey;
             if (map.containsKey(fullKey)) {
@@ -250,7 +258,7 @@ public class ProductDerivations {
         if (StringUtils.isEmpty(resource))
             return null;
         if (loader == null)
-            loader = (ClassLoader) AccessController.doPrivileged(
+            loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
         ConfigurationProvider provider = null;
         StringBuffer errs = null;
@@ -285,7 +293,7 @@ public class ProductDerivations {
         if (file == null)
             return null;
         if (loader == null)
-            loader = (ClassLoader) AccessController.doPrivileged(
+            loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
         ConfigurationProvider provider = null;
         StringBuffer errs = null;
@@ -302,7 +310,7 @@ public class ProductDerivations {
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
-        String aPath = (String) AccessController.doPrivileged(
+        String aPath = AccessController.doPrivileged(
             J2DoPrivHelper.getAbsolutePathAction(file));
         reportErrors(errs, aPath, err);
         String rsrc = aPath + "#" + anchor;
@@ -331,7 +339,7 @@ public class ProductDerivations {
     private static ConfigurationProvider load(ClassLoader loader, 
        boolean globals) {
         if (loader == null)
-            loader = (ClassLoader) AccessController.doPrivileged(
+            loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
         
         ConfigurationProvider provider = null;
@@ -376,9 +384,9 @@ public class ProductDerivations {
      *
      * @since 1.1.0
      */
-    public static List getFullyQualifiedAnchorsInPropertiesLocation(
+    public static List<String> getFullyQualifiedAnchorsInPropertiesLocation(
         final String propertiesLocation) {
-        List fqAnchors = new ArrayList();
+        List<String> fqAnchors = new ArrayList<String>();
         StringBuffer errs = null;
         Throwable err = null;
         for (int i = _derivations.length - 1; i >= 0; i--) {
@@ -428,16 +436,29 @@ public class ProductDerivations {
                 collection.add(fqLoc);
         }
     }
+    
+    
+    public static Set<String> getSupportedQueryHints() {
+        Set<String> result = new TreeSet<String>();
+        // most specific to least
+        for (int i = _derivations.length - 1; i >= 0; i--) {
+            Set<String> members = _derivations[i].getSupportedQueryHints();
+            if (members != null || !members.isEmpty())
+                result.addAll(members);
+        }
+        return result;
+    }
+
 
     /**
      * Compare {@link ProductDerivation}s.
      */
     private static class ProductDerivationComparator
-        implements Comparator {
+        implements Comparator<ProductDerivation> {
 
-        public int compare(Object o1, Object o2) {
-            int type1 = ((ProductDerivation) o1).getType();
-            int type2 = ((ProductDerivation) o2).getType();
+        public int compare(ProductDerivation o1, ProductDerivation o2) {
+            int type1 = o1.getType();
+            int type2 = o2.getType();
             if (type1 != type2)
                 return type1 - type2;
 

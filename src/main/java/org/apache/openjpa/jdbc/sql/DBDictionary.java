@@ -109,6 +109,7 @@ import org.apache.openjpa.util.ObjectExistsException;
 import org.apache.openjpa.util.ObjectNotFoundException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.OptimisticException;
+import org.apache.openjpa.util.QueryException;
 import org.apache.openjpa.util.ReferentialIntegrityException;
 import org.apache.openjpa.util.Serialization;
 import org.apache.openjpa.util.StoreException;
@@ -193,12 +194,14 @@ public class DBDictionary
     public boolean supportsAlterTableWithAddColumn = true;
     public boolean supportsAlterTableWithDropColumn = true;
     public boolean supportsComments = false;
+    public boolean supportsGetGeneratedKeys = false;
     public String reservedWords = null;
     public String systemSchemas = null;
     public String systemTables = null;
     public String selectWords = null;
     public String fixedSizeTypeNames = null;
     public String schemaCase = SCHEMA_CASE_UPPER;
+    public boolean setStringRightTruncationOn = true;
 
     // sql
     public String validationSQL = null;
@@ -237,6 +240,9 @@ public class DBDictionary
     public boolean supportsModOperator = false;
     public boolean supportsXMLColumn = false;
     public boolean reportsSuccessNoInfoOnBatchUpdates = false;
+    public boolean supportsSelectFromFinalTable = false;
+    public boolean supportsSimpleCaseExpression = true;
+    public boolean supportsGeneralCaseExpression = true;
     
     /**
      * Some Databases append whitespace after the schema name 
@@ -392,6 +398,7 @@ public class DBDictionary
                     // JDBC3-only method, so it might throw a 
                     // AbstractMethodError
                     isJDBC3 = metaData.getJDBCMajorVersion() >= 3;
+                    supportsGetGeneratedKeys = metaData.supportsGetGeneratedKeys();
                 } catch (Throwable t) {
                     // ignore if not JDBC3
                 }
@@ -1473,12 +1480,21 @@ public class DBDictionary
     /////////
     // Types
     /////////
-
+    
     /**
      * Return the preferred {@link Types} constant for the given
      * {@link JavaTypes} or {@link JavaSQLTypes} constant.
      */
     public int getJDBCType(int metaTypeCode, boolean lob) {
+        return getJDBCType(metaTypeCode, lob, 0, 0);
+    }
+
+    /**
+     * Return the preferred {@link Types} constant for the given
+     * {@link JavaTypes} or {@link JavaSQLTypes} constant.
+     */
+    public int getJDBCType(int metaTypeCode, boolean lob, int precis, 
+        int scale) {
         if (lob) {
             switch (metaTypeCode) {
                 case JavaTypes.STRING:
@@ -1504,10 +1520,20 @@ public class DBDictionary
                 return getPreferredType(Types.CHAR);
             case JavaTypes.DOUBLE:
             case JavaTypes.DOUBLE_OBJ:
-                return getPreferredType(Types.DOUBLE);
+                if(precis > 0 || scale > 0) {
+                    return getPreferredType(Types.NUMERIC);
+                }
+                else {
+                    return getPreferredType(Types.DOUBLE);
+                }
             case JavaTypes.FLOAT:
             case JavaTypes.FLOAT_OBJ:
-                return getPreferredType(Types.REAL);
+                if(precis > 0 || scale > 0) {
+                    return getPreferredType(Types.NUMERIC);
+                }
+                else {
+                    return getPreferredType(Types.REAL);
+                }
             case JavaTypes.INT:
             case JavaTypes.INT_OBJ:
                 return getPreferredType(Types.INTEGER);
@@ -2393,6 +2419,14 @@ public class DBDictionary
         }
     }
 
+    /**
+     * Return true if the dictionary uses isolation level to compute the 
+     * returned getForUpdateClause() SQL clause.  
+     */
+    public boolean supportsIsolationForUpdate() {
+        return false;
+    }
+    
     /**
      * Return the "SELECT" operation clause, adding any available hints, etc.
      */
@@ -3616,7 +3650,7 @@ public class DBDictionary
                 stmnt.setString(idx++, schemaName.toUpperCase());
             if (sequenceName != null)
                 stmnt.setString(idx++, sequenceName);
-
+            setQueryTimeout(stmnt, conf.getQueryTimeout());
             rs = executeQuery(conn, stmnt, str);
             return getSequence(rs);            
          } finally {
@@ -4013,6 +4047,7 @@ public class DBDictionary
         PreparedStatement stmnt = prepareStatement(conn, query);
         ResultSet rs = null;
         try {
+            setQueryTimeout(stmnt, conf.getQueryTimeout());
             rs = executeQuery(conn, stmnt, query);
             return getKey(rs, col);
         } finally {
@@ -4141,6 +4176,76 @@ public class DBDictionary
     	}
     }
     
+    /**
+     * FIXME - OPENJPA-957 - lockTimeout is a server-side function and
+     * shouldn't be using client-side setQueryTimeout for lock timeouts.
+     * 
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of setting query and lock timeouts.
+     * 
+     * @param stmnt
+     * @param fetch
+     * @param forUpdate - true if we should also try setting a lock timeout
+     * @throws SQLException
+     */
+    public void setTimeouts(PreparedStatement stmnt, 
+        JDBCFetchConfiguration fetch, boolean forUpdate) throws SQLException {
+        if (this.supportsQueryTimeout) {
+            int timeout = fetch.getQueryTimeout();
+            if (forUpdate) {
+                // if this is a locking select and the lock timeout is greater 
+                // than the configured query timeout, use the lock timeout
+                timeout = Math.max(fetch.getQueryTimeout(), 
+                    fetch.getLockTimeout());
+            }
+            setQueryTimeout(stmnt, timeout);
+        }
+    }
+
+    /**
+     * FIXME - OPENJPA-957 - lockTimeout is a server-side function and
+     * shouldn't be using client-side setQueryTimeout for lock timeouts.
+     * 
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of setting query and lock timeouts.
+     * 
+     * @param stmnt
+     * @param fetch
+     * @param forUpdate - true if we should also try setting a lock timeout
+     * @throws SQLException
+     */
+    public void setTimeouts(PreparedStatement stmnt, JDBCConfiguration conf,
+        boolean forUpdate) throws SQLException {
+        if (this.supportsQueryTimeout) {
+            int timeout = conf.getQueryTimeout();
+            if (forUpdate) {
+                // if this is a locking select and the lock timeout is greater
+                // than the configured query timeout, use the lock timeout
+                timeout = Math.max(conf.getQueryTimeout(), 
+                    conf.getLockTimeout());
+            }
+            setQueryTimeout(stmnt, timeout);
+        }
+    }
+
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of setting query timeout.
+     */
+    public void setQueryTimeout(PreparedStatement stmnt, int timeout)
+        throws SQLException {
+        if (this.supportsQueryTimeout && timeout >= 0) {
+            if (timeout > 0 && timeout < 1000) {
+                timeout = 1000; 
+                Log log = conf.getLog(JDBCConfiguration.LOG_JDBC);
+                if (log.isWarnEnabled())
+                    log.warn(_loc.get("millis-query-timeout"));
+            }
+            stmnt.setQueryTimeout(timeout / 1000);
+        }
+    }
+
+
     //////////////////////////////////////
     // ConnectionDecorator implementation
     //////////////////////////////////////
@@ -4214,29 +4319,59 @@ public class DBDictionary
      * Returns -1 if no matching code can be found.
      */
     OpenJPAException narrow(String msg, SQLException ex) {
-    	String errorState = ex.getSQLState();
-    	int errorType = StoreException.GENERAL;
-    	for (Integer type : sqlStateCodes.keySet()) {
-    		Set<String> erroStates = sqlStateCodes.get(type);
-    		if (erroStates != null && erroStates.contains(errorState)) {
-    			errorType = type;
-    			break;
-    		}
-    	}
-    	switch (errorType) {
-	    	case StoreException.LOCK: 
-	            return new LockException(msg);
-	    	case StoreException.OBJECT_EXISTS:
-	            return new ObjectExistsException(msg);
-	    	case StoreException.OBJECT_NOT_FOUND:
-	            return new ObjectNotFoundException(msg);
-	    	case StoreException.OPTIMISTIC:
-	            return new OptimisticException(msg);
-	    	case StoreException.REFERENTIAL_INTEGRITY: 
-	            return new ReferentialIntegrityException(msg);
-	        default:
-	            return new StoreException(msg);
+        Boolean recoverable = null;
+        int errorType = StoreException.GENERAL;
+        for (Integer type : sqlStateCodes.keySet()) {
+            Set<String> errorStates = sqlStateCodes.get(type);
+            if (errorStates != null) {
+                recoverable = matchErrorState(type, errorStates, ex);
+                if (recoverable != null) {
+                    errorType = type;
+                    break;
+                }
+            }
         }
+        StoreException storeEx;
+        switch (errorType) {
+        case StoreException.LOCK:
+            storeEx = new LockException(msg);
+            break;
+        case StoreException.OBJECT_EXISTS:
+            storeEx = new ObjectExistsException(msg);
+            break;
+        case StoreException.OBJECT_NOT_FOUND:
+            storeEx = new ObjectNotFoundException(msg);
+            break;
+        case StoreException.OPTIMISTIC:
+            storeEx = new OptimisticException(msg);
+            break;
+        case StoreException.REFERENTIAL_INTEGRITY:
+            storeEx = new ReferentialIntegrityException(msg);
+            break;
+        case StoreException.QUERY:
+            storeEx = new QueryException(msg);
+            break;
+        default:
+            storeEx = new StoreException(msg);
+        }
+        if (recoverable != null) {
+            storeEx.setFatal(!recoverable);
+        }
+        return storeEx;
+    }
+
+    /*
+     * Determine if the SQLException argument matches any element in the
+     * errorStates. Dictionary subclass can override this method and extract
+     * SQLException data to figure out if the exception is recoverable.
+     * 
+     * @return null if no match is found or a Boolean value indicates the
+     * exception is recoverable.
+     */
+    protected Boolean matchErrorState(int subtype, Set<String> errorStates,
+        SQLException ex) {
+        String errorState = ex.getSQLState();
+        return errorStates.contains(errorState) ? Boolean.FALSE : null;
     }
     
     /**
@@ -4302,6 +4437,7 @@ public class DBDictionary
             stmnt = sql.prepareStatement(conn, store.getFetchConfiguration(),
                 ResultSet.TYPE_SCROLL_SENSITIVE,
                 ResultSet.CONCUR_UPDATABLE);
+            setTimeouts(stmnt, store.getFetchConfiguration(), true);
             res = stmnt.executeQuery();
             if (!res.next()) {
                 throw new InternalException(_loc.get("stream-exception"));
@@ -4335,6 +4471,7 @@ public class DBDictionary
             stmnt = sql.prepareStatement(conn, store.getFetchConfiguration(),
                 ResultSet.TYPE_SCROLL_SENSITIVE,
                 ResultSet.CONCUR_UPDATABLE);
+            setTimeouts(stmnt, store.getFetchConfiguration(), true);
             res = stmnt.executeQuery();
             if (!res.next()) {
                 throw new InternalException(_loc.get("stream-exception"));

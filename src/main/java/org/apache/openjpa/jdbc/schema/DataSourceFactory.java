@@ -114,7 +114,7 @@ public class DataSourceFactory {
             // see if their driver name is actually a data source
             if (DataSource.class.isAssignableFrom(driverClass)) {
                 return (DataSource) Configurations.newInstance(driver,
-                    conf, props, (ClassLoader) AccessController.doPrivileged(
+                    conf, props, AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
                             DataSource.class))); 
             }
@@ -209,6 +209,8 @@ public class DataSourceFactory {
             ConfiguringConnectionDecorator ccd =
                 new ConfiguringConnectionDecorator();
             ccd.setTransactionIsolation(conf.getTransactionIsolationConstant());
+            ccd.setQueryTimeout(conf.getQueryTimeout() == -1 
+                ? -1 : conf.getQueryTimeout() * 1000);
             Log log = conf.getLog(JDBCConfiguration.LOG_JDBC);
             if (factory2 || !conf.isConnectionFactoryModeManaged()) {
                 if (!dict.supportsMultipleNontransactionalResultSets)

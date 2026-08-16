@@ -21,21 +21,20 @@ package org.apache.openjpa.lib.ant;
 import java.io.File;
 import java.security.AccessController;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
-import org.apache.tools.ant.AntClassLoader;
-import org.apache.tools.ant.BuildException;
-import org.apache.tools.ant.DirectoryScanner;
-import org.apache.tools.ant.taskdefs.MatchingTask;
-import org.apache.tools.ant.types.FileSet;
-import org.apache.tools.ant.types.Path;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.ConfigurationImpl;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.tools.ant.AntClassLoader;
+import org.apache.tools.ant.BuildException;
+import org.apache.tools.ant.DirectoryScanner;
+import org.apache.tools.ant.taskdefs.MatchingTask;
+import org.apache.tools.ant.types.FileSet;
+import org.apache.tools.ant.types.Path;
 
 /**
  * Ant tasks all have a nested <code>&lt;config&rt;</code> tag, which uses
@@ -57,7 +56,7 @@ public abstract class AbstractTask extends MatchingTask {
     private static final Localizer _loc = Localizer.forPackage
         (AbstractTask.class);
 
-    protected final List fileSets = new ArrayList();
+    protected final List<FileSet> fileSets = new ArrayList<FileSet>();
     protected boolean haltOnError = true;
     protected Path classpath = null;
     protected boolean useParent = false;
@@ -117,10 +116,10 @@ public abstract class AbstractTask extends MatchingTask {
             return _cl;
 
         if (classpath != null)
-            _cl = new AntClassLoader(project, classpath, useParent);
+            _cl = new AntClassLoader(getProject(), classpath, useParent);
         else
-            _cl = new AntClassLoader(project.getCoreLoader(), project,
-                new Path(project), useParent);
+            _cl = new AntClassLoader(getProject().getCoreLoader(), getProject(),
+                new Path(getProject()), useParent);
         _cl.setIsolated(isolate);
 
         return _cl;
@@ -143,7 +142,7 @@ public abstract class AbstractTask extends MatchingTask {
 
     public Path createClasspath() {
         if (classpath == null)
-            classpath = new Path(project);
+            classpath = new Path(getProject());
         return classpath.createPath();
     }
 
@@ -161,7 +160,7 @@ public abstract class AbstractTask extends MatchingTask {
             _conf = newConfiguration();
         if (_conf.getPropertiesResource() == null) {
             ConfigurationProvider cp = ProductDerivations.loadDefaults
-                ((ClassLoader) AccessController.doPrivileged(
+                (AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(_conf.getClass())));
             if (cp != null)
                 cp.setInto(_conf);
@@ -181,18 +180,17 @@ public abstract class AbstractTask extends MatchingTask {
     }
 
     private String[] getFiles() {
-        List files = new ArrayList();
-        for (Iterator i = fileSets.iterator(); i.hasNext();) {
-            FileSet fs = (FileSet) i.next();
-            DirectoryScanner ds = fs.getDirectoryScanner(project);
+        List<String> files = new ArrayList<String>();
+        for(FileSet fs : fileSets) { 
+            DirectoryScanner ds = fs.getDirectoryScanner(getProject());
 
             String[] dsFiles = ds.getIncludedFiles();
             for (int j = 0; j < dsFiles.length; j++) {
                 File f = new File(dsFiles[j]);
-                if (!((Boolean) AccessController.doPrivileged(J2DoPrivHelper
+                if (!( AccessController.doPrivileged(J2DoPrivHelper
                     .isFileAction(f))).booleanValue())
                     f = new File(ds.getBasedir(), dsFiles[j]);
-                files.add((String) AccessController.doPrivileged(
+                files.add(AccessController.doPrivileged(
                     J2DoPrivHelper.getAbsolutePathAction(f)));
             }
         }

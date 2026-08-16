@@ -20,10 +20,12 @@ package org.apache.openjpa.jdbc.kernel;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedList;
+import java.util.List;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -36,8 +38,10 @@ import org.apache.openjpa.jdbc.sql.RowManager;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.PCState;
+import org.apache.openjpa.kernel.StateManagerImpl;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.OptimisticException;
@@ -81,12 +85,29 @@ public abstract class AbstractUpdateManager
         RowManager rowMgr = newRowManager();
         Collection customs = new LinkedList();
         Collection exceps = psMgr.getExceptions();
-        for (Iterator itr = states.iterator(); itr.hasNext();)
-            exceps = populateRowManager((OpenJPAStateManager) itr.next(),
-                rowMgr, store, exceps, customs);
+        Collection mappedByIdStates = new ArrayList();
+        for (Iterator itr = states.iterator(); itr.hasNext();) {
+            OpenJPAStateManager obj = (OpenJPAStateManager)itr.next();
+            if (obj instanceof StateManagerImpl) {
+                StateManagerImpl sm = (StateManagerImpl) obj;
+                if (sm.getMappedByIdFields() != null)
+                    mappedByIdStates.add(sm);
+                else exceps = populateRowManager(sm, rowMgr, store, exceps, customs);
+            } else 
+                exceps = populateRowManager(obj, rowMgr, store, exceps, customs);
+        }
 
         // flush rows
         exceps = flush(rowMgr, psMgr, exceps);
+        
+        if (mappedByIdStates.size() != 0) {
+            for (Iterator itr = mappedByIdStates.iterator(); itr.hasNext();) {
+                StateManagerImpl sm = (StateManagerImpl) itr.next();
+                exceps = populateRowManager(sm, rowMgr, store, exceps, customs);
+            }
+            // flush rows
+            exceps = flush(rowMgr, psMgr, exceps);
+        }
 
         // now do any custom mappings
         for (Iterator itr = customs.iterator(); itr.hasNext();) {
@@ -144,7 +165,7 @@ public abstract class AbstractUpdateManager
                     customs);
             } else if ((dirty = ImplHelper.getUpdateFields(sm)) != null) {
                 update(sm, dirty, (ClassMapping) sm.getMetaData(), rowMgr,
-                    store, customs);
+                    store, customs, false);
             } else if (sm.isVersionUpdateRequired()) {
                 updateIndicators(sm, (ClassMapping) sm.getMetaData(), rowMgr,
                     store, customs, true);
@@ -190,11 +211,22 @@ public abstract class AbstractUpdateManager
 
         mapping.insert(sm, store, rowMgr);
         FieldMapping[] fields = mapping.getDefinedFieldMappings();
+        if (((StateManagerImpl)sm).getMappedByIdFields() != null) {
+            // when there is mappedByIdFields, the id field is not
+            // fully populated. We need to insert other fields first
+            // so that in the process of inserting other fields,
+            // the values of mappedById fields can be set into
+            // the id fields. Once the id fields are fully populated,
+            // we will then insert the id fields.
+            fields = reorderFields(fields);
+        }  
+        
         BitSet dirty = sm.getDirty();
         for (int i = 0; i < fields.length; i++) {
             if (dirty.get(fields[i].getIndex())
-                && !bufferCustomInsert(fields[i], sm, store, customs))
+                && !bufferCustomInsert(fields[i], sm, store, customs)) {
                 fields[i].insert(sm, store, rowMgr);
+            }
         }
         if (sup == null) {
             Version vers = mapping.getVersion();
@@ -204,6 +236,22 @@ public abstract class AbstractUpdateManager
             if (!bufferCustomInsert(dsc, sm, store, customs))
                 dsc.insert(sm, store, rowMgr);
         }
+    }
+    
+    private FieldMapping[] reorderFields(FieldMapping[] fields) {
+        List<FieldMapping> pkFmds = new ArrayList<FieldMapping>();
+        FieldMapping[] ret = new FieldMapping[fields.length];
+        int j = 0;
+        for (int i = 0; i < fields.length; i++) {
+            if (!fields[i].isPrimaryKey())
+                ret[j++] = fields[i];
+            else
+                pkFmds.add(fields[i]);
+        }
+        for (int i = 0; i <pkFmds.size(); i++) {
+            ret[j++] = pkFmds.get(i);
+        }
+        return ret;
     }
 
     /**
@@ -267,7 +315,7 @@ public abstract class AbstractUpdateManager
      */
     protected void update(OpenJPAStateManager sm, BitSet dirty,
         ClassMapping mapping, RowManager rowMgr, JDBCStore store,
-        Collection customs) throws SQLException {
+        Collection customs, boolean updateIndicators) throws SQLException {
         Boolean custom = mapping.isCustomUpdate(sm, store);
         if (!Boolean.FALSE.equals(custom))
             mapping.customUpdate(sm, store);
@@ -278,16 +326,38 @@ public abstract class AbstractUpdateManager
         // detect whether any fields in their rows have been modified
         FieldMapping[] fields = mapping.getDefinedFieldMappings();
         for (int i = 0; i < fields.length; i++) {
-            if (dirty.get(fields[i].getIndex())
-                && !bufferCustomUpdate(fields[i], sm, store, customs))
-                fields[i].update(sm, store, rowMgr);
+            FieldMapping field = fields[i];
+            if (dirty.get(field.getIndex())
+                && !bufferCustomUpdate(field, sm, store, customs)) {
+                field.update(sm, store, rowMgr);
+                if (!updateIndicators) {
+                    FieldMapping[] inverseFieldMappings =
+                        field.getInverseMappings();
+                    if (inverseFieldMappings.length == 0) {
+                        updateIndicators = true;
+                    }
+                    else {
+                        for (FieldMapping inverseFieldMapping :
+                            inverseFieldMappings) {
+                            if (inverseFieldMapping.getMappedBy() != null) {
+                                updateIndicators = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         ClassMapping sup = mapping.getJoinablePCSuperclassMapping();
-        if (sup == null)
-            updateIndicators(sm, mapping, rowMgr, store, customs, false);
+        if (sup == null) {
+            if (updateIndicators) {
+                updateIndicators(sm, mapping, rowMgr, store, customs, false);
+            }
+        }
         else
-            update(sm, dirty, sup, rowMgr, store, customs);
+            update(sm, dirty, sup, rowMgr, store, customs, updateIndicators);
+
         mapping.update(sm, store, rowMgr);
     }
 

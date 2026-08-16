@@ -571,8 +571,8 @@ public class XMLPersistenceMetaDataSerializer
         addAttribute("xmlns", "http://java.sun.com/xml/ns/persistence/orm");
         addAttribute("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance");
         addAttribute("xsi:schemaLocation",
-            "http://java.sun.com/xml/ns/persistence/orm orm_1_0.xsd");
-        addAttribute("version", "1.0");
+            "http://java.sun.com/xml/ns/persistence/orm orm_2_0.xsd");
+        addAttribute("version", "2.0");
     }
 
     /**
@@ -919,6 +919,11 @@ public class XMLPersistenceMetaDataSerializer
                     strategy = "many-to-many";
                     cascades = fmd.getElement();
                     break;
+                case ELEM_COLL:
+                    if (isMetaDataMode())
+                        addElementCollectionAttributes(fmd);
+                    strategy = "element-collection";
+                    break;
             }
             if (isMappingMode())
                 addStrategyMappingAttributes(fmd);
@@ -932,6 +937,8 @@ public class XMLPersistenceMetaDataSerializer
             if (!(Order.ELEMENT + " asc").equals(fmd.getOrderDeclaration()))
                 addText(fmd.getOrderDeclaration());
             endElement("order-by");
+        } else if (isMappingMode(fmd)) {
+            serializeOrderColumn(fmd);
         }
         if (isMappingMode() && fmd.getKey().getValueMappedBy() != null) {
             FieldMetaData mapBy = fmd.getKey().getValueMappedByMetaData();
@@ -1069,6 +1076,8 @@ public class XMLPersistenceMetaDataSerializer
             case JavaTypes.ARRAY:
             case JavaTypes.COLLECTION:
             case JavaTypes.MAP:
+                if (fmd.isElementCollection())
+                    return PersistenceStrategy.ELEM_COLL;
                 mappedBy = fmd.getMappedByMetaData();
                 if (mappedBy == null || mappedBy.getTypeCode() != JavaTypes.PC)
                     return PersistenceStrategy.MANY_MANY;
@@ -1134,6 +1143,16 @@ public class XMLPersistenceMetaDataSerializer
     }
 
     /**
+     * Add element-collection attributes.
+     */
+    private void addElementCollectionAttributes(FieldMetaData fmd)
+        throws SAXException {
+        if (fmd.isInDefaultFetchGroup())
+            addAttribute("fetch", "EAGER");
+        addTargetEntityAttribute(fmd);
+    }
+
+    /**
      * Add a target-entity attribute to collection and map fields that do
      * not use generics.
      */
@@ -1178,6 +1197,14 @@ public class XMLPersistenceMetaDataSerializer
         throws SAXException {
         if (fmd.getMappedBy() != null)
             addAttribute("mapped-by", fmd.getMappedBy());
+    }
+    
+    /**
+     * Order column is not processed as meta data, instead it
+     * can be processed as mapping data if in mapping mode.
+     */
+    protected void serializeOrderColumn(FieldMetaData fmd)
+        throws SAXException {
     }
 
     /**
@@ -1229,6 +1256,14 @@ public class XMLPersistenceMetaDataSerializer
             return _seqs[0].getResourceName();
         }
 
+        public int getLineNumber() {
+            return _seqs[0].getLineNumber();
+        }
+
+        public int getColNumber() {
+            return _seqs[0].getColNumber();
+        }
+        
         public int compareTo(ClassSeqs other) {
             if (other == this)
                 return 0;
@@ -1296,6 +1331,14 @@ public class XMLPersistenceMetaDataSerializer
 
         public String getResourceName() {
             return _queries[0].getResourceName();
+        }
+
+        public int getLineNumber() {
+            return _queries[0].getLineNumber();
+        }
+
+        public int getColNumber() {
+            return _queries[0].getColNumber();
         }
 
         public int compareTo(ClassQueries other) {

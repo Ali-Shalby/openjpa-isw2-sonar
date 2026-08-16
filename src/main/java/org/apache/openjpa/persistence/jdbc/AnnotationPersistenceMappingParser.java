@@ -32,6 +32,7 @@ import javax.persistence.AssociationOverride;
 import javax.persistence.AssociationOverrides;
 import javax.persistence.AttributeOverride;
 import javax.persistence.AttributeOverrides;
+import javax.persistence.CollectionTable;
 import javax.persistence.ColumnResult;
 import javax.persistence.DiscriminatorColumn;
 import javax.persistence.DiscriminatorValue;
@@ -43,6 +44,9 @@ import javax.persistence.Inheritance;
 import javax.persistence.JoinColumn;
 import javax.persistence.JoinColumns;
 import javax.persistence.JoinTable;
+import javax.persistence.MapKeyColumn;
+import javax.persistence.MapKeyJoinColumn;
+import javax.persistence.MapKeyJoinColumns;
 import javax.persistence.PrimaryKeyJoinColumn;
 import javax.persistence.PrimaryKeyJoinColumns;
 import javax.persistence.SecondaryTable;
@@ -73,10 +77,11 @@ import org.apache.openjpa.jdbc.meta.strats.FlatClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.Schemas;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.log.Log;
-import org.apache.openjpa.lib.util.J2DoPriv5Helper;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -139,6 +144,9 @@ public class AnnotationPersistenceMappingParser
         _tags.put(KeyJoinColumns.class, KEY_JOIN_COLS);
         _tags.put(KeyNonpolymorphic.class, KEY_NONPOLY);
         _tags.put(KeyStrategy.class, KEY_STRAT);
+        _tags.put(MapKeyColumn.class, MAP_KEY_COL);
+        _tags.put(MapKeyJoinColumn.class, MAP_KEY_JOIN_COL);
+        _tags.put(MapKeyJoinColumns.class, MAP_KEY_JOIN_COLS);
         _tags.put(PrimaryKeyJoinColumn.class, PK_JOIN_COL);
         _tags.put(PrimaryKeyJoinColumns.class, PK_JOIN_COLS);
         _tags.put(SecondaryTable.class, SECONDARY_TABLE);
@@ -151,6 +159,7 @@ public class AnnotationPersistenceMappingParser
         _tags.put(ClassCriteria.class, CLASS_CRIT);
         _tags.put(Columns.class, COLS);
         _tags.put(ContainerTable.class, CONTAINER_TABLE);
+        _tags.put(CollectionTable.class, COLLECTION_TABLE);
         _tags.put(DataStoreIdColumn.class, DATASTORE_ID_COL);
         _tags.put(DiscriminatorStrategy.class, DISCRIM_STRAT);
         _tags.put(EagerFetchMode.class, EAGER_FETCH_MODE);
@@ -167,6 +176,7 @@ public class AnnotationPersistenceMappingParser
         _tags.put(MappingOverrides.class, MAPPING_OVERRIDES);
         _tags.put(Nonpolymorphic.class, NONPOLY);
         _tags.put(OrderColumn.class, ORDER_COL);
+        _tags.put(javax.persistence.OrderColumn.class, ORDER_COLUMN);
         _tags.put(Strategy.class, STRAT);
         _tags.put(SubclassFetchMode.class, SUBCLASS_FETCH_MODE);
         _tags.put(Unique.class, UNIQUE);
@@ -398,6 +408,7 @@ public class AnnotationPersistenceMappingParser
         JoinColumn[] scols;
         int unique;
         List<Column> jcols;
+        JoinTable joinTbl;
         for (AssociationOverride assoc : assocs) {
             if (StringUtils.isEmpty(assoc.name()))
                 throw new MetaDataException(_loc.get("no-override-name", cm));
@@ -406,16 +417,23 @@ public class AnnotationPersistenceMappingParser
                 sup = (FieldMapping) cm.addDefinedSuperclassField
                     (assoc.name(), Object.class, Object.class);
             scols = assoc.joinColumns();
-            if (scols == null || scols.length == 0)
-                continue;
+            joinTbl = assoc.joinTable();
+            if ((scols == null || scols.length == 0) && joinTbl == null)
+                //continue;
+                throw new MetaDataException(_loc.get("embed-override-name",
+                        sup, assoc.name()));
 
-            jcols = new ArrayList<Column>(scols.length);
-            unique = 0;
-            for (JoinColumn scol : scols) {
-                unique |= (scol.unique()) ? TRUE : FALSE;
-                jcols.add(newColumn(scol));
+            if (scols != null && scols.length > 0) {
+                jcols = new ArrayList<Column>(scols.length);
+                unique = 0;
+                for (JoinColumn scol : scols) {
+                    unique |= (scol.unique()) ? TRUE : FALSE;
+                    jcols.add(newColumn(scol));
+                }
+                setColumns(sup, sup.getValueInfo(), jcols, unique);
+            } else if (joinTbl != null) {
+                parseJoinTable(sup, joinTbl);
             }
-            setColumns(sup, sup.getValueInfo(), jcols, unique);
         }
     }
 
@@ -682,8 +700,13 @@ public class AnnotationPersistenceMappingParser
      * Parse the given foreign key.
      */
     private void parseForeignKey(MappingInfo info, ForeignKey fk) {
-        parseForeignKey(info, fk.name(), fk.enabled(), fk.deferred(),
-            fk.deleteAction(), fk.updateAction());
+    	if (!fk.implicit()) {
+    		parseForeignKey(info, fk.name(), fk.enabled(), fk.deferred(),
+    				fk.deleteAction(), fk.updateAction());
+    	} else {
+            info.setImplicitRelation(true);
+            assertDefault(fk);
+    	}
     }
 
     /**
@@ -706,6 +729,20 @@ public class AnnotationPersistenceMappingParser
         fk.setUpdateAction(toForeignKeyAction(updateAction));
         info.setForeignKey(fk);
     }
+    
+    void assertDefault(ForeignKey fk) {
+    	boolean isDefault = StringUtils.isEmpty(fk.name()) 
+    		&& fk.enabled() 
+    		&& !fk.deferred() 
+    		&& fk.deleteAction() == ForeignKeyAction.RESTRICT
+    		&& fk.updateAction() == ForeignKeyAction.RESTRICT
+    		&& fk.columnNames().length == 0
+    		&& fk.specified();
+    	if (!isDefault)
+    		throw new UserException(_loc.get("implicit-non-default-fk", _cls, 
+    				getSourceFile()).getMessage());
+    }
+    
 
     /**
      * Convert our FK action enum to an internal OpenJPA action.
@@ -787,16 +824,21 @@ public class AnnotationPersistenceMappingParser
      */
     private static Column newColumn(VersionColumn anno) {
         Column col = new Column();
+        col.setTableName(anno.table());
         if (!StringUtils.isEmpty(anno.name()))
             col.setName(anno.name());
-        if (!StringUtils.isEmpty(anno.columnDefinition()))
-            col.setTypeName(anno.columnDefinition());
         if (anno.precision() != 0)
             col.setSize(anno.precision());
         else if (anno.length() != 255)
             col.setSize(anno.length());
         col.setNotNull(!anno.nullable());
         col.setDecimalDigits(anno.scale());
+        if (!StringUtils.isEmpty(anno.columnDefinition())) {
+            col.setTypeName(anno.columnDefinition());
+            col.setType(Schemas.getJDBCType(col.getTypeName()));
+            col.setJavaType(JavaTypes.getTypeCode(Schemas.getJavaType
+            	(col.getType(), col.getSize(), col.getDecimalDigits())));
+        }
         col.setFlag(Column.FLAG_UNINSERTABLE, !anno.insertable());
         col.setFlag(Column.FLAG_UNUPDATABLE, !anno.updatable());
         return col;
@@ -1024,6 +1066,16 @@ public class AnnotationPersistenceMappingParser
                     fm.getKeyMapping().getValueInfo()
                         .setStrategy(((KeyStrategy) anno).value());
                     break;
+                case MAP_KEY_COL:
+                    parseMapKeyColumn(fm, (MapKeyColumn) anno);
+                    break;
+                case MAP_KEY_JOIN_COL:
+                    parseMapKeyJoinColumns(fm, (MapKeyJoinColumn) anno);
+                    break;
+                case MAP_KEY_JOIN_COLS:
+                    parseMapKeyJoinColumns(fm,
+                        ((MapKeyJoinColumns) anno).value());
+                    break;
                 case PK_JOIN_COL:
                     parsePrimaryKeyJoinColumns(fm, (PrimaryKeyJoinColumn) anno);
                     break;
@@ -1044,6 +1096,9 @@ public class AnnotationPersistenceMappingParser
                     break;
                 case CONTAINER_TABLE:
                     parseContainerTable(fm, (ContainerTable) anno);
+                    break;
+                case COLLECTION_TABLE:
+                    parseCollectionTable(fm, (CollectionTable) anno);
                     break;
                 case EAGER_FETCH_MODE:
                     fm.setEagerFetchMode(toEagerFetchModeConstant
@@ -1105,6 +1160,10 @@ public class AnnotationPersistenceMappingParser
                     fm.setPolymorphic(toPolymorphicConstant
                         (((Nonpolymorphic) anno).value()));
                     break;
+                case ORDER_COLUMN:
+                    parseJavaxOrderColumn(fm, 
+                        (javax.persistence.OrderColumn)anno);
+                    break;
                 case ORDER_COL:
                     parseOrderColumn(fm, (OrderColumn) anno);
                     break;
@@ -1165,30 +1224,33 @@ public class AnnotationPersistenceMappingParser
      */
     private void parseAssociationOverrides(FieldMapping fm,
         AssociationOverride... assocs) {
-        ClassMapping embed = fm.getEmbeddedMapping();
-        if (embed == null)
-            throw new MetaDataException(_loc.get("not-embedded", fm));
 
         FieldMapping efm;
         JoinColumn[] ecols;
         int unique;
         List<Column> jcols;
+        JoinTable joinTbl;
         for (AssociationOverride assoc : assocs) {
-            efm = embed.getFieldMapping(assoc.name());
+            efm = getEmbeddedFieldMapping(fm, assoc.name());
             if (efm == null)
                 throw new MetaDataException(_loc.get("embed-override-name",
                     fm, assoc.name()));
             ecols = assoc.joinColumns();
-            if (ecols == null || ecols.length == 0)
-                continue;
-
-            unique = 0;
-            jcols = new ArrayList<Column>(ecols.length);
-            for (JoinColumn ecol : ecols) {
-                unique |= (ecol.unique()) ? TRUE : FALSE;
-                jcols.add(newColumn(ecol));
+            joinTbl = assoc.joinTable();
+            if ((ecols == null || ecols.length == 0) && joinTbl == null)
+                throw new MetaDataException(_loc.get("embed-override-name",
+                    fm, assoc.name()));
+            if (ecols != null && ecols.length > 0) {
+                unique = 0;
+                jcols = new ArrayList<Column>(ecols.length);
+                for (JoinColumn ecol : ecols) {
+                    unique |= (ecol.unique()) ? TRUE : FALSE;
+                    jcols.add(newColumn(ecol));
+                }
+                setColumns(efm, efm.getValueInfo(), jcols, unique);
+            } else if (joinTbl != null) {
+                parseJoinTable(efm, joinTbl);
             }
-            setColumns(efm, efm.getValueInfo(), jcols, unique);
         }
     }
 
@@ -1197,21 +1259,85 @@ public class AnnotationPersistenceMappingParser
      */
     private void parseAttributeOverrides(FieldMapping fm,
         AttributeOverride... attrs) {
-        ClassMapping embed = fm.getEmbeddedMapping();
-        if (embed == null)
-            throw new MetaDataException(_loc.get("not-embedded", fm));
-
-        FieldMapping efm;
         for (AttributeOverride attr : attrs) {
-            efm = embed.getFieldMapping(attr.name());
-            if (efm == null)
-                throw new MetaDataException(_loc.get("embed-override-name",
-                    fm, attr.name()));
+            String attrName = attr.name();
+            FieldMapping efm = getEmbeddedFieldMapping(fm, attrName);
             if (attr.column() != null)
                 parseColumns(efm, attr.column());
         }
     }
+    
+    public static FieldMapping getEmbeddedFieldMapping(FieldMapping fm, String attrName) {
+        ClassMapping embed = null;
+        boolean isKey = false;
+        boolean isValue = false;
+        if (attrName != null && attrName.startsWith("key."))
+            isKey = true;
+        else if (attrName != null && attrName.startsWith("value."))
+            isValue = true;
+        if (isKey || isValue)
+            attrName = attrName.substring(attrName.indexOf(".")+1);
+            
+        int typeCode = fm.getValue().getDeclaredTypeCode();
+        switch (typeCode) {
+            case JavaTypes.COLLECTION : // a collection of embeddables
+                if (isKey || isValue)
+                    throw new MetaDataException(_loc.get("embed-override-name",
+                        fm, attrName));
+                embed = fm.getElementMapping().getEmbeddedMapping();
+                break;
+            case JavaTypes.MAP: // a map
+                if (!isKey && !isValue)
+                    throw new MetaDataException(_loc.get("embed-override-name",
+                        fm, attrName));
+                if (isKey) 
+                    embed = getEmbeddedMapping(fm.getKeyMapping());
+                else if (isValue)     
+                    embed = getEmbeddedMapping(fm.getElementMapping());
+                break;
+            default: // an embeddable
+                if (isKey || isValue)
+                    throw new MetaDataException(_loc.get("embed-override-name",
+                        fm, attrName));
+                embed = getEmbeddedMapping(fm.getValueMapping());
+                break;
+        }
+        
+        if (embed == null) 
+            throw new MetaDataException(_loc.get("not-embedded", fm));
+        return getAttributeOverrideField(attrName, fm, embed);
+    }
+    
+    public static ClassMapping getEmbeddedMapping(ValueMapping val) {
+        ClassMapping embed = val.getEmbeddedMapping();
+        if (embed != null) 
+            return embed;
+        
+        val.addEmbeddedMetaData();
+        return val.getEmbeddedMapping();
 
+    }
+    
+    public static FieldMapping getAttributeOverrideField(String attrName, FieldMapping fm, ClassMapping embed) {
+        FieldMapping efm;
+        int idxOfDot = attrName.indexOf("."); 
+        if (idxOfDot == -1) {
+            efm = embed.getFieldMapping(attrName);
+            if (efm == null)
+                throw new MetaDataException(_loc.get("embed-override-name",
+                    fm, attrName));
+            return efm;
+        } 
+        String attrName1 = attrName.substring(0, idxOfDot);
+        String attrName2 = attrName.substring(idxOfDot+1);
+        efm = embed.getFieldMapping(attrName1);
+        if (efm == null)
+            throw new MetaDataException(_loc.get("embed-override-name",
+                fm, attrName1));
+        ClassMapping embed1 = getEmbeddedMapping(efm.getValueMapping());
+        return getAttributeOverrideField(attrName2, efm, embed1);
+    }
+    
     /**
      * Parse @Enumerated.
      */
@@ -1283,7 +1409,7 @@ public class AnnotationPersistenceMappingParser
             
             if (xmlTypeClass != null
                 && StringUtils.isEmpty(pcols[i].columnDefinition())
-                && ((Boolean) AccessController.doPrivileged(J2DoPriv5Helper
+                && (AccessController.doPrivileged(J2DoPrivHelper
                     .isAnnotationPresentAction(fm.getDeclaredType(),
                         xmlTypeClass))).booleanValue()) {
                 DBDictionary dict = ((MappingRepository) getRepository())
@@ -1297,7 +1423,10 @@ public class AnnotationPersistenceMappingParser
         	secondary = trackSecondaryTable(fm, secondary,	pcols[i].table(), i);
         }
 
-        setColumns(fm, fm.getValueInfo(), cols, unique);
+        if (fm.isElementCollection())
+            setColumns(fm, fm.getElementMapping().getValueInfo(), cols, unique);
+        else
+            setColumns(fm, fm.getValueInfo(), cols, unique);
         if (secondary != null)
             fm.getMappingInfo().setTableName(secondary);
     }
@@ -1375,7 +1504,7 @@ public class AnnotationPersistenceMappingParser
         parseJoinColumns(fm, fm.getElementMapping().getValueInfo(), false,
             join.inverseJoinColumns());
         addUniqueConstraints(info.getTableName(), fm, info,  
-        		join.uniqueConstraints());
+            join.uniqueConstraints());
     }
 
     /**
@@ -1596,7 +1725,20 @@ public class AnnotationPersistenceMappingParser
     }
 
     /**
-     * Parse @OrderColumn.
+     * Parse @CollectionTable.
+     */
+    protected void parseCollectionTable(FieldMapping fm, CollectionTable ctbl) {
+        FieldMappingInfo info = fm.getMappingInfo(); 
+        info.setTableName(toTableName(ctbl.schema(),
+            ctbl.name()));
+        //ctbl.catalog()
+        parseJoinColumns(fm, fm.getMappingInfo(), false, ctbl.joinColumns());
+        addUniqueConstraints(info.getTableName(), fm.getDefiningMetaData(), 
+            info, ctbl.uniqueConstraints());
+    }
+    
+    /**
+     * Parse @org.apache.openjpa.persistence.jdbc.OrderColumn.
      */
     private void parseOrderColumn(FieldMapping fm, OrderColumn order) {
         if (!order.enabled()) {
@@ -1614,6 +1756,36 @@ public class AnnotationPersistenceMappingParser
         col.setFlag(Column.FLAG_UNINSERTABLE, !order.insertable());
         col.setFlag(Column.FLAG_UNUPDATABLE, !order.updatable());
         fm.getMappingInfo().setOrderColumn(col);
+    }
+    
+    /**
+     * Parse @javax.persistence.OrderColumn
+     */
+    private void parseJavaxOrderColumn(FieldMapping fm, 
+        javax.persistence.OrderColumn order) {
+        // If a table name is specified on the annotation and a table
+        // name has not been defined, set the table name to the name
+        // specified.  This will be the name of the join table or
+        // collection table.
+        if (!StringUtils.isEmpty(order.table()) &&
+            StringUtils.isEmpty(fm.getMappingInfo().getTableName())) {
+            fm.getMappingInfo().setTableName(order.table());
+        }
+        
+        Column col = new Column();
+        if (!StringUtils.isEmpty(order.name()))
+            col.setName(order.name());
+        if (!StringUtils.isEmpty(order.columnDefinition()))
+            col.setTypeName(order.columnDefinition());
+        col.setNotNull(!order.nullable());
+        col.setFlag(Column.FLAG_UNINSERTABLE, !order.insertable());
+        col.setFlag(Column.FLAG_UNUPDATABLE, !order.updatable());
+        if (!StringUtils.isEmpty(order.table()))
+            col.setTableName(order.table());
+        col.setBase(order.base());
+        col.setContiguous(order.contiguous());
+        
+        fm.getMappingInfo().setOrderColumn(col);        
     }
 
     /**
@@ -1651,4 +1823,85 @@ public class AnnotationPersistenceMappingParser
 		col.setFlag (Column.FLAG_UNUPDATABLE, !join.updatable ());
 		return col;
 	}
+    
+    /**
+     * Parse @MapKeyColumn.
+     */
+    protected void parseMapKeyColumn(FieldMapping fm, MapKeyColumn anno) {
+        int unique = 0;
+        Column col = new Column();
+        setupMapKeyColumn(fm, col, anno);
+        unique |= (anno.unique()) ? TRUE : FALSE;
+        setMapKeyColumn(fm, fm.getKeyMapping().getValueInfo(), col, unique);
+    }
+
+    /**
+     * Setup the given column with information from the given annotation.
+     */
+    private static void setupMapKeyColumn(FieldMapping fm, Column col, 
+        MapKeyColumn anno) {
+        if (!StringUtils.isEmpty(anno.name()))
+            col.setName(anno.name());
+        else 
+            col.setName(fm.getName() + "_" + "KEY");
+        if (!StringUtils.isEmpty(anno.columnDefinition()))
+            col.setTypeName(anno.columnDefinition());
+        if (anno.precision() != 0)
+            col.setSize(anno.precision());
+        else if (anno.length() != 255)
+            col.setSize(anno.length());
+        col.setNotNull(!anno.nullable());
+        col.setDecimalDigits(anno.scale());
+        col.setFlag(Column.FLAG_UNINSERTABLE, !anno.insertable());
+        col.setFlag(Column.FLAG_UNUPDATABLE, !anno.updatable());
+    }
+
+    /**
+     * Set the given map key column as the map key column for <code>fm</code>.
+     *
+     * @param unique bitwise combination of TRUE and FALSE for the
+     * unique attribute of the column
+     */
+    protected void setMapKeyColumn(FieldMapping fm, MappingInfo info,
+        Column col, int unique) {
+        List cols = new ArrayList();
+        cols.add(col);
+        info.setColumns(cols);
+        if (unique == TRUE)
+            info.setUnique(new org.apache.openjpa.jdbc.schema.Unique());
+    }
+    
+    /**
+     * Parse @MapKeyJoinColumn(s).
+     */
+    private void parseMapKeyJoinColumns(FieldMapping fm, MapKeyJoinColumn... joins) {
+        if (joins.length == 0)
+            return;
+
+        List<Column> cols = new ArrayList<Column>(joins.length);
+        int unique = 0;
+        for (int i = 0; i < joins.length; i++) {
+            cols.add(newColumn(joins[i]));
+            unique |= (joins[i].unique()) ? TRUE : FALSE;
+        }
+        setColumns(fm, fm.getKeyMapping().getValueInfo(), cols, unique);
+    }
+    
+    /**
+     *  Create a new schema column with information from the given annotation.
+     */
+    private static Column newColumn(MapKeyJoinColumn join) {
+        Column col = new Column();
+        if (!StringUtils.isEmpty(join.name()))
+            col.setName(join.name());
+        if (!StringUtils.isEmpty(join.columnDefinition()))
+            col.setName(join.columnDefinition());
+        if (!StringUtils.isEmpty(join.referencedColumnName()))
+            col.setTarget(join.referencedColumnName());
+        col.setNotNull(!join.nullable());
+        col.setFlag(Column.FLAG_UNINSERTABLE, !join.insertable());
+        col.setFlag(Column.FLAG_UNUPDATABLE, !join.updatable ());
+        return col;
+    }
+    
 }

@@ -19,20 +19,28 @@
 package org.apache.openjpa.jdbc.meta.strats;
 
 import java.sql.SQLException;
+import java.util.Collection;
 import java.util.Map;
 
+import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.enhance.ReflectingPersistenceCapable;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.FieldStrategy;
+import org.apache.openjpa.jdbc.meta.Strategy;
+import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.Row;
+import org.apache.openjpa.jdbc.sql.RowImpl;
 import org.apache.openjpa.jdbc.sql.RowManager;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.kernel.StoreContext;
+import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.MetaDataException;
@@ -172,5 +180,129 @@ public abstract class MapTableFieldStrategy
 
     protected ClassMapping[] getIndependentElementMappings(boolean traverse) {
         return ClassMapping.EMPTY_MAPPINGS;
+    }
+    
+    protected void handleMappedBy(boolean adapt){
+        boolean criteria = field.getValueInfo().getUseClassCriteria();
+        // check for named inverse
+        FieldMapping mapped = field.getMappedByMapping();
+        if (mapped != null) {
+            field.getMappingInfo().assertNoSchemaComponents(field, !adapt);
+            field.getValueInfo().assertNoSchemaComponents(field, !adapt);
+            mapped.resolve(mapped.MODE_META | mapped.MODE_MAPPING);
+
+            if (!mapped.isMapped() || mapped.isSerialized())
+                throw new MetaDataException(_loc.get("mapped-by-unmapped",
+                    field, mapped));
+
+            if (mapped.getTypeCode() == JavaTypes.PC) {
+                if (mapped.getJoinDirection() == mapped.JOIN_FORWARD) {
+                    field.setJoinDirection(field.JOIN_INVERSE);
+                    field.setColumns(mapped.getDefiningMapping().
+                        getPrimaryKeyColumns());
+                } else if (isTypeUnjoinedSubclass(mapped))
+                    throw new MetaDataException(_loc.get
+                        ("mapped-inverse-unjoined", field.getName(),
+                            field.getDefiningMapping(), mapped));
+                ForeignKey fk = mapped.getForeignKey(field.getDefiningMapping());
+                field.setForeignKey(fk);
+                field.setJoinForeignKey(fk);
+            } else if (mapped.getElement().getTypeCode() == JavaTypes.PC) {
+                if (isTypeUnjoinedSubclass(mapped.getElementMapping()))
+                    throw new MetaDataException(_loc.get
+                        ("mapped-inverse-unjoined", field.getName(),
+                            field.getDefiningMapping(), mapped));
+
+                // warn the user about making the collection side the owner
+                Log log = field.getRepository().getLog();
+                if (log.isInfoEnabled())
+                    log.info(_loc.get("coll-owner", field, mapped));
+                ValueMapping elem = mapped.getElementMapping();
+                ForeignKey fk = elem.getForeignKey();
+                field.setJoinForeignKey(fk);
+                field.getElementMapping().setForeignKey(mapped.getJoinForeignKey());
+            } else
+                throw new MetaDataException(_loc.get("not-inv-relation",
+                    field, mapped));
+
+            field.setUseClassCriteria(criteria);
+            return;
+        }
+/*
+        // this is necessary to support openjpa 3 mappings, which didn't
+        // differentiate between secondary table joins and relations built
+        // around an inverse key: check to see if we're mapped as a secondary
+        // table join but we're in the table of the related type, and if so
+        // switch our join mapping info to our value mapping info
+        String tableName = field.getMappingInfo().getTableName();
+        Table table = field.getTypeMapping().getTable();
+        ValueMappingInfo vinfo = field.getValueInfo();
+        if (tableName != null && table != null
+            && (tableName.equalsIgnoreCase(table.getName())
+            || tableName.equalsIgnoreCase(table.getFullName()))) {
+            vinfo.setJoinDirection(MappingInfo.JOIN_INVERSE);
+            vinfo.setColumns(field.getMappingInfo().getColumns());
+            field.getMappingInfo().setTableName(null);
+            field.getMappingInfo().setColumns(null);
+        }
+*/        
+    }
+
+    protected boolean isTypeUnjoinedSubclass(ValueMapping mapped) {
+        ClassMapping def = field.getDefiningMapping();
+        for (; def != null; def = def.getJoinablePCSuperclassMapping())
+            if (def == mapped.getTypeMapping())
+                return false;
+        return true;
+    }
+
+    protected boolean populateKey(Row row, OpenJPAStateManager valsm, Object obj,
+            StoreContext ctx, RowManager rm, JDBCStore store) throws SQLException {
+        ClassMapping meta = (ClassMapping)valsm.getMetaData();
+        FieldMapping fm = getFieldMapping(meta);
+        if (fm == null) 
+            return false;
+        Map mapObj = (Map)valsm.fetchObject(fm.getIndex());
+        Collection<Map.Entry> entrySets = mapObj.entrySet();
+        boolean found = false;
+        for (Map.Entry entry : entrySets) {
+            Object value = entry.getValue();
+            if (obj instanceof ReflectingPersistenceCapable)
+               obj = ((ReflectingPersistenceCapable)obj).getManagedInstance(); 
+            if (value == obj) {
+                Row newRow = (Row) ((RowImpl)row).clone();
+                Object keyObj = entry.getKey();
+                Strategy strat = fm.getStrategy();
+                if (strat instanceof HandlerRelationMapTableFieldStrategy) {
+                    HandlerRelationMapTableFieldStrategy hrStrat = 
+                        (HandlerRelationMapTableFieldStrategy) strat;
+                    hrStrat.setKey(keyObj, store, newRow);
+                } else if (keyObj instanceof PersistenceCapable) {
+                    OpenJPAStateManager keysm = 
+                        RelationStrategies.getStateManager(entry.getKey(), ctx);
+                    ValueMapping key = fm.getKeyMapping();
+                    if (keysm != null) 
+                        key.setForeignKey(newRow, keysm);
+                    else
+                        key.setForeignKey(newRow, null);
+                } 
+                rm.flushSecondaryRow(newRow);
+                found = true;
+            }
+        }
+        if (found)
+            return true;
+        return false;        
+    }
+
+    private FieldMapping getFieldMapping(ClassMapping meta) {
+        FieldMapping[] fields = meta.getFieldMappings();
+        for (int i = 0; i < fields.length; i++) {
+            ValueMapping val = fields[i].getValueMapping();
+            if (fields[i].getMappedByMetaData() == field && 
+                    val.getDeclaredTypeCode() == JavaTypes.MAP)
+                return fields[i];
+        }
+        return null;
     }
 }

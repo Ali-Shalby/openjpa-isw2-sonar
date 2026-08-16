@@ -50,6 +50,7 @@ import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedBlobFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedByteArrayFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedCharArrayFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedClobFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.MultiColumnVersionStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NanoPrecisionTimestampVersionStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneDiscriminatorStrategy;
@@ -466,7 +467,7 @@ public class MappingRepository
         try {
             if (strat == null)
                 strat = JavaTypes.classForName(name, cls,
-                    (ClassLoader) AccessController.doPrivileged(
+                    AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
                             ClassStrategy.class)));
             ClassStrategy strategy = 
@@ -500,7 +501,7 @@ public class MappingRepository
         name = Configurations.getClassName(name);
         try {
             Class c = JavaTypes.classForName(name, field,
-                (ClassLoader) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)));
             if (FieldStrategy.class.isAssignableFrom(c)) {
                 FieldStrategy strat = (FieldStrategy)
@@ -573,7 +574,7 @@ public class MappingRepository
             if (strat == null)
                 strat = JavaTypes.classForName(name,
                     discrim.getClassMapping(),
-                    (ClassLoader) AccessController.doPrivileged(
+                    AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
                             DiscriminatorStrategy.class)));
             DiscriminatorStrategy strategy = (DiscriminatorStrategy)
@@ -626,6 +627,8 @@ public class MappingRepository
 
         if (NumberVersionStrategy.ALIAS.equals(name))
             strat = NumberVersionStrategy.class;
+        else if (MultiColumnVersionStrategy.ALIAS.equals(name))
+        	strat = MultiColumnVersionStrategy.class;
         else if (TimestampVersionStrategy.ALIAS.equals(name))
             strat = TimestampVersionStrategy.class;
         else if (NanoPrecisionTimestampVersionStrategy.ALIAS.equals(name))
@@ -637,7 +640,7 @@ public class MappingRepository
             if (strat == null)
                 strat = JavaTypes.classForName(name,
                     version.getClassMapping(),
-                    (ClassLoader) AccessController.doPrivileged(
+                    AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
                             VersionStrategy.class)));
         } catch (Exception e) {
@@ -879,6 +882,11 @@ public class MappingRepository
                         return new RelationMapInverseKeyFieldStrategy();
                     return new RelationMapTableFieldStrategy();
                 }
+                //TODO: in JPA 2.0 if MapKeyClass type is not specified
+                // an exception is thrown. In OpenJpa 1.x, the map will
+                // be serialized to a blob (the null value returned by
+                // this method will lead to a strategy to serialize
+                // the map).
                 if (!krel && khandler == null)
                     break;
                 if (!vrel && vhandler == null)
@@ -898,6 +906,7 @@ public class MappingRepository
      */
     protected FieldStrategy handlerCollectionStrategy(FieldMapping field, 
         ValueHandler ehandler, boolean installHandlers) {
+        // TODO: JPA 2.0 should ignore this flag and not to serialize
         if (getConfiguration().getCompatibilityInstance()
             .getStoreMapCollectionInEntityAsBlob())
             return null;
@@ -913,6 +922,7 @@ public class MappingRepository
     protected FieldStrategy handlerMapStrategy(FieldMapping field, 
         ValueHandler khandler, ValueHandler vhandler, boolean krel, 
         boolean vrel,  boolean installHandlers) {
+        // TODO: JPA 2.0 should ignore this flag and not to serialize
         if (getConfiguration().getCompatibilityInstance()
             .getStoreMapCollectionInEntityAsBlob())
             return null;
@@ -979,7 +989,7 @@ public class MappingRepository
         name = Configurations.getClassName(name);
         try {
             Class c = JavaTypes.classForName(name, val,
-                (ClassLoader) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)));
             Object o = AccessController.doPrivileged(
                 J2DoPrivHelper.newInstanceAction(c));
@@ -1006,7 +1016,7 @@ public class MappingRepository
         name = Configurations.getClassName(name);
         try {
             Class c = JavaTypes.classForName(name, val,
-                (ClassLoader) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(ValueHandler.class)));
             if (ValueHandler.class.isAssignableFrom(c)) {
                 ValueHandler vh = (ValueHandler) AccessController.doPrivileged(

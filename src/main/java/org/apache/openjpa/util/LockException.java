@@ -37,13 +37,18 @@ public class LockException
         (LockException.class);
 
     private int timeout = -1;
-
+    private int lockLevel = -1;
+    
     public LockException(Object failed) {
         super(_loc.get("lock-failed", Exceptions.toString(failed)));
         setFailedObject(failed);
     }
 
     public LockException(Object failed, int timeout) {
+        this(failed, timeout, -1);
+    }
+    
+    public LockException(Object failed, int timeout, int lockLevel) {
         super(_loc.get("lock-timeout", Exceptions.toString(failed),
             String.valueOf(timeout)));
         setFailedObject(failed);
@@ -69,20 +74,31 @@ public class LockException
         return this;
     }
 
+    public void setLockLevel(int lockLevel) {
+        this.lockLevel = lockLevel;
+    }
+
+    public int getLockLevel() {
+        return lockLevel;
+    }
+
     public String toString() {
         String str = super.toString();
         if (timeout < 0)
             return str;
-        return str + Exceptions.SEP + "Timeout: " + timeout;
+        return str + Exceptions.SEP + "Timeout: " + timeout + ", LockLevel"
+            + lockLevel;
     }
 
     private void writeObject(ObjectOutputStream out)
         throws IOException {
         out.writeInt(timeout);
+        out.writeInt(lockLevel);
     }
 
     private void readObject(ObjectInputStream in)
         throws IOException, ClassNotFoundException {
         timeout = in.readInt();
+        lockLevel = in.readInt();
 	}
 }

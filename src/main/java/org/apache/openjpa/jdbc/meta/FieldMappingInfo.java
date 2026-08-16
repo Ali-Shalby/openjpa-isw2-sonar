@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+import org.apache.openjpa.conf.Compatibility;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
@@ -35,7 +36,6 @@ import org.apache.openjpa.lib.xml.Commentable;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataContext;
 import org.apache.openjpa.util.MetaDataException;
-import org.apache.openjpa.util.UserException;
 
 /**
  * Information about the mapping from a field to the schema, in raw form.
@@ -153,11 +153,20 @@ public class FieldMappingInfo
     public ForeignKey getJoin(final FieldMapping field, Table table,
         boolean adapt) {
         // if we have no join columns defined, check class-level join
+    	// if the given field is embedded then consider primary table of owner
         List cols = getColumns();
-        if (cols.isEmpty())
-            cols = field.getDefiningMapping().getMappingInfo().
+        if (cols.isEmpty()) {
+        	ClassMapping mapping;
+        	if (field.isEmbedded() && 
+        		field.getDeclaringMapping().getEmbeddingMapping() != null) {
+        		mapping = field.getDeclaringMapping().getEmbeddingMapping()
+        			.getFieldMapping().getDeclaringMapping();
+        	} else {
+        		mapping = field.getDefiningMapping();
+        	}
+            cols = mapping.getMappingInfo().
                 getSecondaryTableJoinColumns(_tableName);
-
+        }
         ForeignKeyDefaults def = new ForeignKeyDefaults() {
             public ForeignKey get(Table local, Table foreign, boolean inverse) {
                 return field.getMappingRepository().getMappingDefaults().
@@ -171,11 +180,20 @@ public class FieldMappingInfo
                         pos, cols);
             }
         };
-        ClassMapping cls = field.getDefiningMapping();
+        ClassMapping cls = getDefiningMapping(field);
         return createForeignKey(field, "join", cols, def, table, cls, cls,
             false, adapt);
     }
-
+    
+    private ClassMapping getDefiningMapping(FieldMapping field) {
+        ClassMapping clm = field.getDefiningMapping();
+        ValueMappingImpl value = (ValueMappingImpl)clm.getEmbeddingMetaData();
+        if (value == null)
+            return clm;
+        FieldMapping field1 = value.getFieldMapping();
+        return getDefiningMapping(field1);
+    }
+    
     /**
      * Unique constraint on the field join.
      */
@@ -268,15 +286,25 @@ public class FieldMappingInfo
             return null;
 
         Column tmplate = new Column();
-        tmplate.setName("ordr");
+        // Compatibility option determines what should be used for
+        // the default order column name
+        if (field.getMappingRepository().getConfiguration()
+            .getCompatibilityInstance().getUseJPA2DefaultOrderColumnName()) {
+            // Use the same strategy as column to build the field name
+            tmplate.setName(field.getName() + "_ORDER");            
+        } else {        
+            tmplate.setName("ordr");
+        }
+        
         tmplate.setJavaType(JavaTypes.INT);
         if (!def.populateOrderColumns(field, table, new Column[]{ tmplate })
             && _orderCol == null)
             return null;
 
-        if (_orderCol != null && (_orderCol.getFlag(Column.FLAG_UNINSERTABLE)
-            || _orderCol.getFlag(Column.FLAG_UNUPDATABLE))) {
+        if (_orderCol != null) {
             ColumnIO io = new ColumnIO();
+            io.setNullInsertable(0, !_orderCol.isNotNull());
+            io.setNullUpdatable(0, !_orderCol.isNotNull());
             io.setInsertable(0, !_orderCol.getFlag(Column.FLAG_UNINSERTABLE));
             io.setUpdatable(0, !_orderCol.getFlag(Column.FLAG_UNUPDATABLE));
             setColumnIO(io);

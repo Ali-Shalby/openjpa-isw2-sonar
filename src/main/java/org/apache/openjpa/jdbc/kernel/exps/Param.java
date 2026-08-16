@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.Map;
 
 import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.Filters;
@@ -37,7 +38,7 @@ public class Param
     extends Const
     implements Parameter {
 
-    private final String _name;
+    private final Object _key;
     private Class _type = null;
     private int _idx = -1;
     private boolean _container = false;
@@ -45,17 +46,13 @@ public class Param
     /**
      * Constructor. Supply parameter name and type.
      */
-    public Param(String name, Class type) {
-        _name = name;
+    public Param(Object key, Class type) {
+        _key = key;
         setImplicitType(type);
     }
 
-    public String getName() {
-        return _name;
-    }
-
-    public String getParameterName() {
-        return getName();
+    public Object getParameterKey() {
+        return _key;
     }
 
     public Class getType() {
@@ -82,6 +79,12 @@ public class Param
         return Filters.convert(params[_idx], getType());
     }
 
+    public Object getValue(ExpContext ctx, ExpState state) {
+        ParamExpState pstate = (ParamExpState) state;
+        return (pstate.discValue != null) ? pstate.discValue :
+            getValue(ctx.params);
+    }
+
     public Object getSQLValue(Select sel, ExpContext ctx, ExpState state) {
         return ((ParamExpState) state).sqlValue;
     }
@@ -97,7 +100,10 @@ public class Param
         extends ConstExpState {
 
         public Object sqlValue = null;
-        public int otherLength = 1; 
+        public int otherLength = 1;
+        public ClassMapping mapping = null;
+        public Discriminator disc = null;
+        public Object discValue = null;
     } 
 
     public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
@@ -108,6 +114,14 @@ public class Param
         if (other != null && !_container) {
             pstate.sqlValue = other.toDataStoreValue(sel, ctx, otherState, val);
             pstate.otherLength = other.length(sel, ctx, otherState);
+            if (other instanceof Type) {
+                pstate.mapping = ctx.store.getConfiguration().
+                    getMappingRepositoryInstance().getMapping((Class) val,
+                        ctx.store.getContext().getClassLoader(), true);
+                pstate.disc = pstate.mapping.getDiscriminator();
+                pstate.discValue = pstate.disc != null ? pstate.disc.getValue()
+                    : null;
+            }
         } else if (ImplHelper.isManageable(val)) {
             ClassMapping mapping = ctx.store.getConfiguration().
                 getMappingRepositoryInstance().getMapping(val.getClass(),
@@ -124,8 +138,12 @@ public class Param
         ParamExpState pstate = (ParamExpState) state;
         if (pstate.otherLength > 1)
             sql.appendValue(((Object[]) pstate.sqlValue)[index], 
-                pstate.getColumn(index));
+                pstate.getColumn(index), this);
+        else if (pstate.cols != null)
+            sql.appendValue(pstate.sqlValue, pstate.getColumn(index), this);
+        else if (pstate.discValue != null)
+            sql.appendValue(pstate.discValue);
         else
-            sql.appendValue(pstate.sqlValue, pstate.getColumn(index));
+            sql.appendValue(pstate.sqlValue, pstate.getColumn(index), this);
     }
 }

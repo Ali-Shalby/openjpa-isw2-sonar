@@ -29,6 +29,7 @@ import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.kernel.exps.Value;
 
 /**
  * Abstraction of a SQL SELECT statement.
@@ -192,19 +193,6 @@ public interface Select
      */
     public SQLBuffer getHaving();
 
-    /**
-     * Return the SQL for this select. This buffer contains
-     * the final SQL to be executed/cached.
-     */
-    public SQLBuffer getSQL();    
-    
-    /**
-     * Create and set the SQLBuffer object to this select. This buffer contains
-     * the final SQL to be executed/cached.
-     */
-    public void setSQL(JDBCStore store, JDBCFetchConfiguration fetch); 
-    
-    
     /**
      * Apply class conditions from relation joins.  This may affect the return
      * values of {@link #getJoins}, {@link #getJoinIterator}, and
@@ -499,14 +487,14 @@ public interface Select
      * Add an ORDER BY clause.
      * Optionally selects ordering data if not already selected.
      */
-    public boolean orderBy(SQLBuffer sql, boolean asc, boolean sel);
+    public boolean orderBy(SQLBuffer sql, boolean asc, boolean sel, Value selAs);
 
     /**
      * Add an ORDER BY clause.
      * Optionally selects ordering data if not already selected.
      */
     public boolean orderBy(SQLBuffer sql, boolean asc, Joins joins,
-        boolean sel);
+        boolean sel, Value selAs);
 
     /**
      * Add an ORDER BY clause.
@@ -528,19 +516,6 @@ public interface Select
      */
     public void wherePrimaryKey(Object oid, ClassMapping mapping,
         JDBCStore store);
-    
-    
-    /**
-     * Add where conditions setting the mapping's primary key to the given
-     * oid values. If the parmList is not null, the value of the primary
-     * key will be collected and saved into the parmList. If the parmList is 
-     * null, this method will build the where clause with the value
-     * incorporated in the where clause.
-     */
-    public int wherePrimaryKey(ClassMapping mapping, Column[] toCols, 
-            Column[] fromCols, Object oid, JDBCStore store, PathJoins pj,
-            SQLBuffer buf, List parmList);
-    
 
     /**
      * Add where conditions setting the given foreign key to the given
@@ -720,4 +695,9 @@ public interface Select
      * Implement toString to generate SQL string for profiling/debuggging.
      */
     public String toString();
+
+    /**
+     * Return the alias for the given column, without creating new table alias
+     */
+    public String getColumnAlias(Column col, Object path);
 }

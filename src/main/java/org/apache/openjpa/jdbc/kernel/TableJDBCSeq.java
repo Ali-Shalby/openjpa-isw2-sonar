@@ -356,7 +356,7 @@ public class TableJDBCSeq
     }
 
     /**
-     * Return the primary key value for the given class.
+     * Return the primary key value for the sequence table for the given class.
      */
     protected Object getPrimaryKey(ClassMapping mapping) {
         return Numbers.valueOf(0);
@@ -467,6 +467,7 @@ public class TableJDBCSeq
         PreparedStatement stmnt = null;
         try {
             stmnt = prepareStatement(conn, insert);
+            dict.setTimeouts(stmnt, _conf, true);
             executeUpdate(_conf, conn, stmnt, insert, RowImpl.ACTION_INSERT);
         } finally {
             if (stmnt != null)
@@ -508,9 +509,11 @@ public class TableJDBCSeq
                 null, false, dict.supportsSelectForUpdate, 0, Long.MAX_VALUE,
                 false, true);
 
-        PreparedStatement stmnt = prepareStatement(conn, select);
+        PreparedStatement stmnt = null;
         ResultSet rs = null;
         try {
+            stmnt = prepareStatement(conn, select);
+            dict.setTimeouts(stmnt, _conf, false);
             rs = executeQuery(_conf, conn, stmnt, select);
             return getSequence(rs, dict);
         } finally {
@@ -566,6 +569,7 @@ public class TableJDBCSeq
                     appendValue(Numbers.valueOf(cur), _seqColumn);
 
                 stmnt = prepareStatement(conn, upd);
+                dict.setTimeouts(stmnt, _conf, true);
                 updates = executeUpdate(_conf, conn, stmnt, upd, RowImpl.ACTION_UPDATE);
             } finally {
                 if (rs != null) 

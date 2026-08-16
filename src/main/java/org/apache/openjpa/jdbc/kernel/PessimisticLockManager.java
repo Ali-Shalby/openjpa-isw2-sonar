@@ -90,27 +90,28 @@ public class PessimisticLockManager
     }
 
     protected void lockInternal(OpenJPAStateManager sm, int level, int timeout,
-        Object sdata) {
+        Object sdata, boolean postVersionCheck) {
         // we can skip any already-locked instance regardless of level because
         // we treat all locks the same (though super doesn't)
         if (getLockLevel(sm) == LOCK_NONE) {
             // only need to lock if not loaded from locking result
             ConnectionInfo info = (ConnectionInfo) sdata;
             if (info == null || info.result == null || !info.result.isLocking())
-                lockRow(sm, timeout);
+                lockRow(sm, timeout, level);
         }
-        super.lockInternal(sm, level, timeout, sdata);
+        optimisticLockInternal(sm, level, timeout, sdata, postVersionCheck);
     }
 
     /**
      * Lock the specified instance row by issuing a "SELECT ... FOR UPDATE"
      * statement.
      */
-    private void lockRow(OpenJPAStateManager sm, int timeout) {
+    private void lockRow(OpenJPAStateManager sm, int timeout, int level) {
         // assert that the dictionary supports the "SELECT ... FOR UPDATE"
         // construct; if not, and we the assertion does not throw an
         // exception, then just return without locking
         DBDictionary dict = _store.getDBDictionary();
+        JDBCFetchConfiguration fetch = _store.getFetchConfiguration();
         if (dict.simulateLocking)
             return;
         dict.assertSupport(dict.supportsSelectForUpdate,
@@ -125,7 +126,7 @@ public class PessimisticLockManager
         Select select = _store.getSQLFactory().newSelect();
         select.select(mapping.getPrimaryKeyColumns());
         select.wherePrimaryKey(id, mapping, _store);
-        SQLBuffer sql = select.toSelect(true, _store.getFetchConfiguration());
+        SQLBuffer sql = select.toSelect(true, fetch);
 
         ensureStoreManagerTransaction();
         Connection conn = _store.getConnection();
@@ -133,11 +134,12 @@ public class PessimisticLockManager
         ResultSet rs = null;
         try {
             stmnt = prepareStatement(conn, sql);
-            setTimeout(stmnt, timeout);
+            dict.setTimeouts(stmnt, fetch, true);
             rs = executeQuery(conn, stmnt, sql);
-            checkLock(rs, sm);
+            checkLock(rs, sm, timeout);
         } catch (SQLException se) {
-            throw SQLExceptions.getStore(se, dict);
+            throw SQLExceptions.getStoreSQLException(sm, se, dict,
+                level);
         } finally {
             if (stmnt != null)
                 try { stmnt.close(); } catch (SQLException se) {}
@@ -176,23 +178,6 @@ public class PessimisticLockManager
     
     /**
      * This method is to provide override for non-JDBC or JDBC-like 
-     * implementation of setting query timeout.
-     */
-    protected void setTimeout(PreparedStatement stmnt, int timeout)
-        throws SQLException {
-        DBDictionary dict = _store.getDBDictionary();
-        if (timeout >= 0 && dict.supportsQueryTimeout) {
-            if (timeout < 1000) {
-                timeout = 1000;
-                if (log.isWarnEnabled())
-                    log.warn(_loc.get("millis-query-timeout"));
-            }
-            stmnt.setQueryTimeout(timeout / 1000);
-        }
-    }
-    
-    /**
-     * This method is to provide override for non-JDBC or JDBC-like 
      * implementation of executing query.
      */
     protected ResultSet executeQuery(Connection conn, PreparedStatement stmnt, 
@@ -204,10 +189,10 @@ public class PessimisticLockManager
      * This method is to provide override for non-JDBC or JDBC-like 
      * implementation of checking lock from the result set.
      */
-    protected void checkLock(ResultSet rs, OpenJPAStateManager sm)
+    protected void checkLock(ResultSet rs, OpenJPAStateManager sm, int timeout)
         throws SQLException { 
         if (!rs.next())
-            throw new LockException(sm.getManagedInstance());
+            throw new LockException(sm.getManagedInstance(), timeout);
         return;
     }
 }

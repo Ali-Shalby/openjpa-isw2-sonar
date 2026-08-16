@@ -21,6 +21,7 @@ package org.apache.openjpa.lib.conf;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Hooks for deriving products with additional functionality.
@@ -112,7 +113,7 @@ public interface ProductDerivation {
      *
      * @since 1.1.0
      */
-    public List getAnchorsInFile(File file) throws IOException, Exception;
+    public List<String> getAnchorsInFile(File file) throws IOException, Exception;
 
     /**
      * Return a List<String> of all the anchors defined in
@@ -124,7 +125,7 @@ public interface ProductDerivation {
      *
      * @since 1.1.0
      */
-    public List getAnchorsInResource(String resource) throws Exception;
+    public List<String> getAnchorsInResource(String resource) throws Exception;
     
     /**
      * Provides the instance with a callback to mutate the initial properties
@@ -157,4 +158,13 @@ public interface ProductDerivation {
      * @since 0.9.7
      */
     public void beforeConfigurationClose(Configuration conf);
+    
+       
+    /**
+     * Return set of Query hint keys recognized by this receiver. 
+     * 
+     * @since 2.0.0
+     */
+    public Set<String> getSupportedQueryHints();
+
 }

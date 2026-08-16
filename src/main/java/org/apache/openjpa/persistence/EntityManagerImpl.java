@@ -28,40 +28,51 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
 import java.lang.reflect.Array;
+import java.sql.Connection;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
-import java.util.Map;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Set;
+
 import javax.persistence.EntityManager;
 import javax.persistence.FlushModeType;
 import javax.persistence.LockModeType;
 import javax.persistence.Query;
+import javax.persistence.QueryDefinition;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.enhance.PCEnhancer;
 import org.apache.openjpa.enhance.PCRegistry;
+import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.kernel.AbstractBrokerFactory;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.DelegatingBroker;
+import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.FindCallbacks;
 import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.OpCallbacks;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.kernel.PreparedQuery;
+import org.apache.openjpa.kernel.PreparedQueryCache;
 import org.apache.openjpa.kernel.QueryFlushModes;
 import org.apache.openjpa.kernel.QueryLanguages;
 import org.apache.openjpa.kernel.Seq;
-import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.jpql.JPQLParser;
+import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.lib.conf.IntValue;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.QueryMetaData;
 import org.apache.openjpa.meta.SequenceMetaData;
+import org.apache.openjpa.persistence.query.OpenJPAQueryBuilder;
+import org.apache.openjpa.persistence.query.QueryBuilderImpl;
 import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
@@ -87,7 +98,7 @@ public class EntityManagerImpl
     private Map<FetchConfiguration,FetchPlan> _plans =
         new IdentityHashMap<FetchConfiguration,FetchPlan>(1);
 
-    private RuntimeExceptionTranslator ret =
+    private RuntimeExceptionTranslator _ret =
         PersistenceExceptions.getRollbackTranslator(this);
 
     public EntityManagerImpl() {
@@ -104,8 +115,8 @@ public class EntityManagerImpl
 
     private void initialize(EntityManagerFactoryImpl factory, Broker broker) {
         _emf = factory;
-        _broker = new DelegatingBroker(broker, ret);
-        _broker.setImplicitBehavior(this, ret);
+        _broker = new DelegatingBroker(broker, _ret);
+        _broker.setImplicitBehavior(this, _ret);
     }
 
     /**
@@ -452,6 +463,26 @@ public class EntityManagerImpl
         return (T) _broker.find(oid, true, this);
     }
 
+    public <T> T find(Class<T> cls, Object oid, LockModeType mode) {
+        return find(cls, oid, mode, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> T find(Class<T> cls, Object oid, LockModeType mode,
+        Map<String, Object> properties) {
+        assertNotCloseInvoked();
+        if (mode != LockModeType.NONE)
+            _broker.assertActiveTransaction();
+
+        boolean fcPushed = pushLockProperties(mode, properties);
+        try {
+            oid = _broker.newObjectId(cls, oid);
+            return (T) _broker.find(oid, true, this);
+        } finally {
+            popLockProperties(fcPushed);
+        }
+    }
+
     @SuppressWarnings("unchecked")
     public <T> T[] findAll(Class<T> cls, Object... oids) {
         if (oids.length == 0)
@@ -684,8 +715,28 @@ public class EntityManagerImpl
 
     public void refresh(Object entity) {
         assertNotCloseInvoked();
+        assertValidAttchedEntity(entity);
         _broker.assertWriteOperation();
         _broker.refresh(entity, this);
+    }
+
+    public void refresh(Object entity, LockModeType mode) {
+        refresh(entity, mode, null);
+    }
+
+    public void refresh(Object entity, LockModeType mode,
+        Map<String, Object> properties) {
+        assertNotCloseInvoked();
+        assertValidAttchedEntity(entity);
+        _broker.assertActiveTransaction();
+        _broker.assertWriteOperation();
+
+        boolean fcPushed = pushLockProperties(mode, properties);
+        try {
+            _broker.refresh(entity, this);
+        } finally {
+            popLockProperties(fcPushed);
+        }
     }
 
     public void refreshAll() {
@@ -867,15 +918,31 @@ public class EntityManagerImpl
 
     public OpenJPAQuery createQuery(String language, String query) {
         assertNotCloseInvoked();
-        return new QueryImpl(this, ret, _broker.newQuery(language, query));
+        try {
+            String qid = query;
+            PreparedQuery pq = JPQLParser.LANG_JPQL.equals(language)
+                ? getPreparedQuery(qid) : null;
+            org.apache.openjpa.kernel.Query q = (pq == null)
+                ? _broker.newQuery(language, query)
+                : _broker.newQuery(pq.getLanguage(), pq);
+            // have to validate JPQL according to spec
+            if (pq == null && JPQLParser.LANG_JPQL.equals(language))
+                q.compile(); 
+            if (pq != null) {
+                pq.setInto(q);
+            }
+            return new QueryImpl(this, _ret, q).setId(qid);
+        } catch (RuntimeException re) {
+            throw PersistenceExceptions.toPersistenceException(re);
+        }
     }
-
+    
     public OpenJPAQuery createQuery(Query query) {
         if (query == null)
             return createQuery((String) null);
         assertNotCloseInvoked();
         org.apache.openjpa.kernel.Query q = ((QueryImpl) query).getDelegate();
-        return new QueryImpl(this, ret, _broker.newQuery(q.getLanguage(),
+        return new QueryImpl(this, _ret, _broker.newQuery(q.getLanguage(),
             q));
     }
 
@@ -886,12 +953,22 @@ public class EntityManagerImpl
             QueryMetaData meta = _broker.getConfiguration().
                 getMetaDataRepositoryInstance().getQueryMetaData(null, name,
                 _broker.getClassLoader(), true);
-            org.apache.openjpa.kernel.Query del =
-                _broker.newQuery(meta.getLanguage(), null);
-            meta.setInto(del);
-            del.compile();
-
-            OpenJPAQuery q = new QueryImpl(this, ret, del);
+            String qid = meta.getQueryString();
+            
+            PreparedQuery pq = JPQLParser.LANG_JPQL.equals(meta.getLanguage())
+                ? getPreparedQuery(qid) : null;
+            org.apache.openjpa.kernel.Query del = (pq == null)
+                ? _broker.newQuery(meta.getLanguage(), meta.getQueryString())
+                : _broker.newQuery(pq.getLanguage(), pq);
+            
+            if (pq != null) {
+                pq.setInto(del);
+            } else {
+                meta.setInto(del);
+                del.compile();
+            }
+            
+            OpenJPAQuery q = new QueryImpl(this, _ret, del).setId(qid);
             String[] hints = meta.getHintKeys();
             Object[] values = meta.getHintValues();
             for (int i = 0; i < hints.length; i++)
@@ -900,7 +977,7 @@ public class EntityManagerImpl
         } catch (RuntimeException re) {
             throw PersistenceExceptions.toPersistenceException(re);
         }
-    }
+    }    
 
     public OpenJPAQuery createNativeQuery(String query) {
         validateSQL(query);
@@ -917,7 +994,7 @@ public class EntityManagerImpl
         org.apache.openjpa.kernel.Query kernelQuery = _broker.newQuery(
             QueryLanguages.LANG_SQL, query);
         kernelQuery.setResultMapping(null, mappingName);
-        return new QueryImpl(this, ret, kernelQuery);
+        return new QueryImpl(this, _ret, kernelQuery);
     }
 
     /**
@@ -926,6 +1003,21 @@ public class EntityManagerImpl
     private static void validateSQL(String query) {
         if (StringUtils.trimToNull(query) == null)
             throw new ArgumentException(_loc.get("no-sql"), null, null, false);
+    }
+    
+    PreparedQueryCache getPreparedQueryCache() {
+        return _broker.getCachePreparedQuery() ?
+            getConfiguration().getQuerySQLCacheInstance() : null;
+    }
+    
+    /**
+     * Gets the prepared query cached by the given key. 
+     * 
+     * @return the cached PreparedQuery or null if none exists.
+     */
+    PreparedQuery getPreparedQuery(String id) {
+        PreparedQueryCache cache = getPreparedQueryCache();
+        return (cache == null) ? null : cache.get(id);
     }
 
     public void setFlushMode(FlushModeType flushMode) {
@@ -983,22 +1075,40 @@ public class EntityManagerImpl
 
     public LockModeType getLockMode(Object entity) {
         assertNotCloseInvoked();
-        return fromLockLevel(_broker.getLockLevel(entity));
+        return JPA2LockLevels.fromLockLevel(_broker.getLockLevel(entity));
     }
 
     public void lock(Object entity, LockModeType mode) {
         assertNotCloseInvoked();
-        _broker.lock(entity, toLockLevel(mode), -1, this);
+        assertValidAttchedEntity(entity);
+        _broker.lock(entity, JPA2LockLevels.toLockLevel(mode), -1, this);
     }
 
     public void lock(Object entity) {
         assertNotCloseInvoked();
+        assertValidAttchedEntity(entity);
         _broker.lock(entity, this);
     }
 
     public void lock(Object entity, LockModeType mode, int timeout) {
         assertNotCloseInvoked();
-        _broker.lock(entity, toLockLevel(mode), timeout, this);
+        assertValidAttchedEntity(entity);
+        _broker.lock(entity, JPA2LockLevels.toLockLevel(mode), timeout, this);
+    }
+
+    public void lock(Object entity, LockModeType mode,
+        Map<String, Object> properties) {
+        assertNotCloseInvoked();
+        assertValidAttchedEntity(entity);
+        _broker.assertActiveTransaction();
+
+        boolean fcPushed = pushLockProperties(mode, properties);
+        try {
+            _broker.lock(entity, JPA2LockLevels.toLockLevel(mode), _broker
+                .getFetchConfiguration().getLockTimeout(), this);
+        } finally {
+            popLockProperties(fcPushed);
+        }
     }
 
     public void lockAll(Collection entities) {
@@ -1008,7 +1118,7 @@ public class EntityManagerImpl
 
     public void lockAll(Collection entities, LockModeType mode, int timeout) {
         assertNotCloseInvoked();
-        _broker.lockAll(entities, toLockLevel(mode), timeout, this);
+        _broker.lockAll(entities, JPA2LockLevels.toLockLevel(mode), timeout, this);
     }
 
     public void lockAll(Object... entities) {
@@ -1017,30 +1127,6 @@ public class EntityManagerImpl
 
     public void lockAll(Object[] entities, LockModeType mode, int timeout) {
         lockAll(Arrays.asList(entities), mode, timeout);
-    }
-
-    /**
-     * Translate our internal lock level to a javax.persistence enum value.
-     */
-    static LockModeType fromLockLevel(int level) {
-        if (level < LockLevels.LOCK_READ)
-            return null;
-        if (level < LockLevels.LOCK_WRITE)
-            return LockModeType.READ;
-        return LockModeType.WRITE;
-    }
-
-    /**
-     * Translate the javax.persistence enum value to our internal lock level.
-     */
-    static int toLockLevel(LockModeType mode) {
-        if (mode == null)
-            return LockLevels.LOCK_NONE;
-        if (mode == LockModeType.READ)
-            return LockLevels.LOCK_READ;
-        if (mode == LockModeType.WRITE)
-            return LockLevels.LOCK_WRITE;
-        throw new ArgumentException(mode.toString(), null, null, true);
     }
 
     public boolean cancelAll() {
@@ -1173,6 +1259,18 @@ public class EntityManagerImpl
                 null, true);
     }
 
+    /**
+     * Throw IllegalArgumentExceptionif if entity is not a valid entity or
+     * if it is detached.
+     */
+    void assertValidAttchedEntity(Object entity) {
+        OpenJPAStateManager sm = _broker.getStateManager(entity);
+        if (sm == null || !sm.isPersistent() || sm.isDetached()) {
+            throw new IllegalArgumentException(_loc.get(
+                "invalid_entity_argument").getMessage());
+        }
+    }
+
     ////////////////////////////////
     // FindCallbacks implementation
     ////////////////////////////////
@@ -1216,6 +1314,10 @@ public class EntityManagerImpl
                     throw new UserException(_loc.get("not-managed",
                         Exceptions.toString(obj))).setFailedObject(obj);
                 break;
+            case OP_DETACH:
+                if (sm == null || !sm.isPersistent() || sm.isDetached())
+                    return ACT_NONE;
+                break;
         }
         return ACT_RUN | ACT_CASCADE;
     }
@@ -1235,7 +1337,7 @@ public class EntityManagerImpl
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
         try {
-            ret = PersistenceExceptions.getRollbackTranslator(this);
+            _ret = PersistenceExceptions.getRollbackTranslator(this);
 
             // this assumes that serialized Brokers are from something
             // that extends AbstractBrokerFactory.
@@ -1254,7 +1356,7 @@ public class EntityManagerImpl
             initialize(emf, broker);
         } catch (RuntimeException re) {
             try {
-                re = ret.translate(re);
+                re = _ret.translate(re);
             } catch (Exception e) {
                 // ignore
             }
@@ -1276,7 +1378,7 @@ public class EntityManagerImpl
             out.writeObject(baos.toByteArray());
         } catch (RuntimeException re) {
             try {
-                re = ret.translate(re);
+                re = _ret.translate(re);
             } catch (Exception e) {
                 // ignore
             }
@@ -1369,6 +1471,192 @@ public class EntityManagerImpl
                     throw e;
                 }
             }
+        }
+    }
+
+    public void clear(Object entity) {
+        assertNotCloseInvoked();
+        _broker.detach(entity, this);
+    }
+
+    public Query createQuery(QueryDefinition qdef) {
+        String jpql = getQueryBuilder().toJPQL(qdef);
+        return createQuery(jpql);
+    }
+
+    /*
+     * @see javax.persistence.EntityManager#getProperties()
+     * 
+     * This does not return the password property.
+     */
+    public Map<String, Object> getProperties() {
+        Map<String, String> currentProperties = _broker.getProperties();
+        
+        // Convert the <String, String> map into a <String, Object> map
+        Map<String, Object> finalMap =
+            new HashMap<String, Object>(currentProperties);
+        
+        return finalMap;
+    }
+
+    public OpenJPAQueryBuilder getQueryBuilder() {
+        return new QueryBuilderImpl(_emf);
+    }
+
+    public Set<String> getSupportedProperties() {
+        return _broker.getSupportedProperties();
+    }
+
+    public <T> T unwrap(Class<T> cls) {
+        Object[] delegates = new Object[]{_broker.getInnermostDelegate(),
+            _broker.getDelegate(), _broker, this};
+        for (Object o : delegates) {
+            if (cls.isInstance(o))
+                return (T)o;
+        }
+        throw new PersistenceException(_loc.get("unwrap-em-invalid", cls)
+            .toString(), null, this, false);
+    }
+    
+    
+    public void setQuerySQLCache(boolean flag) {
+        _broker.setCachePreparedQuery(flag);
+    }
+    
+    public boolean getQuerySQLCache() {
+        return _broker.getCachePreparedQuery();
+    }
+    
+    RuntimeExceptionTranslator getExceptionTranslator() {
+        return _ret;
+    }
+
+    private enum FetchConfigProperty {
+        LockTimeout, ReadLockLevel, WriteLockLevel
+    };
+
+    private boolean setFetchConfigProperty(FetchConfigProperty[] validProps,
+        Map<String, Object> properties) {
+        boolean fcPushed = false;
+        if (properties != null && properties.size() > 0) {
+            Configuration conf = _broker.getConfiguration();
+            Set<String> inKeys = properties.keySet();
+            for (String inKey : inKeys) {
+                for (FetchConfigProperty validProp : validProps) {
+                    String validPropStr = validProp.toString();
+                    Set<String> validPropKeys = conf
+                        .getPropertyKeys(validPropStr);
+
+                    if (validPropKeys.contains(inKey)) {
+                        FetchConfiguration fCfg = _broker
+                            .getFetchConfiguration();
+                        IntValue intVal = new IntValue(inKey);
+                        try {
+                            Object setValue = properties.get(inKey);
+                            if (setValue instanceof String) {
+                                intVal.setString((String) setValue);
+                            } else if (Number.class.isAssignableFrom(setValue
+                                .getClass())) {
+                                intVal.setObject(setValue);
+                            } else {
+                                intVal.setString(setValue.toString());
+                            }
+                            int value = intVal.get();
+                            switch (validProp) {
+                            case LockTimeout:
+                                if (!fcPushed) {
+                                    fCfg = _broker.pushFetchConfiguration();
+                                    fcPushed = true;
+                                }
+                                fCfg.setLockTimeout(value);
+                                break;
+                            case ReadLockLevel:
+                                if (value != LockLevels.LOCK_NONE
+                                    && value != fCfg.getReadLockLevel()) {
+                                    if (!fcPushed) {
+                                        fCfg = _broker.pushFetchConfiguration();
+                                        fcPushed = true;
+                                    }
+                                    fCfg.setReadLockLevel(value);
+                                }
+                                break;
+                            case WriteLockLevel:
+                                if (value != LockLevels.LOCK_NONE
+                                    && value != fCfg.getWriteLockLevel()) {
+                                    if (!fcPushed) {
+                                        fCfg = _broker.pushFetchConfiguration();
+                                        fcPushed = true;
+                                    }
+                                    fCfg.setWriteLockLevel(value);
+                                }
+                                break;
+                            }
+                        } catch (Exception e) {
+                            // silently ignore the property
+                        }
+                        break; // for(String inKey : inKeys)
+                    }
+                }
+            }
+        }
+        return fcPushed;
+    }
+
+    private boolean pushLockProperties(LockModeType mode,
+        Map<String, Object> properties) {
+        boolean fcPushed = false;
+        // handle properties in map first
+        if (properties != null) {
+            fcPushed = setFetchConfigProperty(new FetchConfigProperty[] {
+                FetchConfigProperty.LockTimeout,
+                FetchConfigProperty.ReadLockLevel,
+                FetchConfigProperty.WriteLockLevel }, properties);
+        }
+        // override with the specific lockMode, if needed.
+        int setReadLevel = JPA2LockLevels.toLockLevel(mode);
+        if (setReadLevel != JPA2LockLevels.LOCK_NONE) {
+            // Set overriden read lock level
+            FetchConfiguration fCfg = _broker.getFetchConfiguration();
+            int curReadLevel = fCfg.getReadLockLevel();
+            if (setReadLevel != curReadLevel) {
+                if (!fcPushed) {
+                    fCfg = _broker.pushFetchConfiguration();
+                    fcPushed = true;
+                }
+                fCfg.setReadLockLevel(setReadLevel);
+            }
+            // Set overriden isolation level for pessimistic-read/write
+            switch (setReadLevel) {
+            case JPA2LockLevels.LOCK_PESSIMISTIC_READ:
+                fcPushed = setIsolationForPessimisticLock(fCfg, fcPushed,
+                    Connection.TRANSACTION_REPEATABLE_READ);
+                break;
+
+            case JPA2LockLevels.LOCK_PESSIMISTIC_WRITE:
+            case JPA2LockLevels.LOCK_PESSIMISTIC_FORCE_INCREMENT:
+                fcPushed = setIsolationForPessimisticLock(fCfg, fcPushed,
+                    Connection.TRANSACTION_SERIALIZABLE);
+                break;
+
+            default:
+            }
+        }
+        return fcPushed;
+    }
+
+    private boolean setIsolationForPessimisticLock(FetchConfiguration fCfg,
+        boolean fcPushed, int level) {
+        if (!fcPushed) {
+            fCfg = _broker.pushFetchConfiguration();
+            fcPushed = true;
+        }
+        ((JDBCFetchConfiguration) fCfg).setIsolation(level);
+        return fcPushed;
+    }
+
+    private void popLockProperties(boolean fcPushed) {
+        if (fcPushed) {
+            _broker.popFetchConfiguration();
         }
     }
 }

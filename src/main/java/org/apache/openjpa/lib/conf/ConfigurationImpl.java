@@ -45,12 +45,15 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.MissingResourceException;
 import java.util.Properties;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.apache.commons.lang.StringUtils;
@@ -115,7 +118,7 @@ public class ConfigurationImpl
     private Map _props = null;
     private boolean _globals = false;
     private String _auto = null;
-    private final List _vals = new ArrayList();
+    private final List<Value> _vals = new ArrayList<Value>();
 
     // property listener helper
     private PropertyChangeSupport _changeSupport = null;
@@ -123,6 +126,8 @@ public class ConfigurationImpl
     // cache descriptors
     private PropertyDescriptor[] _pds = null;
     private MethodDescriptor[] _mds = null;
+    
+    private boolean getVisibleOnly = false;
 
     /**
      * Default constructor. Attempts to load default properties through
@@ -165,9 +170,9 @@ public class ConfigurationImpl
      * {@link ProductDerivation}s, and from System properties.
      */
     public boolean loadGlobals() {
-        MultiClassLoader loader = (MultiClassLoader) AccessController
+        MultiClassLoader loader = AccessController
             .doPrivileged(J2DoPrivHelper.newMultiClassLoaderAction()); 
-        loader.addClassLoader((ClassLoader) AccessController.doPrivileged(
+        loader.addClassLoader(AccessController.doPrivileged(
             J2DoPrivHelper.getContextClassLoaderAction()));
         loader.addClassLoader(getClass().getClassLoader());
         ConfigurationProvider provider = ProductDerivations.loadGlobals(loader);
@@ -177,7 +182,7 @@ public class ConfigurationImpl
         // let system properties override other globals
         try {
             fromProperties(new HashMap(
-                (Properties) AccessController.doPrivileged(
+                AccessController.doPrivileged(
                     J2DoPrivHelper.getPropertiesAction())));
         } catch (SecurityException se) {
             // security manager might disallow
@@ -248,10 +253,8 @@ public class ConfigurationImpl
 
         // search backwards so that custom values added after construction
         // are found quickly, since this will be the std way of accessing them
-        Value val;
-        for (int i = _vals.size() - 1; i >= 0; i--) {
-            val = (Value) _vals.get(i);
-            if (val.getProperty().equals(property))
+        for (Value val : _vals) { 
+            if (val.matches(property))
                 return val;
         }
         return null;
@@ -266,12 +269,10 @@ public class ConfigurationImpl
     public void instantiateAll() {
         StringWriter errs = null;
         PrintWriter stack = null;
-        Value val;
         String getterName;
         Method getter;
         Object getterTarget;
-        for (int i = 0; i < _vals.size(); i++) {
-            val = (Value) _vals.get(i);
+        for(Value val : _vals) { 
             getterName = val.getInstantiatingGetter();
             if (getterName == null)
                 continue;
@@ -331,10 +332,10 @@ public class ConfigurationImpl
         if (_props != null) {
             if (newString == null)
                 Configurations.removeProperty(val.getProperty(), _props);
-            else if (Configurations.containsProperty(val.getProperty(), _props)
+            else if (Configurations.containsProperty(val, _props)
                 || val.getDefault() == null
                 || !val.getDefault().equals(newString))
-                put(_props, val, newString);
+                setValue(_props, val, newString);
         }
     }
 
@@ -347,17 +348,17 @@ public class ConfigurationImpl
         preClose();
         
         ObjectValue val;
-        for (int i = 0; i < _vals.size(); i++) {
-            if (_vals.get(i) instanceof Closeable) {
-                try { ((Closeable) _vals.get(i)).close(); }
+        for(Value v : _vals) { 
+            if (v instanceof Closeable) {
+                try { ((Closeable)v).close(); }
                 catch (Exception e) {} 
                 continue;
             }
 
-            if (!(_vals.get(i) instanceof ObjectValue))
+            if (!(v  instanceof ObjectValue))
                 continue;
 
-            val = (ObjectValue) _vals.get(i);
+            val = (ObjectValue) v;
             if (val.get() instanceof Closeable) {
                 try {
                     ((Closeable) val.get()).close();
@@ -410,7 +411,7 @@ public class ConfigurationImpl
             return _mds;
 
         PropertyDescriptor[] pds = getPropertyDescriptors();
-        List descs = new ArrayList(); 
+        List<MethodDescriptor> descs = new ArrayList<MethodDescriptor>(); 
         for (int i = 0; i < pds.length; i++) {
             Method write = pds[i].getWriteMethod();
             Method read = pds[i].getReadMethod();
@@ -429,7 +430,8 @@ public class ConfigurationImpl
             return _pds;
 
         _pds = new PropertyDescriptor[_vals.size()];
-        List failures = null;
+        
+        List<String> failures = null;
         Value val;
         for (int i = 0; i < _vals.size(); i++) {
             val = (Value) _vals.get(i);
@@ -437,11 +439,11 @@ public class ConfigurationImpl
                 _pds[i] = getPropertyDescriptor(val);
             } catch (MissingResourceException mre) {
                 if (failures == null)
-                    failures = new ArrayList();
+                    failures = new ArrayList<String>();
                 failures.add(val.getProperty());
             } catch (IntrospectionException ie) {
                 if (failures == null)
-                    failures = new ArrayList();
+                    failures = new ArrayList<String>();
                 failures.add(val.getProperty());
             }
         }
@@ -506,8 +508,8 @@ public class ConfigurationImpl
 
         // collect allowed values from alias keys, listed values, and
         // interface implementors
-        Collection allowed = new TreeSet();
-        List aliases = Collections.EMPTY_LIST;
+        Collection<String> allowed = new TreeSet<String>();
+        List<String> aliases = Collections.emptyList();
         if (val.getAliases() != null) {
             aliases = Arrays.asList(val.getAliases());
             for (int i = 0; i < aliases.size(); i += 2)
@@ -519,7 +521,7 @@ public class ConfigurationImpl
             if (!aliases.contains(vals[i]))
                 allowed.add(vals[i]);
         try {
-            Class intf = Class.forName(findLocalized(prop
+            Class<?> intf = Class.forName(findLocalized(prop
                 + "-interface", true, val.getScope()), false,
                 getClass().getClassLoader());
             pd.setValue(ATTRIBUTE_INTERFACE, intf.getName());
@@ -539,7 +541,8 @@ public class ConfigurationImpl
     /**
      * Find the given localized string, or return null if not found.
      */
-    private String findLocalized(String key, boolean fatal, Class scope) {
+    @SuppressWarnings("unchecked")
+    private String findLocalized(String key, boolean fatal, Class<?> scope) {
         // find the localizer package that contains this key
         Localizer loc = null;
 
@@ -571,40 +574,63 @@ public class ConfigurationImpl
     // To/from maps
     ////////////////
 
-    public Map toProperties(boolean storeDefaults) {
+    /**
+     * An internal method to retrieve properties, to support 2 public methods,
+     * getAllProperties() and toProperties(boolean).
+     * 
+     * @param storeDefaults
+     *            whether or not to retrieve a property if its value is the
+     *            default value. This parameter is irrelevant if getAll is true.
+     * @param getAll
+     *            whether or not to get all of the properties
+     * @return
+     */
+    private Map<String, String> toProperties(boolean storeDefaults,
+        boolean getAll) {
         // clone properties before making any modifications; we need to keep
         // the internal properties instance consistent to maintain equals and
         // hashcode contracts
-        Map clone;
+        Map<String, String> clone;
         if (_props == null)
-            clone = new HashMap();
+            clone = new TreeMap<String, String>();
         else if (_props instanceof Properties)
             clone = (Map) ((Properties) _props).clone();
         else
-            clone = new HashMap(_props);
+            clone = new TreeMap<String, String>(_props);
 
         // if no existing properties or the properties should contain entries
         // with default values, add values to properties
         if (_props == null || storeDefaults) {
-            Value val;
             String str;
-            for (int i = 0; i < _vals.size(); i++) {
+            for(Value val : _vals) { 
                 // if key in existing properties, we already know value is up
                 // to date
-                val = (Value) _vals.get(i);
                 if (_props != null && Configurations.containsProperty
-                    (val.getProperty(), _props))
+                    (val, _props))
                     continue;
 
                 str = val.getString();
-                if (str != null && (storeDefaults
-                    || !str.equals(val.getDefault())))
-                    put(clone, val, str);
+                if (getAll
+                    || (str != null && (storeDefaults || !str.equals(val
+                        .getDefault()))))
+                    setValue(clone, val, str);
             }
             if (_props == null)
-                _props = new HashMap(clone);
+                _props = new TreeMap(clone);
         }
         return clone;
+    }
+    
+    public Map<String, String> getAllProperties() {
+        boolean saveGetVisibleOnly = getVisibleOnly;
+        getVisibleOnly = true;
+        Map<String, String> properties = toProperties(true, true);
+        getVisibleOnly = saveGetVisibleOnly;
+        return properties;
+    }
+
+    public Map<String, String> toProperties(boolean storeDefaults) {
+        return toProperties(storeDefaults, false);
     }
 
     public void fromProperties(Map map) {
@@ -632,14 +658,11 @@ public class ConfigurationImpl
 
         Map remaining = new HashMap(map);
         boolean ser = true;
-        Value val;
         Object o;
-        for (int i = 0; i < _vals.size(); i++) {
-            val = (Value) _vals.get(i);
-            o = get(map, val, true);
+        for (Value val : _vals) {
+            o = findValue(map, val);
             if (o == null)
                 continue;
-
             if (o instanceof String) {
                 if (!StringUtils.equals((String) o, val.getString()))
                     val.setString((String) o);
@@ -671,34 +694,79 @@ public class ConfigurationImpl
         if (_props == null && ser)
             _props = map;
     }
+    
+    public Set<String> getPropertyKeys(String propertyName) {
+        Set<String> keys = new TreeSet<String>();
+        Map<String,String> properties = getAllProperties();
+        Value value = getValue(propertyName);
+        keys.add(ProductDerivations.getConfigurationKey(value.getProperty(),
+            properties));
+        keys.addAll(value.getEquivalentKeys());
+        return keys;
+    }
 
     /**
      * Adds <code>o</code> to <code>map</code> under key for <code>val</code>.
      * Use this method instead of attempting to add the value directly because 
      * this will account for the property prefix.
      */
-    private void put(Map map, Value val, Object o) {
+    private void setValue(Map map, Value val, Object o) {
         Object key = val.getLoadKey();
-        if (key == null)
-            key = "openjpa." + val.getProperty();
+        // TODO: This change can be removed later when Value.setLoadKey() no
+        // longer throws an exception. Then, we can use setLoadKey() at 
+        // creation time for the spec keys.
+        if (key == null) {
+            Set<String> equivalentKeys = val.getEquivalentKeys();
+            if (equivalentKeys.isEmpty()) {
+                key = "openjpa." + val.getProperty();
+            }
+            else {
+                for (String equivalentKey : equivalentKeys) {
+                    if (equivalentKey.startsWith("javax.persistence.")) {
+                        key = equivalentKey;
+                        break;
+                    }
+                }
+                if (key == null) {
+                    key = "openjpa." + val.getProperty();
+                }
+            }
+        }
+        if (getVisibleOnly && !val.isVisible()) {
+            return;
+        }
         map.put(key, o);
     }
 
     /**
-     * Look up the given value, testing all available prefixes.
+     * Look up the given value, testing all available prefixes and all possible
+     * property names. Detects if the given map contains multiple keys that
+     * are equivalent names for the given value. 
      */
-    private Object get(Map map, Value val, boolean setLoadKey) {
-        String key = ProductDerivations.getConfigurationKey(
-            val.getProperty(), map);
-        if (map.containsKey(key) && setLoadKey)
-            val.setLoadKey(key);
-        return map.get(key);
+    private Object findValue(Map map, Value val) {
+        Object result = null;
+        List<String> partialKeys = val.getPropertyKeys();
+        for (String partialKey : partialKeys) {
+            String key = ProductDerivations.getConfigurationKey(
+                partialKey, map);
+            if (map.containsKey(key)) {
+                // do not return immediately. Looping through all equivalent
+                // property names will detect if the Map contains multiple keys
+                // that are equivalent as it tries to set load key.
+                val.setLoadKey(key);
+                result = map.get(key);
+            }
+        }
+        return result;
     }
 
     /**
      * Issue a warning that the specified property is not valid.
      */
     private void warnInvalidProperty(String propName) {
+        if (propName != null && propName.startsWith("java.") 
+            || propName.startsWith("sun.")) 
+            return;
         if (!isInvalidProperty(propName))
             return;
         Log log = getConfigurationLog();
@@ -719,12 +787,13 @@ public class ConfigurationImpl
     /**
      * Return a comprehensive list of recognized map keys.
      */
-    private Collection newPropertyList() {
+    // TODO MDD checkme
+    private Collection<String> newPropertyList() {
         String[] prefixes = ProductDerivations.getConfigurationPrefixes();
-        List l = new ArrayList(_vals.size() * prefixes.length);
-        for (int i = 0; i < _vals.size(); i++) {
+        List<String> l = new ArrayList<String>(_vals.size() * prefixes.length);
+        for(Value v : _vals) { 
             for (int j = 0; j < prefixes.length; j++)
-                l.add(prefixes[j] + "." + ((Value) _vals.get(i)).getProperty());
+                l.add(prefixes[j] + "." + v.getProperty());
         }
         return l;
     }
@@ -804,9 +873,7 @@ public class ConfigurationImpl
         ConfigurationImpl conf = (ConfigurationImpl) other;
         if (_vals.size() != conf.getValues().length)
         	return false;
-        Iterator values = _vals.iterator();
-        while (values.hasNext()) {
-        	Value v = (Value)values.next();
+        for(Value v : _vals) { 
         	Value thatV = conf.getValue(v.getProperty());
         	if (!v.equals(thatV)) {
         		return false;
@@ -821,10 +888,8 @@ public class ConfigurationImpl
      * {@link Value#isDynamic() dynamic}.  
      */
     public int hashCode() {
-        Iterator values = _vals.iterator();
         int hash = 0;
-        while (values.hasNext()) {
-        	Value v = (Value)values.next();
+        for(Value v : _vals) { 
         	hash += v.hashCode();
         }
         return hash;
@@ -871,6 +936,7 @@ public class ConfigurationImpl
      * Implementation of the {@link Externalizable} interface to read from
      * the properties written by {@link #writeExternal}.
      */
+    @SuppressWarnings("unchecked")
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
         fromProperties((Map) in.readObject());

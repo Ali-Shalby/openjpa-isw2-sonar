@@ -18,34 +18,22 @@
  */
 package org.apache.openjpa.slice.jdbc;
 
-import java.util.concurrent.ExecutorService;
-
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.slice.DistributedConfiguration;
 import org.apache.openjpa.slice.Slice;
 
 /**
- * A distributed configuration that is a ordered collection of 
+ * A distributed configuration that is a ordered collection of
  * JDBCConfigurations.
  * 
- * @author Pinaki Poddar 
- *
+ * @author Pinaki Poddar
+ * 
  */
-public interface DistributedJDBCConfiguration extends JDBCConfiguration, 
-	DistributedConfiguration {
+public interface DistributedJDBCConfiguration extends JDBCConfiguration,
+    DistributedConfiguration {
     /**
      * Gets the master slice.
      */
     Slice getMaster();
-    
-    /**
-     * Gets the alias for ExecutorService being used.
-     */
-    
-    String getExecutorService();
-    
-    /**
-     * Gets the ExecutorService being used.
-     */
-    ExecutorService getExecutorServiceInstance();
+
 }

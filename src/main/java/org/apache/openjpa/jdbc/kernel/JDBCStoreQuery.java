@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.openjpa.event.LifecycleEventManager;
+import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.exps.ExpContext;
 import org.apache.openjpa.jdbc.kernel.exps.GetColumn;
 import org.apache.openjpa.jdbc.kernel.exps.JDBCExpressionFactory;
@@ -56,6 +57,7 @@ import org.apache.openjpa.kernel.ExpressionStoreQuery;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.OrderingMergedResultObjectProvider;
+import org.apache.openjpa.kernel.QueryContext;
 import org.apache.openjpa.kernel.QueryHints;
 import org.apache.openjpa.kernel.exps.Constant;
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
@@ -511,6 +513,7 @@ public class JDBCStoreQuery
                 stmnt = null;
                 try {
                     stmnt = prepareStatement(conn, sql[i]);
+                    dict.setTimeouts(stmnt, fetch, true);
                     count += executeUpdate(conn, stmnt, sql[i], isUpdate);                    
                 } catch (SQLException se) {
                     throw SQLExceptions.getStore(se, sql[i].getSQL(), 
@@ -581,7 +584,8 @@ public class JDBCStoreQuery
      * returns INVALID. Also returns INVALID if field is dependent.
      */
     private Table getTable(FieldMapping fm, Table table) {
-        if (fm.getCascadeDelete() != ValueMetaData.CASCADE_NONE)
+        if (fm.getCascadeDelete() != ValueMetaData.CASCADE_NONE 
+            && !fm.isEmbeddedPC())
             return INVALID;
 
         Column[] columns = fm.getColumns();

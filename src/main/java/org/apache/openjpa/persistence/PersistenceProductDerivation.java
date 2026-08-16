@@ -30,13 +30,16 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.MissingResourceException;
+
 import javax.persistence.spi.PersistenceUnitInfo;
 import javax.persistence.spi.PersistenceUnitTransactionType;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.conf.Compatibility;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
 import org.apache.openjpa.conf.OpenJPAProductDerivation;
+import org.apache.openjpa.conf.Specification;
 import org.apache.openjpa.lib.conf.AbstractProductDerivation;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
@@ -45,6 +48,7 @@ import org.apache.openjpa.lib.conf.MapConfigurationProvider;
 import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.XMLMetaDataParser;
+import org.apache.openjpa.lib.meta.XMLVersionParser;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.xml.sax.Attributes;
@@ -69,8 +73,8 @@ public class PersistenceProductDerivation
     extends AbstractProductDerivation
     implements OpenJPAProductDerivation {
 
-    public static final String SPEC_JPA = "jpa";
-    public static final String ALIAS_EJB = "ejb";
+    public static final Specification SPEC_JPA = new Specification("jpa 2");
+    public static final Specification ALIAS_EJB = new Specification("ejb 3");
     public static final String RSRC_GLOBAL = "META-INF/openjpa.xml";
     public static final String RSRC_DEFAULT = "META-INF/persistence.xml";
 
@@ -98,28 +102,61 @@ public class PersistenceProductDerivation
             return false;
         
         OpenJPAConfigurationImpl conf = (OpenJPAConfigurationImpl) c;
-        conf.metaFactoryPlugin.setAlias(ALIAS_EJB,
+        conf.metaFactoryPlugin.setAlias(ALIAS_EJB.getName(),
             PersistenceMetaDataFactory.class.getName());
-        conf.metaFactoryPlugin.setAlias(SPEC_JPA,
+        conf.metaFactoryPlugin.setAlias(SPEC_JPA.getName(),
             PersistenceMetaDataFactory.class.getName());
         
         conf.addValue(new EntityManagerFactoryValue());
+        
+        conf.readLockLevel.setAlias("optimistic", String
+            .valueOf(JPA2LockLevels.LOCK_OPTIMISTIC));
+        conf.readLockLevel.setAlias("optimistic-force-increment", String
+            .valueOf(JPA2LockLevels.LOCK_OPTIMISTIC_FORCE_INCREMENT));
+        conf.readLockLevel.setAlias("pessimistic-read", String
+            .valueOf(JPA2LockLevels.LOCK_PESSIMISTIC_READ));
+        conf.readLockLevel.setAlias("pessimistic-write", String
+            .valueOf(JPA2LockLevels.LOCK_PESSIMISTIC_WRITE));
+        conf.readLockLevel.setAlias("pessimistic-force-increment", String
+            .valueOf(JPA2LockLevels.LOCK_PESSIMISTIC_FORCE_INCREMENT));
+
+        conf.writeLockLevel.setAlias("optimistic", String
+            .valueOf(JPA2LockLevels.LOCK_OPTIMISTIC));
+        conf.writeLockLevel.setAlias("optimistic-force-increment", String
+            .valueOf(JPA2LockLevels.LOCK_OPTIMISTIC_FORCE_INCREMENT));
+        conf.writeLockLevel.setAlias("pessimistic-read", String
+            .valueOf(JPA2LockLevels.LOCK_PESSIMISTIC_READ));
+        conf.writeLockLevel.setAlias("pessimistic-write", String
+            .valueOf(JPA2LockLevels.LOCK_PESSIMISTIC_WRITE));
+        conf.writeLockLevel.setAlias("pessimistic-force-increment", String
+            .valueOf(JPA2LockLevels.LOCK_PESSIMISTIC_FORCE_INCREMENT));
+
+        conf.lockManagerPlugin.setAlias("mixed",
+            JPA2LockManager.class.getName());
+
         return true;
     }
 
     @Override
     public boolean afterSpecificationSet(Configuration c) {
-      if (!(c instanceof OpenJPAConfigurationImpl)
-         || !SPEC_JPA.equals(((OpenJPAConfiguration) c).getSpecification()))
-          return false;
+        if (!OpenJPAConfigurationImpl.class.isInstance(c)
+         && !SPEC_JPA.isSame(((OpenJPAConfiguration) c).getSpecification()))
+            return false;
  
         OpenJPAConfigurationImpl conf = (OpenJPAConfigurationImpl) c;
-        conf.metaFactoryPlugin.setDefault(SPEC_JPA);
-        conf.metaFactoryPlugin.setString(SPEC_JPA);
-        conf.lockManagerPlugin.setDefault("version");
-        conf.lockManagerPlugin.setString("version");
+        conf.metaFactoryPlugin.setDefault(SPEC_JPA.getName());
+        conf.metaFactoryPlugin.setString(SPEC_JPA.getName());
+        conf.lockManagerPlugin.setDefault("mixed");
+        conf.lockManagerPlugin.setString("mixed");
         conf.nontransactionalWrite.setDefault("true");
         conf.nontransactionalWrite.set(true);
+        int specVersion = ((OpenJPAConfiguration) c).getSpecificationInstance()
+            .getVersion();
+        if (specVersion < 2) {
+            Compatibility compatibility = conf.getCompatibilityInstance();
+            compatibility.setFlushBeforeDetach(true);
+            compatibility.setCopyOnDetach(true);
+        }
         return true;
     }
 
@@ -228,7 +265,7 @@ public class PersistenceProductDerivation
     public List getAnchorsInResource(String resource) throws Exception {
         ConfigurationParser parser = new ConfigurationParser(null);
         try {
-            ClassLoader loader = (ClassLoader) AccessController.doPrivileged(
+            ClassLoader loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
             List<URL> urls = getResourceURLs(resource, loader);
             if (urls != null) {
@@ -249,7 +286,7 @@ public class PersistenceProductDerivation
         String[] prefixes = ProductDerivations.getConfigurationPrefixes();
         String rsrc = null;
         for (int i = 0; i < prefixes.length && StringUtils.isEmpty(rsrc); i++)
-           rsrc = (String) AccessController.doPrivileged(J2DoPrivHelper
+           rsrc = AccessController.doPrivileged(J2DoPrivHelper
                 .getPropertyAction(prefixes[i] + ".properties")); 
         boolean explicit = !StringUtils.isEmpty(rsrc);
         String anchor = null;
@@ -284,11 +321,11 @@ public class PersistenceProductDerivation
         throws IOException {
         Enumeration<URL> urls = null;
         try {
-            urls = (Enumeration) AccessController.doPrivileged(
+            urls = AccessController.doPrivileged(
                 J2DoPrivHelper.getResourcesAction(loader, rsrc)); 
             if (!urls.hasMoreElements()) {
                 if (!rsrc.startsWith("META-INF"))
-                    urls = (Enumeration) AccessController.doPrivileged(
+                    urls = AccessController.doPrivileged(
                         J2DoPrivHelper.getResourcesAction(
                             loader, "META-INF/" + rsrc)); 
                 if (!urls.hasMoreElements())
@@ -315,7 +352,7 @@ public class PersistenceProductDerivation
         String name, Map m, ClassLoader loader, boolean explicit)
         throws IOException {
         if (loader == null)
-            loader = (ClassLoader) AccessController.doPrivileged(
+            loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
 
         List<URL> urls = getResourceURLs(rsrc, loader);
@@ -401,7 +438,7 @@ public class PersistenceProductDerivation
             return true;
 
         if (loader == null)
-            loader = (ClassLoader) AccessController.doPrivileged(
+            loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
         try {
             if (PersistenceProviderImpl.class.isAssignableFrom
@@ -491,9 +528,17 @@ public class PersistenceProductDerivation
     public static class ConfigurationParser
         extends XMLMetaDataParser {
 
+        private static final String PERSISTENCE_XSD_1_0 = "persistence_1_0.xsd";
+        private static final String PERSISTENCE_XSD_2_0 = "persistence_2_0.xsd";
+
+        private static final Localizer _loc = Localizer.forPackage
+            (ConfigurationParser.class);
+
         private final Map _map;
         private PersistenceUnitInfoImpl _info = null;
         private URL _source = null;
+        private String _persistenceVersion;
+        private String _schemaLocation;
 
         public ConfigurationParser(Map map) {
             _map = map;
@@ -506,6 +551,17 @@ public class PersistenceProductDerivation
         public void parse(URL url)
             throws IOException {
             _source = url;
+
+            // peek at the doc to determine the version
+            XMLVersionParser vp = new XMLVersionParser("persistence");
+            try {
+                vp.parse(url);
+                _persistenceVersion = vp.getVersion();
+                _schemaLocation = vp.getSchemaLocation();
+            } catch (Throwable t) {
+                    log(_loc.get("version-check-error", 
+                        _source.toString()).toString());
+            }            
             super.parse(url);
         }
 
@@ -513,17 +569,41 @@ public class PersistenceProductDerivation
         public void parse(File file)
             throws IOException {
             try {
-                _source = (URL) AccessController.doPrivileged(J2DoPrivHelper
+                _source = AccessController.doPrivileged(J2DoPrivHelper
                     .toURLAction(file));
             } catch (PrivilegedActionException pae) {
                 throw (MalformedURLException) pae.getException();
             }
+            // peek at the doc to determine the version
+            XMLVersionParser vp = new XMLVersionParser("persistence");
+            try {
+                vp.parse(file);
+                _persistenceVersion = vp.getVersion();
+                _schemaLocation = vp.getSchemaLocation();                
+            } catch (Throwable t) {
+                    log(_loc.get("version-check-error", 
+                        _source.toString()).toString());
+            }            
             super.parse(file);
         }
 
         @Override
         protected Object getSchemaSource() {
-            return getClass().getResourceAsStream("persistence-xsd.rsrc");
+            // use the version 1 schema by default.  non-versioned docs will 
+            // continue to parse with the old xml if they do not contain a 
+            // persistence-unit.  that is currently the only signficant change
+            // to the schema.  if more significant changes are made in the 
+            // future, the 2.0 schema may be preferable.
+            String persistencexsd = "persistence-xsd.rsrc";
+            // if the version and/or schema location is for 1.0, use the 1.0 
+            // schema
+            if (_persistenceVersion != null &&
+                _persistenceVersion.equals(XMLVersionParser.VERSION_2_0) ||
+                (_schemaLocation != null && 
+                _schemaLocation.indexOf(PERSISTENCE_XSD_2_0) != -1)) {
+                persistencexsd = "persistence_2_0-xsd.rsrc";
+            }
+            return getClass().getResourceAsStream(persistencexsd);
         }
 
         @Override
@@ -553,6 +633,8 @@ public class PersistenceProductDerivation
                 return;
 
             switch (name.charAt(0)) {
+                // cases 'name' and 'transaction-type' are handled in startPersistenceUnit()
+                // case 'property' for 'properties' is handled in startElement()
                 case 'c': // class
                     _info.addManagedClassName(currentText());
                 case 'e': // exclude-unlisted-classes

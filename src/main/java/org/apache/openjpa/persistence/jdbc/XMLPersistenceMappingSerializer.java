@@ -39,6 +39,7 @@ import org.apache.openjpa.jdbc.meta.MappingInfo;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.meta.QueryResultMapping;
 import org.apache.openjpa.jdbc.meta.SequenceMapping;
+import org.apache.openjpa.jdbc.meta.ValueMappingImpl;
 import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
 import org.apache.openjpa.jdbc.meta.strats.EnumValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.FlatClassStrategy;
@@ -392,6 +393,27 @@ public class XMLPersistenceMappingSerializer
                     endElement("join-table");
                 }
                 return;
+            case ELEM_COLL:
+                if (field.getMappingInfo().hasSchemaComponents()
+                    || field.getElementMapping().getValueInfo()
+                    .hasSchemaComponents()) {
+                    String table = field.getMappingInfo().getTableName();
+                    if (table != null) {
+                        int index = table.indexOf('.');
+                        if (index < 0)
+                            addAttribute("name", table);
+                        else {
+                            addAttribute("schema", table.substring(0, index));
+                            addAttribute("name", table.substring(index + 1));
+                        }
+                    }
+                    startElement("collection-table");
+                    ValueMappingImpl elem = (ValueMappingImpl) field.getElement();
+                    serializeColumns(elem.getValueInfo(), ColType.COL,
+                            null);
+                    endElement("collection-table");
+                }
+                return;
         }
 
         serializeColumns(field.getValueInfo(), ColType.COL,
@@ -413,6 +435,35 @@ public class XMLPersistenceMappingSerializer
             addText(enumType.toString());
             endElement("enumerated");
         }
+    }
+
+    /**
+     * Serialize order column.
+     */
+    protected void serializeOrderColumn(FieldMetaData fmd)
+        throws SAXException {
+        FieldMapping field = (FieldMapping) fmd;
+        Column orderCol = field.getOrderColumn();
+        if (orderCol != null) {
+            if (orderCol.getName() != null)
+                addAttribute("name", orderCol.getName());
+            if (orderCol.isNotNull())
+                addAttribute("nullable", "false");
+            if (orderCol.getFlag(Column.FLAG_UNINSERTABLE))
+                addAttribute("insertable", "false");
+            if (orderCol.getFlag(Column.FLAG_UNUPDATABLE))
+                addAttribute("updatable", "false");
+            if (orderCol.getTypeName() != null)
+                addAttribute("column-definition", orderCol.getTypeName());
+            if (orderCol.isContiguous() != true)
+                addAttribute("contiguous", "false");
+            if (orderCol.getBase() != 0)
+                addAttribute("base", orderCol.getBase() + "");
+            if (orderCol.getTableName() != null)
+                addAttribute("table", orderCol.getTableName());
+            startElement("order-column");
+            endElement("order-column");
+        }        
     }
 
     /**

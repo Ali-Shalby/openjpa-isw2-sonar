@@ -51,6 +51,7 @@ import org.apache.openjpa.lib.jdbc.DelegatingPreparedStatement;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.StoreException;
+import org.apache.openjpa.util.UserException;
 
 import serp.util.Numbers;
 
@@ -501,6 +502,9 @@ public class OracleDictionary
     public void setNull(PreparedStatement stmnt, int idx, int colType,
         Column col)
         throws SQLException {
+        if ((colType == Types.CLOB || colType == Types.BLOB) && col.isNotNull())
+            throw new UserException(_loc.get("null-blob-in-not-nullable", col
+                .getFullName()));
         if (colType == Types.BLOB && _driverBehavior == BEHAVE_ORACLE)
             stmnt.setBlob(idx, getEmptyBlob());
         else if (colType == Types.CLOB && _driverBehavior == BEHAVE_ORACLE
@@ -651,7 +655,7 @@ public class OracleDictionary
                 setString(stmnt, idx++, schemaName.toUpperCase(), null);
             if (tableName != null)
                 setString(stmnt, idx++, tableName.toUpperCase(), null);
-
+            setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
             List pkList = new ArrayList();
             while (rs != null && rs.next())
@@ -699,6 +703,7 @@ public class OracleDictionary
             if (tableName != null)
                 setString(stmnt, idx++, tableName.toUpperCase(), null);
 
+            setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
             List idxList = new ArrayList();
             while (rs != null && rs.next())
@@ -765,7 +770,7 @@ public class OracleDictionary
                 setString(stmnt, idx++, schemaName.toUpperCase(), null);
             if (tableName != null)
                 setString(stmnt, idx++, tableName.toUpperCase(), null);
-
+            setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
             List fkList = new ArrayList();
             while (rs != null && rs.next())
@@ -884,6 +889,7 @@ public class OracleDictionary
             + ".currval FROM DUAL");
         ResultSet rs = null;
         try {
+            setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
             rs.next();
             return Numbers.valueOf(rs.getLong(1));
@@ -1112,7 +1118,7 @@ public class OracleDictionary
 
     public int getBatchUpdateCount(PreparedStatement ps) throws SQLException {
         int updateSuccessCnt = 0;
-        if (batchLimit > 0 && ps != null) {
+        if (batchLimit != 0 && ps != null) {
             updateSuccessCnt = ps.getUpdateCount();
             if (log.isTraceEnabled())
                 log.trace(_loc.get("batch-update-success-count",

@@ -18,8 +18,10 @@
  */
 package org.apache.openjpa.slice;
 
+import java.util.Arrays;
+
 import org.apache.openjpa.enhance.PersistenceCapable;
-import org.apache.openjpa.kernel.StateManagerImpl;
+import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.util.ImplHelper;
 
 /**
@@ -29,9 +31,18 @@ import org.apache.openjpa.util.ImplHelper;
  *
  */
 public class SlicePersistence {
+    /**
+     * The key for setting the Query hints. The value is comma-separated Slice
+     * names. If the hint is specified then the query is executed only on the
+     * listed slices. 
+     */
+    public static final String HINT_TARGET = ProductDerivation.HINT_TARGET;
+    
 	/**
 	 * Get the slice identifier for the given instance if it is a managed
 	 * instance and has been assigned to a slice.
+	 * If the given instance is replicated across multiple slices then returns
+	 * comma-separated list of slice names.
 	 * 
 	 * @return name of the slice, if any. null otherwise.
 	 */
@@ -41,10 +52,28 @@ public class SlicePersistence {
 		PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, null);
 		if (pc == null)
 			return null;
-		StateManagerImpl sm = (StateManagerImpl)pc.pcGetStateManager();
-		if (sm == null)
+		OpenJPAStateManager sm = (OpenJPAStateManager)pc.pcGetStateManager();
+        SliceInfo info = SliceImplHelper.getSliceInfo(sm);
+		if (info == null)
 			return null;
-		Object slice = sm.getImplData();
-		return (slice instanceof String) ? (String)slice : null;
+		String[] names = info.getSlices();
+		return info.isReplicated() ? Arrays.toString(names) : names[0];
 	}
+	
+	/**
+	 * Affirms if the given instance is replicated, provided the given instance 
+	 * is managed.
+     */
+    public static boolean isReplicated(Object obj) {
+        if (obj == null)
+            return false;
+        PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, null);
+        if (pc == null)
+            return false;
+        OpenJPAStateManager sm = (OpenJPAStateManager)pc.pcGetStateManager();
+        SliceInfo info = SliceImplHelper.getSliceInfo(sm);
+        if (info == null)
+            return false;
+        return info.isReplicated();
+    }
 }

@@ -57,7 +57,7 @@ public class OptimisticLockException
     }
 
     public int getSubtype() {
-        return StoreException.OPTIMISTIC;
+        return StoreException.LOCK;
     }
 
     public boolean isFatal() {

@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -66,6 +67,9 @@ public class ClassMappingInfo
     private File _file = null;
     private int _srcType = SRC_OTHER;
     private String[] _comments = null;
+    private int _lineNum = 0;  
+    private int _colNum = 0;  
+    
     // Unique constraints indexed by primary or secondary table name
     private Map<String,List<Unique>> _uniques;
 
@@ -229,7 +233,7 @@ public class ClassMappingInfo
         if (cols == null)
             cols = Collections.EMPTY_LIST;
         if (_seconds == null)
-            _seconds = new HashMap();
+            _seconds = new LinkedHashMap();
         _seconds.put(tableName, cols);
     }
     
@@ -470,4 +474,21 @@ public class ClassMappingInfo
     public void setComments(String[] comments) {
         _comments = comments;
     }
+    
+    public int getLineNumber() {
+        return _lineNum;
+    }
+
+    public void setLineNumber(int lineNum) {
+        _lineNum = lineNum;
+    }
+
+    public int getColNumber() {
+        return _colNum;
+    }
+
+    public void setColNumber(int colNum) {
+        _colNum = colNum;
+    }
+    
 }

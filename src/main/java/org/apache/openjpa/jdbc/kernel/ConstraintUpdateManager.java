@@ -58,7 +58,7 @@ public class ConstraintUpdateManager
         (ConstraintUpdateManager.class);
 
     public boolean orderDirty() {
-        return false;
+        return true;
     }
 
     protected PreparedStatementManager newPreparedStatementManager
@@ -84,9 +84,10 @@ public class ConstraintUpdateManager
         flush(rmimpl.getAllRowUpdates(), psMgr);
 
         // analyze foreign keys
-        Collection inserts = rmimpl.getInserts();
-        Collection updates = rmimpl.getUpdates();
-        Collection deletes = rmimpl.getDeletes();
+        Collection<PrimaryRow> inserts = rmimpl.getInserts();
+        Collection<PrimaryRow> updates = rmimpl.getUpdates();
+        Collection<PrimaryRow> deletes = rmimpl.getDeletes();
+    
         Graph[] graphs = new Graph[2];    // insert graph, delete graph
         analyzeForeignKeys(inserts, updates, deletes, rmimpl, graphs);
 
@@ -344,11 +345,16 @@ public class ConstraintUpdateManager
 
         // flush delete updates to null fks, then all rows in order, then
         // the insert updates to set circular fk values
-        flush(deleteUpdates, psMgr);
         Collection nodes = dfa.getSortedNodes();
+        flush(deleteUpdates, nodes, psMgr);
+        flush(insertUpdates, psMgr);
+    }
+
+    protected void flush(Collection deleteUpdates, Collection nodes,
+    	PreparedStatementManager psMgr) {
+        flush(deleteUpdates, psMgr);
         for (Iterator itr = nodes.iterator(); itr.hasNext();)
             psMgr.flush((RowImpl) itr.next());
-        flush(insertUpdates, psMgr);
     }
 
     /**
@@ -539,8 +545,10 @@ public class ConstraintUpdateManager
         RowImpl row;
         for (Iterator itr = rows.iterator(); itr.hasNext(); ) {
             row = (RowImpl) itr.next();
-            if (row.isValid() && !row.isDependent())
+            if (!row.isFlushed() && row.isValid() && !row.isDependent()) {
                 psMgr.flush(row);
+                row.setFlushed(true);
+            }
         }
     }
 }

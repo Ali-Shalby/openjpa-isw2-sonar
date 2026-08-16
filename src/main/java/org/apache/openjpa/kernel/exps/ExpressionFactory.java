@@ -245,7 +245,13 @@ public interface ExpressionFactory {
      * Return a value representing a parameter for the given value. The
      * type may be <code>Object</code> if the parameter is not declared.
      */
-    public Parameter newParameter(String name, Class type);
+    public Parameter newParameter(Object name, Class type);
+
+    /**
+     * Return a value representing a collection-valued parameter. The
+     * type may be <code>Object</code> if the parameter is not declared.
+     */
+    public Parameter newCollectionValuedParameter(Object name, Class type);
 
     /**
      * Return the value of the given extension.
@@ -396,6 +402,37 @@ public interface ExpressionFactory {
     public Value size(Value target);
 
     /**
+     * Return an index/position of the given value within a collection/map.
+     *
+     * @since 2.0.0
+     */
+    public Value index(Value target);
+
+    /**
+     * Return the type/class of the given value.
+     *
+     * @since 2.0.0
+     */
+    public Value type(Value target);
+
+    /**
+     * Return the map entry of the given value.
+     *
+     * @since 2.0.0
+     */
+    public Value mapEntry(Value key, Value val);
+
+    /**
+     * Return the map key of the given value
+     */
+    public Value mapKey(Value key, Value val);
+
+    /**
+     * Path navigation thru map key
+     */
+    public Value getKey(Value val);
+
+    /**
      * Return distinct values of the given value. This is typically used
      * within aggregates, for example: max(distinct(path))
 	 *
@@ -407,4 +444,41 @@ public interface ExpressionFactory {
 	 * Return the object id of the given value.
 	 */
 	public Value getObjectId (Value val);
+
+    /**
+     * Return a simple case expression
+     */
+    public Value simpleCaseExpression(Value caseOperand,
+            Expression[] exp, Value val);
+
+    /**
+     * Return a general case expression
+     */
+    public Value generalCaseExpression(Expression[] exp, Value val);
+
+    /**
+     * Return a when condidional clause
+     */
+    public Expression whenCondition(Expression exp, Value val);
+
+    /**
+     * Return a when scalar_expression clause
+     */
+    public Expression whenScalar(Value val1, Value val2);
+
+    /**
+     * Return a coalesce expression
+     */
+    public Value coalesceExpression(Value[] val);
+
+    /**
+     * Return a nullif expression
+     */
+    public Value nullIfExpression(Value val1, Value val2);
+
+    /**
+     * Return a value representing the given constant, which will be
+     * a {@link Number}, {@link String}, or {@link Boolean} instance.
+     */
+    public Literal newTypeLiteral(Object val, int parseType);
 }

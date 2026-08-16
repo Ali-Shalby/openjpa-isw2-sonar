@@ -19,6 +19,7 @@
 package org.apache.openjpa.kernel;
 
 import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.openjpa.lib.rop.ResultList;
@@ -216,6 +217,24 @@ public class DelegatingFetchConfiguration
             throw translate(re);
         }
     }
+    
+    public boolean getExtendedPathLookup() {
+        try {
+            return _fetch.getExtendedPathLookup();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public FetchConfiguration setExtendedPathLookup(boolean flag) {
+        try {
+            _fetch.setExtendedPathLookup(flag);
+            return this;
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+    
 
     public Set getFetchGroups() {
         try {
@@ -347,7 +366,7 @@ public class DelegatingFetchConfiguration
             throw translate(re);
         }
     }
-
+    
     public int getLockTimeout() {
         try {
             return _fetch.getLockTimeout();
@@ -359,6 +378,23 @@ public class DelegatingFetchConfiguration
     public FetchConfiguration setLockTimeout(int timeout) {
         try {
             _fetch.setLockTimeout(timeout);
+            return this;
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public int getQueryTimeout() {
+        try {
+            return _fetch.getQueryTimeout();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public FetchConfiguration setQueryTimeout(int timeout) {
+        try {
+            _fetch.setQueryTimeout(timeout);
             return this;
         } catch (RuntimeException re) {
             throw translate(re);
@@ -436,8 +472,16 @@ public class DelegatingFetchConfiguration
             return _fetch.getHint(name);
         } catch (RuntimeException re) {
             throw translate(re);
-		}
-	}
+        }
+    }
+    
+    public Map<String, Object> getHints() {
+        try {
+            return _fetch.getHints();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
 
     public int requiresFetch(FieldMetaData fmd) {
         try {

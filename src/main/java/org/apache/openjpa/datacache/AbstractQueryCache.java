@@ -18,12 +18,16 @@
  */
 package org.apache.openjpa.datacache;
 
+import java.security.AccessController;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.event.RemoteCommitEvent;
@@ -31,6 +35,7 @@ import org.apache.openjpa.event.RemoteCommitListener;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.concurrent.AbstractConcurrentEventManager;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashSet;
@@ -53,6 +58,8 @@ public abstract class AbstractQueryCache
     private static final Localizer s_loc =
         Localizer.forPackage(AbstractQueryCache.class);
 
+    private static final String TIMESTAMP = "timestamp";
+    public enum EvictPolicy {DEFAULT, TIMESTAMP};
     /**
      * The configuration set by the system.
      */
@@ -63,34 +70,66 @@ public abstract class AbstractQueryCache
      */
     protected Log log;
 
+    protected ConcurrentHashMap<String,Long> entityTimestampMap = null;
     private boolean _closed = false;
+    // default evict policy
+    public EvictPolicy evictPolicy = EvictPolicy.DEFAULT;
 
     public void initialize(DataCacheManager manager) {
+        if (evictPolicy == EvictPolicy.TIMESTAMP) {
+            entityTimestampMap = new ConcurrentHashMap<String,Long>();
+        
+            // Get all persistence types to pre-load the entityTimestamp Map
+            Collection perTypes =
+                conf.getMetaDataRepositoryInstance().getPersistentTypeNames(
+                    false,
+                    AccessController.doPrivileged(J2DoPrivHelper
+                        .getContextClassLoaderAction()));
+            
+            // Pre-load all the entity types into the HashMap to handle 
+            // synchronization on the map efficiently
+            for (Object o : perTypes)
+                entityTimestampMap.put((String)o, new Long(0));
+        }
     }
 
     public void onTypesChanged(TypesChangedEvent ev) {
         writeLock();
         Collection keys = null;
-        try {
-            if (hasListeners())
-                fireEvent(ev);
-            keys = keySet();
-        } finally {
-            writeUnlock();
-        }
-
-        QueryKey qk;
-        List removes = null;
-        for (Iterator iter = keys.iterator(); iter.hasNext();) {
-            qk = (QueryKey) iter.next();
-            if (qk.changeInvalidatesQuery(ev.getTypes())) {
-                if (removes == null)
-                    removes = new ArrayList();
-                removes.add(qk);
+        if (evictPolicy == EvictPolicy.DEFAULT) {
+            try {
+                if (hasListeners())
+                    fireEvent(ev);
+                keys = keySet();
+            } finally {
+                writeUnlock();
             }
+    
+            QueryKey qk;
+                List<QueryKey> removes = null;
+                for (Object o: keys) {
+                    qk = (QueryKey) o;
+                if (qk.changeInvalidatesQuery(ev.getTypes())) {
+                    if (removes == null)
+                        removes = new ArrayList<QueryKey>();
+                    removes.add(qk);
+                }
+            }
+            if (removes != null)
+                removeAllInternal(removes);
+        } else {
+            Collection changedTypes = ev.getTypes();
+            HashMap<String,Long> changedClasses = 
+                new HashMap<String,Long>(); 
+            for (Object o: changedTypes) {
+                String name = ((Class) o).getName();
+                if(!changedClasses.containsKey(name))
+                    changedClasses.put(name, 
+                        new Long(System.currentTimeMillis()));
+            }           
+            // Now update entity timestamp map
+            updateEntityTimestamp(changedClasses);
         }
-        if (removes != null)
-            removeAllInternal(removes);
     }
 
     public QueryResult get(QueryKey key) {
@@ -319,4 +358,51 @@ public abstract class AbstractQueryCache
     protected Collection newListenerCollection() {
         return new ConcurrentReferenceHashSet (ConcurrentReferenceHashSet.WEAK);
 	}
+
+    /**
+     * Sets the eviction policy for the query cache
+     * @param evictPolicy -- String value that specifies the eviction policy
+     */
+    public void setEvictPolicy(String evictPolicy) {
+        if (evictPolicy.equalsIgnoreCase(TIMESTAMP))
+            this.evictPolicy = EvictPolicy.TIMESTAMP;
+    }
+
+    /**
+     * Returns the evictionPolicy for QueryCache
+     * @return -- returns a String value of evictPolicy attribute
+     */
+    public EvictPolicy getEvictPolicy() {
+        return this.evictPolicy;
+    }
+
+    /**
+     * Updates the entity timestamp map with the current time in milliseconds
+     * @param timestampMap -- a map that contains entityname and its last updated timestamp
+     */
+    protected void updateEntityTimestamp(Map<String,Long> timestampMap) {
+        if (entityTimestampMap != null)
+            entityTimestampMap.putAll(timestampMap);
+     }
+
+    /**
+     * Returns a list of timestamps in the form of Long objects
+     * which are the last updated time stamps for the given entities in the
+     * keylist.
+     * @param keyList -- List of entity names 
+     * @return -- Returns a list that has the timestamp for the given entities
+     */
+    public List<Long> getAllEntityTimestamp(List<String> keyList) { 
+        ArrayList<Long> tmval = null;
+        if (entityTimestampMap != null) {
+            for (String s: keyList) {
+                if (entityTimestampMap.containsKey(s)) {
+                    if(tmval == null)
+                        tmval = new ArrayList<Long>();
+                    tmval.add(entityTimestampMap.get(s));
+                }
+            }
+        }
+        return tmval;
+    }
 }

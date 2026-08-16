@@ -49,6 +49,7 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.InternalException;
@@ -321,15 +322,32 @@ public class JPQLExpressionBuilder
         Expression exp = null;
         for (int i = 0; i < count; i++) {
             JPQLNode parent = parametersNode.getChild(i);
-            JPQLNode node = onlyChild(parent);
+            JPQLNode node = firstChild(parent);
+            JPQLNode aliasNode = parent.children.length > 1 ? right(parent)
+                : null;; 
             Value proj = getValue(node);
+            String alias = aliasNode == null ? nextAlias()
+                 : aliasNode.text;
+            if (aliasNode != null)
+                proj.setAlias(alias);
             exps.projections[i] = proj;
-            exps.projectionClauses[i] = assemble(node);
-            exps.projectionAliases[i] = nextAlias();
+            exps.projectionClauses[i] = aliasNode != null ? alias :
+                projectionClause(node.id == JJTSCALAREXPRESSION ?
+                    firstChild(node) : node);
+            exps.projectionAliases[i] = alias;
         }
         return exp;
     }
 
+    private String projectionClause(JPQLNode node) {
+        switch (node.id) {
+        case JJTTYPE:
+            return projectionClause(firstChild(node));
+        default:
+            return assemble(node);
+        }
+    }
+    
     private void evalQueryOperation(QueryExpressions exps) {
         // determine whether we want to select, delete, or update
         if (root().id == JJTSELECT || root().id == JJTSUBSELECT)
@@ -377,14 +395,31 @@ public class JPQLExpressionBuilder
             int ordercount = orderby.getChildCount();
             exps.ordering = new Value[ordercount];
             exps.orderingClauses = new String[ordercount];
+            exps.orderingAliases = new String[ordercount];
             exps.ascending = new boolean[ordercount];
             for (int i = 0; i < ordercount; i++) {
                 JPQLNode node = orderby.getChild(i);
-                exps.ordering[i] = getValue(firstChild(node));
-                exps.orderingClauses[i] = assemble(firstChild(node));
+                JPQLNode firstChild = firstChild(node);
+                exps.ordering[i] = getValue(firstChild);
+                exps.orderingClauses[i] = assemble(firstChild);
+                exps.orderingAliases[i] = firstChild.text;
+
                 // ommission of ASC/DESC token implies ascending
                 exps.ascending[i] = node.getChildCount() <= 1 ||
                     lastChild(node).id == JJTASCENDING ? true : false;
+            }
+            // check if order by selec item alias
+            for (int i = 0; i < ordercount; i++) {
+                if (exps.orderingClauses[i] != null && 
+                    !exps.orderingClauses[i].equals(""))
+                    continue;
+                for (int j = 0; j < exps.projections.length; j++) {
+                    if (exps.projectionAliases[j].equalsIgnoreCase(
+                        exps.orderingAliases[i])) {
+                        exps.ordering[i] = exps.projections[j];
+                        break;
+                    }
+                }
             }
         }
     }
@@ -719,6 +754,39 @@ public class JPQLExpressionBuilder
         boolean not = node.not;
 
         switch (node.id) {
+            case JJTSCALAREXPRESSION:
+                return eval(onlyChild(node));
+
+            case JJTTYPE:
+                return getType(onlyChild(node));
+
+            case JJTTYPELITERAL:
+                return getTypeLiteral(node);
+
+            case JJTCLASSNAME:
+                return getPathOrConstant(node);
+
+            case JJTCASE:
+                return eval(onlyChild(node));
+
+            case JJTSIMPLECASE:
+                return getSimpleCaseExpression(node);
+
+            case JJTGENERALCASE:
+                return getGeneralCaseExpression(node);
+
+            case JJTWHEN:
+                return getWhenCondition(node);
+
+            case JJTWHENSCALAR:
+                return getWhenScalar(node);
+
+            case JJTCOALESCE:
+                return getCoalesceExpression(node);
+
+            case JJTNULLIF:
+                return getNullIfExpression(node);
+
             case JJTWHERE: // top-level WHERE clause
                 return getExpression(onlyChild(node));
 
@@ -756,10 +824,15 @@ public class JPQLExpressionBuilder
                 return eval(firstChild(node));
 
             case JJTNAMEDINPUTPARAMETER:
-                return getParameter(node.text, false);
+                return getParameter(node.text, false, false);
 
             case JJTPOSITIONALINPUTPARAMETER:
-                return getParameter(node.text, true);
+                return getParameter(node.text, true, false);
+
+            case JJTCOLLECTIONPARAMETER:
+                JPQLNode child = onlyChild(node);
+                return getParameter(child.text, 
+                    child.id == JJTPOSITIONALINPUTPARAMETER, true);
 
             case JJTOR: // x OR y
                 return factory.or(getExpression(left(node)),
@@ -839,14 +912,19 @@ public class JPQLExpressionBuilder
                     factory.lessThanEqual(val1, val3)));
 
             case JJTIN: // x.field [NOT] IN ('a', 'b', 'c')
-
+                        // TYPE(x...) [NOT] IN (entityTypeLiteral1,...)
                 Expression inExp = null;
                 Iterator inIterator = node.iterator();
                 // the first child is the path
-                val1 = getValue((JPQLNode) inIterator.next());
+                JPQLNode first = (JPQLNode) inIterator.next();
+                val1 = getValue(first);
 
                 while (inIterator.hasNext()) {
-                    val2 = getValue((JPQLNode) inIterator.next());
+                    JPQLNode next = (JPQLNode) inIterator.next();
+                    if (first.id == JJTTYPE && next.id == JJTTYPELITERAL)
+                        val2 = getTypeLiteral(next);
+                    else
+                        val2 = getValue(next);
 
                     // special case for <value> IN (<subquery>) or
                     // <value> IN (<single value>)
@@ -883,6 +961,19 @@ public class JPQLExpressionBuilder
             case JJTIDENTIFICATIONVARIABLE:
                 return getIdentifier(node);
 
+            case JJTQUALIFIEDPATH:
+                return getQualifiedPath(node);
+
+            case JJTQUALIFIEDIDENTIFIER:
+                // KEY(e), VALUE(e), ENTRY(e)
+                return getQualifiedIdentifier(node);
+
+            case JJTGENERALIDENTIFIER:
+                // KEY(e), VALUE(e)
+                if (node.parent.parent.id == JJTWHERE)
+                    return getGeneralIdentifier(onlyChild(node), true);
+                return getQualifiedIdentifier(onlyChild(node));
+
             case JJTNOT:
                 return factory.not(getExpression(onlyChild(node)));
 
@@ -911,6 +1002,9 @@ public class JPQLExpressionBuilder
 
             case JJTSIZE:
                 return factory.size(getValue(onlyChild(node)));
+
+            case JJTINDEX:
+                return factory.index(getValue(onlyChild(node)));
 
             case JJTUPPER:
                 val1 = getValue(onlyChild(node));
@@ -979,12 +1073,18 @@ public class JPQLExpressionBuilder
                 return factory.concat(val1, val2);
 
             case JJTSUBSTRING:
-                val1 = getValue(child(node, 0, 3));
-                val2 = getValue(child(node, 1, 3));
-                val3 = getValue(child(node, 2, 3));
+                if (node.children.length == 3) {
+                    val1 = getValue(child(node, 0, 3));
+                    val2 = getValue(child(node, 1, 3));
+                    val3 = getValue(child(node, 2, 3));
+                } else if (node.children.length == 2) {
+                    val1 = getValue(child(node, 0, 2));
+                    val2 = getValue(child(node, 1, 2));
+                }
                 setImplicitType(val1, TYPE_STRING);
                 setImplicitType(val2, Integer.TYPE);
-                setImplicitType(val3, Integer.TYPE);
+                if (node.children.length == 3)
+                    setImplicitType(val3, Integer.TYPE);
 
                 // the semantics of the JPQL substring() function
                 // are that arg2 is the 1-based start index, and arg3 is
@@ -994,28 +1094,35 @@ public class JPQLExpressionBuilder
                 // arg2 is the end index): we perform the translation by
                 // adding one to the first argument, and then adding the
                 // first argument to the second argument to get the endIndex
-                Value start;
-                Value end;
-                if (val2 instanceof Literal && val3 instanceof Literal) {
+                Value start = null;
+                Value end = null;
+                if (val2 instanceof Literal && 
+                    (val3 == null || val3 instanceof Literal)) {
                     // optimize SQL for the common case of two literals
                     long jpqlStart = ((Number) ((Literal) val2).getValue())
                         .longValue();
-                    long length = ((Number) ((Literal) val3).getValue())
-                        .longValue();
                     start = factory.newLiteral(new Long(jpqlStart - 1),
                         Literal.TYPE_NUMBER);
+                    if (val3 != null) {
+                    	long length = ((Number) ((Literal) val3).getValue())
+                            .longValue();
                     long endIndex = length + (jpqlStart - 1);
                     end = factory.newLiteral(new Long(endIndex),
                         Literal.TYPE_NUMBER);
+                    }
                 } else {
                     start = factory.subtract(val2, factory.newLiteral
                         (Numbers.valueOf(1), Literal.TYPE_NUMBER));
+                    if (val3 != null)
                     end = factory.add(val3,
                         (factory.subtract(val2, factory.newLiteral
                             (Numbers.valueOf(1), Literal.TYPE_NUMBER))));
                 }
+                if (val3 != null)
                 return factory.substring(val1, factory.newArgumentList(
                     start, end));
+                else
+                    return factory.substring(val1, start);
 
             case JJTLOCATE:
                 // as with SUBSTRING (above), the semantics for LOCATE differ
@@ -1165,13 +1272,13 @@ public class JPQLExpressionBuilder
         if (type == null)
             return;
 
-        String paramName = param.getParameterName();
-        if (paramName == null)
+        Object paramKey = param.getParameterKey();
+        if (paramKey == null)
             return;
 
         // make sure we have already declared the parameter
-        if (parameterTypes.containsKey(paramName))
-            parameterTypes.put(paramName, type);
+        if (parameterTypes.containsKey(paramKey))
+            parameterTypes.put(paramKey, type);
     }
 
     private Value getStringValue(JPQLNode node) {
@@ -1212,18 +1319,25 @@ public class JPQLExpressionBuilder
     }
 
     /**
-     * Record the names and order of implicit parameters.
+     * Creates and records the names and order of parameters. The parameters are
+     * identified by a key with its type preserved. The second argument
+     * determines whether the first argument is used as-is or converted to
+     * an Integer as parameter key. 
+     * 
+     * @param the text as it appears in the parsed node
+     * @param positional if true the first argument is converted to an integer
+     * @param isCollectionValued true for collection-valued parameters
      */
-    private Parameter getParameter(String id, boolean positional) {
+    private Parameter getParameter(String id, boolean positional, 
+        boolean isCollectionValued) {
         if (parameterTypes == null)
             parameterTypes = new LinkedMap(6);
-        if (!parameterTypes.containsKey(id))
-            parameterTypes.put(id, TYPE_OBJECT);
+        Object paramKey = positional ? Integer.parseInt(id) : id;
+        if (!parameterTypes.containsKey(paramKey))
+            parameterTypes.put(paramKey, TYPE_OBJECT);
 
-        Class type = Object.class;
         ClassMetaData meta = null;
         int index;
-
         if (positional) {
             try {
                 // indexes in JPQL are 1-based, as opposed to 0-based in
@@ -1241,11 +1355,12 @@ public class JPQLExpressionBuilder
             // otherwise the index is just the current size of the params
             index = parameterTypes.indexOf(id);
         }
-
-        Parameter param = factory.newParameter(id, type);
+        Parameter param = isCollectionValued 
+            ? factory.newCollectionValuedParameter(paramKey, TYPE_OBJECT) 
+            : factory.newParameter(paramKey, TYPE_OBJECT);
         param.setMetaData(meta);
         param.setIndex(index);
-
+        
         return param;
     }
 
@@ -1304,10 +1419,130 @@ public class JPQLExpressionBuilder
         } else if (val instanceof Path) {
             return (Path) val;
         } else if (val instanceof Value) {
+            if (val.isVariable()) {
+                // can be an entity type literal
+                Class c = resolver.classForName(name, null);
+                if (c != null) {
+                    Value lit = factory.newTypeLiteral(c, Literal.TYPE_CLASS);
+                    Class<?> candidate = getCandidateType();
+                    ClassMetaData can = getClassMetaData(candidate.getName(), false);
+                    ClassMetaData meta = getClassMetaData(name, false);
+                    if (candidate.isAssignableFrom(c))
+                        lit.setMetaData(meta);
+                    else
+                        lit.setMetaData(can);
+                    return lit;
+                }
+            }
             return (Value) val;
         }
 
         throw parseException(EX_USER, "unknown-identifier",
+            new Object[]{ name }, null);
+    }
+
+    private Value validateMapPath(JPQLNode node, JPQLNode id) {
+        Path path = (Path) getValue(id);
+        FieldMetaData fld = path.last();
+        
+        if (fld != null) {            
+            // validate the field is of type java.util.Map
+            if (fld.getDeclaredTypeCode() != JavaTypes.MAP) {
+                String oper = "VALUE";
+                if (node.id == JJTENTRY)
+                    oper = "ENTRY";        
+                else if (node.id == JJTKEY)
+                    oper = "KEY";
+                throw parseException(EX_USER, "bad-qualified-identifier",
+                    new Object[]{ id.text, oper}, null);
+            }
+        }         
+        return path;
+    }
+
+    private Value getGeneralIdentifier(JPQLNode node, boolean inWhereClause) {
+        JPQLNode id = onlyChild(node);
+        if (inWhereClause && node.id == JJTVALUE)
+            throw parseException(EX_USER, "bad-general-identifier",
+                new Object[]{ id.text, "VALUE" }, null);
+
+        Path path = (Path) validateMapPath(node, id);
+        FieldMetaData fld = path.last();
+        path = (Path) factory.getKey(path);
+        ClassMetaData meta = fld.getKey().getTypeMetaData();
+        if (inWhereClause && meta != null)
+            // check basic type
+            throw parseException(EX_USER, "bad-general-identifier",
+                new Object[]{ id.text, "KEY" }, null);
+
+        return path;
+    }
+
+    private Value getQualifiedIdentifier(JPQLNode node) {
+        JPQLNode id = onlyChild(node);               
+        Path path = (Path) validateMapPath(node, id);
+
+        if (node.id == JJTVALUE)
+            return path;
+
+        Value value = getValue(id);
+        if (node.id == JJTKEY)
+            return factory.mapKey(path, value);
+        else            
+            return factory.mapEntry(path, value);
+    }
+
+    private Value getQualifiedPath(JPQLNode node) {
+        return getQualifiedPath(node, false, true);
+    }
+
+    private Value getQualifiedPath(JPQLNode node, boolean pcOnly, boolean inner) {
+        int nChild = node.getChildCount();
+        JPQLNode firstChild = firstChild(node);
+        JPQLNode id = firstChild.id == JJTKEY ? onlyChild(firstChild) :
+               firstChild;               
+        Path path = (Path) validateMapPath(firstChild, id);
+
+        if (firstChild.id == JJTIDENTIFIER)
+            return getPath(node);
+
+        FieldMetaData fld = path.last();
+        path = (Path) factory.getKey(path);
+        ClassMetaData meta = fld.getKey().getTypeMetaData();
+
+        if (meta == null)
+            throw parseException(EX_USER, "bad-qualified-path",
+                new Object[]{ id.text }, null);
+        
+        path.setMetaData(meta);
+
+        // walk through the children and assemble the path
+        boolean allowNull = !inner;
+        for (int i = 1; i < nChild; i++) {
+            path = (Path) traversePath(path, node.children[i].text, pcOnly,
+                allowNull);
+
+            // all traversals but the first one will always be inner joins
+            allowNull = false;
+        }
+        return path;
+    }
+
+    private Value getTypeLiteral(JPQLNode node) {
+        JPQLNode type = onlyChild(node);
+        final String name = type.text;
+        final Value val = getVariable(name, false);
+
+        if (val instanceof Value && val.isVariable()) {
+            Class c = resolver.classForName(name, null);
+            if (c != null) {
+                Value typeLit = factory.newTypeLiteral(c, Literal.TYPE_CLASS);
+                typeLit.setMetaData(getClassMetaData(name, false));
+                return typeLit;
+            }
+        }
+
+        throw parseException(EX_USER, "not-type-literal",
             new Object[]{ name }, null);
     }
 
@@ -1335,6 +1570,39 @@ public class JPQLExpressionBuilder
             }
         } else {
             return getPath(node, false, true);
+        }
+    }
+
+    /**
+     * Process type_discriminator
+     *     type_discriminator ::=
+     *         TYPE(general_identification_variable |
+     *         single_valued_object_path_expression |
+     *         input_parameter )
+     */
+    private Value getType(JPQLNode node) {
+        switch (node.id) {
+        case JJTIDENTIFIER:
+            return factory.type(getValue(node));
+
+        case JJTNAMEDINPUTPARAMETER:
+            return factory.type(getParameter(node.text, false, false));
+
+        case JJTPOSITIONALINPUTPARAMETER:
+            return factory.type(getParameter(node.text, true, false));
+
+        case JJTGENERALIDENTIFIER:
+            return factory.type(getQualifiedIdentifier(onlyChild(node)));
+
+        default:
+            // TODO: enforce jpa2.0 spec rules.
+            // A single_valued_object_field is designated by the name of
+            // an association field in a one-to-one or many-to-one relationship
+            // or a field of embeddable class type.
+            // The type of a single_valued_object_field is the abstract schema
+            // type of the related entity or embeddable class
+            Value path = getPath(node, false, true);
+            return factory.type(path);
         }
     }
 
@@ -1413,7 +1681,68 @@ public class JPQLExpressionBuilder
         return (Expression) exp;
     }
 
+    /**
+     * Returns a Simple Case Expression for the given node by eval'ing it.
+     */
+    private Value getSimpleCaseExpression(JPQLNode node) {
+        Object caseOperand = eval(node.getChild(0));
+        int nChild = node.getChildCount();
+
+        Object val = eval(lastChild(node));
+        Object exp[] = new Expression[nChild - 2];
+        for (int i = 1; i < nChild - 1; i++)
+            exp[i-1] = eval(node.children[i]);
+        
+        return factory.simpleCaseExpression((Value) caseOperand,
+            (Expression[]) exp, (Value) val);
+    }
+
+    /**
+     * Returns a General Case Expression for the given node by eval'ing it.
+     */
+    private Value getGeneralCaseExpression(JPQLNode node) {
+        int nChild = node.getChildCount();
+
+        Object val = eval(lastChild(node));
+        Object exp[] = new Expression[nChild - 1];
+        for (int i = 0; i < nChild - 1; i++)
+            exp[i] = (Expression) eval(node.children[i]);
+        
+        return factory.generalCaseExpression((Expression[]) exp, (Value) val);
+    }
+
+    private Expression getWhenCondition(JPQLNode node) {
+        Object exp = eval(firstChild(node));
+        Object val = eval(secondChild(node));
+        return factory.whenCondition((Expression) exp, (Value) val);
+    }
+
+    private Expression getWhenScalar(JPQLNode node) {
+        Object val1 = eval(firstChild(node));
+        Object val2 = eval(secondChild(node));
+        return factory.whenScalar((Value) val1, (Value) val2);
+    }
+
+    private Value getCoalesceExpression(JPQLNode node) {
+        int nChild = node.getChildCount();
+        
+        Object vals[] = new Value[nChild];
+        for (int i = 0; i < nChild; i++)
+            vals[i] = eval(node.children[i]);
+        
+        return factory.coalesceExpression((Value[]) vals);
+    }
+
+    private Value getNullIfExpression(JPQLNode node) {
+        Object val1 = eval(firstChild(node));
+        Object val2 = eval(secondChild(node));
+        
+        return factory.nullIfExpression((Value) val1, (Value) val2);
+    }
+
     private Value getValue(JPQLNode node) {
+        if (node.id == JJTQUALIFIEDIDENTIFIER)
+            return getQualifiedIdentifier(onlyChild(node));
         return getValue(node, VAR_PATH);
     }
 
