@@ -110,6 +110,7 @@ import org.apache.openjpa.lib.util.Localizer.Message;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueStrategies;
+import org.apache.openjpa.util.ExceptionInfo;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.InvalidStateException;
@@ -125,7 +126,6 @@ import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Numbers;
 import serp.util.Strings;
 
 /**
@@ -373,6 +373,7 @@ public class DBDictionary
     public String delimitedCase = SCHEMA_CASE_PRESERVE;
     public String catalogSeparator = ".";
     private String defaultSchemaName = null;
+    private String conversionKey = null;
        
     // Naming utility and naming rules
     private DBIdentifierUtil namingUtil = null;
@@ -538,10 +539,10 @@ public class DBDictionary
                     return new Float(getFloat(rs, column));
                 } catch (Exception e3) {
                     try {
-                        return Numbers.valueOf(getLong(rs, column));
+                        return getLong(rs, column);
                     } catch (Exception e4) {
                         try {
-                            return Numbers.valueOf(getInt(rs, column));
+                            return getInt(rs, column);
                         } catch (Exception e5) {
                         }
                     }
@@ -2133,14 +2134,18 @@ public class DBDictionary
             Path path = (Path) updateParams.keySet().iterator().next();
             FieldMapping fm = (FieldMapping) path.last();
             ClassMapping meta = fm.getDeclaringMapping();
-            Map updates = meta.getVersion().getBulkUpdateValues();
-            for (Iterator iter = updates.entrySet().iterator();
-                iter.hasNext(); ) {
-                Map.Entry e = (Map.Entry) iter.next();
+            Map<Column,?> updates = meta.getVersion().getBulkUpdateValues();
+            for (Map.Entry e : updates.entrySet()) {
                 Column col = (Column) e.getKey();
-                String val = (String) e.getValue();
-                sql.append(", ").append(toDBName(col.getIdentifier()))
-                    .append(" = ").append(val);
+                Object val = e.getValue();
+                sql.append(", ").append(toDBName(col.getIdentifier())).append(" = ");
+                // Version update value for Numeric version is encoded in a String
+                // to make SQL such as version = version+1 while Time stamp version is parameterized
+                if (val instanceof String) {
+                    sql.append((String)val);
+                } else {
+                    sql.appendValue(val);
+                }
             }
         }
     }
@@ -3960,8 +3965,10 @@ public class DBDictionary
     protected Sequence newSequence(ResultSet sequenceMeta)
         throws SQLException {
         Sequence seq = new Sequence();
-        seq.setSchemaIdentifier(fromDBName(sequenceMeta.getString("SEQUENCE_SCHEMA"), DBIdentifierType.SCHEMA));
-        seq.setIdentifier(fromDBName(sequenceMeta.getString("SEQUENCE_NAME"), DBIdentifierType.SEQUENCE));
+        seq.setSchemaIdentifier(fromDBName(StringUtils.stripEnd(sequenceMeta.getString("SEQUENCE_SCHEMA"), null),
+            DBIdentifierType.SCHEMA));
+        seq.setIdentifier(fromDBName(StringUtils.stripEnd(sequenceMeta.getString("SEQUENCE_NAME"), null),
+            DBIdentifierType.SEQUENCE));
         return seq;
     }
 
@@ -4775,10 +4782,9 @@ public class DBDictionary
      * be determined by the implementation. This may take into account
      * DB-specific exception information in <code>causes</code>.
      */
-    public OpenJPAException newStoreException(String msg, SQLException[] causes,
-        Object failed) {
+    public OpenJPAException newStoreException(String msg, SQLException[] causes, Object failed) {
         if (causes != null && causes.length > 0) {
-            OpenJPAException ret = narrow(msg, causes[0]);
+            OpenJPAException ret = narrow(msg, causes[0], failed);
             ret.setFailedObject(failed).setNestedThrowables(causes);
             return ret;
         }
@@ -4787,36 +4793,29 @@ public class DBDictionary
     }
     
     /**
-     * Gets the subtype of StoreException by matching the given SQLException's
+     * Gets the category of StoreException by matching the given SQLException's
      * error state code to the list of error codes supplied by the dictionary.
-     * Returns -1 if no matching code can be found.
+     * 
+     * @return a StoreException of {@link ExceptionInfo#GENERAL general} category
+     * if the given SQL Exception can not be further categorized.
+     * 
+     * @see #matchErrorState(Map, SQLException)
      */
-    OpenJPAException narrow(String msg, SQLException ex) {
-        Boolean recoverable = null;
-        int errorType = StoreException.GENERAL;
-        for (Integer type : sqlStateCodes.keySet()) {
-            Set<String> errorStates = sqlStateCodes.get(type);
-            if (errorStates != null) {
-                recoverable = matchErrorState(type, errorStates, ex);
-                if (recoverable != null) {
-                    errorType = type;
-                    break;
-                }
-            }
-        }
+    OpenJPAException narrow(String msg, SQLException ex, Object failed) {
+        int errorType = matchErrorState(sqlStateCodes, ex);
         StoreException storeEx;
         switch (errorType) {
         case StoreException.LOCK:
-            storeEx = new LockException(msg);
+            storeEx = new LockException(failed);
             break;
         case StoreException.OBJECT_EXISTS:
             storeEx = new ObjectExistsException(msg);
             break;
         case StoreException.OBJECT_NOT_FOUND:
-            storeEx = new ObjectNotFoundException(msg);
+            storeEx = new ObjectNotFoundException(failed);
             break;
         case StoreException.OPTIMISTIC:
-            storeEx = new OptimisticException(msg);
+            storeEx = new OptimisticException(failed);
             break;
         case StoreException.REFERENTIAL_INTEGRITY:
             storeEx = new ReferentialIntegrityException(msg);
@@ -4827,24 +4826,48 @@ public class DBDictionary
         default:
             storeEx = new StoreException(msg);
         }
-        if (recoverable != null) {
-            storeEx.setFatal(!recoverable);
-        }
+        storeEx.setFatal(isFatalException(errorType, ex));
         return storeEx;
     }
 
     /**
-     * Determine if the SQLException argument matches any element in the
-     * errorStates. Dictionary subclass can override this method and extract
+     * Determine the more appropriate type of store exception by matching the SQL Error State of the
+     * the given SQLException to the given Error States categorized by error types.
+     * Dictionary subclass can override this method and extract
      * SQLException data to figure out if the exception is recoverable.
      * 
-     * @return null if no match is found or a Boolean value indicates the
-     * exception is recoverable.
+     * @param errorStates classification of SQL error states by their specific nature. The keys of the
+     * map represent one of the constants defined in {@link StoreException}. The value corresponding to
+     * a key represent the set of SQL Error States representing specific category of database error. 
+     * This supplied map is sourced from <code>sql-error-state-codes.xml</xml> and filtered the
+     * error states for the current database.
+     * 
+     * @param ex original SQL Exception as raised by the database driver.
+     * 
+     * @return A constant indicating the category of error as defined in {@link StoreException}.
      */
-    protected Boolean matchErrorState(int subtype, Set<String> errorStates,
-        SQLException ex) {
+    protected int matchErrorState(Map<Integer,Set<String>> errorStates, SQLException ex) {
         String errorState = ex.getSQLState();
-        return errorStates.contains(errorState) ? Boolean.FALSE : null;
+        for (Map.Entry<Integer,Set<String>> states : errorStates.entrySet()) {
+            if (states.getValue().contains(errorState))
+                return states.getKey();
+        }
+        return StoreException.GENERAL;
+    }
+    
+    /**
+     * Determine if the given SQL Exception is fatal or recoverable (such as a timeout).
+     * This implementation always returns true (i.e. all exceptions are fatal).
+     * The current dictionary implementation can overwrite this method to mark certain
+     * exception conditions as recoverable error.
+
+     * @param subtype A constant indicating the category of error as defined in {@link StoreException}. 
+     * @param ex original SQL Exception as raised by the database driver.
+     * 
+     * @return false if the error is fatal. 
+     */
+    public boolean isFatalException(int subtype, SQLException ex) {
+        return true;
     }
     
     /**
@@ -5226,7 +5249,9 @@ public class DBDictionary
     public void setSupportsDelimitedIdentifiers(DatabaseMetaData metaData) {
         try {
             supportsDelimitedIdentifiers = 
-                metaData.supportsMixedCaseQuotedIdentifiers();
+                metaData.supportsMixedCaseQuotedIdentifiers() ||
+                metaData.storesLowerCaseQuotedIdentifiers() ||
+                metaData.storesUpperCaseQuotedIdentifiers();
         } catch (SQLException e) {
             supportsDelimitedIdentifiers = false;
             getLog().warn(_loc.get("unknown-delim-support", e));
@@ -5360,5 +5385,13 @@ public class DBDictionary
 
     public String getDefaultSchemaName() {
         return defaultSchemaName;
+    }
+    
+    public String getConversionKey() {
+        if (conversionKey == null) {
+            conversionKey = getLeadingDelimiter() + getIdentifierDelimiter() +
+            getTrailingDelimiter();
+        }
+        return conversionKey;
     }
 }

@@ -631,14 +631,18 @@ public class MetaDataRepository implements PCRegistry.RegisterClassListener, Con
                 err &= resolveMapping(resolved.get(i));
 
         // throw errors encountered
+        // OPENJPA-1535 Always throw a MetaDataException because callers
+        // of loadRegisteredClassMetaData expect only MetaDataException
+        // to be thrown.
         if (err && !_errs.isEmpty()) {
             RuntimeException re;
-            if (_errs.size() == 1)
+            if ((_errs.size() == 1) && (_errs.get(0) instanceof MetaDataException)) {
                 re = _errs.get(0);
-            else
-                re =
-                    new MetaDataException(_loc.get("resolve-errs")).setNestedThrowables((Throwable[]) _errs
-                        .toArray(new Exception[_errs.size()]));
+            } else {
+                re = new MetaDataException(_loc.get("resolve-errs"))
+                    .setNestedThrowables((Throwable[]) _errs
+                    .toArray(new Exception[_errs.size()]));
+            }
             _errs.clear();
             throw re;
         }
@@ -1563,12 +1567,7 @@ public class MetaDataRepository implements PCRegistry.RegisterClassListener, Con
     public void register(Class<?> cls) {
         // buffer registered classes until an oid metadata request is made,
         // at which point we'll parse everything in the buffer
-        if (_locking) {
-            synchronized (_registered) {
-                _registered.add(cls);
-                registerAlias(cls);
-            }
-        } else {
+        synchronized (_registered) {
             _registered.add(cls);
             registerAlias(cls);
         }
@@ -1599,16 +1598,10 @@ public class MetaDataRepository implements PCRegistry.RegisterClassListener, Con
         // copy into new collection to avoid concurrent mod errors on reentrant
         // registrations
         Class<?>[] reg;
-        if (_locking) {
-            synchronized (_registered) {
-                reg = _registered.toArray(new Class[_registered.size()]);
-                _registered.clear();
-            }
-        } else {
+        synchronized (_registered) {
             reg = _registered.toArray(new Class[_registered.size()]);
             _registered.clear();
         }
-        
 
         Collection<String> pcNames = getPersistentTypeNames(false, envLoader);
         Collection<Class<?>> failed = null;
@@ -1837,7 +1830,8 @@ public class MetaDataRepository implements PCRegistry.RegisterClassListener, Con
             return _metamodel.get(entity);
         String m2 = _factory.getMetaModelClassName(entity.getName());
         try {
-            Class<?> m2cls = J2DoPrivHelper.getForNameAction(m2, true, entity.getClassLoader()).run();
+            ClassLoader loader = AccessController.doPrivileged(J2DoPrivHelper.getClassLoaderAction(entity));
+            Class<?> m2cls = AccessController.doPrivileged(J2DoPrivHelper.getForNameAction(m2, true, loader));
             _metamodel.put(entity, m2cls);
             return m2cls;
         } catch (Throwable t) {

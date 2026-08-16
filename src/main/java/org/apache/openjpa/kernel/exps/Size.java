@@ -21,7 +21,6 @@ package org.apache.openjpa.kernel.exps;
 import java.util.Collection;
 import java.util.Map;
 
-import serp.util.Numbers;
 
 /**
  * Returns the count of a collection.
@@ -41,9 +40,9 @@ class Size
 
     protected Object operate(Object o, Class c) {
         if (o instanceof Collection)
-            return Numbers.valueOf(((Collection) o).size());
+            return ((Collection) o).size();
         if (o instanceof Map)
-            return Numbers.valueOf(((Map) o).size());
-        return (o == null) ? Numbers.valueOf(0) : Numbers.valueOf(1);
+            return ((Map) o).size();
+        return (o == null) ? 0 : 1;
     }
 }

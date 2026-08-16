@@ -16,15 +16,14 @@
  * specific language governing permissions and limitations
  * under the License.    
  */
-package org.apache.openjpa.writebehind;
+package org.apache.openjpa.lib.util;
 
-import org.apache.openjpa.util.OpenJPAException;
+/**
+ * Generic interface for components that can be cleared so that helpers can treat them in a generic
+ * way.
+ */
+public interface Clearable {
 
-public class WriteBehindException extends OpenJPAException {
-    private static final long serialVersionUID = 3377707939479198010L;
+    public void clear();
 
-    @Override
-    public int getType() {
-        return INTERNAL;
-    }
 }

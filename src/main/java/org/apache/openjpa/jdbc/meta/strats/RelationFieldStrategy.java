@@ -70,7 +70,6 @@ import org.apache.openjpa.util.ObjectId;
 import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.UnsupportedException;
 
-import serp.util.Numbers;
 
 /**
  * Mapping for a single-valued relation to another entity.
@@ -950,7 +949,7 @@ public class RelationFieldStrategy
                 col = fk.getColumn(col);   
             long id = res.getLong(col, joins);
             if (field.getObjectIdFieldTypeCode() == JavaTypes.LONG)
-                return Numbers.valueOf(id);
+                return id;
             return store.newDataStoreId(id, relmapping, field.getPolymorphic() 
                 != ValueMapping.POLY_FALSE);
         }
@@ -1012,7 +1011,9 @@ public class RelationFieldStrategy
                 getPrimaryKeyIndex()];
         } else if (relmapping.getObjectIdType() == ObjectId.class && 
             relmapping.getPrimaryKeyFieldMappings()[0].getValueMapping().isEmbedded()) {
-            return j.getJoinValue(savedFieldVal, col, store);
+            if (fieldVal == null)
+                return j.getJoinValue(savedFieldVal, col, store);
+            return j.getJoinValue(fieldVal, col, store);
         }
         return j.getJoinValue(fieldVal, col, store);
     }

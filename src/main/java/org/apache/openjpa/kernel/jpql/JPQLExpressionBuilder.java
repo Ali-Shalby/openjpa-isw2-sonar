@@ -68,7 +68,6 @@ import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Numbers;
 
 /**
  * Builder for JPQL expressions. This class takes the query parsed
@@ -1320,9 +1319,9 @@ public class JPQLExpressionBuilder
                     locateFromIndex == null ? locatePath
                         : factory.newArgumentList(locatePath,
                         factory.subtract(locateFromIndex,
-                            factory.newLiteral(Numbers.valueOf(1),
+                            factory.newLiteral(1,
                                 Literal.TYPE_NUMBER)))),
-                    factory.newLiteral(Numbers.valueOf(1),
+                    factory.newLiteral(1,
                         Literal.TYPE_NUMBER));
 
             case JJTAGGREGATE:
@@ -1443,11 +1442,11 @@ public class JPQLExpressionBuilder
             }
         } else {
             start = factory.subtract(val2, factory.newLiteral
-                (Numbers.valueOf(1), Literal.TYPE_NUMBER));
+                (1, Literal.TYPE_NUMBER));
             if (val3 != null)
             end = factory.add(val3,
                 (factory.subtract(val2, factory.newLiteral
-                    (Numbers.valueOf(1), Literal.TYPE_NUMBER))));
+                    (1, Literal.TYPE_NUMBER))));
         }
         if (val3 != null)
             return factory.substring(val1, factory.newArgumentList(start, end));

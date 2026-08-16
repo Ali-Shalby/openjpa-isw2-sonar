@@ -35,7 +35,6 @@ import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.OptimisticException;
 import org.apache.openjpa.util.StoreException;
-import serp.util.Numbers;
 
 /**
  * Store manager to a back-end consisting of XML files. This
@@ -92,7 +91,7 @@ public class XMLStoreManager
         long version = 0;
         if (sm.getVersion() != null)
             version = ((Long) sm.getVersion()).longValue() + 1;
-        sm.setNextVersion(Numbers.valueOf(version));
+        sm.setNextVersion(version);
     }
 
     public boolean initialize(OpenJPAStateManager sm, PCState state,
@@ -283,5 +282,9 @@ public class XMLStoreManager
             pcs.add(ctx.find(datas[i].getId(), fetch, null, datas[i], 0));
         }
         return new ListResultObjectProvider(pcs);
+    }
+    public boolean isCached(List<Object> oids, BitSet edata) {
+        // XMLStoreManager does not cache oids. 
+        return false;
     }
 }

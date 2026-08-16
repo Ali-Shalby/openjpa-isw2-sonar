@@ -37,7 +37,6 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.ImplHelper;
-import serp.util.Numbers;
 
 /**
  * State manager used to access state of embedded object id primary key fields.
@@ -472,7 +471,7 @@ public class ObjectIdStateManager
     }
 
     public void storeInt(int field, int extVal) {
-        setValue(field, Numbers.valueOf(extVal), true);
+        setValue(field, extVal, true);
     }
 
     public void storeShort(int field, short extVal) {
@@ -480,7 +479,7 @@ public class ObjectIdStateManager
     }
 
     public void storeLong(int field, long extVal) {
-        setValue(field, Numbers.valueOf(extVal), true);
+        setValue(field, extVal, true);
     }
 
     public void storeFloat(int field, float extVal) {
@@ -674,9 +673,9 @@ public class ObjectIdStateManager
             case JavaTypes.FLOAT:
                 return ZERO_FLOAT;
             case JavaTypes.INT:
-                return Numbers.valueOf(0);
+                return 0;
             case JavaTypes.LONG:
-                return Numbers.valueOf(0L);
+                return 0L;
             case JavaTypes.SHORT:
                 return ZERO_SHORT;
             default:

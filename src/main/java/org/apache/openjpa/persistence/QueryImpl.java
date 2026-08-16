@@ -44,7 +44,6 @@ import javax.persistence.TemporalType;
 import javax.persistence.TypedQuery;
 import javax.persistence.criteria.ParameterExpression;
 
-import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.DelegatingQuery;
@@ -99,8 +98,7 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
 	 * @param ret Exception translator for this query
 	 * @param query The underlying "kernel" query.
 	 */
-	public QueryImpl(EntityManagerImpl em, RuntimeExceptionTranslator ret,
-			org.apache.openjpa.kernel.Query query) {
+	public QueryImpl(EntityManagerImpl em, RuntimeExceptionTranslator ret, org.apache.openjpa.kernel.Query query) {
 		_em = em;
 		_query = new DelegatingQuery(query, ret);
 		_lock = new ReentrantLock();
@@ -111,8 +109,7 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
 	 * 
 	 * @deprecated
 	 */
-	public QueryImpl(EntityManagerImpl em,
-	        org.apache.openjpa.kernel.Query query) {
+	public QueryImpl(EntityManagerImpl em, org.apache.openjpa.kernel.Query query) {
 		this(em, null, query);
 	}
 
@@ -151,7 +148,8 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
 	}
 
 	public String getQueryString() {
-		return _query.getQueryString();
+		String result = _query.getQueryString();
+		return result != null ? result : _id;
 	}
 
 	public boolean getIgnoreChanges() {
@@ -292,6 +290,8 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
                 postExecute(result);
             }
             return result;
+		} catch (LockTimeoutException e) {
+		    throw new QueryTimeoutException(e.getMessage(), new Throwable[]{e}, this);
 		} finally {
 		    unlock();
 		}
@@ -462,24 +462,28 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
     }
 
     /**
-     * Returns the innermost implementation that is an instance of the given 
-     * class. 
+     * Unwraps this receiver to an instance of the given class, if possible.
      * 
-     * @throws PersistenceException if none in the delegate chain is an 
-     * instance of the given class.
+     * @exception if the given class is null, generic <code>Object.class</code> or a class
+     * that is not wrapped by this receiver.  
      * 
      * @since 2.0.0
      */
     public <T> T unwrap(Class<T> cls) {
-        Object[] delegates = new Object[]{_query.getInnermostDelegate(), 
-            _query.getDelegate(), _query, this};
+        Object[] delegates = new Object[]{_query.getInnermostDelegate(), _query.getDelegate(), _query, this};
         for (Object o : delegates) {
-            if (cls.isInstance(o))
+            if (cls != null && cls != Object.class && cls.isInstance(o))
                 return (T)o;
         }
-        throw new PersistenceException(_loc.get("unwrap-query-invalid", cls)
-            .toString(), null, this, false);
+        // Set this transaction to rollback only (as per spec) here because the raised exception 
+        // does not go through normal exception translation pathways
+        RuntimeException ex = new PersistenceException(_loc.get("unwrap-query-invalid", cls).toString(), null, 
+                this, false);
+        if (_em.isActive())
+            _em.setRollbackOnly(ex);
+        throw ex;
     }
+
     
     // =======================================================================
     // Prepared Query Cache related methods
@@ -504,6 +508,12 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
             return false;
         }
         FetchConfiguration fetch = _query.getFetchConfiguration();
+        if (fetch.getReadLockLevel() != 0) {
+            if (cache.get(_id) != null) {
+                ignorePreparedQuery();
+            }
+            return false;
+        }
         Boolean registered = cache.register(_id, _query, fetch);
         boolean alreadyCached = (registered == null);
         String lang = _query.getLanguage();
@@ -525,7 +535,7 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
             }
             stats.recordExecution(pq.getOriginalQuery());
         } else {
-            stats.recordExecution(_query.getQueryString());
+            stats.recordExecution(getQueryString());
         }
         return registered == Boolean.TRUE;
     }
@@ -1078,4 +1088,9 @@ public class QueryImpl<X> implements OpenJPAQuerySPI<X>, Serializable {
     }
     
     // ================== End of Parameter Processing routines ================================
+    
+    public String toString() {
+        String result = _query.getQueryString(); 
+        return result != null ? result : _id;
+    }
 }

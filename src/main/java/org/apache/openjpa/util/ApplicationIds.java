@@ -41,7 +41,6 @@ import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueStrategies;
-import serp.util.Numbers;
 
 /**
  * Utility class for manipulating application object ids.
@@ -609,11 +608,11 @@ public class ApplicationIds {
         }
 
         public void storeIntField(int field, int val) {
-            store(Numbers.valueOf(val));
+            store(val);
         }
 
         public void storeLongField(int field, long val) {
-            store(Numbers.valueOf(val));
+            store(val);
         }
 
         public void storeFloatField(int field, float val) {

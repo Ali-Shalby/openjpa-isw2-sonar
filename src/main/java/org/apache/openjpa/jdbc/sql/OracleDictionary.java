@@ -60,7 +60,6 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Numbers;
 
 /**
  * Dictionary for Oracle.
@@ -1006,7 +1005,7 @@ public class OracleDictionary
     public Object getGeneratedKey(Column col, Connection conn)
         throws SQLException {
         if (!useTriggersForAutoAssign)
-            return Numbers.valueOf(0L);
+            return 0L;
 
         // if we simulate auto-assigned columns using triggers and
         // sequences, then return the current value of the sequence
@@ -1023,7 +1022,7 @@ public class OracleDictionary
             setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
             rs.next();
-            return Numbers.valueOf(rs.getLong(1));
+            return rs.getLong(1);
         } finally {
             if (rs != null)
                 try { rs.close(); } catch (SQLException se) {}
@@ -1129,7 +1128,7 @@ public class OracleDictionary
         Object data)
         throws SQLException {
         try {
-            method.invoke(target, new Object[]{ Numbers.valueOf(1L), data });
+            method.invoke(target, new Object[]{ 1L, data });
         } catch (InvocationTargetException ite) {
             Throwable t = ite.getTargetException();
             if (t instanceof SQLException)
@@ -1260,25 +1259,20 @@ public class OracleDictionary
     }
     
     @Override
-    protected Boolean matchErrorState(int subtype, Set<String> errorStates,
-        SQLException ex) {
-        Boolean recoverable = null;
+    public boolean isFatalException(int subtype, SQLException ex) {
         String errorState = ex.getSQLState();
         int errorCode = ex.getErrorCode();
-        if (errorStates.contains(errorState)) {
-            recoverable = Boolean.FALSE;
-            if ((subtype == StoreException.LOCK)
-                && ((errorState.equals("61000") && (errorCode == 54 ||
-                     errorCode == 60 || errorCode == 4020 ||
-                     errorCode == 4021 || errorCode == 4022))
-                    || (errorState.equals("42000") && errorCode == 2049))) {
-                recoverable = Boolean.TRUE;
-            } else if (subtype == StoreException.QUERY &&
-                errorState.equals("72000") && errorCode == 1013) {
-                recoverable = Boolean.TRUE;
-            }
+        if ((subtype == StoreException.LOCK)
+            && (("61000".equals(errorState) && (errorCode == 54 ||
+                 errorCode == 60 || errorCode == 4020 ||
+                 errorCode == 4021 || errorCode == 4022))
+                || ("42000".equals(errorState) && errorCode == 2049))) {
+            return false;
+        } 
+        if ("72000".equals(errorState) && errorCode == 1013) {
+            return false;
         }
-        return recoverable;
+        return super.isFatalException(subtype, ex);
     }
     
     @Override

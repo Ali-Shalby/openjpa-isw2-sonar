@@ -22,7 +22,6 @@ import java.util.Collection;
 import java.util.Iterator;
 
 import org.apache.openjpa.kernel.Filters;
-import serp.util.Numbers;
 
 /**
  * Sum values.
@@ -53,7 +52,7 @@ class Sum
             return null;
 
         Class type = getType(c);
-        Object sum = Filters.convert(Numbers.valueOf(0), type);
+        Object sum = Filters.convert(0, type);
         Object cur;
         for (Iterator itr = os.iterator(); itr.hasNext();) {
             cur = itr.next();

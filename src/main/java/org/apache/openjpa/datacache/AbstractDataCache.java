@@ -39,6 +39,8 @@ import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.concurrent.AbstractConcurrentEventManager;
+import org.apache.openjpa.util.GeneralException;
+import org.apache.openjpa.util.OpenJPAException;
 
 import serp.util.Strings;
 
@@ -74,6 +76,8 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     private String _name = null;
     private boolean _closed = false;
     private String _schedule = null;
+    protected Set<String> _includedTypes = new HashSet<String>();
+    protected Set<String> _excludedTypes = new HashSet<String>();
 
     public String getName() {
         return _name;
@@ -81,6 +85,14 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
 
     public void setName(String name) {
         _name = name;
+    }
+    public void setEnableStatistics(boolean enable){
+        if(enable == true){
+            stats.enable();
+        }
+    }
+    public void getEnableStatistics(){
+        stats.isEnabled();
     }
 
     public String getEvictionSchedule() {
@@ -90,12 +102,28 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     public void setEvictionSchedule(String s) {
         _schedule = s;
     }
-
+    
     public void initialize(DataCacheManager manager) {
         if (_schedule != null && !"".equals(_schedule)) {
-            DataCacheScheduler scheduler = manager.getDataCacheScheduler();
+            ClearableScheduler scheduler = manager.getClearableScheduler();
             if (scheduler != null)
                 scheduler.scheduleEviction(this, _schedule);
+        }
+        // Cast here rather than add to the interface because this is a hack to support an older way of configuring
+        if(manager instanceof DataCacheManagerImpl){
+            List<String> invalidConfigured = new ArrayList<String>();
+            // assert that things are configured properly
+            if(_includedTypes!=null){
+                for(String s : _includedTypes){
+                    if(_excludedTypes.contains(s)){
+                        invalidConfigured.add(s);
+                    }
+                }
+                if (invalidConfigured.size() > 0) {
+                    throw new GeneralException(s_loc.get("invalid-types-excluded-types", invalidConfigured.toString()));
+                }
+            }
+            ((DataCacheManagerImpl)manager).setTypes(_includedTypes, _excludedTypes);
         }
     }
 
@@ -131,7 +159,9 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
 
     public boolean contains(Object key) {
         DataCachePCData o = getInternal(key);
-        stats.newGet(o == null ? null : o.getType(), o != null);
+        if (stats.isEnabled()) {
+            stats.newGet(o == null ? null : o.getType(), o != null);
+        }
         if (o != null && o.isTimedOut()) {
             o = null;
             removeInternal(key);
@@ -167,7 +197,9 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
             else
                 log.trace(s_loc.get("cache-hit", key));
         }
-        stats.newGet((o == null) ? null : o.getType(), o != null);
+        if (stats.isEnabled()) {
+            stats.newGet((o == null) ? null : o.getType(), o != null);
+        }
         return o;
     }
 
@@ -183,7 +215,9 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     }
 
     public DataCachePCData put(DataCachePCData data) {
-        stats.newPut(data.getType());
+        if (stats.isEnabled()) {
+            stats.newPut(data.getType());
+        }
         DataCachePCData o = putInternal(data.getId(), data);
         if (log.isTraceEnabled())
             log.trace(s_loc.get("cache-put", data.getId()));
@@ -192,7 +226,9 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
 
     public void update(DataCachePCData data) {
         if (recacheUpdates()) {
-            stats.newPut(data.getType());
+            if (stats.isEnabled()) {
+                stats.newPut(data.getType());
+            }
             putInternal(data.getId(), data);
         }
     }
@@ -381,7 +417,9 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
      */
     protected void putAllInternal(Collection<DataCachePCData> pcs) {
         for (DataCachePCData pc : pcs) {
-            stats.newPut(pc.getType());
+            if (stats.isEnabled()) {
+                stats.newPut(pc.getType());
+            }
             putInternal(pc.getId(), pc);
         }
     }
@@ -486,4 +524,29 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
 		}
 	}
     
+    public Set<String> getTypes() {
+        return _includedTypes;
+    }
+
+    public Set<String> getExcludedTypes() {
+        return _excludedTypes;
+    }
+
+    public void setTypes(Set<String> types) {
+        _includedTypes = types;
+    }
+
+    public void setTypes(String types) {
+        _includedTypes =
+            StringUtils.isEmpty(types) ? null : new HashSet<String>(Arrays.asList(Strings.split(types, ";", 0)));
+    }
+
+    public void setExcludedTypes(Set<String> types) {
+        _excludedTypes = types;
+    }
+
+    public void setExcludedTypes(String types) {
+        _excludedTypes =
+            StringUtils.isEmpty(types) ? null : new HashSet<String>(Arrays.asList(Strings.split(types, ";", 0)));
+    }
 }

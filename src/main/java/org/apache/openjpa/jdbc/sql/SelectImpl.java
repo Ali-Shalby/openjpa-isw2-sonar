@@ -61,7 +61,6 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.Id;
 import org.apache.openjpa.util.InternalException;
-import serp.util.Numbers;
 
 /**
  * Standard {@link Select} implementation. Usage note: though this class
@@ -158,6 +157,7 @@ public class SelectImpl
     private List _subsels = null;
     private SelectImpl _parent = null;
     private String _subPath = null;
+    private boolean _hasSub = false;
 
     // from select if this select selects from a tmp table created by another
     private SelectImpl _from = null;
@@ -377,6 +377,7 @@ public class SelectImpl
                 forUpdate = lm.selectForUpdate(this, lockLevel);
         }
 
+        logEagerRelations();
         SQLBuffer sql = toSelect(forUpdate, fetch);
         boolean isLRS = isLRS();
         int rsType = (isLRS && supportsRandomAccess(forUpdate))
@@ -557,6 +558,14 @@ public class SelectImpl
             else
                 _joinSyntax = _parent._joinSyntax;
         }
+    }
+    
+    public void setHasSubselect(boolean hasSub) {
+        _hasSub = hasSub;
+    }
+    
+    public boolean getHasSubselect() {
+        return _hasSub;    
     }
     
     public Map getAliases() {
@@ -1252,7 +1261,7 @@ public class SelectImpl
             return null;
         List idxs = new ArrayList(_ordered.size());
         for (int i = 0; i < _ordered.size(); i++)
-            idxs.add(Numbers.valueOf(_selects.indexOf(_ordered.get(i))));
+            idxs.add(_selects.indexOf(_ordered.get(i)));
         return idxs;
     }
 
@@ -1353,7 +1362,7 @@ public class SelectImpl
         for (int i = 0; i < toCols.length; i++, count++) {
             if (pks == null)
                 val = (oid == null) ? null :
-                        Numbers.valueOf(((Id) oid).getId());
+                        ((Id) oid).getId();
             else {
                 // must be app identity; use pk index to get correct pk value
                 join = mapping.assertJoinable(toCols[i]);
@@ -1760,6 +1769,13 @@ public class SelectImpl
         return _eager;
     }
 
+    public void logEagerRelations() {
+        if (_eagerKeys != null) {
+            _conf.getLog(JDBCConfiguration.LOG_DIAG).trace(
+                "Eager relations: "+_eagerKeys);
+        }
+    }
+
     public SelectExecutor getEager(FieldMapping key) {
         if (_eager == null || !_eagerKeys.contains(key))
             return null;
@@ -1990,8 +2006,9 @@ public class SelectImpl
         if (pj != null && pj.path() != null)
             key = new Key(pj.path().toString(), key);
 
-        if (_ctx != null)
+        if (_ctx != null && (_parent != null || _subsels != null || _hasSub)) {
             i = findAliasForQuery(table, pj, key, create);
+        }
 
         if (i != null)
             return i.intValue();
@@ -2005,7 +2022,7 @@ public class SelectImpl
             return -1;
 
         // not found; create alias
-        i = Numbers.valueOf(aliasSize(null));
+        i = aliasSize(null);
 //        System.out.println("GetTableIndex\t"+
 //                ((_parent != null) ? "Sub" :"") +
 //                " created alias: "+
@@ -2067,7 +2084,7 @@ public class SelectImpl
     }
 
     private int createAlias(Table table, Object key) {
-        Integer i = Numbers.valueOf(ctx().nextAlias());
+        Integer i = ctx().nextAlias();
 //        System.out.println("\t"+
 //                ((_parent != null) ? "Sub" :"") +
 //                "Query created alias: "+ 
@@ -3111,9 +3128,10 @@ public class SelectImpl
                         alias = alias + _dict.getStringVal;
                         
                     String as = null;
-                    if (inner)
-                        as = ((String) alias).replace('.', '_');
-                    else if (_selectAs != null)
+                    if (inner) {
+                        if (alias instanceof String)
+                            as = ((String) alias).replace('.', '_');
+                    } else if (_selectAs != null)
                         as = (String) _selectAs.get(id);
                     else if (id instanceof Value)
                         as = ((Value) id).getAlias();

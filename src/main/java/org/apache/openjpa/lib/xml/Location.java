@@ -22,7 +22,6 @@ import java.text.MessageFormat;
 
 import org.xml.sax.Locator;
 import org.apache.openjpa.lib.util.Localizer;
-import serp.util.Numbers;
 
 /**
  * @author Stephen Kim
@@ -53,8 +52,8 @@ public class Location {
             return _loc.get("no-locator").getMessage();
         }
         return MessageFormat.format(format, new Object []{
-            Numbers.valueOf(_locator.getLineNumber()),
-            Numbers.valueOf(_locator.getColumnNumber()), _locator.getPublicId(),
+            _locator.getLineNumber(),
+            _locator.getColumnNumber(), _locator.getPublicId(),
             _locator.getSystemId() });
     }
 

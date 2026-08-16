@@ -58,7 +58,6 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Numbers;
 
 ////////////////////////////////////////////////////////////
 // NOTE: Do not change property names; see SequenceMetaData
@@ -301,7 +300,7 @@ public class TableJDBCSeq
                 // conflict with uninitialized values
                 stat.seq = Math.max(stat.seq, 1);
                 if (stat.seq < stat.max)
-                    return Numbers.valueOf(stat.seq++);
+                    return stat.seq++;
             }
             allocateSequence(store, mapping, stat, _alloc, true);
         }
@@ -375,7 +374,7 @@ public class TableJDBCSeq
      * Return the primary key value for the sequence table for the given class.
      */
     protected Object getPrimaryKey(ClassMapping mapping) {
-        return Numbers.valueOf(0);
+        return 0;
     }
 
     /**
@@ -595,10 +594,10 @@ public class TableJDBCSeq
                         _seqColumn.getTable());
                 upd.append("UPDATE ").append(tableName).
                     append(" SET ").append(_seqColumn).append(" = ").
-                    appendValue(Numbers.valueOf(cur + inc), _seqColumn).
+                    appendValue(cur + inc, _seqColumn).
                     append(" WHERE ").append(where).append(" AND ").
                     append(_seqColumn).append(" = ").
-                    appendValue(Numbers.valueOf(cur), _seqColumn);
+                    appendValue(cur, _seqColumn);
 
                 stmnt = prepareStatement(conn, upd);
                 dict.setTimeouts(stmnt, _conf, true);
@@ -952,7 +951,7 @@ public class TableJDBCSeq
                 conn = getConnection(_store);
                 long cur = getSequence(_mapping, conn);
                 if (cur != -1 ) // USE the constant
-                    current = Numbers.valueOf(cur);
+                    current = cur;
             } catch (SQLException sqle) {
                 RuntimeException re = new RuntimeException(sqle.getMessage());
                 re.initCause(sqle);

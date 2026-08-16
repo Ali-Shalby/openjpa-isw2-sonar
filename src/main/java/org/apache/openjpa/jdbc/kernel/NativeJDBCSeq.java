@@ -45,7 +45,6 @@ import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Numbers;
 import serp.util.Strings;
 
 ///////////////////////////////////////////////////////////
@@ -226,7 +225,7 @@ public class NativeJDBCSeq
         throws SQLException {
         Connection conn = getConnection(store);
         try {
-            return Numbers.valueOf(getSequence(conn));
+            return getSequence(conn);
         } finally {
             closeConnection(conn);
         }

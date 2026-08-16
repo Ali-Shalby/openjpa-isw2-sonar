@@ -101,7 +101,6 @@ import serp.bytecode.MethodInstruction;
 import serp.bytecode.Project;
 import serp.bytecode.TableSwitchInstruction;
 import serp.bytecode.ClassInstruction;
-import serp.util.Numbers;
 import serp.util.Strings;
 
 /**
@@ -495,23 +494,24 @@ public class PCEnhancer {
      * @return <code>ENHANCE_*</code> constant
      */
     public int run() {
+        Class<?> type = _managedType.getType();
         try {
             // if managed interface, skip
             if (_pc.isInterface())
                 return ENHANCE_INTERFACE;
 
             // check if already enhanced
-            ClassLoader loader = _managedType.getType().getClassLoader();
+            ClassLoader loader = AccessController.doPrivileged(J2DoPrivHelper.getClassLoaderAction(type));
             for (Class<?> iface : _managedType.getDeclaredInterfaceTypes()) {
                 if (iface.getName().equals(PCTYPE.getName())) {
                     if (_log.isTraceEnabled()) {
-                        _log.trace(_loc.get("pc-type", _managedType.getType(), loader));
+                        _log.trace(_loc.get("pc-type", type, loader));
                     }
                     return ENHANCE_NONE;
                 }
             }
             if (_log.isTraceEnabled()) {
-                _log.trace(_loc.get("enhance-start", _managedType.getType(), loader));
+                _log.trace(_loc.get("enhance-start", type, loader));
             }
 
 
@@ -541,13 +541,13 @@ public class PCEnhancer {
             }
 
             if (_log.isWarnEnabled())
-                _log.warn(_loc.get("pers-aware", _managedType.getType(), loader));
+                _log.warn(_loc.get("pers-aware", type, loader));
             return ENHANCE_AWARE;
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
             throw new GeneralException(_loc.get("enhance-error",
-                _managedType.getType().getName(), e.getMessage()), e);
+                type.getName(), e.getMessage()), e);
         }
     }
 
@@ -2929,8 +2929,8 @@ public class PCEnhancer {
         if (field == null) {
             Long uid = null;
             try {
-                uid = Numbers.valueOf(ObjectStreamClass.lookup
-                    (_meta.getDescribedType()).getSerialVersionUID());
+                uid = ObjectStreamClass.lookup
+                    (_meta.getDescribedType()).getSerialVersionUID();
             } catch (Throwable t) {
                 // last-chance catch for bug #283 (which can happen
                 // in a variety of ClassLoading environments)
@@ -3713,7 +3713,8 @@ public class PCEnhancer {
             v.setTransient(true);
             loadManagedInstance(code, true);
             code.constant().setValue(1);
-            addSetManagedValueCode(code, v);   
+            // pcVersionInit = true;
+            putfield(code, null, v.getName(), v.getDeclaredType());   
         }
         code.vreturn();
 

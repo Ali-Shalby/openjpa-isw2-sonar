@@ -21,6 +21,7 @@ package org.apache.openjpa.kernel;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -30,6 +31,8 @@ import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.ValueMetaData;
+import org.apache.openjpa.util.Exceptions;
+import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 
 ///////////////////////////////////////////////////////////////
@@ -101,6 +104,25 @@ public class DelegatingBroker
      * Translate the OpenJPA exception.
      */
     protected RuntimeException translate(RuntimeException re) {
+        return (_trans == null) ? re : _trans.translate(re);
+    }
+    
+    /**
+     * Translate the exception with the failed object.
+     * 
+     * @param re exception raised by the delegate.
+     * @param failed the context that failed.
+     * 
+     * @return the translated exception. If the given input exception had not set 
+     * the failed instance, then sets the given instance as the failed context.
+     */
+    protected RuntimeException translate(RuntimeException re, Object failed) {
+        if (re instanceof OpenJPAException) {
+            Object o = ((OpenJPAException) re).getFailedObject();
+            if (o == null || "null".equals(o)) {
+                ((OpenJPAException) re).setFailedObject(Exceptions.toString(failed));
+            }
+        }
         return (_trans == null) ? re : _trans.translate(re);
     }
 
@@ -200,7 +222,7 @@ public class DelegatingBroker
         try {
             return _broker.find(oid, validate, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, oid);
         }
     }
 
@@ -209,7 +231,7 @@ public class DelegatingBroker
         try {
             return _broker.findAll(oids, validate, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, oids);
         }
     }
 
@@ -217,7 +239,7 @@ public class DelegatingBroker
         try {
             return _broker.findCached(oid, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, oid);
         }
     }
 
@@ -226,7 +248,7 @@ public class DelegatingBroker
         try {
             return _broker.find(oid, fetch, exclude, edata, flags);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, oid);
         }
     }
 
@@ -235,7 +257,7 @@ public class DelegatingBroker
         try {
             return _broker.findAll(oids, fetch, exclude, edata, flags);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, oids);
         }
     }
 
@@ -1071,7 +1093,7 @@ public class DelegatingBroker
         try {
             _broker.delete(obj, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1079,7 +1101,7 @@ public class DelegatingBroker
         try {
             _broker.deleteAll(objs, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1087,7 +1109,7 @@ public class DelegatingBroker
         try {
             _broker.release(obj, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1095,7 +1117,7 @@ public class DelegatingBroker
         try {
             _broker.releaseAll(objs, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1103,7 +1125,7 @@ public class DelegatingBroker
         try {
             _broker.refresh(obj, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1111,7 +1133,7 @@ public class DelegatingBroker
         try {
             _broker.refreshAll(objs, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1119,7 +1141,7 @@ public class DelegatingBroker
         try {
             _broker.evict(obj, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1127,7 +1149,7 @@ public class DelegatingBroker
         try {
             _broker.evictAll(objs, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1143,7 +1165,7 @@ public class DelegatingBroker
         try {
             _broker.evictAll(extent, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, extent.getElementType());
         }
     }
 
@@ -1151,7 +1173,7 @@ public class DelegatingBroker
         try {
             return _broker.detach(obj, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1159,7 +1181,7 @@ public class DelegatingBroker
         try {
             return _broker.detachAll(objs, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1183,7 +1205,7 @@ public class DelegatingBroker
         try {
             return _broker.attach(obj, copyNew, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1192,7 +1214,7 @@ public class DelegatingBroker
         try {
             return _broker.attachAll(objs, copyNew, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1201,7 +1223,7 @@ public class DelegatingBroker
         try {
             _broker.transactional(pc, updateVersion, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, pc);
         }
     }
 
@@ -1210,7 +1232,7 @@ public class DelegatingBroker
         try {
             _broker.transactionalAll(objs, updateVersion, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1218,7 +1240,7 @@ public class DelegatingBroker
         try {
             _broker.nontransactional(pc, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, pc);
         }
     }
 
@@ -1226,7 +1248,7 @@ public class DelegatingBroker
         try {
             _broker.nontransactionalAll(objs, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1234,7 +1256,7 @@ public class DelegatingBroker
         try {
             return _broker.newExtent(cls, subs);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, cls);
         }
     }
 
@@ -1242,7 +1264,7 @@ public class DelegatingBroker
         try {
             return _broker.newQuery(language, cls, query);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, query);
         }
     }
 
@@ -1250,7 +1272,7 @@ public class DelegatingBroker
         try {
             return _broker.newQuery(language, query);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, query);
         }
     }
 
@@ -1274,7 +1296,7 @@ public class DelegatingBroker
         try {
             _broker.lock(obj, level, timeout, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1282,7 +1304,7 @@ public class DelegatingBroker
         try {
             _broker.lock(obj, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, obj);
         }
     }
 
@@ -1291,7 +1313,7 @@ public class DelegatingBroker
         try {
             _broker.lockAll(objs, level, timeout, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1299,7 +1321,7 @@ public class DelegatingBroker
         try {
             _broker.lockAll(objs, call);
         } catch (RuntimeException re) {
-            throw translate(re);
+            throw translate(re, objs);
         }
     }
 
@@ -1417,5 +1439,33 @@ public class DelegatingBroker
     
     public void setCachePreparedQuery(boolean flag) {
         _broker.setCachePreparedQuery(flag);
+    }
+    
+    public String getConnectionFactoryName() {
+        return _broker.getConnectionFactoryName();
+    }
+
+    public void setConnectionFactoryName(String connectionFactoryName) {
+        _broker.setConnectionFactoryName(connectionFactoryName);
+    }
+
+    public String getConnectionFactory2Name() {
+        return _broker.getConnectionFactory2Name();
+    }
+
+    public void setConnectionFactory2Name(String connectionFactory2Name) {
+        _broker.setConnectionFactory2Name(connectionFactory2Name);
+    }
+    
+    public Object getConnectionFactory() {
+        return _broker.getConnectionFactory();
+    }
+
+    public Object getConnectionFactory2() {
+        return _broker.getConnectionFactory2();
+    }
+    
+    public boolean isCached(List<Object> oid) {
+        return _broker.isCached(oid);
     }
 }

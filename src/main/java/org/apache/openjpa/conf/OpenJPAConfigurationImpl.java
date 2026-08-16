@@ -18,17 +18,16 @@
  */
 package org.apache.openjpa.conf;
 
-import java.net.URL;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.datacache.CacheDistributionPolicy;
 import org.apache.openjpa.datacache.ConcurrentDataCache;
 import org.apache.openjpa.datacache.ConcurrentQueryCache;
 import org.apache.openjpa.datacache.DataCacheManager;
 import org.apache.openjpa.datacache.DataCacheManagerImpl;
-import org.apache.openjpa.datacache.DataCacheMode;
 import org.apache.openjpa.datacache.PartitionedDataCache;
 import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.enhance.RuntimeUnenhancedClassesModes;
@@ -71,11 +70,6 @@ import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.StoreFacadeTypeRegistry;
 import org.apache.openjpa.validation.ValidatingLifecycleEventManager;
-import org.apache.openjpa.writebehind.SimpleWriteBehindCache;
-import org.apache.openjpa.writebehind.SimpleWriteBehindCallback;
-import org.apache.openjpa.writebehind.WriteBehindCacheManager;
-import org.apache.openjpa.writebehind.WriteBehindCacheManagerImpl;
-import org.apache.openjpa.writebehind.WriteBehindCallback;
 
 /**
  * Implementation of the {@link OpenJPAConfiguration} interface.
@@ -100,6 +94,7 @@ public class OpenJPAConfigurationImpl
     public BrokerValue brokerPlugin;
     public ObjectValue dataCachePlugin;
     public ObjectValue dataCacheManagerPlugin;
+    public ObjectValue cacheDistributionPolicyPlugin;
     public IntValue dataCacheTimeout;
     public ObjectValue queryCachePlugin;
     public BooleanValue dynamicDataStructs;
@@ -170,9 +165,6 @@ public class OpenJPAConfigurationImpl
     public StringValue validationGroupPrePersist;
     public StringValue validationGroupPreUpdate;
     public StringValue validationGroupPreRemove;
-    public ObjectValue writeBehindCachePlugin;
-    public ObjectValue writeBehindCacheManagerPlugin;
-    public ObjectValue writeBehindCallbackPlugin;
     public StringValue dataCacheMode; 
     public BooleanValue dynamicEnhancementAgent;
     
@@ -184,7 +176,7 @@ public class OpenJPAConfigurationImpl
     private Collection<String> supportedOptions = new HashSet<String>(33);
     private final StoreFacadeTypeRegistry _storeFacadeRegistry = new StoreFacadeTypeRegistry();
     private BrokerFactoryEventManager _brokerFactoryEventManager = new BrokerFactoryEventManager(this);
-    private URL _puRootUrl;    
+    private Map<String, Object> _peMap; //contains persistence environment-specific info    
 
     /**
      * Default constructor. Attempts to load global properties.
@@ -236,6 +228,15 @@ public class OpenJPAConfigurationImpl
         dataCacheManagerPlugin.setString(aliases[0]);
         dataCacheManagerPlugin.setInstantiatingGetter("getDataCacheManager");
 
+        cacheDistributionPolicyPlugin = addPlugin("CacheDistributionPolicy", true);
+        aliases = new String[] {
+                "default",    "org.apache.openjpa.datacache.DefaultCacheDistributionPolicy",
+                "type-based", "org.apache.openjpa.datacache.TypeBasedCacheDistributionPolicy"};
+        cacheDistributionPolicyPlugin.setAliases(aliases);
+        cacheDistributionPolicyPlugin.setDefault(aliases[0]);
+        cacheDistributionPolicyPlugin.setString(aliases[0]);
+        cacheDistributionPolicyPlugin.setInstantiatingGetter("getCacheDistributionPolicy");
+        
         dataCachePlugin = addPlugin("DataCache", false);
         aliases = new String[] { 
             "false", null, 
@@ -252,11 +253,11 @@ public class OpenJPAConfigurationImpl
         dataCacheTimeout.set(-1);
         dataCacheTimeout.setDynamic(true);
 
-        queryCachePlugin = addPlugin("QueryCache", true);
+        queryCachePlugin = addPlugin("QueryCache", false);
         aliases = new String[] { 
+            "false", null, 
             "true", ConcurrentQueryCache.class.getName(),
             "concurrent", ConcurrentQueryCache.class.getName(), 
-            "false", null, 
         };
         queryCachePlugin.setAliases(aliases);
         queryCachePlugin.setDefault(aliases[0]);
@@ -585,32 +586,6 @@ public class OpenJPAConfigurationImpl
         supportedOptions.add(OPTION_VALUE_INCREMENT);
         supportedOptions.add(OPTION_DATASTORE_CONNECTION);
         
-        writeBehindCacheManagerPlugin = addPlugin("WriteBehindCacheManager", true);
-        aliases = new String[] { "default", WriteBehindCacheManagerImpl.class.getName() };
-        writeBehindCacheManagerPlugin.setAliases(aliases);
-        writeBehindCacheManagerPlugin.setDefault(aliases[0]);
-        writeBehindCacheManagerPlugin.setString(aliases[0]);
-        writeBehindCacheManagerPlugin.setInstantiatingGetter("getWriteBehindCacheManager");
-
-        writeBehindCachePlugin = addPlugin("WriteBehindCache", false);
-        aliases = new String[] { 
-            "false",  null, 
-            "true",   SimpleWriteBehindCache.class.getName(), 
-            "simple", SimpleWriteBehindCache.class.getName() };
-        writeBehindCachePlugin.setAliases(aliases);
-        writeBehindCachePlugin.setDefault(aliases[0]);
-        writeBehindCachePlugin.setString(aliases[0]);
-        
-        writeBehindCallbackPlugin = addPlugin("WriteBehindCallback", true); 
-        aliases = new String[] { 
-            "false",  null, 
-            "true",   SimpleWriteBehindCallback.class.getName(), 
-            "simple", SimpleWriteBehindCallback.class.getName() };
-        writeBehindCallbackPlugin.setAliases(aliases);
-        writeBehindCallbackPlugin.setDefault(aliases[0]);
-        writeBehindCallbackPlugin.setString(aliases[0]);
-        
-
         if (derivations)
             ProductDerivations.beforeConfigurationLoad(this);
         if (loadGlobals)
@@ -704,13 +679,24 @@ public class OpenJPAConfigurationImpl
         dataCacheManagerPlugin.set(dcm);
     }
 
+    // This boolean is used for double checked locking. We want to minimize the amount of time that
+    // we're locking here.
+    private boolean dataCacheManagerInitialized = false;
     public DataCacheManager getDataCacheManagerInstance() {
-        DataCacheManager dcm = (DataCacheManager) dataCacheManagerPlugin.get();
-        if (dcm == null) {
-            dcm =  (DataCacheManager) dataCacheManagerPlugin.instantiate(DataCacheManager.class, this);
-            dcm.initialize(this, dataCachePlugin, queryCachePlugin);
+        if (dataCacheManagerInitialized == false) {
+            synchronized (this) {
+                if (dataCacheManagerInitialized == false) {
+                    DataCacheManager dcm = (DataCacheManager) dataCacheManagerPlugin.get();
+                    if (dcm == null) {
+                        dcm = (DataCacheManager) dataCacheManagerPlugin.instantiate(DataCacheManager.class, this);
+                        dcm.initialize(this, dataCachePlugin, queryCachePlugin);
+                    }
+                    dataCacheManagerInitialized = true;
+                    return dcm;
+                }
+            }
         }
-        return dcm;
+        return (DataCacheManager) dataCacheManagerPlugin.get();
     }
 
     public void setDataCache(String dataCache) {
@@ -1646,6 +1632,9 @@ public class OpenJPAConfigurationImpl
     }
     
     public PreparedQueryCache getQuerySQLCacheInstance() {
+        if (preparedQueryCachePlugin == null)
+            return null;
+        
         if (preparedQueryCachePlugin.get() == null) {
             preparedQueryCachePlugin.instantiate(PreparedQueryCache.class,
                     this);
@@ -1710,50 +1699,6 @@ public class OpenJPAConfigurationImpl
         dynamicEnhancementAgent.set(dynamic);
     }    
 
-    public String getWriteBehindCache() {
-        return writeBehindCachePlugin.getString();
-    }
-
-    public void setWriteBehindCache(String writeBehindCache) {
-        writeBehindCachePlugin.setString(writeBehindCache);
-    }
-    
-    public String getWriteBehindCacheManager() {
-        return writeBehindCacheManagerPlugin.getString();
-    }
-
-    public void setWriteBehindCacheManager(String writeBehindCacheManager) {
-        writeBehindCacheManagerPlugin.setString(writeBehindCacheManager);
-    }
-
-    public WriteBehindCacheManager getWriteBehindCacheManagerInstance() {
-        WriteBehindCacheManager wbcm =
-            (WriteBehindCacheManager) writeBehindCacheManagerPlugin.get();
-        if (wbcm == null) {
-            wbcm =
-                (WriteBehindCacheManager) writeBehindCacheManagerPlugin
-                    .instantiate(WriteBehindCacheManager.class, this);
-            wbcm.initialize(this, writeBehindCachePlugin); 
-        }
-        return wbcm;
-    }
-    
-    public String getWriteBehindCallback() { 
-        return writeBehindCallbackPlugin.getString();
-        
-    }
-    public WriteBehindCallback getWriteBehindCallbackInstance() {
-        WriteBehindCallback callback = (WriteBehindCallback) writeBehindCallbackPlugin.get();
-        if (callback == null) {
-            callback = (WriteBehindCallback) writeBehindCallbackPlugin.instantiate(WriteBehindCallback.class, this);
-        }
-        return callback;
-    }
-    
-    public void setWriteBehindCallback(String writeBehindCallback) {
-        writeBehindCallbackPlugin.setString(writeBehindCallback);
-    }
-    
     public void setEncryptionProvider(String p) {
         encryptionProvider.setString(p);
     }
@@ -1772,13 +1717,34 @@ public class OpenJPAConfigurationImpl
         return dataCacheMode.getString();
     }
     
-    public void setPuRootUrl(URL url) {
-        this._puRootUrl = url;
+
+    public String getCacheDistributionPolicy() {
+        return cacheDistributionPolicyPlugin.getString();
     }
-    
-    public URL getPuRootUrl() {
-        return _puRootUrl;
+
+    public CacheDistributionPolicy getCacheDistributionPolicyInstance() {
+        CacheDistributionPolicy policy = (CacheDistributionPolicy) cacheDistributionPolicyPlugin.get();
+        if (policy == null) {
+            policy =  (CacheDistributionPolicy) 
+                cacheDistributionPolicyPlugin.instantiate(CacheDistributionPolicy.class, this);
+        }
+        return policy;
     }
-    
+
+    public void setCacheDistributionPolicy(String policyPlugin) {
+        cacheDistributionPolicyPlugin.setString(policyPlugin);
+    }
+
+    public void setCacheDistributionPolicyInstance(CacheDistributionPolicy policy) {
+        cacheDistributionPolicyPlugin.set(policy);
+    }
+
+    public void setPersistenceEnvironment(Map<String, Object> peMap) {
+        this._peMap = peMap;
+    }
+
+    public Map<String, Object> getPersistenceEnvironment() {
+        return _peMap;
+    }
 }
 

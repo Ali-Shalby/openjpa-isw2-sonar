@@ -18,7 +18,6 @@
  */
 package org.apache.openjpa.kernel;
 
-import serp.util.Numbers;
 
 /**
  * {@link LockManager} implementation that provides support
@@ -50,7 +49,7 @@ public class VersionLockManager
      * to store something else as the lock.
      */
     protected void setLockLevel(OpenJPAStateManager sm, int level) {
-        sm.setLock(Numbers.valueOf(level));
+        sm.setLock(level);
     }
 
     /**

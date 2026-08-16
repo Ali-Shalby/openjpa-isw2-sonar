@@ -821,14 +821,22 @@ public class JDBCConfigurationImpl
     /**
      * Create the connection factory if necessary.
      */
-    private DecoratingDataSource createConnectionFactory() {
+    public DecoratingDataSource createConnectionFactory() {
         DataSource ds = (DataSource) connectionFactory.get();
-        if (ds != null)
+        Log log = getLog(LOG_JDBC);
+        if (ds != null) {
+            if (log.isTraceEnabled())
+                log.trace("createConnectionFactory: DataSource:"+ds);
+
             return setupConnectionFactory(ds, false);
+        }
 
         ds = (DataSource) super.getConnectionFactory(); // JNDI lookup
         if (ds == null)
             ds = DataSourceFactory.newDataSource(this, false);
+
+        if (log.isTraceEnabled())
+            log.trace("createConnectionFactory: DataSource="+ds);
 
         return setupConnectionFactory(ds, false);
     }

@@ -37,7 +37,6 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.Proxy;
 import org.apache.openjpa.util.UnsupportedException;
-import serp.util.Numbers;
 
 /**
  * In-memory form of data in datastore backing a single persistent object.
@@ -246,7 +245,7 @@ public final class ObjectData
         // if the version has not been set in the state manager (only true
         // when the object is new), set the version number to 0
         if (_version == null)
-            _version = Numbers.valueOf(0L);
+            _version = 0L;
 
         // run through each persistent field in the state manager and store it
         FieldMetaData[] fmds = _meta.getFields();

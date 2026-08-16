@@ -23,11 +23,14 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -64,6 +67,7 @@ import org.apache.openjpa.util.LongId;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.ObjectId;
 import org.apache.openjpa.util.OpenJPAId;
+import org.apache.openjpa.util.Proxy;
 import org.apache.openjpa.util.ShortId;
 import org.apache.openjpa.util.StringId;
 import org.apache.openjpa.util.UnsupportedException;
@@ -152,8 +156,8 @@ public class ClassMetaData
     private int _resMode = MODE_NONE;
 
     private Class<?> _type = Object.class;
-    private final Map<String,FieldMetaData> _fieldMap = 
-    	new TreeMap<String,FieldMetaData>();
+    private int _hashCode = Object.class.getName().hashCode();
+    private final Map<String,FieldMetaData> _fieldMap = new TreeMap<String,FieldMetaData>();
     private Map<String,FieldMetaData> _supFieldMap = null;
     private boolean _defSupFields = false;
     private Collection<String> _staticFields = null;
@@ -183,6 +187,9 @@ public class ClassMetaData
     private String _seqName = DEFAULT_STRING;
     private SequenceMetaData _seqMeta = null;
     private String _cacheName = DEFAULT_STRING; // null implies @DataCache(enabled=false)
+    private boolean _dataCacheEnabled = false;     // true implies the class has been annotated by the user or name of
+                                                // the cache is explicitly set by the user to a null string
+
     private Boolean _cacheEnabled = null;       // denotes status of JPA 2 @Cacheable annotation
     private int _cacheTimeout = Integer.MIN_VALUE;
     private Boolean _detachable = null;
@@ -204,6 +211,8 @@ public class ClassMetaData
     private FieldMetaData[] _definedFields = null;
     private FieldMetaData[] _listingFields = null;
     private FieldMetaData[] _allListingFields = null;
+    private FieldMetaData[] _allProxyFields = null;
+    private FieldMetaData[] _allLrsFields = null;
     private FetchGroup[] _fgs = null;
     private FetchGroup[] _customFGs = null;
     private boolean _intercepting = false;
@@ -263,6 +272,7 @@ public class ClassMetaData
             (type.getSuperclass().getName()))
             throw new MetaDataException(_loc.get("enum", type));
         _type = type;
+        _hashCode = _type.getName().hashCode();
         if (PersistenceCapable.class.isAssignableFrom(type))
             setIntercepting(true);
     }
@@ -973,6 +983,59 @@ public class ClassMetaData
     }
 
     /**
+     * Return all fields that are types that need to be wrappered by a proxy.
+     * The types that need to be proxied are:
+     * <p>
+     *  <li>org.apache.openjpa.meta.JavaTypes.CALENDAR
+     *  <li>org.apache.openjpa.meta.JavaTypes.COLLECTION
+     *  <li>org.apache.openjpa.meta.JavaTypes.DATE
+     *  <li>org.apache.openjpa.meta.JavaTypes.MAP
+     *  <li>org.apache.openjpa.meta.JavaTypes.OBJECT
+     */
+    public FieldMetaData[] getProxyFields() {
+        if (_allProxyFields == null) {
+            // Make sure _allFields has been initialized
+            if (_allFields == null) {
+                getFields();
+            }
+            List<FieldMetaData> res = new ArrayList<FieldMetaData>();
+            for (FieldMetaData fmd : _allFields) {
+                switch (fmd.getDeclaredTypeCode()) {
+                    case JavaTypes.CALENDAR:
+                    case JavaTypes.COLLECTION:
+                    case JavaTypes.DATE:
+                    case JavaTypes.MAP:
+                    case JavaTypes.OBJECT:
+                        res.add(fmd);
+                        break;
+                }
+            }
+            _allProxyFields = res.toArray(new FieldMetaData[res.size()]);
+        }
+        return _allProxyFields;
+    }
+    
+    /**
+     * Return all large result set fields. Will never return null.
+     */
+    public FieldMetaData[] getLrsFields() {
+        if (_allLrsFields == null) {
+            // Make sure _allFields has been initialized
+            if (_allFields == null) {
+                getFields();
+            }
+            List<FieldMetaData> res = new ArrayList<FieldMetaData>();
+            for (FieldMetaData fmd : _allFields) {
+                if(fmd.isLRS()==true){
+                    res.add(fmd);
+                }
+            }
+            _allLrsFields = res.toArray(new FieldMetaData[res.size()]);
+        }
+        return _allLrsFields;
+    }
+    
+    /**
      * Return all field metadata, including superclass fields.
      */
     public FieldMetaData[] getFields() {
@@ -1114,14 +1177,15 @@ public class ClassMetaData
      * Return the version field for this class, if any.
      */
     public FieldMetaData getVersionField() {
+        if (_allFields == null) {
+            getFields();
+        }
         if (_versionIdx == Integer.MIN_VALUE) {
-            FieldMetaData[] fields = getFields();
             int idx = -1;
-            for (int i = 0; i < fields.length; i++) {
-                if (fields[i].isVersion()) {
+            for (int i = 0; i < _allFields.length; i++) {
+                if (_allFields[i].isVersion()) {
                     if (idx != -1)
-                        throw new MetaDataException(_loc.get
-                            ("mult-vers-fields", this, fields[idx], fields[i]));
+                        throw new MetaDataException(_loc.get("mult-vers-fields", this, _allFields[idx], _allFields[i]));
                     idx = i;
                 }
             }
@@ -1129,7 +1193,8 @@ public class ClassMetaData
         }
         if (_versionIdx == -1)
             return null;
-        return getFields()[_versionIdx];
+
+        return _allFields[_versionIdx];
     }
 
     /**
@@ -1139,10 +1204,12 @@ public class ClassMetaData
      * @return the field's metadata, or null if not found
      */
     public FieldMetaData getField(int index) {
-        FieldMetaData[] fields = getFields();
-        if (index < 0 || index >= fields.length)
+        if(_allFields == null){
+            getFields();
+        }
+        if (index < 0 || index >= _allFields.length)
             return null;
-        return fields[index];
+        return _allFields[index];
     }
 
     /**
@@ -1216,6 +1283,7 @@ public class ClassMetaData
         FieldMetaData fmd = _repos.newFieldMetaData(name, type, this);
         clearFieldCache();
         _fieldMap.put(name, fmd);
+
         return fmd;
     }
 
@@ -1429,7 +1497,7 @@ public class ClassMetaData
         }
         return _cacheName;
     }
-
+    
     /**
      * Set the cache name for this class. 
      * 
@@ -1437,6 +1505,16 @@ public class ClassMetaData
      */
     public void setDataCacheName(String name) {
         _cacheName = name;
+        if (name != null)
+            _dataCacheEnabled = true;
+    }
+    
+    /**
+     * Affirms true if this receiver is annotated with @DataCache and is not disabled. 
+     * A separate state variable is necessary besides the name of the cache defaulted to a special string.
+     */
+    public boolean getDataCacheEnabled() {
+        return _dataCacheEnabled;
     }
 
     /**
@@ -1585,6 +1663,8 @@ public class ClassMetaData
         _allFields = null;
         _allDFGFields = null;
         _allPKFields = null;
+        _allProxyFields = null;
+        _allLrsFields = null;
         _definedFields = null;
         _listingFields = null;
         _allListingFields = null;
@@ -1634,7 +1714,7 @@ public class ClassMetaData
     }
 
     public int hashCode() {
-        return _type.getName().hashCode();
+        return _hashCode;
     }
 
     public boolean equals(Object other) {
@@ -2430,6 +2510,7 @@ public class ClassMetaData
         if (_cacheTimeout == Integer.MIN_VALUE)
             _cacheTimeout = meta.getDataCacheTimeout();
         _cacheEnabled = meta.getCacheEnabled();
+        _dataCacheEnabled = meta.getDataCacheEnabled();
         if (_detachable == null)
             _detachable = meta._detachable;
         if (DEFAULT_STRING.equals(_detachState))

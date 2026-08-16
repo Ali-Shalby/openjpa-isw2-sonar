@@ -30,11 +30,15 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import javax.sql.DataSource;
 
+import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.datacache.QueryCache;
+import org.apache.openjpa.datacache.QueryCacheStoreQuery;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.event.OrphanedKeyAction;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
@@ -43,6 +47,7 @@ import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.meta.strats.SuperclassDiscriminatorStrategy;
+import org.apache.openjpa.jdbc.schema.DataSourceFactory;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
 import org.apache.openjpa.jdbc.sql.Joins;
@@ -67,6 +72,8 @@ import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.lib.jdbc.DelegatingConnection;
 import org.apache.openjpa.lib.jdbc.DelegatingPreparedStatement;
 import org.apache.openjpa.lib.jdbc.DelegatingStatement;
+import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.log.LogFactoryImpl.LogImpl;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.ConcreteClassGenerator;
@@ -76,6 +83,7 @@ import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueStrategies;
 import org.apache.openjpa.util.ApplicationIds;
+import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.Id;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InvalidStateException;
@@ -104,6 +112,7 @@ public class JDBCStoreManager
     private DataSource _ds = null;
     private RefCountConnection _conn = null;
     private boolean _active = false;
+    private Log _log = null;
 
     // track the pending statements so we can cancel them
     private Set<Statement> _stmnts = Collections.synchronizedSet(new HashSet<Statement>());
@@ -141,18 +150,52 @@ public class JDBCStoreManager
         _conf = conf;
         _dict = _conf.getDBDictionaryInstance();
         _sql = _conf.getSQLFactoryInstance();
+        _log = _conf.getLog(JDBCConfiguration.LOG_DIAG);
 
         LockManager lm = ctx.getLockManager();
         if (lm instanceof JDBCLockManager)
             _lm = (JDBCLockManager) lm;
 
-        if (!ctx.isManaged() && _conf.isConnectionFactoryModeManaged())
-            _ds = _conf.getDataSource2(ctx);
-        else
-            _ds = _conf.getDataSource(ctx);
+        _ds = getDataSource(ctx);
 
         if (_conf.getUpdateManagerInstance().orderDirty())
             ctx.setOrderDirtyObjects(true);
+    }
+        
+    private final boolean useConnectionFactory2(StoreContext ctx) { 
+        return (!ctx.isManaged() && _conf.isConnectionFactoryModeManaged());  
+    }
+        
+    private final DataSource getDataSource(StoreContext ctx) {
+        DataSource ds;
+
+        if (useConnectionFactory2(ctx)) {
+            ds = (DataSource) ctx.getConnectionFactory2();
+            if (ds != null) {
+                ds = DataSourceFactory.decorateDataSource(ds, _conf, false);
+            }
+            else {
+                ds = _conf.getDataSource2(ctx);
+            }
+        } else {
+            ds = (DataSource) ctx.getConnectionFactory();
+            if (ds != null) {
+                ds = DataSourceFactory.decorateDataSource(ds, _conf, false);   
+            }
+            else {
+                ds = _conf.getDataSource(ctx);
+            }
+        }
+        return ds;
+    }
+    
+    private boolean useContextToGetDataSource(StoreContext ctx) { 
+        // configuration check to enable goes here. 
+        if (StringUtils.isBlank(ctx.getConnectionFactoryName()) 
+                && StringUtils.isBlank(ctx.getConnectionFactory2Name())) {
+            return false;
+        }
+        return true;
     }
 
     public JDBCConfiguration getConfiguration() {
@@ -255,6 +298,11 @@ public class JDBCStoreManager
         return exists(mapping, sm.getObjectId(), context);
     }
 
+    public boolean isCached(List<Object> oids, BitSet edata) {
+        // JDBCStoreManager doesn't store oids in memory.
+        return false;
+    }
+    
     private boolean exists(ClassMapping mapping, Object oid, Object context) {
         // add where conditions on base class to avoid joins if subclass
         // doesn't use oid as identifier
@@ -263,6 +311,9 @@ public class JDBCStoreManager
             mapping = mapping.getJoinablePCSuperclassMapping();
 
         sel.wherePrimaryKey(oid, mapping, this);
+        if (_log.isTraceEnabled()) {
+            _log.trace("exists: oid="+oid+" "+mapping.getDescribedType());
+        }
         try {
             return sel.getCount(this) != 0;
         } catch (SQLException se) {
@@ -293,7 +344,8 @@ public class JDBCStoreManager
         } catch (ClassNotFoundException cnfe) {
             throw new UserException(cnfe);
         } catch (SQLException se) {
-            throw SQLExceptions.getStore(se, _dict, fetch.getReadLockLevel());
+            throw SQLExceptions.getStore(se, Exceptions.toString(sm.getPersistenceCapable()), 
+                    _dict, fetch.getReadLockLevel());
         }
     }
 
@@ -369,8 +421,7 @@ public class JDBCStoreManager
                 Object mappedByObject = info.result.getMappedByValue();
                 if (mappedByFieldMapping != null && mappedByObject != null)
                     if (mappedByObject instanceof OpenJPAId &&
-                        mapping.getExtraFieldDataIndex(mappedByFieldMapping.
-                        getIndex()) != -1)
+                        mapping.getExtraFieldDataIndex(mappedByFieldMapping.getIndex()) != -1) {
                         // The inverse relation can not be set since
                         // we are eagerly loading this sm for
                         // a sm owner that is still in the process of 
@@ -379,10 +430,15 @@ public class JDBCStoreManager
                         // The inverse relation is set later by
                         // setInverseRelation() when the sm owner is fully
                         // initialized.
-                        sm.setIntermediate(mappedByFieldMapping.getIndex(),
-                            mappedByObject);
-                    else
+                        int index = mappedByFieldMapping.getIndex();
+                        if (sm.getLoaded().get(index)) {
+                            sm.setImplData(index, mappedByObject);
+                        } else {
+                            sm.setIntermediate(index, mappedByObject);
+                        }
+                    } else {
                         setMappedBy(sm, mappedByFieldMapping, mappedByObject);
+                    }
             }
             // load the selected mappings into the given state manager
             if (res != null) {
@@ -407,8 +463,9 @@ public class JDBCStoreManager
         // Check if the owner has eagerly loaded ToMany relations.
         for (int i = 0; i < fms.length; i++) {
             if (res.getEager(fms[i]) != null) {
-                if (!fms[i].getElement().isTypePC())
+                if (!fms[i].getElement().isTypePC()) {
                     continue;
+                }
                 Object coll =  owner.fetchObject(fms[i].getIndex());
                 if (coll instanceof Map)
                     coll = ((Map)coll).values();
@@ -423,24 +480,23 @@ public class JDBCStoreManager
                     for (Iterator<?> itr = ((Collection<?>) coll).iterator();
                         itr.hasNext();) {
                         PersistenceCapable pc = (PersistenceCapable) itr.next();
-
-                        if (pc == null)
+                        if (pc == null) {
                             continue;
-
-                        OpenJPAStateManager sm = (OpenJPAStateManager) pc.
-                            pcGetStateManager();
-                        FieldMapping[] fmd = ((ClassMapping) sm.getMetaData()).
-                            getFieldMappings();
+                        }
+                        OpenJPAStateManager sm = (OpenJPAStateManager) pc.pcGetStateManager();
+                        ClassMapping cm =
+                            (ClassMapping) _conf.getMetaDataRepositoryInstance().getCachedMetaData(pc.getClass());
+                        FieldMapping[] fmd = cm.getFieldMappings();
                         for (int j = 0; j < fmd.length; j++) {
-                            Object oid = sm.getIntermediate(fmd[j].getIndex());
-                            // if oid was setIntermediate() previously
-                            // and it is the same as the owner,
-                            // then set the inverse relation
-                            if (oid != null &&
-                                oid.equals(owner.getObjectId())) {
-                                sm.storeObject(fmd[j].getIndex(),
-                                    owner.getPersistenceCapable());
-                                break;
+                            // don't check the oids for basic fields.
+                            if (fmd[j].isTypePC()) {
+                                Object oid = sm.getIntermediate(fmd[j].getIndex());
+                                // if oid was setIntermediate() previously and it is the same as the owner,generate
+                                // then set the inverse relation
+                                if (oid != null && oid.equals(owner.getObjectId())) {
+                                    sm.storeObject(fmd[j].getIndex(), owner.getPersistenceCapable());
+                                    break;
+                                }
                             }
                         }
                     }
@@ -523,6 +579,9 @@ public class JDBCStoreManager
             return null;
         sel.wherePrimaryKey(sm.getObjectId(), mapping, this);
         sel.setExpectedResultCount(1, false);
+        if (_log.isTraceEnabled()) {
+            _log.trace("getInitializeStateResult: oid="+sm.getObjectId()+" "+mapping.getDescribedType());
+        }
         Result result = sel.execute(this, fetch);
         cacheFinder(mapping, sel, fetch);
         return result;
@@ -574,6 +633,9 @@ public class JDBCStoreManager
         Select sel = _sql.newSelect();
         sel.select(base.getPrimaryKeyColumns());
         sel.wherePrimaryKey(sm.getObjectId(), base, this);
+        if (_log.isTraceEnabled()) {
+            _log.trace("selectPrimaryKey: oid="+sm.getObjectId()+" "+mapping.getDescribedType());
+        }
         Result exists = sel.execute(this, fetch);
         try {
             if (isEmptyResult(exists))
@@ -625,6 +687,9 @@ public class JDBCStoreManager
             if (select(sel, mapping, Select.SUBS_EXACT, sm, fields, jfetch,
                 EagerFetchModes.EAGER_JOIN, true, false)) {
                 sel.wherePrimaryKey(sm.getObjectId(), mapping, this);
+                if (_log.isTraceEnabled()) {
+                    _log.trace("load: "+mapping.getDescribedType()+" oid: "+sm.getObjectId()); 
+                }
                 res = sel.execute(this, jfetch, lockLevel);
                 try {
                  	if (isEmptyResult(res))
@@ -638,8 +703,13 @@ public class JDBCStoreManager
             // now allow the fields to load themselves individually too
             FieldMapping[] fms = mapping.getFieldMappings();
             for (int i = 0; i < fms.length; i++)
-                if (fields.get(i) && !sm.getLoaded().get(i))
+                if (fields.get(i) && !sm.getLoaded().get(i)) {
+                    if (_log.isTraceEnabled()) {
+                        _log.trace("load field: '"+ fms[i].getName() + "' for oid="+sm.getObjectId()
+                            +" "+mapping.getDescribedType());
+                    }
                     fms[i].load(sm, this, jfetch.traverseJDBC(fms[i]));
+                }
             mapping.getVersion().afterLoad(sm, this);
             return true;
         } catch (ClassNotFoundException cnfe) {
@@ -672,6 +742,11 @@ public class JDBCStoreManager
             if (_conn != null && _conn.getInnermostDelegate().isReadOnly())
                 _conn.setReadOnly(false);
         } catch (SQLException e) {
+        }
+        if (_log.isTraceEnabled()) {
+            for (OpenJPAStateManager sm: (Collection<OpenJPAStateManager>)sms) {
+                _log.trace("flush: "+sm.getPCState().getClass().getName() + " for oid="+sm.getObjectId());
+            }
         }
         return _conf.getUpdateManagerInstance().flush(sms, this);
     }
@@ -783,6 +858,10 @@ public class JDBCStoreManager
 
                     Select sel = _sql.newSelect();
                     sel.setLRS(true);
+                    if (_log.isTraceEnabled()) {
+                        _log.trace("executeExtent: "+mappings[i].getDescribedType());
+                        sel.logEagerRelations();
+                    }
                     BitSet paged = selectExtent(sel, mappings[i], jfetch,
                         subclasses);
                     if (paged == null)
@@ -840,15 +919,32 @@ public class JDBCStoreManager
         return paged;
     }
 
-    public StoreQuery newQuery(String language) {
+    private StoreQuery newStoreQuery(String language) {
         ExpressionParser ep = QueryLanguages.parserForLanguage(language);
-        if (ep != null)
+        if (ep != null) { 
             return new JDBCStoreQuery(this, ep);
-        if (QueryLanguages.LANG_SQL.equals(language))
+        }
+        if (QueryLanguages.LANG_SQL.equals(language)) {
             return new SQLStoreQuery(this);
-        if (QueryLanguages.LANG_PREPARED_SQL.equals(language))
+        }
+        if (QueryLanguages.LANG_PREPARED_SQL.equals(language)) {
             return new PreparedSQLStoreQuery(this);
+        }
         return null;
+    }
+    
+    public StoreQuery newQuery(String language) {
+        StoreQuery sq = newStoreQuery(language); 
+        if (sq == null || QueryLanguages.parserForLanguage(language) == null) {
+            return sq;
+        }
+
+        QueryCache queryCache = _ctx.getConfiguration().getDataCacheManagerInstance().getSystemQueryCache();
+        if (queryCache == null) {
+            return sq;
+        }
+        
+        return new QueryCacheStoreQuery(sq, queryCache);
     }
 
     public FetchConfiguration newFetchConfiguration() {
@@ -904,7 +1000,7 @@ public class JDBCStoreManager
     
     public Connection getNewConnection() {
         try {
-            return connectInternal();
+            return _ds.getConnection();
         } catch (SQLException e) {
             throw SQLExceptions.getStore(e, _dict);
         }
@@ -917,6 +1013,9 @@ public class JDBCStoreManager
         JDBCFetchConfiguration fetch) {
         if (oid == null)
             return null;
+        if (_log.isTraceEnabled()) {
+            _log.trace("find: oid="+oid+" "+vm.getDeclaredTypeMapping().getDescribedType());
+        }
         Object pc = _ctx.find(oid, fetch, null, null, 0);
         if (pc == null && vm != null) {
             OrphanedKeyAction action = _conf.getOrphanedKeyActionInstance();
@@ -975,9 +1074,13 @@ public class JDBCStoreManager
     private void load(ClassMapping mapping, OpenJPAStateManager sm,
         JDBCFetchConfiguration fetch, Result res) throws SQLException {
         FieldMapping eagerToMany = load(mapping, sm, fetch, res, null);
-        if (eagerToMany != null)
+        if (eagerToMany != null) {
+            if (_log.isTraceEnabled()) {
+                _log.trace("Loading eager toMany: "+eagerToMany.getName()+" for "+mapping);
+            }
             eagerToMany.loadEagerJoin(sm, this, fetch.traverseJDBC(eagerToMany),
                 res);
+        }
         if (_active && _lm != null && res.isLocking())
             _lm.loadedForUpdate(sm);
     }
@@ -1021,8 +1124,13 @@ public class JDBCStoreManager
                     	fetch.traverseJDBC(fms[i]), eres);
                     if (processed != eres)
                         res.putEager(fms[i], processed);
-                } else
-                    fms[i].load(sm, this, fetch.traverseJDBC(fms[i]), res);
+                } else {
+                    boolean lazyEmbeddable = fms[i].getValueMapping().isEmbedded() &&
+                        fms[i].getEmbeddedMetaData() != null && 
+                        fetch.requiresFetch(fms[i]) == FetchConfiguration.FETCH_NONE;
+                    if (!lazyEmbeddable)    
+                        fms[i].load(sm, this, fetch.traverseJDBC(fms[i]), res);
+                }
             } finally {
                 res.endDataRequest();
             }
@@ -1521,6 +1629,9 @@ public class JDBCStoreManager
             }
         }
 
+        /*
+         * Non-thread-safe method.  Ensure protection in the call path...
+         */
         public void free() {
             // ensure that we do not close the underlying connection
             // multiple times; this could happen if someone (e.g., an

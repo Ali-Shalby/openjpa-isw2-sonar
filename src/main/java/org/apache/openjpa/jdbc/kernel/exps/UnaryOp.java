@@ -74,6 +74,10 @@ abstract class UnaryOp
     public void setImplicitType(Class type) {
         _cast = type;
     }
+    
+    public boolean getNoParen() {
+        return _noParen;
+    }
 
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         return initializeValue(sel, ctx, flags);
@@ -113,8 +117,12 @@ abstract class UnaryOp
 
     public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
-        return Filters.convert(res.getObject(this,
-            JavaSQLTypes.JDBC_DEFAULT, null), getType());
+        Object value = res.getObject(this, JavaSQLTypes.JDBC_DEFAULT, null);
+        Class<?> type = getType();
+        if (value == null && (type.isPrimitive() || Number.class.isAssignableFrom(type))) {
+            value = Filters.getDefaultForNull(Filters.wrap(type));
+        }
+        return Filters.convert(value, type);
     }
 
     public void calculateValue(Select sel, ExpContext ctx, ExpState state, 

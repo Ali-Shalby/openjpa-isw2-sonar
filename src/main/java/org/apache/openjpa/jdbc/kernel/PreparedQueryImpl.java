@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.sql.LogicalUnion;
@@ -45,6 +46,7 @@ import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultList;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.UserException;
@@ -169,13 +171,21 @@ public class PreparedQueryImpl implements PreparedQuery {
         if (selector == null || selector.hasMultipleSelects()
             || ((selector instanceof Union) 
             && (((Union)selector).getSelects().length != 1)))
-            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-multi-select").getMessage());
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-multi-select", _id).getMessage());
         select = extractImplementation(selector);
         if (select == null)
-            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-select").getMessage());
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-select", _id).getMessage());
         SQLBuffer buffer = selector.getSQL();
         if (buffer == null)
-            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-sql").getMessage());;
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-sql", _id).getMessage());;
+        if (isUsingFieldStrategy())
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, 
+                _loc.get("exclude-user-strategy", _id).getMessage());;
+                
+        if (isPaginated())
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, 
+                _loc.get("exclude-pagination", _id).getMessage());;
+
         setTargetQuery(buffer.getSQL());
         setParameters(buffer.getParameters());
         setUserParameterPositions(buffer.getUserParameters());
@@ -193,15 +203,20 @@ public class PreparedQueryImpl implements PreparedQuery {
      */
     private Object[] extractSelectExecutor(Object result) {
         if (result instanceof ResultList == false)
-            return new Object[]{null, _loc.get("exclude-not-result")};
+            return new Object[]{null, _loc.get("exclude-not-result", _id)};
         Object userObject = ((ResultList<?>)result).getUserObject();
         if (userObject == null || !userObject.getClass().isArray() || ((Object[])userObject).length != 2)
-            return new Object[]{null, _loc.get("exclude-no-user-object")};
+            return new Object[]{null, _loc.get("exclude-no-user-object", _id)};
         Object provider = ((Object[])userObject)[0];
         Object executor = ((Object[])userObject)[1];
         if (executor instanceof StoreQuery.Executor == false)
-            return new Object[]{null, _loc.get("exclude-not-executor")};
+            return new Object[]{null, _loc.get("exclude-not-executor", _id)};
         _exps = ((StoreQuery.Executor)executor).getQueryExpressions();
+        for (int i = 0; i < _exps.length; i++) {
+            if (isUsingExternalizedParameter(_exps[i])) {
+                return new Object[]{null, _loc.get("exclude-externalized-param", _id)};
+            }
+        }
         if (_exps[0].projections.length == 0) {
             _projTypes = StoreQuery.EMPTY_CLASSES;
         } else {
@@ -219,7 +234,7 @@ public class PreparedQueryImpl implements PreparedQuery {
         if (provider instanceof SelectResultObjectProvider) {
             return new Object[]{((SelectResultObjectProvider)provider).getSelect(), null};
         } 
-        return new Object[]{null, _loc.get("exclude-not-select-rop", provider)};
+        return new Object[]{null, _loc.get("exclude-not-select-rop", _id, provider.getClass().getName())};
     }
     
     private SelectImpl extractImplementation(SelectExecutor selector) {
@@ -233,6 +248,49 @@ public class PreparedQueryImpl implements PreparedQuery {
             return extractImplementation(((Union)selector).getSelects()[0]);
         
         return null;
+    }
+    
+    private boolean isUsingExternalizedParameter(QueryExpressions exp) {
+        if (exp == null)
+            return false;
+        List<FieldMetaData> fmds = exp.getParameterizedFields();
+        if (fmds == null || fmds.isEmpty())
+            return false;
+        for (FieldMetaData fmd : fmds) {
+            if (fmd.isExternalized())
+                return true;
+        }
+        return false;
+    }
+    
+    private boolean isPaginated() {
+        if (select instanceof SelectImpl) {
+            if (((SelectImpl)select).getStartIndex() != 0 || 
+                ((SelectImpl)select).getEndIndex() != Long.MAX_VALUE)
+                return true;
+        }
+        return false;
+    }        
+    private boolean isUsingFieldStrategy() {
+        for (int i = 0; i < _exps.length; i++) {
+            if (isUsingFieldStrategy(_exps[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isUsingFieldStrategy(QueryExpressions exp) {
+        if (exp == null)
+            return false;
+        List<FieldMetaData> fmds = exp.getParameterizedFields();
+        if (fmds == null || fmds.isEmpty())
+            return false;
+        for (FieldMetaData fmd : fmds) {
+            if (((FieldMapping)fmd).getMappingInfo().getStrategy() != null)
+                return true;
+        }
+        return false;
     }
     
     /**

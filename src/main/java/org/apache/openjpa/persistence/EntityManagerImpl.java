@@ -33,6 +33,7 @@ import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -81,6 +82,7 @@ import org.apache.openjpa.persistence.criteria.CriteriaBuilderImpl;
 import org.apache.openjpa.persistence.criteria.OpenJPACriteriaBuilder;
 import org.apache.openjpa.persistence.criteria.OpenJPACriteriaQuery;
 import org.apache.openjpa.persistence.validation.ValidationUtils;
+import org.apache.openjpa.util.ExceptionInfo;
 import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
@@ -101,11 +103,15 @@ public class EntityManagerImpl
 
     private static final Localizer _loc = Localizer.forPackage(EntityManagerImpl.class);
     private static final Object[] EMPTY_OBJECTS = new Object[0];
+    
+    private static final String GET_LOCK_MODE = "getLockMode";
+    private static final String LOCK = "lock";
+    private static final String REFRESH = "refresh";
 
     private DelegatingBroker _broker;
     private EntityManagerFactoryImpl _emf;
     private Map<FetchConfiguration,FetchPlan> _plans = new IdentityHashMap<FetchConfiguration,FetchPlan>(1);
-    private RuntimeExceptionTranslator _ret = PersistenceExceptions.getRollbackTranslator(this);
+    protected RuntimeExceptionTranslator _ret = PersistenceExceptions.getRollbackTranslator(this);
 
     public EntityManagerImpl() {
         // for Externalizable
@@ -482,7 +488,9 @@ public class EntityManagerImpl
     @SuppressWarnings("unchecked")
     public <T> T find(Class<T> cls, Object oid, LockModeType mode, Map<String, Object> properties) {
         assertNotCloseInvoked();
-        configureCurrentFetchPlan(pushFetchPlan(), properties, mode, true);
+        properties = cloneProperties(properties);
+        configureCurrentCacheModes(pushFetchPlan(), properties);
+        configureCurrentFetchPlan(getFetchPlan(), properties, mode, true);
         try {
             oid = _broker.newObjectId(cls, oid);
             return (T) _broker.find(oid, true, this);
@@ -564,8 +572,15 @@ public class EntityManagerImpl
             // normal exception translator, since the spec says they
             // should be thrown whenever the commit fails for any reason at
             // all, wheras the exception translator handles exceptions that
-            // are caused for specific reasons
-            throw new RollbackException(e);
+            // are caused for specific reasons            
+
+            // pass along the failed object if one is available.
+            Object failedObject = null;
+            if (e instanceof ExceptionInfo){
+            	failedObject = ((ExceptionInfo)e).getFailedObject();            	
+            }
+            
+            throw new RollbackException(e).setFailedObject(failedObject);
         }
     }
 
@@ -741,7 +756,7 @@ public class EntityManagerImpl
 
     public void refresh(Object entity, LockModeType mode, Map<String, Object> properties) {
         assertNotCloseInvoked();
-        assertValidAttchedEntity("refresh", entity);
+        assertValidAttchedEntity(REFRESH, entity);
 
         _broker.assertWriteOperation();
         configureCurrentFetchPlan(pushFetchPlan(), properties, mode, true);
@@ -752,7 +767,6 @@ public class EntityManagerImpl
                 Log log = _broker.getConfiguration().getConfigurationLog();
                 log.warn(_loc.get("cache-retrieve-override", Exceptions.toString(entity)));
             }
-                
         }
         try {
             _broker.refresh(entity, this);
@@ -963,7 +977,7 @@ public class EntityManagerImpl
             String qid = query;
             PreparedQuery pq = JPQLParser.LANG_JPQL.equals(language)
                 ? getPreparedQuery(qid) : null;
-            org.apache.openjpa.kernel.Query q = (pq == null)
+            org.apache.openjpa.kernel.Query q = (pq == null || !pq.isInitialized())
                 ? _broker.newQuery(language, query)
                 : _broker.newQuery(pq.getLanguage(), pq);
             // have to validate JPQL according to spec
@@ -972,7 +986,7 @@ public class EntityManagerImpl
             if (pq != null) {
                 pq.setInto(q);
             }
-            return new QueryImpl(this, _ret, q).setId(qid);
+            return newQueryImpl(q).setId(qid);
         } catch (RuntimeException re) {
             throw PersistenceExceptions.toPersistenceException(re);
         }
@@ -983,8 +997,7 @@ public class EntityManagerImpl
             return createQuery((String) null);
         assertNotCloseInvoked();
         org.apache.openjpa.kernel.Query q = ((QueryImpl) query).getDelegate();
-        return new QueryImpl(this, _ret, _broker.newQuery(q.getLanguage(),
-            q));
+        return newQueryImpl(_broker.newQuery(q.getLanguage(), q));
     }
     
     @SuppressWarnings("unchecked")
@@ -1003,7 +1016,7 @@ public class EntityManagerImpl
             
             PreparedQuery pq = JPQLParser.LANG_JPQL.equals(meta.getLanguage())
                 ? getPreparedQuery(qid) : null;
-            org.apache.openjpa.kernel.Query del = (pq == null)
+            org.apache.openjpa.kernel.Query del = (pq == null || !pq.isInitialized())
                 ? _broker.newQuery(meta.getLanguage(), meta.getQueryString())
                 : _broker.newQuery(pq.getLanguage(), pq);
             
@@ -1014,7 +1027,7 @@ public class EntityManagerImpl
                 del.compile();
             }
             
-            OpenJPAQuery q = new QueryImpl(this, _ret, del).setId(qid);
+            OpenJPAQuery q = newQueryImpl(del).setId(qid);
             String[] hints = meta.getHintKeys();
             Object[] values = meta.getHintValues();
             for (int i = 0; i < hints.length; i++)
@@ -1040,13 +1053,17 @@ public class EntityManagerImpl
         org.apache.openjpa.kernel.Query kernelQuery = _broker.newQuery(
             QueryLanguages.LANG_SQL, query);
         kernelQuery.setResultMapping(null, mappingName);
-        return new QueryImpl(this, _ret, kernelQuery);
+        return newQueryImpl(kernelQuery);
+    }
+
+    protected <T> QueryImpl<T> newQueryImpl(org.apache.openjpa.kernel.Query kernelQuery) {
+        return new QueryImpl<T>(this, _ret, kernelQuery);
     }
 
     /**
      * Validate that the user provided SQL.
      */
-    private static void validateSQL(String query) {
+    protected void validateSQL(String query) {
         if (StringUtils.trimToNull(query) == null)
             throw new ArgumentException(_loc.get("no-sql"), null, null, false);
     }
@@ -1108,6 +1125,23 @@ public class EntityManagerImpl
         throw new ArgumentException(flushMode.toString(), null, null, false);
     }
 
+    /*
+     * Used by Java EE Containers that wish to pool OpenJPA EntityManagers.  The specification
+     * doesn't allow the closing of connections with the clear() method.  By introducing this
+     * new method, we can do additional processing (and maybe more efficient processing) to 
+     * properly prepare an EM for pooling.
+     */
+    public void prepareForPooling() {
+        assertNotCloseInvoked();
+        clear();
+        _broker.lock();  // since this direct close path is not protected...
+        try {
+            _broker.getStoreManager().close();
+        } finally {
+            _broker.unlock();
+        }
+    }
+    
     public void clear() {
         assertNotCloseInvoked();
         _broker.detachAll(this, false);
@@ -1123,7 +1157,7 @@ public class EntityManagerImpl
     public LockModeType getLockMode(Object entity) {
         assertNotCloseInvoked();
         _broker.assertActiveTransaction();
-        assertValidAttchedEntity("getLockMode", entity);
+        assertValidAttchedEntity(GET_LOCK_MODE, entity);
         return MixedLockLevelsHelper.fromLockLevel(
             _broker.getLockLevel(entity));
     }
@@ -1134,13 +1168,13 @@ public class EntityManagerImpl
 
     public void lock(Object entity) {
         assertNotCloseInvoked();
-        assertValidAttchedEntity("lock", entity);
+        assertValidAttchedEntity(LOCK, entity);
         _broker.lock(entity, this);
     }
 
     public void lock(Object entity, LockModeType mode, int timeout) {
         assertNotCloseInvoked();
-        assertValidAttchedEntity("lock", entity);
+        assertValidAttchedEntity(LOCK, entity);
 
         configureCurrentFetchPlan(pushFetchPlan(), null, mode, false);
         try {
@@ -1152,10 +1186,11 @@ public class EntityManagerImpl
 
     public void lock(Object entity, LockModeType mode, Map<String, Object> properties) {
         assertNotCloseInvoked();
-        assertValidAttchedEntity("lock", entity);
+        assertValidAttchedEntity(LOCK, entity);
         _broker.assertActiveTransaction();
-
-        configureCurrentFetchPlan(pushFetchPlan(), properties, mode, false);
+        properties = cloneProperties(properties);
+        configureCurrentCacheModes(pushFetchPlan(), properties);
+        configureCurrentFetchPlan(getFetchPlan(), properties, mode, false);
         try {
             _broker.lock(entity, MixedLockLevelsHelper.toLockLevel(mode),
                 _broker.getFetchConfiguration().getLockTimeout(), this);
@@ -1308,7 +1343,7 @@ public class EntityManagerImpl
      * closed, it will throw its own more informative exception when we 
      * delegate the pending operation to it.
      */
-    void assertNotCloseInvoked() {
+    protected void assertNotCloseInvoked() {
         if (!_broker.isClosed() && _broker.isCloseInvoked())
             throw new InvalidStateException(_loc.get("close-invoked"), null,
                 null, true);
@@ -1320,7 +1355,7 @@ public class EntityManagerImpl
      */
     void assertValidAttchedEntity(String call, Object entity) {
         OpenJPAStateManager sm = _broker.getStateManager(entity);
-        if (sm == null || !sm.isPersistent() || sm.isDetached()) {
+        if (sm == null || !sm.isPersistent() || sm.isDetached() || (call.equals(REFRESH) && sm.isDeleted())) {
             throw new IllegalArgumentException(_loc.get("invalid_entity_argument", 
                 call, entity == null ? "null" : Exceptions.toString(entity)).getMessage());
         }
@@ -1532,6 +1567,8 @@ public class EntityManagerImpl
     }
 
     public void detach(Object entity) {
+        if (entity == null)
+            throw new IllegalArgumentException(_loc.get("null-detach").getMessage());
         assertNotCloseInvoked();
         _broker.detach(entity, this);
     }
@@ -1545,7 +1582,7 @@ public class EntityManagerImpl
         
         org.apache.openjpa.kernel.Query kernelQuery =_broker.newQuery(CriteriaBuilderImpl.LANG_CRITERIA, criteriaQuery);
         
-        QueryImpl<T> facadeQuery = new QueryImpl<T>(this, _ret, kernelQuery);
+        QueryImpl<T> facadeQuery = newQueryImpl(kernelQuery).setId(criteriaQuery.toString());
         Set<ParameterExpression<?>> params = criteriaQuery.getParameters();
         
         for (ParameterExpression<?> param : params) {
@@ -1602,15 +1639,26 @@ public class EntityManagerImpl
         return _broker.getSupportedProperties();
     }
 
+    /**
+     * Unwraps this receiver to an instance of the given class, if possible.
+     * 
+     * @exception if the given class is null, generic <code>Object.class</code> or a class
+     * that is not wrapped by this receiver.  
+     */
     public <T> T unwrap(Class<T> cls) {
         Object[] delegates = new Object[]{_broker.getInnermostDelegate(),
             _broker.getDelegate(), _broker, this};
         for (Object o : delegates) {
-            if (cls.isInstance(o))
+            if (cls != null && cls != Object.class && cls.isInstance(o))
                 return (T)o;
         }
-        throw new PersistenceException(_loc.get("unwrap-em-invalid", cls)
-            .toString(), null, this, false);
+        // Set this transaction to rollback only (as per spec) here because the raised exception 
+        // does not go through normal exception translation pathways
+        RuntimeException ex = new PersistenceException(_loc.get("unwrap-em-invalid", cls).toString(), null, 
+                this, false);
+        if (isActive())
+            setRollbackOnly(ex);
+        throw ex;
     }
 
     public void setQuerySQLCache(boolean flag) {
@@ -1632,7 +1680,6 @@ public class EntityManagerImpl
     private void configureCurrentFetchPlan(FetchPlan fetch, Map<String, Object> properties, 
             LockModeType lock, boolean requiresTxn) {
         // handle properties in map first
-        configureCurrentCacheModes(fetch, properties);
         if (properties != null) {
             for (Map.Entry<String, Object> entry : properties.entrySet())
                 fetch.setHint(entry.getKey(), entry.getValue());
@@ -1649,20 +1696,30 @@ public class EntityManagerImpl
         }
     }
     
+    /**
+     * Populate the fetch configuration with specified cache mode properties.
+     * The cache mode properties modify the fetch configuration and remove those
+     * properties. This method should be called <em>before</em> the fetch configuration of the current 
+     * context has been pushed.
+     * @param fetch the fetch configuration of the current context. Not the 
+     * new configuration pushed (and later popped) during a single operation.
+     * 
+     * @param properties
+     */
     private void configureCurrentCacheModes(FetchPlan fetch, Map<String, Object> properties) {
         if (properties == null)
             return;
         CacheRetrieveMode rMode = JPAProperties.getEnumValue(CacheRetrieveMode.class, 
                 JPAProperties.CACHE_RETRIEVE_MODE, properties);
         if (rMode != null) {
-            fetch.setCacheRetrieveMode(JPAProperties.convertToKenelValue(DataCacheRetrieveMode.class, 
+            fetch.setCacheRetrieveMode(JPAProperties.convertToKernelValue(DataCacheRetrieveMode.class, 
                     JPAProperties.CACHE_RETRIEVE_MODE, rMode));
             properties.remove(JPAProperties.CACHE_RETRIEVE_MODE);
         }
         CacheStoreMode sMode = JPAProperties.getEnumValue(CacheStoreMode.class, 
                 JPAProperties.CACHE_STORE_MODE, properties);
         if (sMode != null) {
-            fetch.setCacheStoreMode(JPAProperties.convertToKenelValue(DataCacheStoreMode.class, 
+            fetch.setCacheStoreMode(JPAProperties.convertToKernelValue(DataCacheStoreMode.class, 
                     JPAProperties.CACHE_STORE_MODE, sMode));
             properties.remove(JPAProperties.CACHE_STORE_MODE);
         }
@@ -1686,7 +1743,7 @@ public class EntityManagerImpl
             if (!setKernelProperty(this.getFetchPlan(), prop, value)) {
                 Log log = getConfiguration().getLog(OpenJPAConfiguration.LOG_RUNTIME);
                 if (log.isWarnEnabled()) {
-                    log.warn(_loc.get("bad-em-prop", prop, value == null ? "" : value.getClass()+":" + value));
+                    log.warn(_loc.get("ignored-em-prop", prop, value == null ? "" : value.getClass()+":" + value));
                  }
             }
         }
@@ -1744,7 +1801,7 @@ public class EntityManagerImpl
      */
     Object convertUserValue(String key, Object value, Class<?> targetType) {
         if (JPAProperties.isValidKey(key)) 
-            return JPAProperties.convertToKenelValue(targetType, key, value);
+            return JPAProperties.convertToKernelValue(targetType, key, value);
         if (value instanceof String) {
             if ("null".equals(value)) {
                 return null;
@@ -1753,5 +1810,12 @@ public class EntityManagerImpl
             }
         }
         return value;
+    }
+
+    private Map<String, Object> cloneProperties(Map<String, Object> properties) {
+        if (properties != null) {
+            properties = new HashMap<String, Object>(properties);
+        }
+        return properties;
     }
 }

@@ -24,7 +24,6 @@ import java.util.HashMap;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.jdbc.schema.Column;
-import serp.util.Numbers;
 
 /**
  * Uses a version number for optimistic versioning.
@@ -36,13 +35,13 @@ public class NumberVersionStrategy
 
     public static final String ALIAS = "version-number";
 
-    private Number _initial = Numbers.valueOf(1);
+    private Number _initial = 1;
 
     /**
      * Set the initial value for version column. Defaults to 1.
      */
     public void setInitialValue(int initial) {
-        _initial = Numbers.valueOf(initial);
+        _initial = initial;
     }
 
     /**
@@ -63,12 +62,12 @@ public class NumberVersionStrategy
     protected Object nextVersion(Object version) {
         if (version == null)
             return _initial;
-        return Numbers.valueOf(((Number) version).intValue() + 1);
+        return ((Number) version).intValue() + 1;
     }
 
-    public Map getBulkUpdateValues() {
+    public Map<Column,String> getBulkUpdateValues() {
         Column[] cols = vers.getColumns();
-        Map map = new HashMap(cols.length);
+        Map<Column,String> map = new HashMap<Column,String>(cols.length);
         for (int i = 0; i < cols.length; i++)
             map.put(cols[i], cols[i].getName() + " + 1");
         return map;

@@ -18,12 +18,10 @@
  */
 package org.apache.openjpa.datacache;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.PCDataGenerator;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
@@ -32,10 +30,8 @@ import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.ImplHelper;
 
-import serp.util.Strings;
-
 /**
- * Default data cache manager provides handle to utilities {@linkplain PCDataGenerator}, {@linkplain DataCacheScheduler}
+ * Default data cache manager provides handle to utilities {@linkplain PCDataGenerator}, {@linkplain ClearableScheduler}
  * and {@linkplain CacheDistributionPolicy} for the cache operation. This implementation also determines whether a
  * managed type is eligible to cache.
  * 
@@ -50,26 +46,34 @@ public class DataCacheManagerImpl
     private DataCache _cache = null;
     private QueryCache _queryCache = null;
     private DataCachePCDataGenerator _pcGenerator = null;
-    private DataCacheScheduler _scheduler = null;
-    private CacheDistributionPolicy _policy = new CacheDistributionPolicy.Default();
-    private Set<String> _excludedTypes;
+    private ClearableScheduler _scheduler = null;
+    private CacheDistributionPolicy _policy = new DefaultCacheDistributionPolicy();
+    private Map<ClassMetaData,Boolean> _cacheable = new HashMap<ClassMetaData, Boolean>();
+    
+    // Properties that are configured via openjpa.DataCache but need to be used here. This is here to support the 1.2
+    // way of doing things with openjpa.DataCache(Types=x;y;z,ExcludedTypes=a)
     private Set<String> _includedTypes;
-
+    private Set<String> _excludedTypes;
+    
     public void initialize(OpenJPAConfiguration conf, ObjectValue dataCache, ObjectValue queryCache) {
         _conf = conf;
+        _queryCache = (QueryCache) queryCache.instantiate(QueryCache.class, conf);
+        if (_queryCache != null)
+            _queryCache.initialize(this);
         _cache = (DataCache) dataCache.instantiate(DataCache.class, conf);
+
         if (_cache == null)
             return;
          
         // create helpers before initializing caches
         if (conf.getDynamicDataStructs())
             _pcGenerator = new DataCachePCDataGenerator(conf);
-        _scheduler = new DataCacheScheduler(conf);
+        _scheduler = new ClearableScheduler(conf);
+        
+        _policy = conf.getCacheDistributionPolicyInstance();
 
         _cache.initialize(this);
-        _queryCache = (QueryCache) queryCache.instantiate(QueryCache.class, conf);
-        if (_queryCache != null)
-            _queryCache.initialize(this);
+
     }
 
     public DataCache getSystemDataCache() {
@@ -102,7 +106,7 @@ public class DataCacheManagerImpl
         return _pcGenerator;
     }
 
-    public DataCacheScheduler getDataCacheScheduler() {
+    public ClearableScheduler getClearableScheduler() {
         return _scheduler;
     }
 
@@ -133,24 +137,25 @@ public class DataCacheManagerImpl
     }
     
     /**
-     * Sets the instance-based cache distribution policy. 
-     */
-    public void setDistributionPolicy(CacheDistributionPolicy policy) {
-        _policy = policy;
-    }
-    
-    /**
      * Affirms if the given type is eligible for cache.
      */
     public boolean isCachable(ClassMetaData meta) {
-        Boolean isCachable = isCacheableByPlugin(meta);
-        if (isCachable == null) {
-            isCachable = isCacheableByMode(meta);
-            if (isCachable == null) {
-                isCachable = isCacheableByType(meta);
-            }
+        Boolean res = _cacheable.get(meta);
+        if(res != null){
+            return res;
         }
+
+        Boolean isCachable = isCacheableByMode(meta);
+        if (isCachable == null) {
+           isCachable = isCacheableByType(meta);
+        }
+        _cacheable.put(meta, isCachable);
         return isCachable;
+    }
+    
+    public void setTypes(Set<String> includedTypes, Set<String> excludedTypes){
+        _includedTypes = includedTypes;
+        _excludedTypes = excludedTypes;
     }
     
     /**
@@ -173,68 +178,24 @@ public class DataCacheManagerImpl
     }
     
     /**
-     * Is the given type cacheable by @DataCache annotation.
+     * Is the given type cacheable by @DataCache annotation or openjpa.DataCache(Types/ExcludedTypes)
      *  
      * @see ClassMetaData#getDataCacheName()
      */
-    private Boolean isCacheableByType(ClassMetaData meta) {
+    private Boolean isCacheableByType(ClassMetaData meta) { 
+        if (_includedTypes != null && _includedTypes.size() > 0) {
+            return _includedTypes.contains(meta.getDescribedType().getName());
+        }
+        if (_excludedTypes != null && _excludedTypes.size() > 0) {
+            if (_excludedTypes.contains(meta.getDescribedType().getName())) {
+                return false;
+            } else {
+                // Case where Types is not set, and ExcludedTypes only has a sub set of all
+                // Entities.
+                return true;
+            }
+        }
+        // Check for @DataCache annotations
         return meta.getDataCacheName() != null;
     }
-    
-    /**
-     * Is the given type cacheable by excludeTypes/includeTypes plug-in properties.
-     *  
-     * @param meta the given type
-     * @return TRUE or FALSE if the type has appeared in the plug-in property.
-     * null otherwise.
-     */
-    private Boolean isCacheableByPlugin(ClassMetaData meta) {
-        String className = meta.getDescribedType().getName();
-        if (_excludedTypes != null && _excludedTypes.contains(className)) {  
-            return Boolean.FALSE;
-        } 
-        if (_includedTypes != null && _includedTypes.contains(className)) {
-            return Boolean.TRUE;
-        }
-        return null;
-    }
-
-    /**
-     * Gets the excluded types, if configured.
-     */
-    public Set<String> getExcludedTypes() {
-        return _excludedTypes;
-    }
-    
-    /**
-     * Sets excluded types from a semicolon separated list of type names.
-     */
-    public void setExcludedTypes(String types) {
-        _excludedTypes = parseNames(types);
-    }
-
-    /**
-     * Gets the included types, if configured.
-     */
-    public Set<String> getIncludedTypes() {
-        return _excludedTypes;
-    }
-    
-    /**
-     * Sets included types from a semicolon separated list of type names.
-     */
-    public void setIncludedTypes(String types) {
-        _includedTypes = parseNames(types);
-    }
-    
-    private Set<String> parseNames(String types) {
-        if (StringUtils.isEmpty(types))
-            return Collections.emptySet();
-        String[] names = Strings.split(types, ";", 0);
-        Set<String> set = new HashSet<String>();
-        set.addAll(Arrays.asList(names));
-        
-        return  Collections.unmodifiableSet(set);
-    }
-
 }

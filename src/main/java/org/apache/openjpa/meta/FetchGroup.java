@@ -32,7 +32,6 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.MetaDataException;
-import serp.util.Numbers;
 
 /**
  * Captures fetch group metadata.
@@ -229,10 +228,10 @@ public class FetchGroup
             throw new UnsupportedOperationException();
         if (depth < -1)
             throw new MetaDataException(_loc.get("invalid-fg-depth", _name, fm, 
-                Numbers.valueOf(depth)));
+                depth));
         if (_depths == null)
             _depths = new HashMap();
-        _depths.put(fm, Numbers.valueOf(depth));
+        _depths.put(fm, depth);
     }
 
     /**

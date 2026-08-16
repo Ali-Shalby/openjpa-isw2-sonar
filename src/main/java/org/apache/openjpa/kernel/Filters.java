@@ -41,7 +41,6 @@ import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.UserException;
-import serp.util.Numbers;
 import serp.util.Strings;
 
 /**
@@ -238,13 +237,38 @@ public class Filters {
             return !strict;
         if (c1 == String.class && isTemporalType(c2))
             return true;
+        if ((c1 == java.util.Date.class ||c1 == java.sql.Time.class) && c2 == java.sql.Timestamp.class)
+            return false;
+        if ((c1 == java.util.Date.class ||c1 == java.sql.Timestamp.class) && c2 == java.sql.Time.class)
+            return false;
+        if (isTemporalType(c1) && isTemporalType(c2))
+            return true;
         return false;
     }
+    
+    /**
+     * Convert the given value to match the given (presumably a setter) method argument type.
+     *  
+     * @param o given value
+     * @param method a presumably setter method 
+     * 
+     * @return the same value if the method does not have one and only one input argument.
+     */
+    public static Object convertToMatchMethodArgument(Object o, Method method) {
+        if (method == null || method.getParameterTypes().length != 1) {
+            return o;
+        }
+        return convert(o, method.getParameterTypes()[0], true);
+    }
 
+    public static Object convert(Object o, Class<?> type) {
+        return convert(o, type, false);
+    }
+    
     /**
      * Convert the given value to the given type.
      */
-    public static Object convert(Object o, Class<?> type) {
+    public static Object convert(Object o, Class<?> type, boolean strictNumericConversion) {
         if (o == null)
             return null;
         if (o.getClass() == type)
@@ -285,10 +309,11 @@ public class Filters {
                 return ((Calendar) o).getTime();
             } else if (Number.class.isAssignableFrom(type)) {
                 Integer i = null;
-                if (o instanceof Character)
-                    i = Numbers.valueOf(((Character) o).charValue());
+                if (o instanceof Character) {
+                    i = Integer.valueOf((Character)o);
+                }
                 else if (o instanceof String && ((String) o).length() == 1)
-                    i = Numbers.valueOf(((String) o).charAt(0));
+                    i = Integer.valueOf(((String)o));
 
                 if (i != null) {
                     if (type == Integer.class)
@@ -309,14 +334,14 @@ public class Filters {
             throw new ClassCastException(_loc.get("cant-convert", o,
                 o.getClass(), type).getMessage());
 
-        if (type == Integer.class) {
-            return Numbers.valueOf(((Number) o).intValue());
-        } else if (type == Float.class) {
+        if (type == Integer.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
+            return ((Number) o).intValue();
+        } else if (type == Float.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
             return new Float(((Number) o).floatValue());
         } else if (type == Double.class) {
             return new Double(((Number) o).doubleValue());
-        } else if (type == Long.class) {
-            return Numbers.valueOf(((Number) o).longValue());
+        } else if (type == Long.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
+            return ((Number) o).longValue();
         } else if (type == BigDecimal.class) {
             // the BigDecimal constructor doesn't handle the
             // "NaN" string version of Double.NaN and Float.NaN, nor
@@ -333,13 +358,27 @@ public class Filters {
             return new BigDecimal(o.toString());
         } else if (type == BigInteger.class) {
             return new BigInteger(o.toString());
-        } else if (type == Short.class) {
+        } else if (type == Short.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
             return new Short(((Number) o).shortValue());
-        } else if (type == Byte.class) {
+        } else if (type == Byte.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
             return new Byte(((Number) o).byteValue());
+        } else if (!strictNumericConversion) {
+            return ((Number) o).intValue();
         } else {
-            return Numbers.valueOf(((Number) o).intValue());
+            throw new ClassCastException(_loc.get("cant-convert", o, o.getClass(), type).getMessage());
         }
+    }
+    
+    private static boolean allowNumericConversion(Class<?> actual, Class<?> target, boolean strict) {
+        if (!strict || actual == target)
+            return true;
+        if (actual == Byte.class)    return false;
+        if (actual == Double.class)  return target == Float.class;
+        if (actual == Float.class)   return target == Double.class;
+        if (actual == Integer.class) return target == Long.class || target == Short.class;
+        if (actual == Long.class)    return target == Integer.class || target == Short.class;
+        if (actual == Short.class)   return target == Long.class || target == Integer.class;
+        return false;
     }
 
     /**
@@ -446,7 +485,7 @@ public class Filters {
             default:
                 throw new InternalException();
         }
-        return Numbers.valueOf(tot);
+        return tot;
     }
 
     /**
@@ -527,7 +566,7 @@ public class Filters {
             default:
                 throw new InternalException();
         }
-        return Numbers.valueOf(tot);
+        return tot;
     }
 
     /**
@@ -972,7 +1011,22 @@ public class Filters {
         return c != null 
             && (Date.class.isAssignableFrom(c) 
              || Time.class.isAssignableFrom(c) 
-             || Timestamp.class.isAssignableFrom(c));
+             || Timestamp.class.isAssignableFrom(c)
+             || Calendar.class.isAssignableFrom(c));
+    }
+    
+    public static Object getDefaultForNull(Class<?> nType) {
+        if (nType == Long.class) 
+            return new Long(0);
+        if (nType == Integer.class)
+            return new Integer(0);
+        if (nType == Double.class) 
+            return new Double(0.0);
+        if (nType == Float.class) 
+            return new Float(0.0);
+        if (nType == Short.class) 
+            return new Short((short)0);
+        return null;
     }
 
 }

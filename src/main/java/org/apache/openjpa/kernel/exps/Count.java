@@ -21,7 +21,6 @@ package org.apache.openjpa.kernel.exps;
 import java.util.Collection;
 import java.util.Iterator;
 
-import serp.util.Numbers;
 
 /**
  * Count non-null values.
@@ -47,6 +46,6 @@ class Count
         for (Iterator itr = os.iterator(); itr.hasNext();)
             if (itr.next() != null)
                 count++;
-        return Numbers.valueOf(count);
+        return count;
     }
 }

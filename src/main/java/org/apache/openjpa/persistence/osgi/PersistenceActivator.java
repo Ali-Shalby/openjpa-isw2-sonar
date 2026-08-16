@@ -14,15 +14,17 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  */
-package org.apache.openjpa.osgi;
+package org.apache.openjpa.persistence.osgi;
 
 import java.util.Hashtable;
 
 import javax.persistence.spi.PersistenceProvider;
 
 import org.apache.openjpa.persistence.PersistenceProviderImpl;
+import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleActivator;
 import org.osgi.framework.BundleContext;
+import org.osgi.framework.ServiceRegistration;
 
 
 /**
@@ -31,28 +33,48 @@ import org.osgi.framework.BundleContext;
  * @version $Rev$ $Date$
  */
 public class PersistenceActivator implements BundleActivator {
-
+    // following is so Aries can find and extend us for OSGi RFC 143
+    public static final String PERSISTENCE_PROVIDER_ARIES = "javax.persistence.provider";
+    // following would be set by Aries to expose their OSGi enabled provider
     public static final String PERSISTENCE_PROVIDER = PersistenceProvider.class.getName();
     public static final String OSGI_PERSISTENCE_PROVIDER = PersistenceProviderImpl.class.getName();
     private static BundleContext ctx = null;
+    private static ServiceRegistration svcReg = null;
 
     /* (non-Javadoc)
      * @see org.osgi.framework.BundleActivator#start(org.osgi.framework.BundleContext)
      */
-    public void start(BundleContext arg0) throws Exception {
-        ctx = arg0;
+    public void start(BundleContext ctx) throws Exception {
+        this.ctx = ctx;
         PersistenceProvider provider = new PersistenceProviderImpl();
         Hashtable<String, String> props = new Hashtable<String, String>();
-        props.put(PERSISTENCE_PROVIDER, OSGI_PERSISTENCE_PROVIDER);
-        ctx.registerService(PERSISTENCE_PROVIDER, provider, props);
+        props.put(PERSISTENCE_PROVIDER_ARIES, OSGI_PERSISTENCE_PROVIDER);
+        svcReg = ctx.registerService(PERSISTENCE_PROVIDER, provider, props);
     }
 
     /* (non-Javadoc)
      * @see org.osgi.framework.BundleActivator#stop(org.osgi.framework.BundleContext)
      */
-    public void stop(BundleContext arg0) throws Exception {
-        // TODO Auto-generated method stub
+    public void stop(BundleContext ctx) throws Exception {
+        if (svcReg != null) {
+            svcReg.unregister();
+            svcReg = null;
+        }
+        this.ctx = null;
+    }
 
+    /* (non-Javadoc)
+     * OPENJPA-1491 Allow us to use the OSGi Bundle's ClassLoader instead of the application one.
+     * This class and method are dynamically loaded by BundleUtils, so any method signature changes
+     * here need to also be reflected in BundleUtils.getBundleClassLoader()
+     */
+    public static ClassLoader getBundleClassLoader() {
+        ClassLoader cl = null;
+        if (ctx != null) {
+            Bundle b = ctx.getBundle();
+            cl = new BundleDelegatingClassLoader(b);
+        }
+        return cl;
     }
 
 }

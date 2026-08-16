@@ -24,7 +24,6 @@ import java.sql.Time;
 import java.sql.Timestamp;
 
 import org.apache.openjpa.meta.JavaTypes;
-import serp.util.Numbers;
 
 /**
  * Java SQL type constants.
@@ -104,10 +103,10 @@ public class JavaSQLTypes
                 return ZERO_FLOAT;
             case JavaTypes.INT:
             case JavaTypes.INT_OBJ:
-                return Numbers.valueOf(0);
+                return 0;
             case JavaTypes.LONG:
             case JavaTypes.LONG_OBJ:
-                return Numbers.valueOf(0L);
+                return 0L;
             case JavaTypes.SHORT:
             case JavaTypes.SHORT_OBJ:
                 return ZERO_SHORT;
@@ -145,10 +144,10 @@ public class JavaSQLTypes
                 return NONZERO_FLOAT;
             case JavaTypes.INT:
             case JavaTypes.INT_OBJ:
-                return Numbers.valueOf(1);
+                return 1;
             case JavaTypes.LONG:
             case JavaTypes.LONG_OBJ:
-                return Numbers.valueOf(1L);
+                return 1L;
             case JavaTypes.SHORT:
             case JavaTypes.SHORT_OBJ:
                 return NONZERO_SHORT;

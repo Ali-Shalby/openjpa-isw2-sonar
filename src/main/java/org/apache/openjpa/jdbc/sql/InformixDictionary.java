@@ -27,8 +27,8 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Set;
 
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -167,11 +167,13 @@ public class InformixDictionary
             { 
                 driverVendor = VENDOR_IBM;
                 useJCC = true;
-                try {
-                    if (meta.storesLowerCaseIdentifiers()) 
-                        schemaCase = SCHEMA_CASE_LOWER;
-                } catch (SQLException e) {}
-            } else if ("Informix".equalsIgnoreCase(driverName))
+                setIdentifierCase(meta);
+            } 
+            else if (driverName.equals("IBM Informix JDBC Driver for IBM Informix Dynamic Server")) {
+                setIdentifierCase(meta);
+                driverVendor = VENDOR_IBM;
+            }
+            else if ("Informix".equalsIgnoreCase(driverName))
                 driverVendor = VENDOR_DATADIRECT;
             else
                 driverVendor = VENDOR_OTHER;
@@ -186,10 +188,39 @@ public class InformixDictionary
                     conn.getTransactionIsolation()}));
         }
     }
+    
+    private void setIdentifierCase(DatabaseMetaData meta) {
+        try {
+            // lower case identifiers is the default for the JCC and newer
+            // Informix JDBC drivers
+            if (meta.storesLowerCaseIdentifiers()) { 
+                schemaCase = SCHEMA_CASE_LOWER;
+            }
+            else if (meta.storesMixedCaseIdentifiers()) {
+                schemaCase = SCHEMA_CASE_PRESERVE;
+            }
+            // otherwise, use the default (upper)
+        }
+        catch (SQLException e) {
+            getLog().warn("cannot-determine-identifier-base-case");
+            if (getLog().isTraceEnabled()) {
+                getLog().trace(e.toString(), e);
+            }
+        }
+    }
 
     @Override
     public Column[] getColumns(DatabaseMetaData meta, String catalog,
         String schemaName, String tableName, String columnName, Connection conn)
+        throws SQLException {
+        return getColumns(meta, DBIdentifier.newCatalog(catalog), 
+            DBIdentifier.newSchema(schemaName),DBIdentifier.newTable(tableName),
+            DBIdentifier.newColumn(columnName), conn);
+    }
+
+    @Override
+    public Column[] getColumns(DatabaseMetaData meta, DBIdentifier catalog,
+        DBIdentifier schemaName, DBIdentifier tableName, DBIdentifier columnName, Connection conn)
         throws SQLException {
         Column[] cols = super.getColumns(meta, catalog, schemaName, tableName,
             columnName, conn);
@@ -285,24 +316,15 @@ public class InformixDictionary
 
         // if we haven't already done so, initialize the lock mode of the
         // connection
-        if (lockModeEnabled && _seenConnections.add(conn)) {
-            String sql = "SET LOCK MODE TO WAIT";
-            if (lockWaitSeconds > 0)
-                sql = sql + " " + lockWaitSeconds;
-
-            Statement stmnt = null;
-            try {
-                stmnt = conn.createStatement();
-                stmnt.executeUpdate(sql);
-            } catch (SQLException se) {
-                throw SQLExceptions.getStore(se, this);
-            } finally {
-                if (stmnt != null)
-                    try {
-                        stmnt.close();
-                    } catch (SQLException se) {
-                    }
+        if (_seenConnections.add(conn)) {
+            if (lockModeEnabled) {
+                String sql = "SET LOCK MODE TO WAIT";
+                if (lockWaitSeconds > 0)
+                    sql = sql + " " + lockWaitSeconds;
+                execute(sql, conn, true);
             }
+            String sql = "SET ENVIRONMENT RETAINUPDATELOCKS 'ALL'";
+            execute(sql, conn, false);
         }
 
         // the datadirect driver requires that we issue a rollback before using
@@ -313,6 +335,27 @@ public class InformixDictionary
             } catch (SQLException se) {
             }
         return conn;
+    }
+    
+    private void execute(String sql, Connection conn, boolean throwExc) {
+        Statement stmnt = null;
+        try {
+            stmnt = conn.createStatement();
+            stmnt.executeUpdate(sql);
+        } catch (SQLException se) {
+            if (throwExc)
+                throw SQLExceptions.getStore(se, this);
+            else {
+                if (log.isTraceEnabled())
+                    log.trace(_loc.get("can-not-execute", sql));
+            }
+        } finally {
+            if (stmnt != null)
+                try {
+                    stmnt.close();
+                } catch (SQLException se) {
+                }
+        }
     }
 
     @Override
@@ -345,23 +388,17 @@ public class InformixDictionary
     }
         
     @Override
-    protected Boolean matchErrorState(int subtype, Set<String> errorStates,
-        SQLException ex) {
-        Boolean recoverable = null;
-        String errorState = ex.getSQLState();
-        if (errorStates.contains(errorState)) {
-            // SQL State of IX000 is a general purpose Informix error code
-            // category, so only return Boolean.TRUE if we match SQL Codes
-            // recoverable = Boolean.FALSE;
-            if (subtype == StoreException.LOCK &&
-                ex.getErrorCode() == -154) {
-                recoverable = Boolean.TRUE;
-            } else if (subtype == StoreException.QUERY &&
-                ex.getErrorCode() == -213) {
-                recoverable = Boolean.TRUE;
-            }
+    public boolean isFatalException(int subtype, SQLException ex) {
+        
+        // SQL State of IX000 is a general purpose Informix error code
+        // category, so only return Boolean.TRUE if we match SQL Codes
+        // recoverable = Boolean.FALSE;
+        if ((subtype == StoreException.LOCK && ex.getErrorCode() == -154) 
+          ||(subtype == StoreException.QUERY && ex.getErrorCode() == -213)) {
+            return false;
         }
-        return recoverable;
+        
+        return super.isFatalException(subtype, ex);
     }
 }
 

@@ -18,7 +18,6 @@
  */
 package org.apache.openjpa.util;
 
-import serp.util.Numbers;
 
 /**
  * {@link OpenJPAId} subclass appropriate for long fields.
@@ -52,7 +51,7 @@ public final class LongId extends OpenJPAId {
     }
 
     public Object getIdObject() {
-        return Numbers.valueOf(key);
+        return key;
     }
 
     protected int idHash() {

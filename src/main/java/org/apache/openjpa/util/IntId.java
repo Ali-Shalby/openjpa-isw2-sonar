@@ -18,7 +18,6 @@
  */
 package org.apache.openjpa.util;
 
-import serp.util.Numbers;
 
 /**
  * {@link OpenJPAId} subclass appropriate for int fields.
@@ -52,7 +51,7 @@ public final class IntId extends OpenJPAId {
     }
 
     public Object getIdObject() {
-        return Numbers.valueOf(key);
+        return key;
     }
 
     public String toString() {

@@ -31,11 +31,14 @@ import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.jdbc.sql.SQLFactory;
 import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.kernel.MixedLockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.kernel.VersionLockManager;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.LockException;
+import org.apache.openjpa.util.StoreException;
 
 /**
  * Lock manager that uses exclusive database locks.
@@ -117,8 +120,7 @@ public class PessimisticLockManager
         JDBCFetchConfiguration fetch = _store.getFetchConfiguration();
         if (dict.simulateLocking)
             return;
-        dict.assertSupport(dict.supportsSelectForUpdate,
-            "SupportsSelectForUpdate");
+        dict.assertSupport(dict.supportsSelectForUpdate, "SupportsSelectForUpdate");
 
         Object id = sm.getObjectId();
         ClassMapping mapping = (ClassMapping) sm.getMetaData();
@@ -137,7 +139,11 @@ public class PessimisticLockManager
                 checkLock(rs, sm, timeout);
             }
         } catch (SQLException se) {
-            throw SQLExceptions.getStore(se, dict, level);
+            LockException e = new LockException(sm.getPersistenceCapable(), timeout, level);
+            e.setCause(se);
+            e.setFatal(dict.isFatalException(StoreException.LOCK, se) 
+                    || level >= MixedLockLevels.LOCK_PESSIMISTIC_READ);
+            throw e;
         } finally {
             if (stmnt != null)
                 try { stmnt.close(); } catch (SQLException se) {}

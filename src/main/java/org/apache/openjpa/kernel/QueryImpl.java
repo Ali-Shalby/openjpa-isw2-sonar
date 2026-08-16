@@ -45,6 +45,7 @@ import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.kernel.exps.Val;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.rop.EagerResultList;
+import org.apache.openjpa.lib.rop.ListResultList;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultList;
@@ -66,7 +67,6 @@ import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Numbers;
 import serp.util.Strings;
 
 /**
@@ -1033,7 +1033,7 @@ public class QueryImpl
             int size = 0;
             for (Iterator i = ((Collection) o).iterator(); i.hasNext(); size++)
                 _broker.delete(i.next(), null);
-            return Numbers.valueOf(size);
+            return size;
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
@@ -1064,7 +1064,7 @@ public class QueryImpl
             int size = 0;
             for (Iterator i = ((Collection) o).iterator(); i.hasNext(); size++)
                 updateInMemory(i.next(), params, q);
-            return Numbers.valueOf(size);
+            return size;
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
@@ -1163,6 +1163,7 @@ public class QueryImpl
                 case JavaTypes.LOCALE:
                 case JavaTypes.OBJECT:
                 case JavaTypes.OID:
+                case JavaTypes.ENUM:
                     sm.settingObjectField(into, i, sm.fetchObjectField(i), val,
                         set);
                     break;
@@ -1240,10 +1241,17 @@ public class QueryImpl
         boolean detach = (_broker.getAutoDetach() &
             AutoDetach.DETACH_NONTXREAD) > 0 && !_broker.isActive();
         boolean lrs = range.lrs && !ex.isAggregate(q) && !ex.hasGrouping(q);
-        ResultList<?> res = (!detach && lrs) ? _fc.newResultList(rop)
-            : new EagerResultList(rop);
-        res.setUserObject(new Object[]{rop,ex});
-        _resultLists.add(decorateResultList(res));
+        ResultList<?> res = new ListResultList(Collections.emptyList());
+        try {
+            res = (!detach && lrs) ? _fc.newResultList(rop) : new EagerResultList(rop);
+            res.setUserObject(new Object[]{rop,ex});
+            _resultLists.add(decorateResultList(res));
+        } catch (OpenJPAException e) {
+            if (e.getFailedObject() == null) {
+                e.setFailedObject(getQueryString());
+            }
+            throw e;
+        }
         return res;
     }
 
@@ -1758,7 +1766,7 @@ public class QueryImpl
         for (Object expected : paramTypes.keySet()) {
             if (!params.containsKey(expected))
             throw new UserException(_loc.get("unbound-params",
-                expected, params.keySet()));
+                expected, paramTypes.keySet()));
         }
 
         Iterator<Map.Entry<Object, Class<?>>> itr = paramTypes.entrySet().iterator();
@@ -1908,14 +1916,14 @@ public class QueryImpl
             long num = 0;
             for (int i = 0; i < _executors.length; i++)
                 num += _executors[i].executeDelete(q, params).longValue();
-            return Numbers.valueOf(num);
+            return num;
         }
 
         public Number executeUpdate(StoreQuery q, Object[] params) {
             long num = 0;
             for (int i = 0; i < _executors.length; i++)
                 num += _executors[i].executeUpdate(q, params).longValue();
-            return Numbers.valueOf(num);
+            return num;
         }
 
         public String[] getDataStoreActions(StoreQuery q, Object[] params,

@@ -18,10 +18,10 @@
  */
 package org.apache.openjpa.conf;
 
-import java.net.URL;
 import java.util.Collection;
 import java.util.Map;
 
+import org.apache.openjpa.datacache.CacheDistributionPolicy;
 import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.datacache.DataCacheManager;
 import org.apache.openjpa.datacache.DataCacheMode;
@@ -55,8 +55,6 @@ import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.ClassResolver;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.StoreFacadeTypeRegistry;
-import org.apache.openjpa.writebehind.WriteBehindCacheManager;
-import org.apache.openjpa.writebehind.WriteBehindCallback;
 
 /**
  * Defines the properties necessary to configure runtime properties and
@@ -1732,54 +1730,6 @@ public interface OpenJPAConfiguration
     public void setLifecycleEventManager(String eventMgr);
 
     /**
-     * The {@link WriteBehindCache} configuration string.
-     * @since 2.0.0
-     */
-    public String getWriteBehindCache();
-
-    /**
-     * Set the {@link WriteBehindCache} configuration string.
-     * @since 2.0.0
-     */
-    public void setWriteBehindCache(String writeBehindCache);
-    
-    /**
-     * Get the {@link WriteBehindCacheManager} configuration string.
-     * @since 2.0.0
-     */
-    public String getWriteBehindCacheManager();
-
-    /**
-     * Set the {@link WriteBehindCacheManager} configuration string.
-     * @since 2.0.0
-     */
-    public void setWriteBehindCacheManager(String writeBehindCache);
-    
-    /**
-     * Get the {@link WriteBehindCacheManager} instance for this configuration.
-     * @since 2.0.0
-     */
-    public WriteBehindCacheManager getWriteBehindCacheManagerInstance();
-    
-    /**
-     * Get the {@link WriteBehindCallback} configuration string.
-     * @since 2.0.0
-     */
-    public String getWriteBehindCallback();
-    
-    /**
-     * Get the {@link WriteBehindCallback} instance for this configuration.
-     * @since 2.0.0 
-     */
-    public WriteBehindCallback getWriteBehindCallbackInstance();
-    
-    /**
-     * Set the {@link WriteBehindCallback} configuration string.
-     * @since 2.0.0
-     */
-    public void setWriteBehindCallback(String wbcallback);
-
-    /**
      * Gets the validation groups for pre-persist
      * 
      * @Since 2.0.0
@@ -1852,18 +1802,40 @@ public interface OpenJPAConfiguration
     public String getDataCacheMode();
     
     /**
-     * Set the persistent unit root url
+     * Gets the policy object that determines distribution of cached instances
+     * across named partitions of L2 data cache.
      * 
-     * @param the persistent unit root url
+     * @return an implementation of {@link CacheDistributionPolicy}.
      * @since 2.0.0
      */
-    public void setPuRootUrl(URL url);
+    public CacheDistributionPolicy getCacheDistributionPolicyInstance();
     
     /**
-     * Return the persistent unit rool URL
-     * @return URL
+     * Sets the policy object that determines distribution of cached instances
+     * across named partitions of L2 data cache.
+     * 
+     * @param policy a non-null implementation of {@link CacheDistributionPolicy}.
      * @since 2.0.0
      */
-    public URL getPuRootUrl();
+    public void setCacheDistributionPolicyInstance(CacheDistributionPolicy policy);
+    
+    /**
+     * Gets the plug-in string that described the policy to distribute cached instances
+     * across named partitions of L2 data cache.
+     * 
+     * @return a plug-in string for {@link CacheDistributionPolicy}.
+     * @since 2.0.0
+     */
+    public String getCacheDistributionPolicy();
+    
+    /**
+     * Sets the plug-in string that describes the policy to distribute cached instances
+     * across named partitions of L2 data cache.
+     * 
+     * @param a plug-in string for {@link CacheDistributionPolicy}.
+     * @since 2.0.0
+     */
+    public void setCacheDistributionPolicy(String policyPlugin);
+
 }
 

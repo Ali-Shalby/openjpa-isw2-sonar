@@ -33,6 +33,7 @@ import java.util.TreeMap;
 
 import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.datacache.AbstractQueryCache.EvictPolicy;
+import org.apache.openjpa.kernel.DelegatingStoreManager;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
@@ -51,7 +52,6 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.ObjectNotFoundException;
 
-import serp.util.Numbers;
 
 /**
  * A {@link StoreQuery} implementation that caches the OIDs involved in
@@ -123,6 +123,7 @@ public class QueryCacheStoreQuery
 
         // get the cached data
         QueryResult res = _cache.get(qk);
+
         if (res == null)
             return null;        
         if (res.isEmpty())
@@ -154,24 +155,11 @@ public class QueryCacheStoreQuery
 
         int projs = getContext().getProjectionAliases().length;
         if (projs == 0) {
-            // make sure the data cache contains the oids for the query result;
-            // if it doesn't, then using the result could be slower than not
-            // using it because of the individual by-oid lookups
-            ClassMetaData meta = _repos.getMetaData(getContext().
-                getCandidateType(), _sctx.getClassLoader(), true);
-            if (meta.getDataCache() == null)
+            // We're only going to return the cached results if we have ALL results cached. This could be improved
+            // in the future to be a little more intelligent.
+            if (getContext().getStoreContext().isCached(res) == false) {
                 return null;
-
-            BitSet idxs = meta.getDataCache().containsAll(res);
-
-            // eventually we should optimize this to figure out how many objects
-            // the cache is missing and if only a few do a bulk fetch for them
-            int len = idxs.length();
-            if (len < res.size())
-                return null;
-            for (int i = 0; i < len; i++)
-                if (!idxs.get(i))
-                    return null;
+            }
         }
         return new CachedList(res, projs != 0, _sctx);
     }
@@ -593,7 +581,7 @@ public class QueryCacheStoreQuery
             synchronized (this) {
                 if (_maintainCache) {
                     if (result) {
-                        Integer index = Numbers.valueOf(_pos);
+                        Integer index = _pos;
                         if (!_data.containsKey(index)) {
                             Object cached;
                             if (obj == null)

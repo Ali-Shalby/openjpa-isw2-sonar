@@ -21,9 +21,11 @@ package org.apache.openjpa.kernel;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.meta.ValueMetaData;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Represents a set of managed objects and their environment.
@@ -111,8 +113,8 @@ public interface StoreContext {
     public String getConnectionPassword();
 
     /**
-     * Return the cached instance for the given oid/object, or null if not
-     * cached.
+     * Return the instance for the given oid/object , or null if not
+     * found in the L1 cache. 
      *
      * @param oid the object's id
      * @return the cached object, or null if not cached
@@ -456,4 +458,46 @@ public interface StoreContext {
 	 * Releases the internal lock.
 	 */
 	public void unlock ();
+
+    /**
+     * Return the 'JTA' connectionFactoryName
+     */
+    public String getConnectionFactoryName();
+
+    /**
+     * Set the 'JTA' ConnectionFactoryName.
+     */
+    public void setConnectionFactoryName(String connectionFactoryName);
+
+    /**
+     * Return the 'NonJTA' ConnectionFactoryName.
+     */
+    public String getConnectionFactory2Name();
+
+    /**
+     * Set the 'NonJTA' ConnectionFactoryName. 
+     */
+    public void setConnectionFactory2Name(String connectionFactory2Name);
+
+    /**
+     * Return the 'JTA' ConnectionFactory, looking it up from JNDI if needed.
+     * 
+     * @return the JTA connection factory or null if connectionFactoryName is blank.
+     */
+    public Object getConnectionFactory();
+
+    /**
+     * Return the 'NonJTA' ConnectionFactory, looking it up from JNDI if needed.
+     * 
+     * @return the NonJTA connection factory or null if connectionFactoryName is blank.
+     */
+    public Object getConnectionFactory2();
+    
+    /**
+     * Indicate whether the oid can be found in the StoreContext's L1 cache or in the StoreManager cache.
+     * @param oid List of ObjectIds for PersistenceCapables which may be found in memory.
+     * @return true if the oid is available in memory (cached) otherwise false.
+     * @since 2.0.0. 
+     */
+    public boolean isCached(List<Object> oid);
 }

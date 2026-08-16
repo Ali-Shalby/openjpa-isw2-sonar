@@ -719,4 +719,22 @@ public interface Select
      * @param schemaAlias
      */
     public void setSchemaAlias(String schemaAlias);
+    
+    /**
+     * Set the flag to indicate whether this Select has
+     * internally generated subselect 
+     */
+    public void setHasSubselect(boolean hasSub);
+    
+    /**
+     * Return the flag to indicate whether this Select has
+     * internally generated subselect
+     * @return
+     */
+    public boolean getHasSubselect();
+   
+    /**
+     * Extended trace that logs eager relations
+     */
+    public void logEagerRelations();
 }

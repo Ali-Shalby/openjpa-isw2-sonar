@@ -26,6 +26,8 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 import javax.persistence.DiscriminatorType;
 import javax.persistence.EnumType;
 import javax.persistence.InheritanceType;
@@ -56,18 +58,19 @@ import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.AccessCode;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataParser;
 import org.apache.openjpa.util.InternalException;
+import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.UserException;
 import org.xml.sax.Attributes;
 import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 
 import static org.apache.openjpa.persistence.jdbc.MappingTag.*;
-import serp.util.Numbers;
 /**
  * Custom SAX parser used by the system to parse persistence mapping files.
  *
@@ -473,8 +476,8 @@ public class XMLPersistenceMappingParser
         seq.setSource(getSourceFile(), scope, SourceTracker.SRC_XML);
         Locator locator = getLocation().getLocator();
         if (locator != null) {
-            seq.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
-            seq.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+            seq.setLineNumber(locator.getLineNumber());
+            seq.setColNumber(locator.getColumnNumber());
         }
         pushElement(seq);
         return true;
@@ -1087,8 +1090,8 @@ public class XMLPersistenceMappingParser
         result.setSource(getSourceFile(), scope, SourceTracker.SRC_XML);
         Locator locator = getLocation().getLocator();
         if (locator != null) {
-            result.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
-            result.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
+            result.setLineNumber(locator.getLineNumber());
+            result.setColNumber(locator.getColumnNumber());
         }
         pushElement(result);
         return true;
@@ -1390,6 +1393,27 @@ public class XMLPersistenceMappingParser
         }
         return null;
     }
+
+    /**
+     * Process all deferred embeddables using an unknown access type.
+     */
+    protected void addDeferredEmbeddableMetaData() {
+        super.addDeferredEmbeddableMetaData();
+        if (_deferredMappings.size() > 0) {
+            Set<Class<?>> keys = _deferredMappings.keySet();
+            Class[] classes = keys.toArray(new Class[0]);
+            for (int i = 0; i < classes.length; i++) {
+                try {
+                    applyDeferredEmbeddableOverrides(classes[i]);
+                } catch (Exception e) {
+                    throw new MetaDataException(
+                            _loc.get("no-embeddable-metadata",
+                                classes[i].getName()), e);
+                }
+            }
+        }
+        
+    }    
     
     // Inner class for storing override information
     class DeferredEmbeddableOverrides {

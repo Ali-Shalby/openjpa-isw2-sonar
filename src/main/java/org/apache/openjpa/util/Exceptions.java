@@ -91,7 +91,13 @@ public class Exceptions {
         if (oid != null) {
             if (oid instanceof Id)
                 return oid.toString();
-            return ob.getClass().getName() + "-" + oid.toString();
+            String oidString = oid.toString();
+            // some oids stringify their class names. Some do not.
+            if (oidString.indexOf(ob.getClass().getName()) == -1) {
+                return ob.getClass().getName() + "-" + oidString;
+            } else {
+                return oidString;
+            }
         }
 
         if (ImplHelper.isManagedType(null, ob.getClass())) {
@@ -265,4 +271,20 @@ public class Exceptions {
         else
             return pc.pcFetchObjectId();
 	}
+    
+    public static String toClassName(Class<?> cls) {
+        if (cls == null) return "";
+        if (cls.isArray())
+            return toClassName(cls.getComponentType())+"[]";
+        return cls.getName();
+    }
+    
+    public static String toClassNames(Collection<? extends Class<?>> classes) {
+        if (classes == null) return "";
+        StringBuilder buffer = new StringBuilder();
+        for (Class<?> cls : classes) {
+            buffer.append("\r\n").append(toClassName(cls));
+        }
+        return buffer.toString();
+    }
 }

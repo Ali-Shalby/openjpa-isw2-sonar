@@ -146,8 +146,8 @@ public class FetchConfigurationImpl
         public boolean fetchGroupContainsDefault = false;
         public boolean fetchGroupContainsAll = false;
         public boolean extendedPathLookup = false;
-        public DataCacheRetrieveMode cacheRetrieveMode;
-        public DataCacheStoreMode cacheStoreMode;        
+        public DataCacheRetrieveMode cacheRetrieveMode = DataCacheRetrieveMode.USE;
+        public DataCacheStoreMode cacheStoreMode = DataCacheStoreMode.USE;        
     }
 
     private final ConfigurationState _state;
@@ -228,6 +228,8 @@ public class FetchConfigurationImpl
         addFetchGroups(fetch.getFetchGroups());
         clearFields();
         copyHints(fetch);
+        setCacheRetrieveMode(fetch.getCacheRetrieveMode());
+        setCacheStoreMode(fetch.getCacheStoreMode());
         addFields(fetch.getFields());
 
         // don't use setters because require active transaction
@@ -719,13 +721,14 @@ public class FetchConfigurationImpl
                 } else if ("setWriteLockLevel".equals(methodName) && !isActiveTransaction()) {
                     _state.writeLockLevel = (Integer)value;
                 } else {
-                    setter.invoke(this, value);
+                    setter.invoke(this, Filters.convertToMatchMethodArgument(value, setter));
                 }
             } catch (Exception e) {
-                if (e instanceof IllegalArgumentException)
-                    throw (IllegalArgumentException)e;
-                throw new IllegalArgumentException(_loc.get("bad-hint-value", key, toString(value), 
-                        toString(original)).getMessage(), e);
+                String message = _loc.get("bad-hint-value", key, toString(value), toString(original)).getMessage();
+                if (e instanceof IllegalArgumentException) {
+                    throw new IllegalArgumentException(message);
+                }
+                throw new IllegalArgumentException(message, e);
             }
         }
         addHint(key, original);

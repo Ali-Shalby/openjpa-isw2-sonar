@@ -29,7 +29,6 @@ import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.util.Id;
-import serp.util.Numbers;
 
 /**
  * {@link Joinable} for the datastore identity column.
@@ -61,7 +60,7 @@ class IdentityJoinable
         long id = res.getLong(col);
         if (id == 0 && res.wasNull())
             return null;
-        return Numbers.valueOf(id);
+        return id;
     }
 
     public Column[] getColumns() {

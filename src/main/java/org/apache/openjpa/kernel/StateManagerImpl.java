@@ -68,7 +68,6 @@ import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 import org.apache.openjpa.util.UserException;
-import serp.util.Numbers;
 
 /**
  * Implementation of the {@link OpenJPAStateManager} interface for use
@@ -857,9 +856,9 @@ public class StateManagerImpl
             case JavaTypes.FLOAT:
                 return new Float(fetchFloatField(field));
             case JavaTypes.INT:
-                return Numbers.valueOf(fetchIntField(field));
+                return fetchIntField(field);
             case JavaTypes.LONG:
-                return Numbers.valueOf(fetchLongField(field));
+                return fetchLongField(field);
             case JavaTypes.SHORT:
                 return new Short(fetchShortField(field));
             default:
@@ -988,9 +987,9 @@ public class StateManagerImpl
             case JavaTypes.FLOAT:
                 return new Float(fm.fetchFloatField(field));
             case JavaTypes.INT:
-                return Numbers.valueOf(fm.fetchIntField(field));
+                return fm.fetchIntField(field);
             case JavaTypes.LONG:
-                return Numbers.valueOf(fm.fetchLongField(field));
+                return fm.fetchLongField(field);
             case JavaTypes.SHORT:
                 return new Short(fm.fetchShortField(field));
             case JavaTypes.STRING:
@@ -2529,7 +2528,7 @@ public class StateManagerImpl
         if (!fmd.isExternalized())
             storeIntField(field, externalVal);
         else
-            storeField(field, fmd.getFieldValue(Numbers.valueOf(externalVal),
+            storeField(field, fmd.getFieldValue(externalVal,
                 _broker));
     }
 
@@ -2550,7 +2549,7 @@ public class StateManagerImpl
         if (!fmd.isExternalized())
             storeLongField(field, externalVal);
         else
-            storeField(field, fmd.getFieldValue(Numbers.valueOf(externalVal),
+            storeField(field, fmd.getFieldValue(externalVal,
                 _broker));
     }
 
@@ -2890,13 +2889,15 @@ public class StateManagerImpl
 
         lock();
         try {
-            for (int i = 0, len = _loaded.length(); i < len; i++) {
-                if (_loaded.get(i)) {
-                    provideField(_pc, _single, i);
-                    if (_single.proxy(reset, replaceNull))
-                        replaceField(_pc, _single, i);
-                    else
+            for (FieldMetaData fmd : _meta.getProxyFields()) {
+                int index = fmd.getIndex();
+                if (_loaded.get(index)) {
+                    provideField(_pc, _single, index);
+                    if (_single.proxy(reset, replaceNull)) {
+                        replaceField(_pc, _single, index);
+                    } else {
                         _single.clear();
+                    }
                 }
             }
         } finally {
@@ -3053,10 +3054,8 @@ public class StateManagerImpl
             // make sure version information has been set; version info must
             // always be set after the first state load or set (which is why
             // we do this even if no fields were loaded -- could be that this
-            // method is being called after a field is set)... some instances
-            // might not have version info, in which case this gets called
-            // multiple times; that should be ok too
-            if (_loadVersion == null) {
+            // method is being called after a field is set)
+            if (_loadVersion == null && (_meta == null || _meta.getVersionField() != null)) {
                 syncVersion(sdata);
                 ret = ret || _loadVersion != null;
             }
@@ -3377,5 +3376,13 @@ public class StateManagerImpl
     
     public List<FieldMetaData> getMappedByIdFields() {
         return _mappedByIdFields;
+    }
+    
+    public boolean requiresFetch(FieldMetaData fmd) {
+        return (_broker.getFetchConfiguration().requiresFetch(fmd) != FetchConfiguration.FETCH_NONE);
+    }
+    
+    public void setPc(PersistenceCapable pc) {
+        _pc = pc;
     }
 }

@@ -48,7 +48,6 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Numbers;
 
 /**
  * A SQL query.
@@ -168,7 +167,7 @@ public class SQLStoreQuery
                 
                 int count = executeUpdate(store, conn, stmnt, buf);  
               
-                return Numbers.valueOf(count);
+                return count;
             } catch (SQLException se) {
                 throw SQLExceptions.getStore(se, dict);
             } finally {

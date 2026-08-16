@@ -19,7 +19,6 @@
 package org.apache.openjpa.kernel.exps;
 
 import org.apache.openjpa.kernel.StoreContext;
-import serp.util.Numbers;
 
 /**
  * Returns the number of characters in the String.
@@ -53,9 +52,9 @@ class StringLength
         StoreContext ctx, Object[] params) {
         Object eval = _val.eval(candidate, orig, ctx, params);
         if (eval == null)
-            return Numbers.valueOf(0);
+            return 0;
 
-        return Numbers.valueOf(eval.toString().length());
+        return eval.toString().length();
     }
 
     public void acceptVisit(ExpressionVisitor visitor) {

@@ -22,6 +22,7 @@ import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.IllegalClassFormatException;
 import java.security.AccessController;
 import java.security.ProtectionDomain;
+import java.util.HashMap;
 import java.util.Map;
 
 import javax.persistence.EntityManager;
@@ -46,8 +47,10 @@ import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.meta.AbstractCFMetaDataFactory;
 import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.meta.MetaDataRepository;
+import org.apache.openjpa.persistence.osgi.BundleUtils;
 import org.apache.openjpa.persistence.validation.ValidationUtils;
 import org.apache.openjpa.util.ClassResolver;
 
@@ -93,12 +96,17 @@ public class PersistenceProviderImpl
             _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);            
             pd.checkPuNameCollisions(_log,name);
             
-            loadAgent(_log, conf);
+            // add enhancer
+            loadAgent(factory);
             
-            // TODO - Can this be moved back to BrokerImpl.initialize()?
             // Create appropriate LifecycleEventManager
-            loadValidator(_log, conf);
+            loadValidator(factory);
             
+            // We need to wait to preload until after we get back a fully configured/instantiated
+            // BrokerFactory. This is because it is possible that someone has extended OpenJPA
+            // functions and they need to be allowed time to configure themselves before we go off and
+            // start instanting configurable objects (ie:openjpa.MetaDataRepository). Don't catch
+            // any exceptions here because we want to fail-fast.
             preloadMetaDataRepository(factory);
             
             return JPAFacadeHelper.toEntityManagerFactory(factory);
@@ -172,33 +180,56 @@ public class PersistenceProviderImpl
                 cp.addProperty("openjpa." + BrokerValue.KEY, getDefaultBrokerAlias());
             }
 
-            BrokerFactory factory = getBrokerFactory(cp, poolValue, pui.getClassLoader());
+            // OPENJPA-1491 If running under OSGi, use the Bundle's ClassLoader instead of the application one
+            BrokerFactory factory;
+            if (BundleUtils.runningUnderOSGi()) {
+                factory = getBrokerFactory(cp, poolValue, BundleUtils.getBundleClassLoader());
+            } else {
+                factory = getBrokerFactory(cp, poolValue, pui.getClassLoader());
+            }
+
+            OpenJPAConfiguration conf = factory.getConfiguration();
+            setPersistenceEnvironmentInfo(conf, pui);
+            _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
+            // now we can log any transformer exceptions from above
             if (transformerException != null) {
-                Log log = factory.getConfiguration().getLog(OpenJPAConfiguration.LOG_RUNTIME);
-                if (log.isTraceEnabled()) {
-                    log.warn(_loc.get("transformer-registration-error-ex", pui), transformerException);
+                if (_log.isTraceEnabled()) {
+                    _log.warn(_loc.get("transformer-registration-error-ex", pui), transformerException);
                 } else {
-                    log.warn(_loc.get("transformer-registration-error", pui));
+                    _log.warn(_loc.get("transformer-registration-error", pui));
                 }
             }
+
             // Create appropriate LifecycleEventManager
-            OpenJPAConfiguration conf = factory.getConfiguration();
-            conf.setPuRootUrl(pui.getPersistenceUnitRootUrl());
-            _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
-            loadValidator(_log, conf);
+            loadValidator(factory);
             
             // We need to wait to preload until after we get back a fully configured/instantiated
             // BrokerFactory. This is because it is possible that someone has extended OpenJPA
             // functions and they need to be allowed time to configure themselves before we go off and
             // start instanting configurable objects (ie:openjpa.MetaDataRepository). Don't catch
             // any exceptions here because we want to fail-fast.
-            preloadMetaDataRepository(factory);           
+            preloadMetaDataRepository(factory);
+            
             return JPAFacadeHelper.toEntityManagerFactory(factory);
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
         }
     }
 
+    public void setPersistenceEnvironmentInfo(OpenJPAConfiguration conf, PersistenceUnitInfo pui) {
+        // OPENJPA-1460 Fix scope visibility of orm.xml when it is packaged in both ear file and war file
+        if (conf instanceof OpenJPAConfigurationImpl) {
+            Map<String, Object> peMap =((OpenJPAConfigurationImpl)conf).getPersistenceEnvironment();
+            if (peMap == null) {
+                peMap = new HashMap<String, Object>();
+                ((OpenJPAConfigurationImpl)conf).setPersistenceEnvironment(peMap);
+            }
+            peMap.put(AbstractCFMetaDataFactory.PERSISTENCE_UNIT_ROOT_URL, pui.getPersistenceUnitRootUrl());
+            peMap.put(AbstractCFMetaDataFactory.MAPPING_FILE_NAMES, pui.getMappingFileNames());
+            peMap.put(AbstractCFMetaDataFactory.JAR_FILE_URLS, pui.getJarFileUrls());
+        }
+    }
+    
     /*
      * Returns a ProviderUtil for use with entities managed by this
      * persistence provider.
@@ -234,7 +265,7 @@ public class PersistenceProviderImpl
         // We need to wait to preload until after we get back a fully configured/instantiated
         // BrokerFactory. This is because it is possible that someone has extended OpenJPA
         // functions and they need to be allowed time to configure themselves before we go off and
-        // start instanting configurable objects (ie:openjpa.MetaDataRepository). Don't catch
+        // start instantiating configurable objects (ie:openjpa.MetaDataRepository). Don't catch
         // any exceptions here because we want to fail-fast.
         OpenJPAConfiguration conf = factory.getConfiguration();
         Options o = Configurations.parseProperties(Configurations.getProperties(conf.getMetaDataRepository()));
@@ -285,11 +316,14 @@ public class PersistenceProviderImpl
     /**
      * This private worker method will attempt load the PCEnhancerAgent.
      */
-    private void loadAgent(Log log, OpenJPAConfiguration conf) {
+    private void loadAgent(BrokerFactory factory) {
+        OpenJPAConfiguration conf = factory.getConfiguration();
+        Log log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
+
         if (conf.getDynamicEnhancementAgent() == true) {
             boolean res = PCEnhancerAgent.loadDynamicAgent(log);
-            if(_log.isInfoEnabled() && res == true ){
-                _log.info(_loc.get("dynamic-agent"));
+            if (log.isInfoEnabled() && res == true ){
+                log.info(_loc.get("dynamic-agent"));
             }
         }
     }
@@ -302,10 +336,13 @@ public class PersistenceProviderImpl
      * @param conf
      * @throws if validation setup failed and was required by the config
      */
-    private void loadValidator(Log log, OpenJPAConfiguration conf) {
+    private void loadValidator(BrokerFactory factory) {
+        OpenJPAConfiguration conf = factory.getConfiguration();
+        Log log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
+
         if ((ValidationUtils.setupValidation(conf) == true) &&
-                _log.isInfoEnabled()) {
-            _log.info(_loc.get("vlem-creation-info"));
+                log.isInfoEnabled()) {
+            log.info(_loc.get("vlem-creation-info"));
         }
     }
 

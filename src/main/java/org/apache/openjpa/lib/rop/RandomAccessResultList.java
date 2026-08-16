@@ -25,7 +25,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
-import serp.util.Numbers;
 
 /**
  * Random-access result list implementation. It maintains a map
@@ -98,7 +97,7 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
             return _full[index];
         }
 
-        Integer i = Numbers.valueOf(index);
+        Integer i = index;
         Object ret = _rows.get(i);
         if (ret != null) {
             if (ret instanceof Null)

@@ -419,6 +419,10 @@ public class DBIdentifierUtilImpl extends IdentifierUtilImpl implements DBIdenti
      * Converts a column alias to use the appropriate delimiters
      */
     public String convertAlias(String alias) {
+        if (!needsConversion(getIdentifierConfiguration())) {
+            return alias;
+        }
+
         String[] names = Normalizer.splitName(alias);
         if (names.length <= 1) {
             // Nothing to split
@@ -436,7 +440,9 @@ public class DBIdentifierUtilImpl extends IdentifierUtilImpl implements DBIdenti
         String tableName = tbl.getIdentifier().getName();
         int len = Math.min(tableName.length(), 7);
         
-        String str = combineNames(rule, new String[] { prefix == null ? "" : prefix, 
+        // Combine the names using the normalized configuration.  
+        String str = combineNames(Normalizer.getNamingConfiguration(), rule, 
+            new String[] { prefix == null ? "" : prefix, 
             shorten(tableName, len), sName.getName() });
         sName.setName(str);
         return sName;

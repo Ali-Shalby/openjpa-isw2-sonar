@@ -32,7 +32,6 @@ import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.meta.VersionStrategy;
 import org.apache.openjpa.meta.JavaTypes;
-import serp.util.Numbers;
 
 /**
  * Represents a database column. Closely aligned with the column
@@ -425,11 +424,11 @@ public class Column
                 break;
             case JavaTypes.INT:
             case JavaTypes.INT_OBJ:
-                _default = Numbers.valueOf(Integer.parseInt(_defaultStr));
+                _default = Integer.parseInt(_defaultStr);
                 break;
             case JavaTypes.LONG:
             case JavaTypes.LONG_OBJ:
-                _default = Numbers.valueOf(Long.parseLong(_defaultStr));
+                _default = Long.parseLong(_defaultStr);
                 break;
             case JavaTypes.NUMBER:
             case JavaTypes.BIGDECIMAL:

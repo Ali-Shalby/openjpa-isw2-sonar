@@ -34,7 +34,6 @@ import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.Id;
 import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.UserException;
-import serp.util.Numbers;
 
 /**
  * Select the oid value of an object; typically used in projections.
@@ -98,7 +97,7 @@ class GetObjectId
         ClassMapping mapping = _path.getClassMapping(state);
         if (mapping.getIdentityType() == mapping.ID_DATASTORE) {
             if (val instanceof Id)
-                return Numbers.valueOf(((Id) val).getId());
+                return ((Id) val).getId();
             return Filters.convert(val, long.class);
         }
 

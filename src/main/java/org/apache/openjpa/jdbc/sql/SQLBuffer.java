@@ -38,7 +38,6 @@ import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.kernel.exps.Parameter;
 
-import serp.util.Numbers;
 
 /**
  * Buffer for SQL statements that can be used to create
@@ -157,30 +156,30 @@ public final class SQLBuffer
                         _cols.add(paramIndex, null);
             }
         }
-        if (buf._userIndex != null) {
-            if (_userIndex == null)
-                _userIndex = new ArrayList();
+        
+        // adding user parameters from another buffer to this buffer
+        // this buffer's user parameter index gets modified
+        if (buf._userIndex == null && this._userIndex == null) {
+            // do nothing
+        } else if (buf._userIndex != null && this._userIndex == null) {
+            // copy the other buffers data
+            this._userIndex = new ArrayList(buf._userIndex);
+        } else if (buf._userIndex == null && this._userIndex != null) {
+            // nothing to add from the other buffer
+        } else { // both has data. 
+            // modify this buffer's user parameter index
+            int otherSize = buf._userIndex.size()/2;
+            for (int i = 0; i < _userIndex.size(); i+=2) {
+                int newIndex = ((Integer)_userIndex.get(i)).intValue() + otherSize;
+                _userIndex.set(i, newIndex);
+            }
+            // append the other buffer's user parameters to this one
             for (int i = 0; i < buf._userIndex.size(); i+=2) {
-                int newIndex = ((Integer)buf._userIndex.get(i)).intValue() 
-                    + paramIndex;
-                Object userParam = buf._userIndex.get(i+1);
-                _userIndex.add(newIndex);
-                _userIndex.add(userParam);
-            }
-        } else { 
-            if (_userIndex != null) {
-                List userIndex = new ArrayList();
-                for (int i = 0; i < _userIndex.size(); i+=2) {
-                    int oldIndex = ((Integer)_userIndex.get(i)).intValue();
-                    Object userParam = _userIndex.get(i+1);
-                    if (oldIndex >= paramIndex) 
-                        userIndex.add(oldIndex + paramIndex);
-                    else 
-                        userIndex.add(oldIndex);
-                    userIndex.add(userParam);
-                }
-                _userIndex = userIndex;
-            }
+                Object otherIndex = buf._userIndex.get(i);
+                Object otherParam = buf._userIndex.get(i+1);
+                _userIndex.add(otherIndex);
+                _userIndex.add(otherParam);
+            }            
         }
     }
     
@@ -388,28 +387,28 @@ public final class SQLBuffer
      * Append a parameter value.
      */
     public SQLBuffer appendValue(int i) {
-        return appendValue(i, null);
+        return appendValue(Integer.valueOf(i), null);
     }
 
     /**
      * Append a parameter value.
      */
     public SQLBuffer appendValue(int i, Column col) {
-        return appendValue(Numbers.valueOf(i), col);
+        return appendValue(Integer.valueOf(i), col);
     }
 
     /**
      * Append a parameter value.
      */
     public SQLBuffer appendValue(long l) {
-        return appendValue(l, null);
+        return appendValue(Long.valueOf(l), null);
     }
 
     /**
      * Append a parameter value.
      */
     public SQLBuffer appendValue(long l, Column col) {
-        return appendValue(Numbers.valueOf(l), col);
+        return appendValue(Long.valueOf(l), col);
     }
 
     /**

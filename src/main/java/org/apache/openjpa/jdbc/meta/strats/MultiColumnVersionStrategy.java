@@ -23,7 +23,6 @@ import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Schemas;
 import org.apache.openjpa.meta.JavaTypes;
 
-import serp.util.Numbers;
 
 /**
  * Uses multiple version numbers spanning multiple columns for optimistic 
@@ -46,7 +45,7 @@ public class MultiColumnVersionStrategy extends NumberVersionStrategy {
     		Column[] cols = vers.getColumns();
     		_initials = new Number[cols.length];
     		for (int i = 0; i < cols.length; i++) {
-                _initials[i] = nextValue(Numbers.valueOf(0), getJavaType(i));
+                _initials[i] = nextValue(0, getJavaType(i));
     		}
     	}
     	super.initialize();

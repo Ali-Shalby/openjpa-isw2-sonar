@@ -21,7 +21,6 @@ package org.apache.openjpa.jdbc.kernel.exps;
 import java.util.Map;
 
 import org.apache.openjpa.jdbc.sql.Select;
-import serp.util.Numbers;
 
 /**
  * Tests whether one value contains another.
@@ -47,9 +46,9 @@ class ContainsExpression
             // update the count for this path
             Integer count = (Integer) contains.get(path);
             if (count == null)
-                count = Numbers.valueOf(0);
+                count = 0;
             else
-                count = Numbers.valueOf(count.intValue() + 1);
+                count = count.intValue() + 1;
             contains.put(path, count);
 
             sql.setContainsId(count.toString());

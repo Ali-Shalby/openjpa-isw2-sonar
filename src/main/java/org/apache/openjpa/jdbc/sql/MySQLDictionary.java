@@ -27,6 +27,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.lang.StringUtils;
@@ -39,6 +40,7 @@ import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.util.StoreException;
 
 /**
  * Dictionary for MySQL.
@@ -74,6 +76,10 @@ public class MySQLDictionary
      * @see http://dev.mysql.com/doc/refman/5.0/en/delete.html
      */
     public boolean optimizeMultiTableDeletes = false;
+
+    public static final String tinyBlobTypeName = "TINYBLOB";
+    public static final String mediumBlobTypeName = "MEDIUMBLOB";
+    public static final String longBlobTypeName = "LONGBLOB";
 
     public MySQLDictionary() {
         platform = "MySQL";
@@ -232,7 +238,7 @@ public class MySQLDictionary
     public String[] getCreateTableSQL(Table table) {
         String[] sql = super.getCreateTableSQL(table);
         if (!StringUtils.isEmpty(tableType))
-            sql[0] = sql[0] + " TYPE = " + tableType;
+            sql[0] = sql[0] + " ENGINE = " + tableType;
         return sql;
     }
 
@@ -416,4 +422,57 @@ public class MySQLDictionary
         }
         return result;
     }
+    
+    @Override
+    protected int matchErrorState(Map<Integer,Set<String>> errorStates, SQLException ex) {
+        int state = super.matchErrorState(errorStates, ex);
+        // OPENJPA-1616 - Special case for MySQL not returning a SQLState for timeouts
+        if (state == StoreException.GENERAL && ex.getErrorCode() == 0 && ex.getSQLState() == null) {
+            // look at the nested MySQL exception for more details
+            SQLException sqle = ex.getNextException();
+            if (sqle != null && sqle.toString().startsWith("com.mysql.jdbc.exceptions.MySQLTimeoutException")) {
+                if (conf != null && conf.getLockTimeout() != -1) {
+                    state = StoreException.LOCK;
+                } else {
+                    state = StoreException.QUERY;
+                }
+            }
+        }
+        return state;
+    }
+
+    @Override
+    public boolean isFatalException(int subtype, SQLException ex) {
+        if ((subtype == StoreException.LOCK  && ex.getErrorCode() == 1205)
+          ||(subtype == StoreException.QUERY && ex.getErrorCode() == 1317)) {
+            return false;
+        }
+        if (ex.getErrorCode() == 0 && ex.getSQLState() == null)
+            return false;
+        return super.isFatalException(subtype, ex);
+    }
+
+    /**
+     * OPENJPA-740 Special case for MySql special column types,
+     * like LONGTEXT, LONGBLOG etc..
+     * @see org.apache.openjpa.jdbc.sql.DBDictionary#getTypeName(org.apache.openjpa.jdbc.schema.Column)
+     */
+    @Override
+    public String getTypeName(Column col) {
+        if (col.getType() == Types.BLOB) {
+            if (col.getSize() == 0)   // unknown size
+                return blobTypeName;  // return old default of 64KB
+            else if (col.getSize() <= 255)
+                return tinyBlobTypeName;
+            else if (col.getSize() <= 65535)
+                return blobTypeName;  // old default of 64KB
+            else if (col.getSize() <= 16777215)
+                return mediumBlobTypeName;
+            else
+                return longBlobTypeName;
+        } else {
+            return super.getTypeName(col);
+        }
+    }
 }
+

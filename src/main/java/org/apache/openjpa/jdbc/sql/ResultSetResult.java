@@ -44,7 +44,6 @@ import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.meta.JavaTypes;
 
-import serp.util.Numbers;
 
 /**
  * Base {@link Result} implementation wrapped around a result set.
@@ -387,11 +386,11 @@ public class ResultSetResult
                 break;
             case JavaTypes.INT:
             case JavaTypes.INT_OBJ:
-                val = Numbers.valueOf(getIntInternal(obj, joins));
+                val = getIntInternal(obj, joins);
                 break;
             case JavaTypes.LONG:
             case JavaTypes.LONG_OBJ:
-                val = Numbers.valueOf(getLongInternal(obj, joins));
+                val = getLongInternal(obj, joins);
                 break;
             case JavaTypes.SHORT:
             case JavaTypes.SHORT_OBJ:
@@ -495,7 +494,7 @@ public class ResultSetResult
         throws SQLException {
         if (obj instanceof Number)
             return obj;
-        return Numbers.valueOf(findObject(obj, joins));
+        return findObject(obj, joins);
     }
 
     /**

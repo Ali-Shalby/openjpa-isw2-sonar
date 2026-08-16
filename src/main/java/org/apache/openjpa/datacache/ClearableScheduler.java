@@ -21,56 +21,57 @@ package org.apache.openjpa.datacache;
 import java.security.AccessController;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.StringTokenizer;
+import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.Clearable;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import java.util.concurrent.ConcurrentHashMap;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.UserException;
+
 import serp.util.Strings;
 
 /**
- * Cron-style cache eviction. Understands schedules based on cron format:
- * <code>minute hour mday month wday</code>
+ * Cron-style clearable eviction. Understands schedules based on cron format:
+ * <li><code>minute hour mday month wday</code></li>
+ * <li><code>+minute</code></li>
  * For example:
  * <code>15,30 6,19 2,10 1 2 </code>
  * Would run at 15 and 30 past the 6AM and 7PM, on the 2nd and 10th
  * of January when its a Monday.
  *
- * @author Steve Kim
  */
-public class DataCacheScheduler
-    implements Runnable {
+public class ClearableScheduler implements Runnable {
 
-    private static final Localizer _loc = Localizer.forPackage
-        (DataCacheScheduler.class);
+    private static final Localizer _loc = Localizer.forPackage(ClearableScheduler.class);
 
-    private Map _caches = new ConcurrentHashMap();
+    private Map<Clearable,Schedule> _clearables = new ConcurrentHashMap<Clearable,Schedule>();
     private boolean _stop = false;
-    private int _interval = 2;
+    private int _interval = 1;
     private Log _log;
     private Thread _thread;
 
-    public DataCacheScheduler(OpenJPAConfiguration conf) {
+    public ClearableScheduler(OpenJPAConfiguration conf) {
         _log = conf.getLogFactory().getLog(OpenJPAConfiguration.LOG_DATACACHE);
     }
 
     /**
-     * The interval time in minutes between cache checks. Defaults to 2.
+     * The interval time in minutes between scheduler checks. Defaults to 1.
      */
     public int getInterval() {
         return _interval;
     }
 
     /**
-     * The interval time in minutes between cache checks. Defaults to 2.
+     * The interval time in minutes between scheduler checks. Defaults to 1.
      */
     public void setInterval(int interval) {
         _interval = interval;
@@ -88,15 +89,15 @@ public class DataCacheScheduler
     }
 
     /**
-     * Schedule the given cache for eviction. Starts the scheduling thread
+     * Schedule the given Clearable for clear to be called. Starts the scheduling thread
      * if not started.
      */
-    public synchronized void scheduleEviction(DataCache cache, String times) {
+    public synchronized void scheduleEviction(Clearable clearable, String times) {
         if (times == null)
             return;
 
         Schedule schedule = new Schedule(times);
-        _caches.put(cache, schedule);
+        _clearables.put(clearable, schedule);
         _stop = false;
         if (_thread == null) {
             _thread =
@@ -110,11 +111,11 @@ public class DataCacheScheduler
     }
 
     /**
-     * Remove the given cache from scheduling.
+     * Remove the given Clearable from scheduling.
      */
-    public synchronized void removeFromSchedule(DataCache cache) {
-        _caches.remove(cache);
-        if (_caches.size() == 0)
+    public synchronized void removeFromSchedule(Clearable clearable) {
+        _clearables.remove(clearable);
+        if (_clearables.size() == 0)
             stop();
     }
 
@@ -129,18 +130,13 @@ public class DataCacheScheduler
                 Thread.sleep(_interval * 60 * 1000);
 
                 Date now = new Date();
-                DataCache cache;
-                Schedule schedule;
-                Map.Entry entry;
-                for (Iterator i = _caches.entrySet().iterator(); i.hasNext();) {
-                    entry = (Map.Entry) i.next();
-                    cache = (DataCache) entry.getKey();
-                    schedule = (Schedule) entry.getValue();
+                for(Entry<Clearable, Schedule> entry : _clearables.entrySet()){
+                    Clearable clearable = entry.getKey();
+                    Schedule schedule = entry.getValue();
                     if (schedule.matches(lastRun, now)) {
                         if (_log.isTraceEnabled())
-                            _log.trace(_loc.get("scheduler-clear",
-                                cache.getName(), fom.format(now)));
-                        evict(cache);
+                            _log.trace(_loc.get("scheduler-clear", clearable, fom.format(now)));
+                        evict(clearable);
                     }
                 }
                 lastRun = now;
@@ -157,7 +153,7 @@ public class DataCacheScheduler
         }
     }
 
-    protected void evict(DataCache cache) {
+    protected void evict(Clearable cache) {
         cache.clear();
     }
 
@@ -181,19 +177,46 @@ public class DataCacheScheduler
         final int[] min;
 
         public Schedule(String date) {
-            StringTokenizer token = new StringTokenizer(date, " \t");
-            if (token.countTokens() != 5)
-                throw new UserException(_loc.get("bad-count", date)).
-                    setFatal(true);
-            try {
-                min = parse(token.nextToken(), 0, 60);
-                hour = parse(token.nextToken(), 0, 24);
-                dayOfMonth = parse(token.nextToken(), 1, 31);
-                month = parse(token.nextToken(), 1, 13);
-                dayOfWeek = parse(token.nextToken(), 1, 8);
-            } catch (Throwable t) {
-                throw new UserException(_loc.get("bad-schedule", date), t).
-                    setFatal(true);
+            int[] tmin = null;
+            if (date.startsWith("+")) {
+                Calendar cal = Calendar.getInstance();
+                int interval = Integer.parseInt(date.substring(1));
+                int currMin = cal.get(Calendar.MINUTE);
+                
+                tmin = new int[60/interval];
+                for(int i = 0; i<tmin.length;i++){
+                    int temp;
+                    if(i==0){
+                        temp=currMin+interval;
+                    }else{
+                        temp=tmin[i-1]+interval;
+                    }
+                    if(temp >= 60 ){
+                        temp -= 60;
+                    }
+                    tmin[i]=temp;
+                }
+                Arrays.sort(tmin);
+
+                min = tmin;
+                hour = WILDCARD;
+                dayOfMonth = WILDCARD;
+                month = WILDCARD;
+                dayOfWeek = WILDCARD;
+            }else{
+            
+                StringTokenizer token = new StringTokenizer(date, " \t");
+                if (token.countTokens() != 5)
+                    throw new UserException(_loc.get("bad-count", date)).setFatal(true);
+                try {
+                    min = parse(token.nextToken(), 0, 60);
+                    hour = parse(token.nextToken(), 0, 24);
+                    dayOfMonth = parse(token.nextToken(), 1, 31);
+                    month = parse(token.nextToken(), 1, 13);
+                    dayOfWeek = parse(token.nextToken(), 1, 8);
+                } catch (Throwable t) {
+                    throw new UserException(_loc.get("bad-schedule", date), t).setFatal(true);
+                }
             }
         }
 

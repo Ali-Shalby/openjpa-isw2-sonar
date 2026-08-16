@@ -19,7 +19,6 @@
 package org.apache.openjpa.kernel;
 
 import org.apache.openjpa.meta.ClassMetaData;
-import serp.util.Numbers;
 
 ////////////////////////////////////////////////////////////
 // NOTE: Do not change property names; see SequenceMetaData 
@@ -52,11 +51,11 @@ public class TimeSeededSeq
 
     public synchronized Object next(StoreContext ctx, ClassMetaData meta) {
         _id += _increment;
-        return Numbers.valueOf(_id);
+        return _id;
     }
 
     public synchronized Object current(StoreContext ctx, ClassMetaData meta) {
-        return Numbers.valueOf(_id);
+        return _id;
     }
 
     public void allocate(int additional, StoreContext ctx, ClassMetaData meta) {

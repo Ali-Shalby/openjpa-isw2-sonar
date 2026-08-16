@@ -73,7 +73,6 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
-import serp.util.Numbers;
 
 /**
  * JDBC query implementation.
@@ -126,7 +125,7 @@ public class JDBCStoreQuery
     public Object newCompilationKey() {
         JDBCFetchConfiguration fetch = (JDBCFetchConfiguration) ctx
             .getFetchConfiguration();
-        return Numbers.valueOf(fetch.getJoinSyntax());
+        return fetch.getJoinSyntax();
     }
 
     public boolean supportsDataStoreExecution() {
@@ -541,7 +540,7 @@ public class JDBCStoreQuery
         }
 
         localContext.remove();
-        return Numbers.valueOf(count);
+        return count;
     }
 
     /**

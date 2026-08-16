@@ -189,6 +189,12 @@ public class PCPath
         if (_cid)
             return;
 
+        Action last = _actions == null ? null : (Action) _actions.getLast();
+        if (last != null && last.op == Action.VAR && ((String)last.data).equals(last.var)) {
+            _cid = true;
+            return;
+        }            
+            
         // treat it just like a unique variable
         Action action = new Action();
         action.op = Action.VAR;
@@ -971,8 +977,22 @@ public class PCPath
     }
 
     public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+        SQLBuffer sql) {
+        Column[] cols = getColumns(state);
+        for (int i = 0; i < cols.length; i++) {
+            appendTo(sel, state, sql, cols[i]);
+            if (i < cols.length -1)
+            sql.append(", ");
+        }
+    }
+    
+    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
         SQLBuffer sql, int index) {
         Column col = getColumns(state)[index];
+        appendTo(sel, state, sql, col);
+    }
+    
+    public void appendTo(Select sel, ExpState state, SQLBuffer sql, Column col) {
         if (sel != null)
             sel.setSchemaAlias(_schemaAlias);
 
