@@ -30,10 +30,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.strats.NoneClassStrategy;
+import org.apache.openjpa.jdbc.meta.strats.RelationFieldStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
@@ -87,6 +89,7 @@ public class ClassMapping
 
     // maps columns to joinables
     private final Map _joinables = Collections.synchronizedMap(new HashMap());
+    private boolean redoPrimaryKeyColumns = false;
 
     /**
      * Constructor. Supply described type and owning repository.
@@ -171,6 +174,7 @@ public class ClassMapping
         FieldMapping fm;
         Joinable join;
         int pkIdx;
+        boolean canReadDiscriminator = true;
         for (int i = 0; i < pks.length; i++) {
             // we know that all pk column join mappings use primary key fields,
             // cause this mapping uses the oid as its primary key (we recursed
@@ -178,7 +182,7 @@ public class ClassMapping
             join = assertJoinable(pks[i]);
             fm = getFieldMapping(join.getFieldIndex());
             pkIdx = fm.getPrimaryKeyIndex();
-
+            canReadDiscriminator &= isSelfReference(fk, join.getColumns()); 
             // could have already set value with previous multi-column joinable
             if (vals[pkIdx] == null) {
                 res.startDataRequest(fm);
@@ -193,8 +197,13 @@ public class ClassMapping
         // the oid data is loaded by the base type, but if discriminator data
         // is present, make sure to use it to construct the actual oid instance
         // so that we get the correct app id class, etc
+        
+        // Discriminator refers to the row but the vals[] may hold data that
+        // refer to another row. Then there is little point reading the disc
+        // value
+
         ClassMapping dcls = cls;
-        if (subs) {
+        if (subs && canReadDiscriminator) {
             res.startDataRequest(cls.getDiscriminator());
             try {
                 Class dtype = cls.getDiscriminator().getClass(store, cls, res);
@@ -213,6 +222,15 @@ public class ClassMapping
         }
         return oid;
     }
+    
+    boolean isSelfReference(ForeignKey fk, Column[] cols) {
+    	if (fk == null)
+    		return true;
+    	for (Column col : cols)
+    		if (fk.getColumn(col) != col)
+    			return false;
+    	return true;
+    }
 
     /**
      * Return the given column value(s) for the given object. The given
@@ -228,12 +246,19 @@ public class ClassMapping
         // from other persistence contexts, so try to get sm directly from
         // instance before asking our context
         OpenJPAStateManager sm;
-        if (ImplHelper.isManageable(obj))
-            sm = (OpenJPAStateManager) (ImplHelper.toPersistenceCapable(obj,
-                getRepository().getConfiguration()))
-                .pcGetStateManager();
-        else
+        if (ImplHelper.isManageable(obj)) {
+        	PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj,
+                    getRepository().getConfiguration());
+            sm = (OpenJPAStateManager) pc.pcGetStateManager();
+            if (sm == null) {
+            	ret = getValueFromUnmanagedInstance(obj, cols, true);
+            } else if (sm.isDetached()) {
+            	obj = store.getContext().find(sm.getObjectId(), false, null);
+            	sm = store.getContext().getStateManager(obj);
+            }
+        } else {
             sm = store.getContext().getStateManager(obj);
+        }
         if (sm == null)
             return ret;
 
@@ -247,7 +272,7 @@ public class ClassMapping
         }
         return ret;
     }
-
+    
     /**
      * Return the joinable for the given column, or throw an exception if
      * none is available.
@@ -392,17 +417,25 @@ public class ClassMapping
      * class uses to link to its superclass table.
      */
     public Column[] getPrimaryKeyColumns() {
-        if (_cols.length == 0 && getIdentityType() == ID_APPLICATION
-            && isMapped()) {
-            FieldMapping[] pks = getPrimaryKeyFieldMappings();
-            Collection cols = new ArrayList(pks.length);
-            Column[] fieldCols;
-            for (int i = 0; i < pks.length; i++) {
-                fieldCols = pks[i].getColumns();
-                for (int j = 0; j < fieldCols.length; j++)
-                    cols.add(fieldCols[j]);
+        if (getIdentityType() == ID_APPLICATION && isMapped()) {
+            if (_cols.length == 0 || redoPrimaryKeyColumns) {            
+                FieldMapping[] pks = getPrimaryKeyFieldMappings();
+                Collection cols = new ArrayList(pks.length);
+                Column[] fieldCols;
+                for (int i = 0; i < pks.length; i++) {
+                    fieldCols = pks[i].getColumns();
+                    if (fieldCols.length == 0) {
+                        // some pk columns depends on fk. At this moment, 
+                        // the fk may not contain complete information.
+                        // need to redo the primary key again later on
+                        redoPrimaryKeyColumns = true;
+                        continue;
+                    }
+                    for (int j = 0; j < fieldCols.length; j++)
+                        cols.add(fieldCols[j]);
+                }
+                _cols = (Column[]) cols.toArray(new Column[cols.size()]);
             }
-            _cols = (Column[]) cols.toArray(new Column[cols.size()]);
         }
         return _cols;
     }
@@ -800,9 +833,27 @@ public class ClassMapping
         // recursion, then resolve all fields
         resolveNonRelationMappings();
         FieldMapping[] fms = getFieldMappings();
-        for (int i = 0; i < fms.length; i++)
-            if (fms[i].getDefiningMetaData() == this)
+        for (int i = 0; i < fms.length; i++) {
+            if (fms[i].getDefiningMetaData() == this) {
+                if (fms[i].getForeignKey() != null &&
+                    fms[i].getStrategy() instanceof RelationFieldStrategy) {
+                    // set resolve mode to force this field mapping to be 
+                    // resolved again. The need to resolve again occurs when 
+                    // a primary key is a relation field with the foreign key
+                    // annotation. In this situation, this primary key field
+                    // mapping is resolved during the call to 
+                    // resolveNonRelationMapping. Since it is a relation
+                    // field, the foreign key will be constructed. However, 
+                    // the primary key of the parent entity may not have been 
+                    // resolved yet, resulting in missing informaiton in the fk
+                    fms[i].setResolve(MODE_META); 
+
+                    // set strategy to null to force fk to be re-constructed
+                    fms[i].setStrategy(null, false); 
+                }                
                 fms[i].resolve(MODE_MAPPING);
+            }
+        }
         fms = getDeclaredUnmanagedFieldMappings();
         for (int i = 0; i < fms.length; i++)
             fms[i].resolve(MODE_MAPPING);
@@ -978,5 +1029,77 @@ public class ClassMapping
         if (_strategy == null)
             throw new InternalException();
         return _strategy;
+    }
+    
+    /**
+     * Find the field mappings that correspond to the given columns.
+     * 
+     * @return null if no columns are given or no field mapping uses the given
+     * columns.
+     */
+    private List<FieldMapping> getFieldMappings(Column[] cols, boolean prime) {
+    	if (cols == null || cols.length == 0)
+    		return null;
+    	List<FieldMapping> result = null;
+    	for (Column c : cols) {
+    		List<FieldMapping> fms = hasColumn(c, prime);
+    		if (fms == null) continue;
+			if (result == null)
+				result = new ArrayList<FieldMapping>();
+			for (FieldMapping fm : fms)
+				if (!result.contains(fm))
+					result.add(fm);
+    	}
+    	return result;
+    }
+    
+    /**
+     * Looks up in reverse to find the list of field mappings that include the
+     * given column. Costly.
+     * 
+     * @return null if no field mappings carry this column. 
+     */
+    private List<FieldMapping> hasColumn(Column c, boolean prime) {
+    	List<FieldMapping> result = null;
+    	FieldMapping[] fms = (prime) ? 
+    		getPrimaryKeyFieldMappings() : getFieldMappings();
+    	for (FieldMapping fm : fms) {
+    		Column[] cols = fm.getColumns();
+    		if (contains(cols, c)) {
+    			if (result == null)
+    				result = new ArrayList<FieldMapping>();
+    			result.add(fm);
+    		}
+    	}
+    	return result;
+    }
+    
+    boolean contains(Column[] cols, Column c) {
+    	for (Column col : cols)
+    		if (col == c)
+    			return true;
+    	return false;
+    }
+    
+    /**
+     * Gets the field values of the given instance for the given columns.
+     * The given columns are used to identify the fields by a reverse lookup.
+     *  
+     * @return a single object or an array of objects based on number of 
+     * fields the given columns represent.
+     */
+    private Object getValueFromUnmanagedInstance(Object obj, Column[] cols, 
+    		boolean prime) {
+    	List<FieldMapping> fms = getFieldMappings(cols, prime);
+    	if (fms == null)
+    		return null;
+    	if (fms.size() == 1)
+    		return Reflection.getValue(obj, fms.get(0).getName(), true);
+    	Object[] result = new Object[fms.size()];
+    	int i = 0;
+    	for (FieldMapping fm : fms) {
+    		result[i++] = Reflection.getValue(obj, fm.getName(), true);
+    	}
+    	return result;
     }
 }

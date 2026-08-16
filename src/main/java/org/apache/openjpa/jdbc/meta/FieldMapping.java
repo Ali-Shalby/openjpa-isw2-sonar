@@ -44,6 +44,7 @@ import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
+import org.apache.tools.ant.taskdefs.condition.IsReference;
 
 /**
  * Specialization of metadata for relational databases.
@@ -71,6 +72,8 @@ public class FieldMapping
     private boolean _outer = false;
     private int _fetchMode = Integer.MAX_VALUE;
     private Unique[] _joinTableUniques; // Unique constraints on JoinTable
+    private Boolean _bidirectionalJoinTableOwner = null;
+    private Boolean _bidirectionalJoinTableNonOwner = null;
     
     /**
      * Constructor.
@@ -1047,4 +1050,92 @@ public class FieldMapping
     public void copyMappingInfo(ValueMapping vm) {
         _val.copyMappingInfo(vm);
     }
+    
+    /**
+     * Affirms if this field is the owning side of a bidirectional relation
+     * with a join table. Evaluated only once and the result cached for 
+     * subsequent call. Hence must be called after resolution.
+     */
+    public boolean isBidirectionalJoinTableMappingOwner() {
+    	if (_bidirectionalJoinTableOwner != null)
+    		return _bidirectionalJoinTableOwner.booleanValue();
+    	
+    	_bidirectionalJoinTableOwner = false;
+        ForeignKey fk = getForeignKey();
+        if (fk != null) 
+        	return false;
+        ForeignKey jfk = getJoinForeignKey();
+        if (jfk == null) 
+        	return false;
+        FieldMapping mappedBy = getValueMappedByMapping();
+        if (mappedBy != null) 
+        	return false;
+        ValueMapping elem = getElementMapping();
+        if (elem == null) 
+        	return false;
+        ClassMapping relType = elem.getDeclaredTypeMapping();
+        if (relType == null) 
+        	return false;
+        FieldMapping[] relFmds = relType.getFieldMappings();
+        for (int i=0; i<relFmds.length;i++) {
+            FieldMapping rfm = relFmds[i];
+            if (rfm.getDeclaredTypeMetaData() == getDeclaringMapping()) {
+        		ForeignKey rjfk = rfm.getJoinForeignKey();
+        		if (rjfk == null) 
+        		    continue;
+        		if (rjfk.getTable() == jfk.getTable()
+        		 && jfk.getTable().getColumns().length 
+        		 == jfk.getColumns().length + rjfk.getColumns().length) {
+        			_bidirectionalJoinTableOwner = true;
+        			break;
+        		}
+        	}
+        }
+        return _bidirectionalJoinTableOwner.booleanValue();
+    }
+    
+    /**
+     * Affirms if this field is the non-owning side of a bidirectional relation
+     * with a join table. Evaluated only once and the result cached for 
+     * subsequent call. Hence must be called after resolution.
+     */
+    public boolean isBidirectionalJoinTableMappingNonOwner() {
+    	if (_bidirectionalJoinTableNonOwner != null)
+    		return _bidirectionalJoinTableNonOwner.booleanValue();
+    	
+    	_bidirectionalJoinTableNonOwner = false;
+        ForeignKey fk = getForeignKey();
+        if (fk == null) 
+        	return false;
+        ForeignKey jfk = getJoinForeignKey();
+        if (jfk == null) 
+        	return false;
+        FieldMapping mappedBy = getValueMappedByMapping();
+        if (mappedBy != null) 
+        	return false;
+        ValueMapping elem = getElementMapping();
+        if (elem == null) 
+        	return false;
+        ClassMapping relType = getDeclaredTypeMapping();
+        if (relType == null) 
+        	return false;
+        FieldMapping[] relFmds = relType.getFieldMappings();
+        for (int i=0; i<relFmds.length;i++) {
+            FieldMapping rfm = relFmds[i];
+            ValueMapping relem = rfm.getElementMapping();
+            if (relem != null && relem.getDeclaredTypeMapping() == getDeclaringMapping()) {
+        		ForeignKey rjfk = rfm.getJoinForeignKey();
+        		if (rjfk == null) 
+        		    continue;
+        		if (rjfk.getTable() == jfk.getTable()
+        		 && jfk.getTable().getColumns().length 
+        		 == jfk.getColumns().length + rjfk.getColumns().length) {
+        			_bidirectionalJoinTableNonOwner = true;
+        			break;
+        		}
+        	}
+        }
+        return _bidirectionalJoinTableNonOwner.booleanValue();
+    }
+
 }
