@@ -145,7 +145,7 @@ public class DetachedStateManager
                 }
             }
             FetchConfiguration fc = broker.getFetchConfiguration();
-            sm.loadFields(load, fc, fc.getWriteLockLevel(), null, true);
+            sm.loadFields(load, fc, fc.getWriteLockLevel(), null);
         }        
         Object origVersion = sm.getVersion();
         sm.setVersion(_version);
@@ -552,7 +552,8 @@ public class DetachedStateManager
     public void settingStringField(PersistenceCapable pc, int idx, String cur,
         String next, int set) {
         accessingField(idx);
-        if (cur == next || !_loaded.get(idx))
+        if (cur == next || (cur != null && cur.equals(next))
+                || !_loaded.get(idx))
             return;
         lock();
         try {
@@ -697,7 +698,7 @@ public class DetachedStateManager
         throw new UnsupportedOperationException();
     }
 
-    public ValueMetaData getOwnerMetaData() {
+    public int getOwnerIndex() {
         throw new UnsupportedOperationException();
     }
 

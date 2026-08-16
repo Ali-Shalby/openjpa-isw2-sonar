@@ -51,8 +51,8 @@ public class PersistenceExceptions
      * and {@link NonUniqueResultException} in accordance with
      * section 3.7 of the EJB 3.0 specification.
      */
-    public static RuntimeExceptionTranslator getRollbackTranslator
-        (final OpenJPAEntityManager em) {
+    public static RuntimeExceptionTranslator getRollbackTranslator(
+        final OpenJPAEntityManager em) {
         return new RuntimeExceptionTranslator() {
             private boolean throwing = false;
 
@@ -146,6 +146,7 @@ public class PersistenceExceptions
                         getFailedObject(ke), ke.isFatal());
                 break;
             case StoreException.OPTIMISTIC:
+            case StoreException.LOCK:
                 e = new org.apache.openjpa.persistence.OptimisticLockException
                     (ke.getMessage(), getNestedThrowables(ke),
                         getFailedObject(ke), ke.isFatal());

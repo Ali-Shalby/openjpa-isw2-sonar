@@ -34,6 +34,8 @@ import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.kernel.ExpressionStoreQuery;
 import org.apache.openjpa.kernel.QueryContext;
 import org.apache.openjpa.kernel.QueryOperations;
+import org.apache.openjpa.kernel.StoreContext;
+import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.kernel.exps.AbstractExpressionBuilder;
 import org.apache.openjpa.kernel.exps.Expression;
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
@@ -44,12 +46,15 @@ import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.kernel.exps.Subquery;
 import org.apache.openjpa.kernel.exps.Value;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.UserException;
+import org.apache.openjpa.conf.Compatibility;
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import serp.util.Numbers;
 
 /**
@@ -319,6 +324,7 @@ public class JPQLExpressionBuilder
             JPQLNode node = onlyChild(parent);
             Value proj = getValue(node);
             exps.projections[i] = proj;
+            exps.projectionClauses[i] = assemble(node);
             exps.projectionAliases[i] = nextAlias();
         }
         return exp;
@@ -370,10 +376,12 @@ public class JPQLExpressionBuilder
         if (orderby != null) {
             int ordercount = orderby.getChildCount();
             exps.ordering = new Value[ordercount];
+            exps.orderingClauses = new String[ordercount];
             exps.ascending = new boolean[ordercount];
             for (int i = 0; i < ordercount; i++) {
                 JPQLNode node = orderby.getChild(i);
                 exps.ordering[i] = getValue(firstChild(node));
+                exps.orderingClauses[i] = assemble(firstChild(node));
                 // ommission of ASC/DESC token implies ascending
                 exps.ascending[i] = node.getChildCount() <= 1 ||
                     lastChild(node).id == JJTASCENDING ? true : false;
@@ -387,6 +395,13 @@ public class JPQLExpressionBuilder
 
         JPQLNode selectNode = root();
 
+        JPQLNode selectClause = selectNode.
+            findChildByID(JJTSELECTCLAUSE, false);
+        if (selectClause != null && selectClause.hasChildID(JJTDISTINCT))
+            exps.distinct = exps.DISTINCT_TRUE | exps.DISTINCT_AUTO;
+        else
+            exps.distinct = exps.DISTINCT_FALSE;
+
         JPQLNode constructor = selectNode.findChildByID(JJTCONSTRUCTOR, true);
         if (constructor != null) {
             // build up the fully-qualified result class name by
@@ -395,16 +410,8 @@ public class JPQLExpressionBuilder
             exps.resultClass = resolver.classForName(resultClassName, null);
 
             // now assign the arguments to the select clause as the projections
-            exps.distinct = exps.DISTINCT_FALSE;
             return assignProjections(right(constructor), exps);
         } else {
-            JPQLNode selectClause = selectNode.
-                findChildByID(JJTSELECTCLAUSE, false);
-            if (selectClause != null && selectClause.hasChildID(JJTDISTINCT))
-                exps.distinct = exps.DISTINCT_TRUE | exps.DISTINCT_AUTO;
-            else
-                exps.distinct = exps.DISTINCT_FALSE;
-
             // handle SELECT clauses
             JPQLNode expNode = selectNode.
                 findChildByID(JJTSELECTEXPRESSIONS, true);
@@ -467,9 +474,9 @@ public class JPQLExpressionBuilder
         // handle SET field = value
         JPQLNode[] nodes = root().findChildrenByID(JJTUPDATEITEM);
         for (int i = 0; nodes != null && i < nodes.length; i++) {
-            FieldMetaData field = getPath(firstChild(nodes[i])).last();
+            Path path = getPath(firstChild(nodes[i]));
             Value val = getValue(onlyChild(lastChild(nodes[i])));
-            exps.putUpdate(field, val);
+            exps.putUpdate(path, val);
         }
     }
 
@@ -977,21 +984,28 @@ public class JPQLExpressionBuilder
                 // arg2 is the end index): we perform the translation by
                 // adding one to the first argument, and then adding the
                 // first argument to the second argument to get the endIndex
-                //
-                // ### we could get rid of some messy expressions by checking for
-                // the common case where the arguments are specified as
-                // a literal, in which case we could just do the calculations
-                // in memory; otherwise we wind up with ugly looking SQL like:
-                // SELECT ... FROM ... t1
-                // (SUBSTRING(t1.ASTR, (? - ?) + 1, (? + (? - ?)) - ((? - ?))) = ?)
-                // [params=(long) 2, (int) 1, (long) 2, (long) 2, (int) 1,
-                // (long) 2, (int) 1, (String) oo
-                return factory.substring(val1, factory.newArgumentList
-                    (factory.subtract(val2, factory.newLiteral
-                        (Numbers.valueOf(1), Literal.TYPE_NUMBER)),
-                        (factory.add(val3,
-                            (factory.subtract(val2, factory.newLiteral
-                                (Numbers.valueOf(1), Literal.TYPE_NUMBER)))))));
+                Value start;
+                Value end;
+                if (val2 instanceof Literal && val3 instanceof Literal) {
+                    // optimize SQL for the common case of two literals
+                    long jpqlStart = ((Number) ((Literal) val2).getValue())
+                        .longValue();
+                    long length = ((Number) ((Literal) val3).getValue())
+                        .longValue();
+                    start = factory.newLiteral(new Long(jpqlStart - 1),
+                        Literal.TYPE_NUMBER);
+                    long endIndex = length + (jpqlStart - 1);
+                    end = factory.newLiteral(new Long(endIndex),
+                        Literal.TYPE_NUMBER);
+                } else {
+                    start = factory.subtract(val2, factory.newLiteral
+                        (Numbers.valueOf(1), Literal.TYPE_NUMBER));
+                    end = factory.add(val3,
+                        (factory.subtract(val2, factory.newLiteral
+                            (Numbers.valueOf(1), Literal.TYPE_NUMBER))));
+                }
+                return factory.substring(val1, factory.newArgumentList(
+                    start, end));
 
             case JJTLOCATE:
                 // as with SUBSTRING (above), the semantics for LOCATE differ
@@ -1067,9 +1081,54 @@ public class JPQLExpressionBuilder
             case JJTCURRENTTIMESTAMP:
                 return factory.getCurrentTimestamp();
 
+            case JJTSELECTEXTENSION:
+                assertQueryExtensions("SELECT");
+                return eval(onlyChild(node));
+
+            case JJTGROUPBYEXTENSION:
+                assertQueryExtensions("GROUP BY");
+                return eval(onlyChild(node));
+
+            case JJTORDERBYEXTENSION:
+                assertQueryExtensions("ORDER BY");
+                return eval(onlyChild(node));
+
             default:
                 throw parseException(EX_FATAL, "bad-tree",
                     new Object[]{ node }, null);
+        }
+    }
+
+    private void assertQueryExtensions(String clause) {
+        OpenJPAConfiguration conf = resolver.getConfiguration();
+        switch(conf.getCompatibilityInstance().getJPQL()) {
+            case Compatibility.JPQL_WARN:
+                // check if we've already warned for this query-factory combo
+                StoreContext ctx = resolver.getQueryContext().getStoreContext();
+                String query = currentQuery();
+                if (ctx.getBroker() != null && query != null) {
+                    String key = getClass().getName() + ":" + query;
+                    BrokerFactory factory = ctx.getBroker().getBrokerFactory();
+                    Object hasWarned = factory.getUserObject(key);
+                    if (hasWarned != null)
+                        break;
+                    else
+                        factory.putUserObject(key, Boolean.TRUE);
+                }
+                Log log = conf.getLog(OpenJPAConfiguration.LOG_QUERY);
+                if (log.isWarnEnabled())
+                    log.warn(_loc.get("query-extensions-warning", clause,
+                        currentQuery()));
+                break;
+            case Compatibility.JPQL_STRICT:
+                throw new ParseException(_loc.get("query-extensions-error",
+                    clause, currentQuery()).getMessage());
+            case Compatibility.JPQL_EXTENDED:
+                break;
+            default:
+                throw new IllegalStateException(
+                    "Compatibility.getJPQL() == "
+                        + conf.getCompatibilityInstance().getJPQL());
         }
     }
 
@@ -1358,7 +1417,7 @@ public class JPQLExpressionBuilder
     private Value getValue(JPQLNode node, int handleVar) {
         Value val = (Value) eval(node);
 
-        // determind how to evauate a variabe
+        // determined how to evaluate a variable
         if (!val.isVariable())
             return val;
         else if (handleVar == VAR_PATH && !(val instanceof Path))
@@ -1669,9 +1728,6 @@ public class JPQLExpressionBuilder
                 // parser may sometimes (unfortunately) throw
                 throw new UserException(_loc.get("parse-error",
                     new Object[]{ e.toString(), jpql }));
-            } catch (ParseException e) {
-                throw new UserException(_loc.get("parse-error",
-                    new Object[]{ e.toString(), jpql }), e);
             }
         }
 

@@ -63,6 +63,15 @@ public interface OpenJPAEntityManager
 
     /**
      * Whether this entity manager is using managed transactions.
+     *
+     * @since 1.1.0
+     */
+    public boolean isTransactionManaged();
+
+    /**
+     * @deprecated use {@link #isTransactionManaged} instead to interrogate
+     * whether or not this EntityManager's transaction is managed. To determine
+     * if a given entity instance is managed, use {@link #contains}.
      */
     public boolean isManaged();
 
@@ -780,8 +789,11 @@ public interface OpenJPAEntityManager
      * create a subclass of the type that does implement
      * {@link org.apache.openjpa.enhance.PersistenceCapable}, and will attempt
      * to redefine the methods in <code>cls</code> to enable persistent
-     * attribute tracking. Otherwise, this will return an instance of the
-     * specified class.
+     * attribute tracking. Otherwise, if <code>cls</code> is a managed type,
+     * this will return an instance of the specified class.
+     *
+     * @throws IllegalArgumentException if <code>cls</code> is not a managed
+     * type or interface.
      */
     public <T> T createInstance(Class<T> cls);
 

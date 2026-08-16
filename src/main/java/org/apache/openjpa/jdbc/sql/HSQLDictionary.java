@@ -250,30 +250,14 @@ public class HSQLDictionary
         }
     }
 
-    protected void appendSelectRange(SQLBuffer buf, long start, long end) {
+    protected void appendSelectRange(SQLBuffer buf, long start, long end,
+        boolean subselect) {
         // HSQL doesn't parameters in range
         buf.append(" LIMIT ").append(String.valueOf(start)).append(" ");
         if (end == Long.MAX_VALUE)
             buf.append(String.valueOf(0));
         else
             buf.append(String.valueOf(end - start));
-    }
-
-    public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
-        FilterValue end) {
-        buf.append(substringFunctionName).append("((");
-        str.appendTo(buf);
-        buf.append("), (");
-        start.appendTo(buf);
-        buf.append(" + 1)");
-        if (end != null) {
-            buf.append(", (");
-            appendNumericCast(buf, end);
-            buf.append(" - (");
-            appendNumericCast(buf, start);
-            buf.append("))");
-        }
-        buf.append(")");
     }
 
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,

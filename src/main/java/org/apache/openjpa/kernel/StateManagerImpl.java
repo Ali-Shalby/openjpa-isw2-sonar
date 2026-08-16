@@ -19,18 +19,31 @@
 package org.apache.openjpa.kernel;
 
 import java.io.IOException;
+import java.io.NotSerializableException;
+import java.io.ObjectInputStream;
 import java.io.ObjectOutput;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.BitSet;
+import java.util.Calendar;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.TimeZone;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
+import org.apache.openjpa.enhance.DynamicPersistenceCapable;
 import org.apache.openjpa.enhance.FieldManager;
+import org.apache.openjpa.enhance.ManagedInstanceProvider;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.enhance.RedefinitionHelper;
 import org.apache.openjpa.enhance.StateManager;
-import org.apache.openjpa.enhance.ManagedInstanceProvider;
-import org.apache.openjpa.enhance.DynamicPersistenceCapable;
 import org.apache.openjpa.event.LifecycleEvent;
 import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.lib.util.Localizer;
@@ -43,6 +56,7 @@ import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.meta.ValueStrategies;
 import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.Exceptions;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.ObjectNotFoundException;
@@ -50,7 +64,6 @@ import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 import org.apache.openjpa.util.UserException;
-import org.apache.openjpa.util.ImplHelper;
 import serp.util.Numbers;
 
 /**
@@ -68,7 +81,7 @@ import serp.util.Numbers;
  * @author Abe White
  */
 public class StateManagerImpl
-    implements OpenJPAStateManager {
+    implements OpenJPAStateManager, Serializable {
 
     public static final int LOAD_FGS = 0;
     public static final int LOAD_ALL = 1;
@@ -96,8 +109,8 @@ public class StateManagerImpl
         (StateManagerImpl.class);
 
     // information about the instance
-    private PersistenceCapable _pc = null;
-    private ClassMetaData _meta = null;
+    private transient PersistenceCapable _pc = null;
+    private transient ClassMetaData _meta = null;
     private BitSet _loaded = null;
     private BitSet _dirty = null;
     private BitSet _flush = null;
@@ -112,7 +125,7 @@ public class StateManagerImpl
     private Object _oid = null;
 
     // the managing persistence manager and lifecycle state
-    private final BrokerImpl _broker;
+    private transient BrokerImpl _broker; // this is serialized specially
     private PCState _state = PCState.TRANSIENT;
 
     // the current and last loaded version indicators, and the lock object
@@ -133,7 +146,7 @@ public class StateManagerImpl
 
     // information about the owner of this instance, if it is embedded
     private StateManagerImpl _owner = null;
-    private ValueMetaData _ownerMeta = null;
+    private int _ownerIndex = -1;
 
     /**
      * Constructor; supply id, type metadata, and owning persistence manager.
@@ -154,7 +167,7 @@ public class StateManagerImpl
      */
     void setOwner(StateManagerImpl owner, ValueMetaData ownerMeta) {
         _owner = owner;
-        _ownerMeta = ownerMeta;
+        _ownerIndex = ownerMeta.getFieldMetaData().getIndex();
     }
 
     /**
@@ -247,8 +260,6 @@ public class StateManagerImpl
             }
             _meta = sub;
         }
-        if (cls.isInterface())
-            cls = _meta.getInterfaceImpl();
 
         PersistenceCapable inst = PCRegistry.newInstance(cls, this, _oid, true);
         if (inst == null) {
@@ -306,8 +317,11 @@ public class StateManagerImpl
 
         // if this is a non-tracking PC, add a hard ref to the appropriate data
         // sets and give it an opportunity to make a state snapshot.
-        if (!isIntercepting())
+        if (!isIntercepting()) {
             saveFields(true);
+            if (!isNew())
+                RedefinitionHelper.assignLazyLoadProxies(this);
+        }
     }
 
     /**
@@ -315,6 +329,8 @@ public class StateManagerImpl
      * from {@link ClassMetaData#isIntercepting()} in that it checks for
      * property access + subclassing in addition to the redefinition /
      * enhancement checks.
+     *
+     * @since 1.0.0
      */
     public boolean isIntercepting() {
         if (getMetaData().isIntercepting())
@@ -357,7 +373,7 @@ public class StateManagerImpl
         // care of checking if the DFG is loaded, making sure version info
         // is loaded, etc
         int lockLevel = calculateLockLevel(active, forWrite, fetch);
-        boolean ret = loadFields(fields, fetch, lockLevel, sdata, forWrite);
+        boolean ret = loadFields(fields, fetch, lockLevel, sdata);
         obtainLocks(active, forWrite, lockLevel, fetch, sdata);
         return ret;
     }
@@ -381,8 +397,8 @@ public class StateManagerImpl
         return _owner;
     }
 
-    public ValueMetaData getOwnerMetaData() {
-        return _ownerMeta;
+    public int getOwnerIndex() {
+        return _ownerIndex;
     }
 
     public boolean isEmbedded() {
@@ -580,9 +596,9 @@ public class StateManagerImpl
         
         // Throw exception if field already has a value assigned.
         // @GeneratedValue overrides POJO initial values and setter methods
-        if (!isDefaultValue(field) && !fmd.isValueGenerated())
+        if (!fmd.isValueGenerated() && !isDefaultValue(field))
             throw new InvalidStateException(_loc.get(
-                    "existing-value-override-excep", fmd.getFullName(false)));
+                "existing-value-override-excep", fmd.getFullName(false)));
 
         // for primary key fields, assign the object id and recache so that
         // to the user, so it looks like the oid always matches the pk fields
@@ -796,7 +812,8 @@ public class StateManagerImpl
 
         SaveFieldManager saved = getSaveFieldManager();
         if (saved == null)
-            throw new InternalException(_loc.get("no-saved-fields"));
+            throw new InternalException(_loc.get("no-saved-fields",
+                getMetaData().getDescribedType().getName()));
 
         FieldMetaData[] fmds = getMetaData().getFields();
         for (int i = 0; i < fmds.length; i++) {
@@ -952,6 +969,11 @@ public class StateManagerImpl
 
         if (reason != BrokerImpl.FLUSH_ROLLBACK
             && reason != BrokerImpl.FLUSH_LOGICAL) {
+            // analyze previous state for later
+            boolean wasNew = isNew();
+            boolean wasFlushed = isFlushed();
+            boolean wasDeleted = isDeleted();
+
             // all dirty fields were flushed
             _flush.or(_dirty);
 
@@ -972,6 +994,15 @@ public class StateManagerImpl
             // if this object was stored with preFlush, do post-store callback
             if ((_flags & FLAG_PRE_FLUSHED) > 0)
                 fireLifecycleEvent(LifecycleEvent.AFTER_STORE);
+
+            // do post-update as needed
+            if (wasNew && !wasFlushed)
+                fireLifecycleEvent(LifecycleEvent.AFTER_PERSIST_PERFORMED);
+            else if (wasDeleted)
+                fireLifecycleEvent(LifecycleEvent.AFTER_DELETE_PERFORMED);
+            else 
+                // updates and new-flushed with changes
+                fireLifecycleEvent(LifecycleEvent.AFTER_UPDATE_PERFORMED);
         } else if (reason == BrokerImpl.FLUSH_ROLLBACK) {
             // revert to last loaded version and original oid
             assignVersionField(_loadVersion);
@@ -1304,7 +1335,16 @@ public class StateManagerImpl
     // Implementation of StateManager interface
     ////////////////////////////////////////////
 
+    /**
+     * @return whether or not unloaded fields should be closed.
+     */
     public boolean serializing() {
+        // if the broker is in the midst of a serialization, then no special
+        // handling should be performed on the instance, and no subsequent
+        // load should happen
+        if (_broker.isSerializing())
+            return false;
+
         try {
             if (_meta.isDetachable())
                 return DetachManager.preSerialize(this);
@@ -1496,8 +1536,7 @@ public class StateManagerImpl
 
             if (isEmbedded()) {
                 // notify owner of change
-                _owner.dirty(_ownerMeta.getFieldMetaData().getIndex(),
-                    Boolean.TRUE, loadFetchGroup);
+                _owner.dirty(_ownerIndex, Boolean.TRUE, loadFetchGroup);
             }
 
             // is this a direct mutation of an sco field?
@@ -2761,6 +2800,11 @@ public class StateManagerImpl
 
         if (isPersistent()) {
             fireLifecycleEvent(LifecycleEvent.BEFORE_STORE);
+            // BEFORE_PERSIST is handled during Broker.persist and Broker.attach
+            if (isDeleted())
+                fireLifecycleEvent(LifecycleEvent.BEFORE_DELETE);
+            else if (!(isNew() && !isFlushed()))
+                fireLifecycleEvent(LifecycleEvent.BEFORE_UPDATE);
             _flags |= FLAG_PRE_FLUSHED;
         }
 
@@ -2848,7 +2892,7 @@ public class StateManagerImpl
      * Return true if any data is loaded, false otherwise.
      */
     boolean loadFields(BitSet fields, FetchConfiguration fetch, int lockLevel,
-        Object sdata, boolean forWrite) {
+        Object sdata) {
         // can't load version field from store
         if (fields != null) {
             FieldMetaData vfield = _meta.getVersionField();
@@ -2942,7 +2986,7 @@ public class StateManagerImpl
         // call this method even if there are no unloaded fields; loadFields
         // takes care of things like loading version info and setting PC flags
         try {
-            loadFields(fields, fetch, lockLevel, null, forWrite);
+            loadFields(fields, fetch, lockLevel, null);
         } finally {
             if (lfgAdded)
                 fetch.removeFetchGroup(lfg);
@@ -3140,4 +3184,66 @@ public class StateManagerImpl
 		// manager lock and broker lock being obtained in different orders
 		_broker.unlock ();
 	}
+
+    private void writeObject(ObjectOutputStream oos) throws IOException {
+        oos.writeObject(_broker);
+        oos.defaultWriteObject();
+        oos.writeObject(_meta.getDescribedType());
+        writePC(oos, _pc);
+    }
+
+    /**
+     * Write <code>pc</code> to <code>oos</code>, handling internal-form
+     * serialization. <code>pc</code> must be of the same type that this
+     * state manager manages.
+     *
+     * @since 1.1.0
+     */
+    void writePC(ObjectOutputStream oos, PersistenceCapable pc)
+        throws IOException {
+        if (!Serializable.class.isAssignableFrom(_meta.getDescribedType()))
+            throw new NotSerializableException(
+                _meta.getDescribedType().getName());
+
+        oos.writeObject(pc);
+    }
+
+    private void readObject(ObjectInputStream in)
+        throws IOException, ClassNotFoundException {
+        _broker = (BrokerImpl) in.readObject();
+        in.defaultReadObject();
+
+        // we need to store the class before the pc instance so that we can
+        // create _meta before calling readPC(), which relies on _meta being
+        // non-null when reconstituting ReflectingPC instances. Sadly, this
+        // penalizes the serialization footprint of non-ReflectingPC SMs also.
+        Class managedType = (Class) in.readObject();
+        _meta = _broker.getConfiguration().getMetaDataRepositoryInstance()
+            .getMetaData(managedType, null, true);
+
+        _pc = readPC(in);
+    }
+
+    /**
+     * Converts the deserialized <code>o</code> to a {@link PersistenceCapable}
+     * instance appropriate for storing in <code>_pc</code>.
+     *
+     * @since 1.1.0
+     */
+    PersistenceCapable readPC(ObjectInputStream in)
+        throws ClassNotFoundException, IOException {
+        Object o = in.readObject();
+
+        if (o == null)
+            return null;
+
+        PersistenceCapable pc;
+        if (!(o instanceof PersistenceCapable))
+            pc = ImplHelper.toPersistenceCapable(o, this);
+        else
+            pc = (PersistenceCapable) o;
+
+        pc.pcReplaceStateManager(this);
+        return pc;
+    }
 }

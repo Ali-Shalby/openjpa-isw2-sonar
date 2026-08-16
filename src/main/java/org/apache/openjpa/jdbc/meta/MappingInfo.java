@@ -699,6 +699,9 @@ public abstract class MappingInfo
             if (decimals != 0)
                 col.setDecimalDigits(decimals);
         }
+
+        if (tmplate.hasComment())
+            col.setComment(tmplate.getComment());
         return col;
     }
 
@@ -813,6 +816,9 @@ public abstract class MappingInfo
         if (_idx != null) {
             name = _idx.getName();
             unq = _idx.isUnique();
+            // preserve multiple columns if they are specified in the index
+            if (_idx.getColumns() != null && _idx.getColumns().length > 1)
+                cols = _idx.getColumns();
         } else
             unq = tmplate.isUnique();
 
@@ -1510,6 +1516,8 @@ public abstract class MappingInfo
         _idx = new Index();
         _idx.setName(idx.getName());
         _idx.setUnique(idx.isUnique());
+        if (idx.getColumns() != null && idx.getColumns().length > 1)
+            _idx.setColumns(idx.getColumns());
     }
 
     /**

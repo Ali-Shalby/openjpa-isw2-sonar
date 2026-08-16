@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.event;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -28,6 +29,9 @@ import java.util.Map;
 
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.MetaDataDefaults;
+import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.util.InvalidStateException;
 
 /**
  * Manager that can be used to track and notify listeners on lifecycle events.
@@ -44,9 +48,12 @@ import org.apache.openjpa.meta.MetaDataDefaults;
  * @nojavadoc
  */
 public class LifecycleEventManager
-    implements CallbackModes {
+    implements CallbackModes, Serializable {
 
     private static final Exception[] EMPTY_EXCEPTIONS = new Exception[0];
+
+    private static final Localizer _loc = Localizer.forPackage(
+        LifecycleEventManager.class);
 
     private Map _classListeners = null; // class -> listener list
     private ListenerList _listeners = null;
@@ -132,7 +139,9 @@ public class LifecycleEventManager
      */
     public boolean hasPersistListeners(Object source, ClassMetaData meta) {
         return hasHandlers(source, meta, LifecycleEvent.BEFORE_PERSIST)
-            || hasHandlers(source, meta, LifecycleEvent.AFTER_PERSIST);
+            || hasHandlers(source, meta, LifecycleEvent.AFTER_PERSIST)
+            || hasHandlers(source, meta,
+                LifecycleEvent.AFTER_PERSIST_PERFORMED);
     }
 
     /**
@@ -140,7 +149,8 @@ public class LifecycleEventManager
      */
     public boolean hasDeleteListeners(Object source, ClassMetaData meta) {
         return hasHandlers(source, meta, LifecycleEvent.BEFORE_DELETE)
-            || hasHandlers(source, meta, LifecycleEvent.AFTER_DELETE);
+            || hasHandlers(source, meta, LifecycleEvent.AFTER_DELETE)
+            || hasHandlers(source, meta, LifecycleEvent.AFTER_DELETE_PERFORMED);
     }
 
     /**
@@ -164,6 +174,14 @@ public class LifecycleEventManager
     public boolean hasStoreListeners(Object source, ClassMetaData meta) {
         return hasHandlers(source, meta, LifecycleEvent.BEFORE_STORE)
             || hasHandlers(source, meta, LifecycleEvent.AFTER_STORE);
+    }
+
+    /**
+     * Return whether there are listeners or callbacks for the given source.
+     */
+    public boolean hasUpdateListeners(Object source, ClassMetaData meta) {
+        return hasHandlers(source, meta, LifecycleEvent.BEFORE_UPDATE)
+            || hasHandlers(source, meta, LifecycleEvent.AFTER_UPDATE_PERFORMED);
     }
 
     /**
@@ -470,6 +488,46 @@ public class LifecycleEventManager
                                 ((AttachListener) listener).afterAttach(ev);
                         }
                         break;
+
+                    case LifecycleEvent.AFTER_PERSIST_PERFORMED:
+                        if (responds || listener instanceof PostPersistListener)
+                        {
+                            if (mock)
+                                return Boolean.TRUE;
+                            if (ev == null)
+                                ev = new LifecycleEvent(source, rel, type);
+                            ((PostPersistListener) listener)
+                                .afterPersistPerformed(ev);
+                        }
+                        break;
+                    case LifecycleEvent.BEFORE_UPDATE:
+                    case LifecycleEvent.AFTER_UPDATE_PERFORMED:
+                        if (responds || listener instanceof UpdateListener) {
+                            if (mock)
+                                return Boolean.TRUE;
+                            if (ev == null)
+                                ev = new LifecycleEvent(source, rel, type);
+                            if (type == LifecycleEvent.BEFORE_UPDATE)
+                                ((UpdateListener) listener).beforeUpdate(ev);
+                            else
+                                ((UpdateListener) listener)
+                                    .afterUpdatePerformed(ev);
+                        }
+                        break;
+                    case LifecycleEvent.AFTER_DELETE_PERFORMED:
+                        if (responds || listener instanceof PostDeleteListener){
+                            if (mock)
+                                return Boolean.TRUE;
+                            if (ev == null)
+                                ev = new LifecycleEvent(source, rel, type);
+                            ((PostDeleteListener) listener)
+                                .afterDeletePerformed(ev);
+                        }
+                        break;
+                    default:
+                        throw new InvalidStateException(
+                            _loc.get("unknown-lifecycle-event",
+                                Integer.toString(type)));
                 }
             }
             catch (Exception e) {
@@ -568,8 +626,10 @@ public class LifecycleEventManager
                 types |= 2 << LifecycleEvent.BEFORE_DIRTY_FLUSHED;
                 types |= 2 << LifecycleEvent.AFTER_DIRTY_FLUSHED;
             }
-            if (listener instanceof LoadListener)
+            if (listener instanceof LoadListener) {
                 types |= 2 << LifecycleEvent.AFTER_LOAD;
+                types |= 2 << LifecycleEvent.AFTER_REFRESH;
+            }
             if (listener instanceof StoreListener) {
                 types |= 2 << LifecycleEvent.BEFORE_STORE;
                 types |= 2 << LifecycleEvent.AFTER_STORE;

@@ -24,6 +24,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
+import java.util.List;
 
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.Reflection;
@@ -153,9 +154,17 @@ public abstract class AbstractMetaDataDefaults
             // the same time
             access = getAccessType(meta);
             if ((access & ClassMetaData.ACCESS_FIELD) != 0
-                && (access & ClassMetaData.ACCESS_PROPERTY) != 0)
-                throw new UserException(_loc.get("access-field-and-prop",
-                    meta.getDescribedType().getName()));
+                && (access & ClassMetaData.ACCESS_PROPERTY) != 0) {
+                List fields = getFieldAccessNames(meta);
+                List props = getPropertyAccessNames(meta);
+                if (fields != null || props != null)
+                    throw new UserException(_loc.get(
+                        "access-field-and-prop-hints",
+                        meta.getDescribedType().getName(), fields, props));
+                else
+                    throw new UserException(_loc.get("access-field-and-prop",
+                        meta.getDescribedType().getName()));
+            }
         }
         meta.setAccessType(access);
 
@@ -180,6 +189,8 @@ public abstract class AbstractMetaDataDefaults
      */
     private boolean populateFromPCRegistry(ClassMetaData meta) {
         Class cls = meta.getDescribedType();
+        if (!PCRegistry.isRegistered(cls))
+            return false;
         try {
             String[] fieldNames = PCRegistry.getFieldNames(cls);
             Class[] fieldTypes = PCRegistry.getFieldTypes(cls);
@@ -198,9 +209,6 @@ public abstract class AbstractMetaDataDefaults
                 populate(fmd);
             }
             return true;
-        } catch (IllegalStateException iae) {
-            // thrown by registry when no metadata available
-            return false;
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
@@ -261,7 +269,38 @@ public abstract class AbstractMetaDataDefaults
      * Returns ACCESS_FIELD by default.
      */
     protected int getAccessType(ClassMetaData meta) {
-        return ClassMetaData.ACCESS_FIELD;
+        if (meta.getDescribedType().isInterface())
+            return ClassMetaData.ACCESS_PROPERTY;
+        else
+            return ClassMetaData.ACCESS_FIELD;
+    }
+
+    /**
+     * Return the list of fields in <code>meta</code> that use field access,
+     * or <code>null</code> if a list of fields is unobtainable. An empty list
+     * should be returned if the list of fields is obtainable, but there
+     * happens to be no field access in <code>meta</code>.
+     *
+     * This is used for error reporting purposes only, so need not be efficient.
+     *
+     * This implementation returns <code>null</code>.
+     */
+    protected List getFieldAccessNames(ClassMetaData meta) {
+        return null;
+    }
+
+    /**
+     * Return the list of methods in <code>meta</code> that use property access,
+     * or <code>null</code> if a list of methods is unobtainable. An empty list
+     * should be returned if the list of methods is obtainable, but there
+     * happens to be no property access in <code>meta</code>.
+     *
+     * This is used for error reporting purposes only, so need not be efficient.
+     *
+     * This implementation returns <code>null</code>.
+     */
+    protected List getPropertyAccessNames(ClassMetaData meta) {
+        return null;
     }
 
     /**

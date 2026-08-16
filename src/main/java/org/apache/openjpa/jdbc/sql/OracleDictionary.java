@@ -108,6 +108,9 @@ public class OracleDictionary
     private Method _putBytes = null;
     private Method _putString = null;
     private Method _putChars = null;
+    
+    // batch limit
+    private int defaultBatchLimit = 100;
 
     public OracleDictionary() {
         platform = "Oracle";
@@ -157,6 +160,10 @@ public class OracleDictionary
             "LONG", "MAXEXTENTS", "MINUS", "MODE", "NOAUDIT", "NOCOMPRESS",
             "NOWAIT", "OFFLINE", "ONLINE", "PCTFREE", "ROW",
         }));
+
+        substringFunctionName = "SUBSTR";
+        super.setBatchLimit(defaultBatchLimit);
+        selectWordSet.add("WITH");
     }
 
     public void endConfiguration() {
@@ -427,23 +434,6 @@ public class OracleDictionary
         return select;
     }
 
-    public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
-        FilterValue end) {
-        buf.append("SUBSTR(");
-        str.appendTo(buf);
-        buf.append(", (");
-        start.appendTo(buf);
-        buf.append(" + 1)");
-        if (end != null) {
-            buf.append(", (");
-            end.appendTo(buf);
-            buf.append(" - ");
-            start.appendTo(buf);
-            buf.append(")");
-        }
-        buf.append(")");
-    }
-
     public void setString(PreparedStatement stmnt, int idx, String val,
         Column col)
         throws SQLException {
@@ -471,7 +461,6 @@ public class OracleDictionary
                                     ("oracle.jdbc.OraclePreparedStatement").
                                     getField("FORM_NCHAR").get(null)
                             });
-                    return;
                 } catch (Exception e) {
                     log.warn(e);
                 }

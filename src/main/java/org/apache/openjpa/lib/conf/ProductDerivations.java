@@ -22,14 +22,17 @@ import java.io.File;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.MissingResourceException;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
+import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Services;
 
@@ -252,19 +255,22 @@ public class ProductDerivations {
         ConfigurationProvider provider = null;
         StringBuffer errs = null;
         // most specific to least
+        Throwable err = null;
         for (int i = _derivations.length - 1; i >= 0; i--) {
             try {
                 provider = _derivations[i].load(resource, anchor, loader);
                 if (provider != null)
                     return provider;
             } catch (Throwable t) {
+                err = t;
                 errs = (errs == null) ? new StringBuffer() : errs.append("\n");
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
-        reportErrors(errs, resource);
-        throw new MissingResourceException(resource, 
-            ProductDerivations.class.getName(), resource);
+        reportErrors(errs, resource, err);
+        throw (MissingResourceException) JavaVersions.initCause
+            (new MissingResourceException(resource,
+                ProductDerivations.class.getName(), resource), err);
     }
 
     /**
@@ -282,6 +288,7 @@ public class ProductDerivations {
                 J2DoPrivHelper.getContextClassLoaderAction());
         ConfigurationProvider provider = null;
         StringBuffer errs = null;
+        Throwable err = null;
         // most specific to least
         for (int i = _derivations.length - 1; i >= 0; i--) {
             try {
@@ -289,15 +296,17 @@ public class ProductDerivations {
                 if (provider != null)
                     return provider;
             } catch (Throwable t) {
+                err = t;
                 errs = (errs == null) ? new StringBuffer() : errs.append("\n");
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
         String aPath = (String) AccessController.doPrivileged(
             J2DoPrivHelper.getAbsolutePathAction(file));
-        reportErrors(errs, aPath);
-        throw new MissingResourceException(aPath, 
-            ProductDerivations.class.getName(), aPath);
+        reportErrors(errs, aPath, err);
+        throw (MissingResourceException) JavaVersions.initCause
+            (new MissingResourceException(aPath,
+                ProductDerivations.class.getName(), aPath), err);
     }
    
     /**
@@ -326,6 +335,7 @@ public class ProductDerivations {
         ConfigurationProvider provider = null;
         StringBuffer errs = null;
         String type = (globals) ? "globals" : "defaults";
+        Throwable err = null;
         // most specific to least
         for (int i = _derivations.length - 1; i >= 0; i--) {
             try {
@@ -334,22 +344,87 @@ public class ProductDerivations {
                 if (provider != null)
                    return provider;
             } catch (Throwable t) {
+                err = t;
                 errs = (errs == null) ? new StringBuffer() : errs.append("\n");
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
-        reportErrors(errs, type);
+        reportErrors(errs, type, err);
         return null;
     }
  
     /**
      * Thrown proper exception for given errors.
      */
-    private static void reportErrors(StringBuffer errs, String resource) {
+    private static void reportErrors(StringBuffer errs, String resource,
+        Throwable nested) {
         if (errs == null)
             return;
-        throw new MissingResourceException(errs.toString(), 
-            ProductDerivations.class.getName(), resource);
+        throw (MissingResourceException) JavaVersions.initCause
+            (new MissingResourceException(errs.toString(),
+                ProductDerivations.class.getName(), resource), nested);
+    }
+
+    /**
+     * Return a List<String> of all the fully-qualified anchors specified in
+     * <code>propertiesLocation</code>. The return values must be used in
+     * conjunction with <code>propertiesLocation</code>. If there are no
+     * product derivations or if no product derivations could find anchors,
+     * this returns an empty list.
+     *
+     * @since 1.1.0
+     */
+    public static List getFullyQualifiedAnchorsInPropertiesLocation(
+        final String propertiesLocation) {
+        List fqAnchors = new ArrayList();
+        StringBuffer errs = null;
+        Throwable err = null;
+        for (int i = _derivations.length - 1; i >= 0; i--) {
+            try {
+                if (propertiesLocation == null) {
+                    String loc = _derivations[i].getDefaultResourceLocation();
+                    addAll(fqAnchors, loc,
+                        _derivations[i].getAnchorsInResource(loc));
+                    continue;
+                }
+
+                File f = new File(propertiesLocation);
+                if (((Boolean) J2DoPrivHelper.isFileAction(f).run())
+                    .booleanValue()) {
+                    addAll(fqAnchors, propertiesLocation,
+                        _derivations[i].getAnchorsInFile(f));
+                } else {
+                    f = new File("META-INF" + File.separatorChar
+                        + propertiesLocation);
+                    if (((Boolean) J2DoPrivHelper.isFileAction(f).run())
+                        .booleanValue()) {
+                        addAll(fqAnchors, propertiesLocation,
+                            _derivations[i].getAnchorsInFile(f));
+                    } else {
+                        addAll(fqAnchors, propertiesLocation,
+                            _derivations[i].getAnchorsInResource(
+                                propertiesLocation));
+                    }
+                }
+            } catch (Throwable t) {
+                err = t;
+                errs = (errs == null) ? new StringBuffer() : errs.append("\n");
+                errs.append(_derivations[i].getClass().getName() + ":" + t);
+            }
+        }
+        reportErrors(errs, propertiesLocation, err);
+        return fqAnchors;
+    }
+
+    private static void addAll(Collection collection, String base,
+        Collection newMembers) {
+        if (newMembers == null || collection == null)
+            return;
+        for (Iterator iter = newMembers.iterator(); iter.hasNext(); ) {
+            String fqLoc = base + "#" + iter.next();
+            if (!collection.contains(fqLoc))
+                collection.add(fqLoc);
+        }
     }
 
     /**

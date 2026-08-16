@@ -19,16 +19,16 @@
 package org.apache.openjpa.kernel;
 
 import java.io.ObjectStreamException;
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.Map;
-import java.util.Properties;
 import java.util.LinkedList;
 import java.util.List;
-import java.lang.reflect.InvocationTargetException;
+import java.util.Map;
+import java.util.Properties;
 import javax.transaction.Status;
 import javax.transaction.Synchronization;
 import javax.transaction.Transaction;
@@ -41,23 +41,23 @@ import org.apache.openjpa.datacache.DataCacheStoreManager;
 import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.PersistenceCapable;
-import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.BrokerFactoryEvent;
+import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
-import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.ReferenceHashSet;
 import org.apache.openjpa.lib.util.JavaVersions;
+import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentHashMap;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashSet;
 import org.apache.openjpa.lib.util.concurrent.ReentrantLock;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.GeneralException;
+import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UserException;
-import org.apache.openjpa.util.InternalException;
 
 /**
  * Abstract implementation of the {@link BrokerFactory}
@@ -96,6 +96,7 @@ public abstract class AbstractBrokerFactory
     // that we can re-load them for each new broker
     private transient Collection _pcClassNames = null;
     private transient Collection _pcClassLoaders = null;
+    private transient boolean _persistentTypesLoaded = false;
 
     // lifecycle listeners to pass to each broker
     private transient Map _lifecycleListeners = null;
@@ -103,30 +104,39 @@ public abstract class AbstractBrokerFactory
     // transaction listeners to pass to each broker
     private transient List _transactionListeners = null;
 
-    /**
-     * Return the pooled factory matching the given configuration, or null
-     * if none.
-     */
-    public static AbstractBrokerFactory getPooledFactory(
-        OpenJPAConfiguration conf) {
-        return (AbstractBrokerFactory) _pool.get(toPoolKey(conf));
-    }
+    // key under which this instance can be stored in the broker pool
+    // and later identified
+    private Object _poolKey;
 
     /**
      * Return an internal factory pool key for the given configuration.
-     * We use the conf properties as given by the user because that is what's
-     * passed to {@link #getPooledFactory} when looking for an existing factory.
+     *
+     * @since 1.1.0
      */
-    private static Map toPoolKey(OpenJPAConfiguration conf) {
-        return conf.toProperties(false);
+    protected static Object toPoolKey(Map map) {
+        Object key = Configurations.getProperty("Id", map);
+        return ( key != null) ? key : map;
     }
 
     /**
-     * Return the pooled factory matching the given configuration data, or null
-     * if none.
+     * Register <code>factory</code> in the pool under <code>key</code>.
+     *
+     * @since 1.1.0
      */
-    protected static AbstractBrokerFactory getPooledFactory(Map map) {
-        return (AbstractBrokerFactory) _pool.get(map);
+    protected static void pool(Object key, AbstractBrokerFactory factory) {
+        synchronized(_pool) {
+            _pool.put(key, factory);
+            factory.setPoolKey(key);
+            factory.makeReadOnly();
+        }
+    }
+
+    /**
+     * Return the pooled factory matching the given key, or null
+     * if none. The key must be of the form created by {@link #getPoolKey}.
+     */
+    public static AbstractBrokerFactory getPooledFactoryForKey(Object key) {
+        return (AbstractBrokerFactory) _pool.get(key);
     }
 
     /**
@@ -134,6 +144,7 @@ public abstract class AbstractBrokerFactory
      */
     protected AbstractBrokerFactory(OpenJPAConfiguration config) {
         _conf = config;
+        getPcClassLoaders();
     }
 
     /**
@@ -173,38 +184,48 @@ public abstract class AbstractBrokerFactory
             if (findExisting)
                 broker = findBroker(user, pass, managed);
             if (broker == null) {
-                // decorate the store manager for data caching and custom
-                // result object providers; always make sure it's a delegating
-                // store manager, because it's easier for users to deal with
-                // that way
-                StoreManager sm = newStoreManager();
-                DelegatingStoreManager dsm = null;
-                if (_conf.getDataCacheManagerInstance().getSystemDataCache()
-                    != null)
-                    dsm = new DataCacheStoreManager(sm);
-                dsm = new ROPStoreManager((dsm == null) ? sm : dsm);
-
                 broker = newBrokerImpl(user, pass);
-                broker.initialize(this, dsm, managed, connRetainMode);
-                addListeners(broker);
-
-                // if we're using remote events, register the event manager so
-                // that it can broadcast commit notifications from the broker
-                RemoteCommitEventManager remote = _conf.
-                    getRemoteCommitEventManager();
-                if (remote.areRemoteEventsEnabled())
-                    broker.addTransactionListener(remote);
-
-                loadPersistentTypes(broker.getClassLoader());
+                initializeBroker(managed, connRetainMode, broker, false);
             }
-            _brokers.add(broker);
-            _conf.setReadOnly(Configuration.INIT_STATE_FROZEN);
             return broker;
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (RuntimeException re) {
             throw new GeneralException(re);
         }
+    }
+
+    void initializeBroker(boolean managed, int connRetainMode,
+        BrokerImpl broker, boolean fromDeserialization) {
+        assertOpen();
+        makeReadOnly();
+
+        // decorate the store manager for data caching and custom
+        // result object providers; always make sure it's a delegating
+        // store manager, because it's easier for users to deal with
+        // that way
+        StoreManager sm = newStoreManager();
+        DelegatingStoreManager dsm = null;
+        if (_conf.getDataCacheManagerInstance().getSystemDataCache()
+            != null)
+            dsm = new DataCacheStoreManager(sm);
+        dsm = new ROPStoreManager((dsm == null) ? sm : dsm);
+
+        broker.initialize(this, dsm, managed, connRetainMode,
+            fromDeserialization);
+        if (!fromDeserialization)
+            addListeners(broker);
+
+        // if we're using remote events, register the event manager so
+        // that it can broadcast commit notifications from the broker
+        RemoteCommitEventManager remote = _conf.
+            getRemoteCommitEventManager();
+        if (remote.areRemoteEventsEnabled())
+            broker.addTransactionListener(remote);
+
+        loadPersistentTypes(broker.getClassLoader());
+        _brokers.add(broker);
+        _conf.setReadOnly(Configuration.INIT_STATE_FROZEN);
     }
 
     /**
@@ -234,33 +255,41 @@ public abstract class AbstractBrokerFactory
      * whenever a broker is created.
      */
     private void loadPersistentTypes(ClassLoader envLoader) {
-        // no listed persistent types?
-        if (_pcClassNames != null && _pcClassNames.isEmpty())
+        // if we've loaded the persistent types and the class name list
+        // is empty, then we can simply return. Note that there is a
+        // potential threading scenario in which _persistentTypesLoaded is
+        // false when read, but the work to populate _pcClassNames has
+        // already been done. This is ok; _pcClassNames can tolerate
+        // concurrent access, so the worst case is that the list is
+        // persistent type data is processed multiple times, which this
+        // algorithm takes into account.
+        if (_persistentTypesLoaded && _pcClassNames.isEmpty())
             return;
 
         // cache persistent type names if not already
         ClassLoader loader = _conf.getClassResolverInstance().
             getClassLoader(getClass(), envLoader);
         Collection toRedefine = new ArrayList();
-        if (_pcClassNames == null) {
+        if (!_persistentTypesLoaded) {
             Collection clss = _conf.getMetaDataRepositoryInstance().
                 loadPersistentTypes(false, loader);
             if (clss.isEmpty())
                 _pcClassNames = Collections.EMPTY_SET;
             else {
-                _pcClassNames = new ArrayList(clss.size());
+                Collection c = new ArrayList(clss.size());
                 for (Iterator itr = clss.iterator(); itr.hasNext();) {
                     Class cls = (Class) itr.next();
-                    _pcClassNames.add(cls.getName());
+                    c.add(cls.getName());
                     if (needsSub(cls))
                         toRedefine.add(cls);
                 }
-                _pcClassLoaders = new ReferenceHashSet(ReferenceHashSet.WEAK);
-                _pcClassLoaders.add(loader);
+                getPcClassLoaders().add(loader);
+                _pcClassNames = c;
             }
+            _persistentTypesLoaded = true;
         } else {
             // reload with this loader
-            if (_pcClassLoaders.add(loader)) {
+            if (getPcClassLoaders().add(loader)) {
                 for (Iterator itr = _pcClassNames.iterator(); itr.hasNext();) {
                     try {
                         Class cls =
@@ -374,10 +403,9 @@ public abstract class AbstractBrokerFactory
             assertNoActiveTransaction();
 
             // remove from factory pool
-            Map map = toPoolKey(_conf);
             synchronized (_pool) {
-                if (_pool.get(map) == this)
-                    _pool.remove(map);
+                if (_pool.get(_poolKey) == this)
+                    _pool.remove(_poolKey);
             }
 
             // close all brokers
@@ -458,7 +486,7 @@ public abstract class AbstractBrokerFactory
      */
     protected Object readResolve()
         throws ObjectStreamException {
-        AbstractBrokerFactory factory = getPooledFactory(_conf);
+        AbstractBrokerFactory factory = getPooledFactoryForKey(_poolKey);
         if (factory != null)
             return factory;
 
@@ -578,16 +606,6 @@ public abstract class AbstractBrokerFactory
         broker.setAutoDetach(_conf.getAutoDetachConstant());
         broker.setDetachState(_conf.getDetachStateInstance().
             getDetachState());
-    }
-
-    /**
-     * Add the factory to the pool.
-     */
-    protected void pool() {
-        synchronized (_pool) {
-            _pool.put(toPoolKey(_conf), this);
-            makeReadOnly();
-        }
     }
 
     /**
@@ -757,6 +775,26 @@ public abstract class AbstractBrokerFactory
     }
 
     /**
+     * @return a key that can be used to obtain this broker factory from the
+     * pool at a later time.
+     *
+     * @since 1.1.0
+     */
+    public Object getPoolKey() {
+        return _poolKey;
+    }
+
+    /**
+     * Set a key that can be used to obtain this broker factory from the
+     * pool at a later time.
+     *
+     * @since 1.1.0
+     */
+    void setPoolKey(Object key) {
+        _poolKey = key;
+    }
+
+    /**
      * Simple synchronization listener to remove completed transactions
      * from our cache.
      */
@@ -776,4 +814,15 @@ public abstract class AbstractBrokerFactory
             _transactional.remove (_trans);
 		}
 	}
+    
+    /**
+     * Method insures that deserialized EMF has this reference re-instantiated
+     */
+    private Collection getPcClassLoaders() {
+       if (_pcClassLoaders == null)
+         _pcClassLoaders = new ConcurrentReferenceHashSet(
+             ConcurrentReferenceHashSet.WEAK);
+          
+       return _pcClassLoaders;
+    }
 }

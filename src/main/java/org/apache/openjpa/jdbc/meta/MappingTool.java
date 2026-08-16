@@ -97,13 +97,15 @@ public class MappingTool
         ACTION_IMPORT,
     };
 
-    private static Localizer _loc = Localizer.forPackage(MappingTool.class);
+    private static final Localizer _loc =
+        Localizer.forPackage(MappingTool.class);
 
     private final JDBCConfiguration _conf;
     private final Log _log;
     private final String _action;
     private final boolean _meta;
     private final int _mode;
+    private final DBDictionary _dict;
 
     private MappingRepository _repos = null;
     private SchemaGroup _schema = null;
@@ -147,6 +149,8 @@ public class MappingTool
             _mode = MODE_META | MODE_MAPPING | MODE_QUERY;
         else
             _mode = MODE_MAPPING;
+
+        _dict = _conf.getDBDictionaryInstance();
     }
 
     /**
@@ -572,11 +576,10 @@ public class MappingTool
         SchemaGroup group = getSchemaGroup();
         Schema[] schemas = group.getSchemas();
         Table[] tables;
-        DBDictionary dict = _conf.getDBDictionaryInstance();
         for (int i = 0; i < schemas.length; i++) {
             tables = schemas[i].getTables();
             for (int j = 0; j < tables.length; j++)
-                dict.refSchemaComponents(tables[j]);
+                _dict.refSchemaComponents(tables[j]);
         }
 
         group.removeUnusedComponents();
@@ -912,17 +915,23 @@ public class MappingTool
      * -f mypackage.orm -a export mypackage.jdo</code></li>
      * </ul>
      */
-    public static void main(String[] args)
+    public static void main(String[] arguments)
         throws IOException, SQLException {
         Options opts = new Options();
-        args = opts.setFromCmdLine(args);
-        JDBCConfiguration conf = new JDBCConfigurationImpl();
-        try {
-            if (!run(conf, args, opts))
-                System.err.println(_loc.get("tool-usage"));
-        } finally {
-            conf.close();
-        }
+        final String[] args = opts.setFromCmdLine(arguments);
+        boolean ret = Configurations.runAgainstAllAnchors(opts,
+            new Configurations.Runnable() {
+            public boolean run(Options opts) throws IOException, SQLException {
+                JDBCConfiguration conf = new JDBCConfigurationImpl();
+                try {
+                    return MappingTool.run(conf, args, opts);
+                } finally {
+                    conf.close();
+                }
+            }
+        });
+        if (!ret)
+            System.err.println(_loc.get("tool-usage"));
     }
 
     /**

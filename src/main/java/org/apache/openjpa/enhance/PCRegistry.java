@@ -28,6 +28,7 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.ReferenceMap;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 import org.apache.openjpa.util.UserException;
+import org.apache.openjpa.util.InvalidStateException;
 
 /**
  * Tracks registered persistence-capable classes.
@@ -119,6 +120,17 @@ public class PCRegistry {
         StateManager sm, Object oid, boolean clear) {
         Meta meta = getMeta(pcClass);
         return (meta.pc == null) ? null : meta.pc.pcNewInstance(sm, oid, clear);
+    }
+
+    /**
+     * Return the persistence-capable type for <code>type</code>. This might
+     * be a generated subclass of <code>type</code>.
+     *
+     * @since 1.1.0
+     */
+    public static Class getPCType(Class type) {
+        Meta meta = getMeta(type);
+        return (meta.pc == null) ? null : meta.pc.getClass();
     }
 
     /**

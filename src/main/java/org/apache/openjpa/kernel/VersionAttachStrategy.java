@@ -33,6 +33,7 @@ import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.ObjectNotFoundException;
 import org.apache.openjpa.util.OptimisticException;
 import org.apache.openjpa.util.ImplHelper;
+import org.apache.openjpa.event.LifecycleEvent;
 
 /**
  * Handles attaching instances using version and primary key fields.
@@ -68,12 +69,19 @@ class VersionAttachStrategy
     public Object attach(AttachManager manager, Object toAttach,
         ClassMetaData meta, PersistenceCapable into, OpenJPAStateManager owner,
         ValueMetaData ownerMeta, boolean explicit) {
+
+        // VersionAttachStrategy is invoked in the case where no more
+        // intelligent strategy could be found; let's be more lenient
+        // about new vs. detached record determination.
+        if (into == null)
+            into = findFromDatabase(manager, toAttach);
+
         BrokerImpl broker = manager.getBroker();
         PersistenceCapable pc = ImplHelper.toPersistenceCapable(toAttach,
             meta.getRepository().getConfiguration());
 
         boolean embedded = ownerMeta != null && ownerMeta.isEmbeddedPC();
-        boolean isNew = !broker.isDetached(pc);
+        boolean isNew = !broker.isDetached(pc) && into == null;
         Object version = null;
         StateManagerImpl sm;
 
@@ -126,8 +134,13 @@ class VersionAttachStrategy
             return into;
         }
 
-        // invoke any preAttach on the detached instance
-        manager.fireBeforeAttach(toAttach, meta);
+        if (isNew) {
+            broker.fireLifecycleEvent(toAttach, null, meta,
+                LifecycleEvent.BEFORE_PERSIST);
+        } else {
+            // invoke any preAttach on the detached instance
+            manager.fireBeforeAttach(toAttach, meta);
+        }
 
         // assign the detached pc the same state manager as the object we're
         // copying into during the attach process
@@ -342,4 +355,29 @@ class VersionAttachStrategy
         }
         return (copy == null) ? map : copy;
 	}
+
+    /**
+     * Find a PersistenceCapable instance of an Object if it exists in the
+     * database. If the object is null or can't be found in the database.
+     *
+     * @param pc An object which will be attached into the current context. The
+     * object may or may not correspond to a row in the database.
+     *
+     * @return If the object is null or can't be found in the database this
+     * method returns null. Otherwise a PersistenceCapable representation of the
+     * object is returned.
+     */
+    protected PersistenceCapable findFromDatabase(AttachManager manager,
+        Object pc) {
+        Object oid = manager.getBroker().newObjectId(pc.getClass(),
+            manager.getDetachedObjectId(pc));
+
+        if (oid != null) {
+            return ImplHelper.toPersistenceCapable(
+                manager.getBroker().find(oid, true, null),
+                manager.getBroker().getConfiguration());
+        } else {
+            return null;
+        }
+    }
 }

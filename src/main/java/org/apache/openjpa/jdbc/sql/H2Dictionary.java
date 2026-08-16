@@ -185,28 +185,12 @@ public class H2Dictionary extends DBDictionary {
         return cols;
     }
 
-    protected void appendSelectRange(SQLBuffer buf, long start, long end) {
+    protected void appendSelectRange(SQLBuffer buf, long start, long end,
+        boolean subselect) {
         if (end != Long.MAX_VALUE)
             buf.append(" LIMIT ").appendValue(end - start);
         if (start != 0)
             buf.append(" OFFSET ").appendValue(start);
-    }
-
-    public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
-        FilterValue end) {
-        buf.append("SUBSTR(");
-        str.appendTo(buf);
-        buf.append(", (");
-        start.appendTo(buf);
-        buf.append(" + 1)");
-        if (end != null) {
-            buf.append(", (");
-            end.appendTo(buf);
-            buf.append(" - ");
-            start.appendTo(buf);
-            buf.append(")");
-        }
-        buf.append(")");
     }
 
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,

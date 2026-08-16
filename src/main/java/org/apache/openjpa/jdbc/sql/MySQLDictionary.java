@@ -107,6 +107,9 @@ public class MySQLDictionary
 
         // MySQL requires double-escape for strings
         searchStringEscape = "\\\\";
+
+        typeModifierSet.addAll(Arrays.asList(new String[] { "UNSIGNED",
+            "ZEROFILL" }));
     }
 
     public String[] getCreateTableSQL(Table table) {
@@ -162,7 +165,8 @@ public class MySQLDictionary
         }
     }
 
-    protected void appendSelectRange(SQLBuffer buf, long start, long end) {
+    protected void appendSelectRange(SQLBuffer buf, long start, long end,
+        boolean subselect) {
         buf.append(" LIMIT ").appendValue(start).append(", ");
         if (end == Long.MAX_VALUE)
             buf.appendValue(Long.MAX_VALUE);

@@ -20,6 +20,8 @@ package org.apache.openjpa.util;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.Date;
@@ -170,6 +172,14 @@ public class ApplicationIds {
                 case JavaTypes.OID:
                 case JavaTypes.OBJECT:
                     return new ObjectId(meta.getDescribedType(), val);
+                case JavaTypes.BIGDECIMAL:
+                    if (!convert && !(val instanceof BigDecimal))
+                        throw new ClassCastException("!(x instanceof BigDecimal)");
+                    return new BigDecimalId(meta.getDescribedType(), (BigDecimal)val);
+                case JavaTypes.BIGINTEGER:
+                    if (!convert && !(val instanceof BigInteger))
+                        throw new ClassCastException("!(x instanceof BigInteger)");
+                    return new BigIntegerId(meta.getDescribedType(), (BigInteger)val);
                 default:
                     throw new InternalException();
             }
@@ -275,6 +285,12 @@ public class ApplicationIds {
                 case JavaTypes.DATE:
                     return new DateId(cls, ((DateId) oid).getId(),
                         koid.hasSubclasses());
+                case JavaTypes.BIGDECIMAL:
+                    return new BigDecimalId(cls, ((BigDecimalId) oid).getId(),
+                        koid.hasSubclasses());
+                case JavaTypes.BIGINTEGER:
+                    return new BigIntegerId(cls, ((BigIntegerId) oid).getId(),
+                        koid.hasSubclasses());
                 default:
                     throw new InternalException();
             }
@@ -285,9 +301,7 @@ public class ApplicationIds {
         // oid instance
         if (!Modifier.isAbstract(meta.getDescribedType().getModifiers())
             && !hasPCPrimaryKeyFields(meta)) {
-            Class type = meta.getInterfaceImpl();
-            if (type == null)
-                type = meta.getDescribedType();
+            Class type = meta.getDescribedType();
             PersistenceCapable pc = PCRegistry.newInstance(type, null, oid, 
                  false);
             Object copy = pc.pcNewObjectIdInstance();

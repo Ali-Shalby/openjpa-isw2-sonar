@@ -54,6 +54,7 @@ public class PersistenceProviderImpl
     implements PersistenceProvider {
 
     static final String CLASS_TRANSFORMER_OPTIONS = "ClassTransformerOptions";
+    private static final String EMF_POOL = "EntityManagerFactoryPool";
 
     private static final Localizer _loc = Localizer.forPackage(
         PersistenceProviderImpl.class);
@@ -72,15 +73,35 @@ public class PersistenceProviderImpl
         String resource, Map m) {
         PersistenceProductDerivation pd = new PersistenceProductDerivation();
         try {
+            Object poolValue = Configurations.removeProperty(EMF_POOL, m);
             ConfigurationProvider cp = pd.load(resource, name, m);
             if (cp == null)
                 return null;
 
-            BrokerFactory factory = Bootstrap.newBrokerFactory(cp, null);
+            BrokerFactory factory = getBrokerFactory(cp, poolValue, null);
             return JPAFacadeHelper.toEntityManagerFactory(factory);
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
         }
+    }
+
+    private BrokerFactory getBrokerFactory(ConfigurationProvider cp,
+        Object poolValue, ClassLoader loader) {
+        // handle "true" and "false"
+        if (poolValue instanceof String
+            && ("true".equalsIgnoreCase((String) poolValue)
+                || "false".equalsIgnoreCase((String) poolValue)))
+            poolValue = Boolean.valueOf((String) poolValue);
+
+        if (poolValue != null && !(poolValue instanceof Boolean)) {
+            // we only support boolean settings for this option currently.
+            throw new IllegalArgumentException(poolValue.toString());
+        }
+        
+        if (poolValue == null || !((Boolean) poolValue).booleanValue())
+            return Bootstrap.newBrokerFactory(cp, loader);
+        else
+            return Bootstrap.getBrokerFactory(cp, loader);
     }
 
     public OpenJPAEntityManagerFactory createEntityManagerFactory(String name,
@@ -92,6 +113,7 @@ public class PersistenceProviderImpl
         PersistenceUnitInfo pui, Map m) {
         PersistenceProductDerivation pd = new PersistenceProductDerivation();
         try {
+            Object poolValue = Configurations.removeProperty(EMF_POOL, m);
             ConfigurationProvider cp = pd.load(pui, m);
             if (cp == null)
                 return null;
@@ -102,7 +124,7 @@ public class PersistenceProviderImpl
                 (CLASS_TRANSFORMER_OPTIONS, pui.getProperties());
             try {
                 pui.addTransformer(new ClassTransformerImpl(cp, ctOpts,
-                    pui.getNewTempClassLoader()));
+                    pui.getNewTempClassLoader(), newConfigurationImpl()));
             } catch (Exception e) {
                 // fail gracefully
                 transformerException = e;
@@ -114,10 +136,10 @@ public class PersistenceProviderImpl
             if (!Configurations.containsProperty(BrokerValue.KEY,
                 cp.getProperties())) {
                 cp.addProperty("openjpa." + BrokerValue.KEY, 
-                    BrokerValue.NON_FINALIZING_ALIAS);
+                    getDefaultBrokerAlias());
             }
 
-            BrokerFactory factory = Bootstrap.newBrokerFactory(cp, 
+            BrokerFactory factory = getBrokerFactory(cp, poolValue,
                 pui.getClassLoader());
             if (transformerException != null) {
                 Log log = factory.getConfiguration().getLog(
@@ -136,6 +158,25 @@ public class PersistenceProviderImpl
             throw PersistenceExceptions.toPersistenceException(e);
         }
     }
+
+    /*
+     * Returns a default Broker alias to be used when no openjpa.BrokerImpl
+     *  is specified. This method allows PersistenceProvider subclass to
+     *  override the default broker alias.
+     */
+    protected String getDefaultBrokerAlias() {
+        return BrokerValue.NON_FINALIZING_ALIAS;
+    }
+    
+    /*
+     * Return a new instance of Configuration subclass used by entity
+     * enhancement in ClassTransformerImpl. If OpenJPAConfigurationImpl
+     * instance is used, configuration options declared in configuration
+     * sub-class will not be recognized and a warning is posted in the log.
+     */
+    protected OpenJPAConfiguration newConfigurationImpl() {
+        return new OpenJPAConfigurationImpl();
+    }
     
     /**
      * Java EE 5 class transformer.
@@ -146,9 +187,7 @@ public class PersistenceProviderImpl
         private final ClassFileTransformer _trans;
 
         private ClassTransformerImpl(ConfigurationProvider cp, String props, 
-            final ClassLoader tmpLoader) {
-            // create an independent conf for enhancement
-            OpenJPAConfiguration conf = new OpenJPAConfigurationImpl();
+            final ClassLoader tmpLoader, OpenJPAConfiguration conf) {
             cp.setInto(conf);
             // don't allow connections
             conf.setConnectionUserName(null);

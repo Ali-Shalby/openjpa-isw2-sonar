@@ -14,17 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.
+ * under the License.    
  */
-package org.apache.openjpa.enhance;
+package org.apache.openjpa.slice.jdbc;
+
+import java.sql.Statement;
 
 /**
- * Helper methods for dynamically-redefined managed types.
+ * A virtual Statement that delegates to many actual Statements.
+ * 
+ * @author Pinaki Poddar 
  *
- * @since 1.0.0
  */
-public class DynamicPCHelper {
-    public static boolean isDetached(Object o) {
-        throw new UnsupportedOperationException();
-    }
+class DistributedStatement extends DistributedTemplate<Statement>  {
+	public DistributedStatement(DistributedConnection c) {
+		super(c);
+	}
 }

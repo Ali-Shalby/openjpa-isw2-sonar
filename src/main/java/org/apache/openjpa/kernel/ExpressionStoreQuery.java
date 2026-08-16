@@ -119,6 +119,10 @@ public class ExpressionStoreQuery
             public OpenJPAConfiguration getConfiguration() {
                 return ctx.getStoreContext().getConfiguration();
             }
+
+            public QueryContext getQueryContext() {
+                return ctx;
+            }
         };
     }
 
@@ -722,6 +726,8 @@ public class ExpressionStoreQuery
                     _inMemOrdering = _parser.eval(_exps[0].orderingClauses,
                         (ExpressionStoreQuery) q, factory, _meta);
                 }
+                if (_inMemOrdering == null)
+                    _inMemOrdering = _exps[0].ordering;
             }
 
             // use the parsed ordering expression to extract the ordering value

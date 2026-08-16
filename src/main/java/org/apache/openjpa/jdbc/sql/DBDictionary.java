@@ -85,6 +85,8 @@ import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.kernel.Filters;
+import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.jdbc.ConnectionDecorator;
@@ -92,16 +94,17 @@ import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Localizer.Message;
+import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.meta.ValueStrategies;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.InternalException;
+import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.OpenJPAException;
-import org.apache.openjpa.util.ReferentialIntegrityException;
 import org.apache.openjpa.util.Serialization;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
-import org.apache.openjpa.util.InvalidStateException;
 import serp.util.Numbers;
 import serp.util.Strings;
 
@@ -142,6 +145,9 @@ public class DBDictionary
     protected static final int NAME_ANY = 0;
     protected static final int NAME_TABLE = 1;
     protected static final int NAME_SEQUENCE = 2;
+    
+    protected static final int UNLIMITED = -1;
+    protected static final int NO_BATCH = 0;
 
     private static final String ZERO_DATE_STR =
         "'" + new java.sql.Date(0) + "'";
@@ -149,6 +155,16 @@ public class DBDictionary
     private static final String ZERO_TIMESTAMP_STR =
         "'" + new Timestamp(0) + "'";
 
+    public static final List EMPTY_STRING_LIST = Arrays.asList(new String[]{});
+    public static final List[] SQL_STATE_CODES = 
+    	{EMPTY_STRING_LIST,                     // 0: Default
+    	 Arrays.asList(new String[]{"41000"}),  // 1: LOCK
+    	 EMPTY_STRING_LIST,                     // 2: OBJECT_NOT_FOUND
+    	 EMPTY_STRING_LIST,                     // 3: OPTIMISTIC
+    	 Arrays.asList(new String[]{"23000"}),  // 4: REFERENTIAL_INTEGRITY
+    	 EMPTY_STRING_LIST                      // 5: OBJECT_EXISTS
+    	}; 
+                                              
     private static final Localizer _loc = Localizer.forPackage
         (DBDictionary.class);
 
@@ -177,9 +193,11 @@ public class DBDictionary
     public boolean supportsDefaultUpdateAction = true;
     public boolean supportsAlterTableWithAddColumn = true;
     public boolean supportsAlterTableWithDropColumn = true;
+    public boolean supportsComments = false;
     public String reservedWords = null;
     public String systemSchemas = null;
     public String systemTables = null;
+    public String selectWords = null;
     public String fixedSizeTypeNames = null;
     public String schemaCase = SCHEMA_CASE_UPPER;
 
@@ -312,6 +330,13 @@ public class DBDictionary
     protected final Set systemSchemaSet = new HashSet();
     protected final Set systemTableSet = new HashSet();
     protected final Set fixedSizeTypeNameSet = new HashSet();
+    protected final Set typeModifierSet = new HashSet();
+
+    /**
+     * If a native query begins with any of the values found here then it will
+     * be treated as a select statement.  
+     */
+    protected final Set selectWordSet = new HashSet();
 
     // when we store values that lose precion, track the types so that the
     // first time it happens we can warn the user
@@ -322,6 +347,12 @@ public class DBDictionary
     private Method _setString = null;
     private Method _setCharStream = null;
 
+    // batchLimit value:
+    // -1 = unlimited
+    // 0  = no batch
+    // any positive number = batch limit
+    public int batchLimit = NO_BATCH;
+    
     public DBDictionary() {
         fixedSizeTypeNameSet.addAll(Arrays.asList(new String[]{
             "BIGINT", "BIT", "BLOB", "CLOB", "DATE", "DECIMAL", "DISTINCT",
@@ -329,6 +360,8 @@ public class DBDictionary
             "OTHER", "REAL", "REF", "SMALLINT", "STRUCT", "TIME", "TIMESTAMP",
             "TINYINT",
         }));
+        
+        selectWordSet.add("SELECT");
     }
 
     /**
@@ -1595,6 +1628,14 @@ public class DBDictionary
      * override this method to return the unaltered type name for columns of
      * those types (or add the type names to the
      * <code>fixedSizeTypeNameSet</code>).
+     * 
+     * <P>Some databases support "type modifiers" for example the unsigned
+     * "modifier" in MySQL. In these cases the size should go between the type 
+     * and the "modifier", instead of after the modifier. For example 
+     * CREATE table FOO ( myint INT (10) UNSIGNED . . .) instead of 
+     * CREATE table FOO ( myint INT UNSIGNED (10) . . .).
+     * Type modifiers should be added to <code>typeModifierSet</code> in 
+     * subclasses. 
      */
     protected String appendSize(Column col, String typeName) {
         if (fixedSizeTypeNameSet.contains(typeName.toUpperCase()))
@@ -1612,19 +1653,61 @@ public class DBDictionary
             size = buf.toString();
         }
 
-        int idx = typeName.indexOf("{0}");
-        if (idx == -1 && size != null)
-            return typeName + size;
-        if (idx == -1)
-            return typeName;
+        return insertSize(typeName, size);
+    }
 
-        // replace '{0}' with size
-        String ret = typeName.substring(0, idx);
-        if (size != null)
-            ret = ret + size;
-        if (typeName.length() > idx + 3)
-            ret = ret + typeName.substring(idx + 3);
-        return ret;
+    /**
+     * Helper method that inserts a size clause for a given SQL type. 
+     * 
+     * @see appendSize
+     * 
+     * @param typeName  The SQL type ie INT
+     * @param size      The size clause ie (10)
+     * @return          The typeName + size clause. Usually the size clause will 
+     *                  be appended to typeName. If the typeName contains a 
+     *                  marker : {0} or if typeName contains a modifier the 
+     *                  size clause will be inserted appropriately.   
+     */
+    protected String insertSize(String typeName, String size) {
+    	if (StringUtils.isEmpty(size)) {
+            int idx = typeName.indexOf("{0}");
+            if (idx != -1) {
+                return typeName.substring(0, idx);
+            }
+            return typeName;
+        }
+    	
+        int idx = typeName.indexOf("{0}");
+        if (idx != -1) {
+            // replace '{0}' with size
+            String ret = typeName.substring(0, idx);
+            if (size != null)
+                ret = ret + size;
+            if (typeName.length() > idx + 3)
+                ret = ret + typeName.substring(idx + 3);
+            return ret;
+        }
+        if (!typeModifierSet.isEmpty()) {
+            String s;
+            idx = typeName.length();
+            int curIdx = -1;
+            for (Iterator i = typeModifierSet.iterator(); i.hasNext();) {
+                s = (String) i.next();
+                if (typeName.toUpperCase().indexOf(s) != -1) {
+                    curIdx = typeName.toUpperCase().indexOf(s);
+                    if (curIdx != -1 && curIdx < idx) {
+                        idx = curIdx;
+                    }
+                }
+            }
+            if(idx != typeName.length()) {
+                String ret = typeName.substring(0, idx);
+                ret = ret + size;
+                ret = ret + ' ' + typeName.substring(idx);
+                return ret;
+            }
+        }
+        return typeName + size;
     }
 
     ///////////
@@ -1897,7 +1980,8 @@ public class DBDictionary
 
         for (Iterator i = updateParams.entrySet().iterator(); i.hasNext();) {
             Map.Entry next = (Map.Entry) i.next();
-            FieldMapping fmd = (FieldMapping) next.getKey();
+            Path path = (Path) next.getKey();
+            FieldMapping fmd = (FieldMapping) path.last();
 
             if (fmd.isVersion())
                 augmentUpdates = false;
@@ -1909,7 +1993,9 @@ public class DBDictionary
             sql.append(" = ");
 
             ExpState state = val.initialize(sel, ctx, 0);
-            val.calculateValue(sel, ctx, state, null, null);
+            // JDBC Paths are always PCPaths; PCPath implements Val
+            ExpState pathState = ((Val) path).initialize(sel, ctx, 0);
+            calculateValue(val, sel, ctx, state, path, pathState);
 
             // append the value with a null for the Select; i
             // indicates that the
@@ -1922,9 +2008,9 @@ public class DBDictionary
         }
 
         if (augmentUpdates) {
-            ClassMapping meta =
-                ((FieldMapping) updateParams.keySet().iterator().next())
-                    .getDeclaringMapping();
+            Path path = (Path) updateParams.keySet().iterator().next();
+            FieldMapping fm = (FieldMapping) path.last();
+            ClassMapping meta = fm.getDeclaringMapping();
             Map updates = meta.getVersion().getBulkUpdateValues();
             for (Iterator iter = updates.entrySet().iterator();
                 iter.hasNext(); ) {
@@ -2320,8 +2406,8 @@ public class DBDictionary
      * If this dictionary can select ranges,
      * use this method to append the range SQL.
      */
-    protected void appendSelectRange(SQLBuffer buf, long start, long end
-        , boolean subselect) {
+    protected void appendSelectRange(SQLBuffer buf, long start, long end,
+        boolean subselect) {
     }
 
     /**
@@ -2434,19 +2520,36 @@ public class DBDictionary
      */
     public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
         FilterValue end) {
-        buf.append(substringFunctionName).append("((");
+        buf.append(substringFunctionName).append("(");
         str.appendTo(buf);
-        buf.append("), (");
-        start.appendTo(buf);
-        buf.append(" + 1)");
-        if (end != null) {
-            buf.append(", (");
-            end.appendTo(buf);
-            buf.append(" - (");
+        buf.append(", ");
+        if (start.getValue() instanceof Number) {
+            long startLong = toLong(start);
+            buf.append(Long.toString(startLong + 1));
+        } else {
+            buf.append("(");
             start.appendTo(buf);
-            buf.append("))");
+            buf.append(" + 1)");
+        }
+        if (end != null) {
+            buf.append(", ");
+            if (start.getValue() instanceof Number
+                && end.getValue() instanceof Number) {
+                long startLong = toLong(start);
+                long endLong = toLong(end);
+                buf.append(Long.toString(endLong - startLong));
+            } else {
+                end.appendTo(buf);
+                buf.append(" - (");
+                start.appendTo(buf);
+                buf.append(")");
+            }
         }
         buf.append(")");
+    }
+
+    long toLong(FilterValue litValue) {
+        return ((Number) litValue.getValue()).longValue();
     }
 
     /**
@@ -2871,34 +2974,55 @@ public class DBDictionary
      */
     public String[] getCreateTableSQL(Table table) {
         StringBuffer buf = new StringBuffer();
-        buf.append("CREATE TABLE ").append(getFullName(table, false)).
-            append(" (");
-
-        Column[] cols = table.getColumns();
-        for (int i = 0; i < cols.length; i++) {
-            if (i > 0)
-                buf.append(", ");
-            buf.append(getDeclareColumnSQL(cols[i], false));
+        buf.append("CREATE TABLE ").append(getFullName(table, false));
+        if (supportsComments && table.hasComment()) {
+            buf.append(" ");
+            comment(buf, table.getComment());
+            buf.append("\n    (");
+        } else {
+            buf.append(" (");
         }
 
+        // do this before getting the columns so we know how to handle
+        // the last comma
+        StringBuffer endBuf = new StringBuffer();
         PrimaryKey pk = table.getPrimaryKey();
         String pkStr;
         if (pk != null) {
             pkStr = getPrimaryKeyConstraintSQL(pk);
             if (pkStr != null)
-                buf.append(", ").append(pkStr);
+                endBuf.append(pkStr);
         }
 
         Unique[] unqs = table.getUniques();
         String unqStr;
         for (int i = 0; i < unqs.length; i++) {
             unqStr = getUniqueConstraintSQL(unqs[i]);
-            if (unqStr != null)
-                buf.append(", ").append(unqStr);
+            if (unqStr != null) {
+                if (endBuf.length() > 0)
+                    endBuf.append(", ");
+                endBuf.append(unqStr);
+            }
         }
 
+        Column[] cols = table.getColumns();
+        for (int i = 0; i < cols.length; i++) {
+            buf.append(getDeclareColumnSQL(cols[i], false));
+            if (i < cols.length - 1 || endBuf.length() > 0)
+                buf.append(", ");
+            if (supportsComments && cols[i].hasComment()) {
+                comment(buf, cols[i].getComment());
+                buf.append("\n    ");
+            }
+        }
+
+        buf.append(endBuf.toString());
         buf.append(")");
         return new String[]{ buf.toString() };
+    }
+
+    protected StringBuffer comment(StringBuffer buf, String comment) {
+        return buf.append("-- ").append(comment);
     }
 
     /**
@@ -3386,7 +3510,7 @@ public class DBDictionary
         if (str == null)
             return new Sequence[0];
 
-        PreparedStatement stmnt = conn.prepareStatement(str);
+        PreparedStatement stmnt = prepareStatement(conn, str);        
         ResultSet rs = null;
         try {
             int idx = 1;
@@ -3395,21 +3519,19 @@ public class DBDictionary
             if (sequenceName != null)
                 stmnt.setString(idx++, sequenceName);
 
-            rs = stmnt.executeQuery();
-            List seqList = new ArrayList();
-            while (rs.next())
-                seqList.add(newSequence(rs));
-            return (Sequence[]) seqList.toArray(new Sequence[seqList.size()]);
-        } finally {
+            rs = executeQuery(conn, stmnt, str);
+            return getSequence(rs);            
+         } finally {
             if (rs != null)
                 try {
                     rs.close();
                 } catch (SQLException se) {
                 }
-            try {
-                stmnt.close();
-            } catch (SQLException se) {
-            }
+            if (stmnt != null)    
+                try {
+                    stmnt.close();
+                } catch (SQLException se) {
+                }
         }
     }
 
@@ -3790,20 +3912,16 @@ public class DBDictionary
             });
         }
 
-        PreparedStatement stmnt = conn.prepareStatement(query);
+        PreparedStatement stmnt = prepareStatement(conn, query);
         ResultSet rs = null;
         try {
-            rs = stmnt.executeQuery();
-            if (!rs.next())
-                throw new StoreException(_loc.get("no-genkey"));
-            Object key = rs.getObject(1);
-            if (key == null)
-                log.warn(_loc.get("invalid-genkey", col));
-            return key;
+            rs = executeQuery(conn, stmnt, query);
+            return getKey(rs, col);
         } finally {
             if (rs != null)
                 try { rs.close(); } catch (SQLException se) {}
-            try { stmnt.close(); } catch (SQLException se) {} 
+            if (stmnt != null)    
+                try { stmnt.close(); } catch (SQLException se) {} 
         }
     }
 
@@ -3891,10 +4009,14 @@ public class DBDictionary
         if (fixedSizeTypeNames != null)
             fixedSizeTypeNameSet.addAll(Arrays.asList(Strings.split
                 (fixedSizeTypeNames.toUpperCase(), ",", 0)));
-
+        
         // if user has unset sequence sql, null it out so we know sequences
         // aren't supported
         nextSequenceQuery = StringUtils.trimToNull(nextSequenceQuery);
+        
+        if (selectWords != null)
+            selectWordSet.addAll(Arrays.asList(Strings.split(selectWords
+                    .toUpperCase(), ",", 0)));
     }
 
     //////////////////////////////////////
@@ -3955,11 +4077,34 @@ public class DBDictionary
      */
     public OpenJPAException newStoreException(String msg, SQLException[] causes,
         Object failed) {
-        if (causes.length > 0 && "23000".equals(causes[0].getSQLState()))
-            return new ReferentialIntegrityException(msg).
-                setFailedObject(failed).setNestedThrowables(causes);
+    	if (causes != null && causes.length > 0) {
+    		OpenJPAException ret = SQLExceptions.narrow(msg, causes[0], this);
+    		ret.setFailedObject(failed).setNestedThrowables(causes);
+    		return ret;
+    	}
         return new StoreException(msg).setFailedObject(failed).
             setNestedThrowables(causes);
+    }
+    
+    /**
+     * Gets the list of String, each represents an error that can help 
+     * to narrow down a SQL exception to specific type of StoreException.<br>
+     * For example, error code <code>"23000"</code> represents referential
+     * integrity violation and hence can be narrowed down to 
+     * {@link ReferentialIntegrityException} rather than more general
+     * {@link StoreException}.<br>
+     * JDBC Drivers are not uniform in return values of SQLState for the same
+     * error and hence each database specific Dictionary can specialize.<br>
+     * 
+     * 
+     * @return an <em>unmodifiable</em> list of Strings representing supposedly 
+     * uniform SQL States for a given type of StoreException. 
+     * Default behavior is to return an empty list.
+     */
+    public List/*<String>*/ getSQLStates(int exceptionType) {
+    	if (exceptionType>=0 && exceptionType<SQL_STATE_CODES.length)
+    		return SQL_STATE_CODES[exceptionType];
+    	return EMPTY_STRING_LIST;
     }
 
     /**
@@ -4114,5 +4259,126 @@ public class DBDictionary
      */
     public void createIndexIfNecessary(Schema schema, String table,
             Column pkColumn) {
+    }
+    
+    /**
+     * Return the batchLimit
+     */
+    public int getBatchLimit(){
+        return batchLimit;
+    }
+    
+    /**
+     * Set the batchLimit value
+     */
+    public void setBatchLimit(int limit){
+        batchLimit = limit;
+    }
+    
+    /**
+     * Validate the batch process. In some cases, we can't batch the statements
+     * due to some restrictions. For example, if the GeneratedType=IDENTITY,
+     * we have to disable the batch process because we need to get the ID value
+     * right away for the in-memory entity to use.
+     */
+    public boolean validateBatchProcess(RowImpl row, Column[] autoAssign,
+            OpenJPAStateManager  sm, ClassMapping cmd ) {
+        boolean disableBatch = false;
+        if (getBatchLimit()== 0) return false;
+        if (autoAssign != null && sm != null) {
+            FieldMetaData[] fmd = cmd.getPrimaryKeyFields();
+            int i = 0;
+            while (!disableBatch && i < fmd.length) {
+                if (fmd[i].getValueStrategy() == ValueStrategies.AUTOASSIGN)
+                    disableBatch = true;
+                i++;
+            }
+        }
+        // go to each Dictionary to validate the batch capability
+        if (!disableBatch)
+            disableBatch = validateDBSpecificBatchProcess(disableBatch, row, 
+                autoAssign, sm, cmd);
+        return disableBatch;
+    }
+    
+    /**
+     * Allow each Dictionary to validate its own batch process. 
+     */
+    public boolean validateDBSpecificBatchProcess (boolean disableBatch, 
+            RowImpl row, Column[] autoAssign, 
+            OpenJPAStateManager  sm, ClassMapping cmd ) {
+        return disableBatch;
+    }
+    
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of executing query.
+     */
+    protected ResultSet executeQuery(Connection conn, PreparedStatement stmnt, String sql 
+        ) throws SQLException {
+        return stmnt.executeQuery();
+    }
+            
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of preparing statement.
+     */
+    protected PreparedStatement prepareStatement(Connection conn, String sql)
+        throws SQLException {
+        return conn.prepareStatement(sql);
+    }    
+ 
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of getting sequence from the result set.
+     */
+    protected Sequence[] getSequence(ResultSet rs) throws SQLException {
+        List seqList = new ArrayList();
+        while (rs != null && rs.next())
+            seqList.add(newSequence(rs));
+        return (Sequence[]) seqList.toArray(new Sequence[seqList.size()]);
+    }
+    
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of getting key from the result set.
+     */
+    protected Object getKey (ResultSet rs, Column col) throws SQLException {
+        if (!rs.next())
+            throw new StoreException(_loc.get("no-genkey"));
+        Object key = rs.getObject(1);
+        if (key == null)
+            log.warn(_loc.get("invalid-genkey", col));
+        return key;        
+    }
+    
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of calculating value.
+     */
+    protected void calculateValue(Val val, Select sel, ExpContext ctx, 
+        ExpState state, Path path, ExpState pathState) {
+        val.calculateValue(sel, ctx, state, (Val) path, pathState);
+    }
+
+    /**
+     * Determine whether the provided <code>sql</code> may be treated as a 
+     * select statement on this database.
+     *  
+     * @param sql   A sql statement. 
+     * 
+     * @return true if <code>sql</code> represents a select statement.
+     */
+    public boolean isSelect(String sql) {
+        Iterator i = selectWordSet.iterator();
+        String cur;
+        while (i.hasNext()) {
+            cur = (String) i.next();
+            if (sql.length() >= cur.length()
+                    && sql.substring(0, cur.length()).equalsIgnoreCase(cur)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -98,6 +98,7 @@ public class PostgresDictionary
         maxColumnNameLength = 63;
         maxIndexNameLength = 63;
         maxConstraintNameLength = 63;
+        maxAutoAssignNameLength = 63;
         schemaCase = SCHEMA_CASE_LOWER;
         rangePosition = RANGE_POST_LOCK;
         requiresAliasForSubselect = true;
@@ -240,7 +241,8 @@ public class PostgresDictionary
         stmnt.setNull(idx, colType);
     }
 
-    protected void appendSelectRange(SQLBuffer buf, long start, long end) {
+    protected void appendSelectRange(SQLBuffer buf, long start, long end,
+        boolean subselect) {
         if (end != Long.MAX_VALUE)
             buf.append(" LIMIT ").appendValue(end - start);
         if (start != 0)

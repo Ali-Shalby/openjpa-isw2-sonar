@@ -72,6 +72,8 @@ public class DB2Dictionary
     protected String databaseProductVersion = null;
     protected int maj = 0;
     protected int min = 0;
+    
+    private int defaultBatchLimit = 100;
 
     public DB2Dictionary() {
         platform = "DB2";
@@ -144,6 +146,10 @@ public class DB2Dictionary
             "TYPE", "UNDO", "UNTIL", "VALIDPROC", "VARIABLE", "VARIANT", "VCAT",
             "VOLUMES", "WHILE", "WLM", "YEARS",
         }));
+        
+        super.setBatchLimit(defaultBatchLimit);
+        
+        selectWordSet.add("WITH");
     }
 
     public boolean supportsRandomAccessResultSet(Select sel,
@@ -306,6 +312,10 @@ public class DB2Dictionary
             break;
         case db2ISeriesV5R3OrEarlier:
         case db2ISeriesV5R4OrLater:
+            lastGeneratedKeyQuery = "SELECT IDENTITY_VAL_LOCAL() FROM "
+                + "SYSIBM.SYSDUMMY1";
+            nextSequenceQuery = "SELECT NEXTVAL FOR {0} FROM "
+                + "SYSIBM.SYSDUMMY1";
             validationSQL = "SELECT DISTINCT(CURRENT TIMESTAMP) FROM "
                 + "QSYS2.SYSTABLES";
             sequenceSQL = "SELECT SEQUENCE_SCHEMA, "
@@ -684,6 +694,20 @@ public class DB2Dictionary
             type = type + "(" + characterColumnSize + ")";
         fstring = "CAST(? AS " + type + ")";
         return fstring;
+    }
+
+    /**
+     * Return the batch limit. If the batchLimit is -1, change it to 100 for
+     * best performance
+     */
+    public int getBatchLimit() {
+        int limit = super.getBatchLimit();
+        if (limit == UNLIMITED) {
+            limit = defaultBatchLimit;
+            if (log.isTraceEnabled())
+                log.trace(_loc.get("batch_unlimit", String.valueOf(limit)));
+        }
+        return limit;
     }
 
     /**

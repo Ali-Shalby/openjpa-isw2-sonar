@@ -105,8 +105,12 @@ public class JDBCStoreManager
     }
 
     public void setContext(StoreContext ctx) {
+        setContext(ctx, (JDBCConfiguration) ctx.getConfiguration());
+    }
+    
+    public void setContext(StoreContext ctx, JDBCConfiguration conf) {
         _ctx = ctx;
-        _conf = (JDBCConfiguration) ctx.getConfiguration();
+        _conf = conf;
         _dict = _conf.getDBDictionaryInstance();
         _sql = _conf.getSQLFactoryInstance();
 
@@ -211,6 +215,10 @@ public class JDBCStoreManager
         connect(true);
         return _conn;
     }
+    
+    protected DataSource getDataSource() {
+    	return _ds;
+    }
 
     public boolean exists(OpenJPAStateManager sm, Object context) {
         // add where conditions on base class to avoid joins if subclass
@@ -264,7 +272,7 @@ public class JDBCStoreManager
     /**
      * Initialize a newly-loaded instance.
      */
-    private boolean initializeState(OpenJPAStateManager sm, PCState state,
+    protected boolean initializeState(OpenJPAStateManager sm, PCState state,
         JDBCFetchConfiguration fetch, ConnectionInfo info)
         throws ClassNotFoundException, SQLException {
         Object oid = sm.getObjectId();
@@ -286,7 +294,7 @@ public class JDBCStoreManager
                     Select.SUBS_EXACT);
                 if (res == null && !selectPrimaryKey(sm, mapping, fetch))
                     return false;
-                if (res != null && !res.next())
+                if (isEmptyResult(res))
                     return false;
             } else {
                 ClassMapping[] mappings = mapping.
@@ -303,16 +311,14 @@ public class JDBCStoreManager
                 } else
                     res = getInitializeStateUnionResult(sm, mapping, mappings,
                         fetch);
-                if (res != null && !res.next())
+                if (isEmptyResult(res))
                     return false;
             }
 
             // figure out what type of object this is; the state manager
             // only guarantees to provide a base class
             Class type;
-            if (res == null)
-                type = mapping.getDescribedType();
-            else {
+            if ((type = getType(res, mapping)) == null) {
                 if (res.getBaseMapping() != null)
                     mapping = res.getBaseMapping();
                 res.startDataRequest(mapping.getDiscriminator());
@@ -334,13 +340,42 @@ public class JDBCStoreManager
                 // re-get the mapping in case the instance was a subclass
                 mapping = (ClassMapping) sm.getMetaData();
                 load(mapping, sm, fetch, res);
-                mapping.getVersion().afterLoad(sm, this);
+                getVersion(mapping, sm, res);
             }
             return true;
         } finally {
             if (res != null && (info == null || res != info.result))
                 res.close();
         }
+    }
+    
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of getting version from the result set.
+     */
+    protected void getVersion(ClassMapping mapping, OpenJPAStateManager sm,
+        Result res) throws SQLException {
+        mapping.getVersion().afterLoad(sm, this);
+    }
+    
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of checking whether the result set is empty or not.
+     */
+    protected boolean isEmptyResult(Result res) throws SQLException {
+        if (res != null && !res.next())
+            return true;
+        return false;
+    }
+    
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of getting type from the result set.
+     */
+    protected Class getType(Result res, ClassMapping mapping){
+        if (res == null)
+            return mapping.getDescribedType();
+        return null;
     }
 
     /**
@@ -419,7 +454,7 @@ public class JDBCStoreManager
         sel.wherePrimaryKey(sm.getObjectId(), base, this);
         Result exists = sel.execute(this, fetch);
         try {
-            if (!exists.next())
+            if (isEmptyResult(exists))
                 return false;
 
             // record locked?
@@ -470,7 +505,7 @@ public class JDBCStoreManager
                 sel.wherePrimaryKey(sm.getObjectId(), mapping, this);
                 res = sel.execute(this, jfetch, lockLevel);
                 try {
-                    if (!res.next())
+                 	if (isEmptyResult(res))
                         return false;
                     load(mapping, sm, jfetch, res);
                 } finally {

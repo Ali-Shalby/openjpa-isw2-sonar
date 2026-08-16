@@ -28,7 +28,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Iterator;
 
 import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.jdbc.kernel.exps.ExpContext;
@@ -63,7 +62,6 @@ import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.ValueMetaData;
-import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.util.UserException;
 import serp.util.Numbers;
 
@@ -422,20 +420,20 @@ public class JDBCStoreQuery
     protected Number executeDelete(Executor ex, ClassMetaData base,
         ClassMetaData[] metas, boolean subclasses, ExpressionFactory[] facts,
         QueryExpressions[] exps, Object[] params) {
-        return executeBulkOperation(ex, base, metas, subclasses, facts, exps,
+        return executeBulkOperation(metas, subclasses, facts, exps,
             params, null);
     }
 
     protected Number executeUpdate(Executor ex, ClassMetaData base,
         ClassMetaData[] metas, boolean subclasses, ExpressionFactory[] facts,
         QueryExpressions[] exps, Object[] params) {
-        return executeBulkOperation(ex, base, metas, subclasses, facts, exps,
+        return executeBulkOperation(metas, subclasses, facts, exps,
             params, exps[0].updates);
     }
 
-    private Number executeBulkOperation(Executor ex, ClassMetaData base,
-        ClassMetaData[] metas, boolean subclasses, ExpressionFactory[] facts,
-        QueryExpressions[] exps, Object[] params, Map updates) {
+    private Number executeBulkOperation(ClassMetaData[] metas,
+        boolean subclasses, ExpressionFactory[] facts, QueryExpressions[] exps,
+        Object[] params, Map updates) {
         // we cannot execute a bulk delete statement when have mappings in
         // multiple tables, so indicate we want to use in-memory with null
         ClassMapping[] mappings = (ClassMapping[]) metas;
@@ -501,15 +499,16 @@ public class JDBCStoreQuery
             for (int i = 0; i < sql.length; i++) {
                 stmnt = null;
                 try {
-                    stmnt = sql[i].prepareStatement(conn);
-                    count += stmnt.executeUpdate();
+                    stmnt = prepareStatement(conn, sql[i]);
+                    count += executeUpdate(conn, stmnt, sql[i], isUpdate);                    
+                } catch (SQLException se) {
+                    throw SQLExceptions.getStore(se, sql[i].getSQL(), 
+                        _store.getDBDictionary());
                 } finally {
                     if (stmnt != null)
                         try { stmnt.close(); } catch (SQLException se) {}
                 }
             }
-        } catch (SQLException se) {
-            throw SQLExceptions.getStore(se, ctx, _store.getDBDictionary());
         } finally {
             try { conn.close(); } catch (SQLException se) {}
         }
@@ -650,4 +649,22 @@ public class JDBCStoreQuery
             sql[i] = ((Select) sels.get(i)).toSelect(false, fetch).getSQL(true);
         return sql;
     }
+    
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of executing update.
+     */
+    protected int executeUpdate(Connection conn, PreparedStatement stmnt, 
+        SQLBuffer sqlBuf, boolean isUpdate) throws SQLException {
+        return stmnt.executeUpdate();
+    }
+            
+    /**
+     * This method is to provide override for non-JDBC or JDBC-like 
+     * implementation of preparing statement.
+     */
+    protected PreparedStatement prepareStatement(Connection conn, SQLBuffer sql)
+        throws SQLException {
+        return sql.prepareStatement(conn);
+    }    
 }
