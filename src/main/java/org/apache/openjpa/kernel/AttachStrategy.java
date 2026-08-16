@@ -86,7 +86,8 @@ abstract class AttachStrategy
         PersistenceCapable newInstance;
         if (!manager.getCopyNew())
             newInstance = pc;
-        else if (appId == null) // datastore identity
+        else if (appId == null)
+            // datastore identity or application identity with generated keys
             newInstance = pc.pcNewInstance(null, false);
         else // application identity: use existing fields
             newInstance = pc.pcNewInstance(null, appId, false);
@@ -269,7 +270,8 @@ abstract class AttachStrategy
         if (toAttach == null)
             return null;
 
-        if (manager.getBroker().isPersistent(toAttach)) {
+        if (manager.getBroker().isNew(toAttach)
+            || manager.getBroker().isPersistent(toAttach)) {
             return toAttach;
         } else if (manager.getBroker().isDetached(toAttach)) {
             Object oid = manager.getDetachedObjectId(toAttach);

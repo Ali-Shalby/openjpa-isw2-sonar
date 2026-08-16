@@ -211,6 +211,22 @@ public class MergedResult
         _res[_idx].setBaseMapping(mapping);
     }
 
+    public FieldMapping getMappedByFieldMapping() {
+        return _res[_idx].getMappedByFieldMapping();
+    }
+
+    public void setMappedByFieldMapping(FieldMapping fieldMapping) {
+        _res[_idx].setMappedByFieldMapping(fieldMapping);
+    }
+
+    public Object getMappedByValue() {
+        return _res[_idx].getMappedByValue();
+    }
+
+    public void setMappedByValue(Object mappedByValue) {
+        _res[_idx].setMappedByValue(mappedByValue);
+    }
+
     public int indexOf() {
         return _res[_idx].indexOf();
     }
@@ -252,6 +268,11 @@ public class MergedResult
         return _res[_idx].getBinaryStream(obj);
     }
 
+    public InputStream getLOBStream(JDBCStore store, Object obj)
+        throws SQLException {
+        return _res[_idx].getLOBStream(store, obj);
+    }
+    
     public Blob getBlob(Object obj)
         throws SQLException {
         return _res[_idx].getBlob(obj);

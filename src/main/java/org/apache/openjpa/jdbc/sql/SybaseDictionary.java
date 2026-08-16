@@ -82,6 +82,7 @@ public class SybaseDictionary
 
         supportsLockingWithDistinctClause = false;
         supportsNullTableForGetColumns = false;
+        requiresAliasForSubselect = true;
         requiresAutoCommitForMetaData = true;
 
         maxTableNameLength = 30;
@@ -130,6 +131,15 @@ public class SybaseDictionary
             "TRAN", "TRIGGER", "TRUNCATE", "TSEQUAL", "UNPARTITION", "USE",
             "USER_OPTION", "WAITFOR", "WHILE", "WRITETEXT",
         }));
+
+        // Sybase does not support foreign key delete/update action NULL, DEFAULT,
+        // CASCADE
+        supportsNullDeleteAction = false;
+        supportsDefaultDeleteAction = false;
+        supportsCascadeDeleteAction = false;
+        supportsNullUpdateAction = false;
+        supportsDefaultUpdateAction = false;
+        supportsCascadeUpdateAction = false;
     }
 
     public int getJDBCType(int metaTypeCode, boolean lob) {

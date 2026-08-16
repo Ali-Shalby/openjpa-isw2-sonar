@@ -121,7 +121,6 @@ public class InformixDictionary
         }));
 
         supportsQueryTimeout = false;
-        supportsMultipleNontransactionalResultSets = false;
         supportsLockingWithDistinctClause = false;
         supportsLockingWithMultipleTables = false;
         supportsLockingWithOrderClause = false;
@@ -134,8 +133,6 @@ public class InformixDictionary
         // Informix doesn't support aliases in deletes if the table has an index
         allowsAliasInBulkClause = false;
         
-        supportsTimestampNanos = false;
-
         // Informix doesn't understand "X CROSS JOIN Y", but it does understand
         // the equivalent "X JOIN Y ON 1 = 1"
         crossJoinClause = "JOIN";
@@ -149,6 +146,8 @@ public class InformixDictionary
         // Informix does not support foreign key delete action NULL or DEFAULT
         supportsNullDeleteAction = false;
         supportsDefaultDeleteAction = false;
+        
+        trimSchemaName = true;
     }
 
     public void connectedConfiguration(Connection conn)
@@ -160,6 +159,13 @@ public class InformixDictionary
                 driverVendor = VENDOR_DATADIRECT;
             else
                 driverVendor = VENDOR_OTHER;
+        }
+        if (isJDBC3) {
+            conn.setHoldability(ResultSet.HOLD_CURSORS_OVER_COMMIT);
+            if (log.isTraceEnabled())
+                log.trace(_loc.get("connection-defaults", new Object[]{
+                    conn.getAutoCommit(), conn.getHoldability(),
+                    conn.getTransactionIsolation()}));
         }
     }
 

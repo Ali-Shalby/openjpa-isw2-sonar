@@ -25,6 +25,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfigurationImpl;
@@ -33,6 +34,7 @@ import org.apache.openjpa.jdbc.kernel.JDBCStoreManager;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.FieldStrategy;
+import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.sql.Joins;
@@ -45,6 +47,7 @@ import org.apache.openjpa.jdbc.sql.Union;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.ChangeTracker;
 import org.apache.openjpa.util.Id;
@@ -304,11 +307,59 @@ public abstract class StoreCollectionFieldStrategy
 
             if (field.getOrderColumn() != null)
                 seq = res.getInt(field.getOrderColumn(), orderJoins) + 1;
-            add(store, coll, loadElement(null, store, fetch, res, dataJoins));
+
+            // for inverseEager field
+            setMappedBy(oid, sm, coll, res);
+            Object val = loadElement(null, store, fetch, res, dataJoins);
+            add(store, coll, val);
         }
         res.close();
 
         return rels;
+    }
+
+    private void setMappedBy(Object oid, OpenJPAStateManager sm, Object coll,
+        Result res) {
+        // for inverseEager field
+        FieldMapping mappedByFieldMapping = field.getMappedByMapping();
+        PersistenceCapable mappedByValue = null;
+        
+        if (mappedByFieldMapping != null) {
+            ValueMapping val = mappedByFieldMapping.getValueMapping();
+            ClassMetaData decMeta = val.getTypeMetaData();
+            // this inverse field does not have corresponding classMapping
+            // its value may be a collection/map etc.
+            if (decMeta == null) 
+                return;
+        	
+            if (oid.equals(sm.getObjectId())) {
+                mappedByValue = sm.getPersistenceCapable();
+                res.setMappedByFieldMapping(mappedByFieldMapping);
+                res.setMappedByValue(mappedByValue);
+            } else if (coll instanceof Collection && 
+                ((Collection) coll).size() > 0) {
+                // Customer (1) <--> Orders(n)
+                // coll contains the values of the toMany field (Orders)
+                // get the StateManager of this toMany value
+                // and find the value of the inverse mappedBy field (Customer)
+                // for this toMacdny field
+                PersistenceCapable pc = (PersistenceCapable)
+                    ((Collection) coll).iterator().next();
+                OpenJPAStateManager sm1 = (OpenJPAStateManager) pc.
+                    pcGetStateManager();
+                FieldMapping[] fms = ((ClassMapping) sm1.getMetaData()).
+                    getDeclaredFieldMappings();
+                for (int i = 0; i < fms.length; i++) {
+                    if (fms[i] == mappedByFieldMapping) {
+                        res.setMappedByValue(sm1.fetchObject(fms[i].
+                            getIndex()));
+                        break;
+                    }
+                } 
+            } else {
+                res.setMappedByValue(null);
+            }
+        }        
     }
 
     /**
@@ -466,7 +517,7 @@ public abstract class StoreCollectionFieldStrategy
         SelectImpl sel = null;
         Map<JDBCStoreManager.SelectKey, Object[]> storeCollectionUnionCache = null;
         JDBCStoreManager.SelectKey selKey = null;
-        if (!((JDBCStoreManager)store).isQuerySQLCacheOn())
+        if (!((JDBCStoreManager)store).isQuerySQLCacheOn() || elems.length > 1)
             union = newUnion(sm, store, fetch, elems, resJoins);
         else {
             parmList = new ArrayList();
@@ -503,7 +554,7 @@ public abstract class StoreCollectionFieldStrategy
                     }
 
                     // only cache the union when elems length is 1 for now
-                    if (!found && elems.length == 1) { 
+                    if (!found) { 
                         Object[] objs1 = new Object[2];
                         objs1[0] = union;
                         objs1[1] = resJoins[0];
@@ -531,6 +582,9 @@ public abstract class StoreCollectionFieldStrategy
 
             sel.wherePrimaryKey(mapping, cols, cols, oid, store, 
                 	null, null, parmList);
+            List nonFKParams = sel.getSQL().getNonFKParameters();
+            if (nonFKParams != null && nonFKParams.size() > 0) 
+                parmList.addAll(nonFKParams);
         }
         
         // create proxy
@@ -551,6 +605,7 @@ public abstract class StoreCollectionFieldStrategy
             while (res.next()) {
                 if (ct != null && field.getOrderColumn() != null)
                     seq = res.getInt(field.getOrderColumn());
+                setMappedBy(sm.getObjectId(), sm, coll, res);
                	add(store, coll, loadElement(sm, store, fetch, res,
            	        resJoins[res.indexOf()]));
             }

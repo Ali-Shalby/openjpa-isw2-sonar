@@ -72,8 +72,8 @@ public class DB2Dictionary
     protected static final String useKeepExclusiveLockClause
         = "USE AND KEEP EXCLUSIVE LOCKS";
     protected static final String forReadOnlyClause = "FOR READ ONLY";
-    protected String databaseProductName = null;
-    protected String databaseProductVersion = null;
+    protected String databaseProductName = "";
+    protected String databaseProductVersion = "";
     protected int maj = 0;
     protected int min = 0;
     
@@ -238,21 +238,12 @@ public class DB2Dictionary
         return conn;
     }
 
-    private boolean isJDBC3(DatabaseMetaData meta) {
-        try {
-            // JDBC3-only method, so it might throw a AbstractMethodError
-            return meta.getJDBCMajorVersion() >= 3;
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
     public void connectedConfiguration(Connection conn) throws SQLException {
     	super.connectedConfiguration(conn);
 
     	DatabaseMetaData metaData = conn.getMetaData();
-        databaseProductName = metaData.getDatabaseProductName();
-        databaseProductVersion = metaData.getDatabaseProductVersion();
+        databaseProductName = nullSafe(metaData.getDatabaseProductName());
+        databaseProductVersion = nullSafe(metaData.getDatabaseProductVersion());
         
         // Determine the type of DB2 database
         // First check for AS/400
@@ -266,7 +257,7 @@ public class DB2Dictionary
         }
         
     	if (db2ServerType == 0) {
-    	    if (isJDBC3(metaData)) {
+    	    if (isJDBC3) {
     	        maj = metaData.getDatabaseMajorVersion();
     	        min = metaData.getDatabaseMinorVersion();
     	    }
@@ -393,51 +384,32 @@ public class DB2Dictionary
     }
 
     public boolean isDB2UDBV82OrLater() {
-        boolean match = false;
-        if (databaseProductName != null &&
-            (databaseProductVersion.indexOf("SQL") != -1
-            || databaseProductName.indexOf("DB2/") != -1)
-            && ((maj == 8 && min >= 2) || (maj >= 9)))
-            match = true;
-        return match;
+        return (databaseProductVersion.indexOf("SQL") != -1
+             || databaseProductName.indexOf("DB2/") != -1)
+             && ((maj == 8 && min >= 2) || (maj >= 9));
     }
 
     public boolean isDB2ZOSV8xOrLater() {
-       boolean match = false;
-       if (databaseProductName != null &&
-           (databaseProductVersion.indexOf("DSN") != -1
-           || databaseProductName.indexOf("DB2/") == -1)
-           && maj >= 8)
-           match = true;
-        return match;
+       return (databaseProductVersion.indexOf("DSN") != -1
+            || databaseProductName.indexOf("DB2/") == -1)
+            && maj >= 8;
+           
     }
 
     public boolean isDB2ISeriesV5R3OrEarlier() {
-       boolean match = false;
-       if (databaseProductName != null &&
-           databaseProductName.indexOf("AS") != -1
-           && ((maj == 5 && min <=3) || maj < 5))
-           match = true;
-       return match;
+       return (databaseProductName.indexOf("AS") != -1
+           && ((maj == 5 && min <=3) || maj < 5));
     }
 
     public boolean isDB2ISeriesV5R4OrLater() {
-       boolean match = false;
-       if (databaseProductName != null &&
-           databaseProductName.indexOf("AS") != -1
-           && (maj >=6 || (maj == 5 && min >=4)))
-           match = true;
-      return match;
+       return databaseProductName.indexOf("AS") != -1
+           && (maj >=6 || (maj == 5 && min >=4));
     }
 
     public boolean isDB2UDBV81OrEarlier() {
-        boolean match = false;
-        if (databaseProductName != null &&
-            (databaseProductVersion.indexOf("SQL") != -1 
-            || databaseProductName.indexOf("DB2/") != -1) &&
-            ((maj == 8 && min <= 1) || maj < 8))
-            match = true;
-        return match;
+        return (databaseProductVersion.indexOf("SQL") != -1 
+            || databaseProductName.indexOf("DB2/") != -1) 
+            && ((maj == 8 && min <= 1) || maj < 8);
     }
 
     /** Get the version Major/Minor for the ISeries
@@ -447,18 +419,39 @@ public class DB2Dictionary
         //   (Toolbox)DBProdVersion              05.04.0000 V5R4m0
         // ISeries                               DB2 UDB for AS/400
         //   (Native)                            V5R4M0
+        // new jcc    DBProdVersion              QSQ05040 or QSQ06010
         if (databaseProductName.indexOf("AS") != -1) {
-            String s = databaseProductVersion.substring(databaseProductVersion
-                .indexOf('V'));
-            s = s.toUpperCase();
+            // default to V5R4
+            maj = 5;
+            min = 4;
+            int index = databaseProductVersion.indexOf('V');
+            if (index != -1) {
+                String s = databaseProductVersion.substring(index);
+                s = s.toUpperCase();
 
-            StringTokenizer stringtokenizer = new StringTokenizer(s, "VRM"
-                , false);
-            if (stringtokenizer.countTokens() == 3) {
-                String s1 = stringtokenizer.nextToken();
-                maj = Integer.parseInt(s1);
-                String s2 =  stringtokenizer.nextToken();
-                min = Integer.parseInt(s2);
+                StringTokenizer stringtokenizer = new StringTokenizer(s, "VRM"
+                    , false);
+                if (stringtokenizer.countTokens() == 3) {
+                    String s1 = stringtokenizer.nextToken();
+                    maj = Integer.parseInt(s1);
+                    String s2 =  stringtokenizer.nextToken();
+                    min = Integer.parseInt(s2);
+                }
+            } else {
+                index = databaseProductVersion.indexOf('0');
+                if (index != -1) {
+                    String s = databaseProductVersion.substring(index);
+                    s = s.toUpperCase();
+
+                    StringTokenizer stringtokenizer = new StringTokenizer(s, "0"
+                        , false);                    
+                    if (stringtokenizer.countTokens() == 2) {
+                        String s1 = stringtokenizer.nextToken();
+                        maj = Integer.parseInt(s1);
+                        String s2 =  stringtokenizer.nextToken();
+                        min = Integer.parseInt(s2);
+                    }
+                }
             }
         }
     }
@@ -540,11 +533,19 @@ public class DB2Dictionary
 
             String Warn = new String((char[]) getSqlWarnMethd.
                     invoke(sqlca, new Object[]{}));
-            if(Warn.trim().length() != 0)
+            if (Warn.trim().length() != 0)
                 exceptionMsg = exceptionMsg.concat(", Warn=" +Warn + "]" );
             else
                 exceptionMsg = exceptionMsg.concat( "]" );
             msg = msg.concat(exceptionMsg);
+            
+            // for batched execution failures, SQLExceptions are nested
+            SQLException sqle2 = sqle.getNextException();
+            while (sqle2 != null) {                
+                msg = msg.concat("\n" + sqle2.getMessage());
+                sqle2 = sqle2.getNextException();
+            }
+            
             return msg;
         } catch (Throwable t) {
             return sqle.getMessage();
@@ -822,5 +823,9 @@ public class DB2Dictionary
             idx.setUnique(true);
             idx.addColumn(pkColumn);
         }
+    }
+    
+    String nullSafe(String s) {
+    	return s == null ? "" : s;
     }
 }

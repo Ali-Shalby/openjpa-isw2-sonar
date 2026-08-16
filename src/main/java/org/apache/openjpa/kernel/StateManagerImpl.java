@@ -311,7 +311,9 @@ public class StateManagerImpl
 
         // initialize our state and add ourselves to the broker's cache
         setPCState(state);
-        _broker.setStateManager(_id, this, BrokerImpl.STATUS_INIT);
+        if (_broker.getStateManagerImplById(getObjectId(), false) == null) {
+        	_broker.setStateManager(_id, this, BrokerImpl.STATUS_INIT);
+        }
         if (state == PCState.PNEW)
             fireLifecycleEvent(LifecycleEvent.AFTER_PERSIST);
 
@@ -1448,6 +1450,7 @@ public class StateManagerImpl
             return null;
 
         ClassMetaData relmeta = fmd.getDeclaredTypeMetaData();
+        pk = ApplicationIds.wrap(relmeta, pk);
         if (relmeta.getIdentityType() == ClassMetaData.ID_DATASTORE
             && fmd.getObjectIdFieldTypeCode() == JavaTypes.LONG)
             pk = _broker.getStoreManager().newDataStoreId(pk, relmeta);
@@ -2658,6 +2661,12 @@ public class StateManagerImpl
             for (int i = 0, len = _loaded.length(); i < len; i++)
                 saveField(i);
             _flags &= ~FLAG_SAVE;
+            // OPENJPA-659
+            // record a saved field manager even if no field is currently loaded
+            // as existence of a SaveFieldManager is critical for a dirty check
+            if (_saved == null)
+            	_saved = new SaveFieldManager(this, getPersistenceCapable(), 
+            				_dirty);
         }
     }
 

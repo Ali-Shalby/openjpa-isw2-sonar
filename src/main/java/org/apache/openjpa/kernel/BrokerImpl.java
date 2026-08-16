@@ -237,6 +237,7 @@ public class BrokerImpl
     private int _lifeCallbackMode = 0;
 
     private transient boolean _initializeWasInvoked = false;
+    private LinkedList _fcs;
 
     /**
      * Set the persistence manager's authentication. This is the first
@@ -383,6 +384,20 @@ public class BrokerImpl
 
     public FetchConfiguration getFetchConfiguration() {
         return _fc;
+    }
+
+    public FetchConfiguration pushFetchConfiguration() {
+        if (_fcs == null)
+            _fcs = new LinkedList();
+        _fcs.add(_fc);
+        _fc = (FetchConfiguration) _fc.clone();
+        return _fc;
+    }
+
+    public void popFetchConfiguration() {
+        if (_fcs == null || _fcs.isEmpty())
+            throw new UserException(_loc.get("fetch-configuration-stack-empty"));
+        _fc = (FetchConfiguration) _fcs.removeLast();
     }
 
     public int getConnectionRetainMode() {
@@ -1127,6 +1142,9 @@ public class BrokerImpl
             default:
                 throw new UserException(_loc.get("meta-unknownid", cls));
             }
+        } catch (IllegalArgumentException iae) {
+        	throw new UserException(_loc.get("bad-id-value", val,
+                val.getClass().getName(), cls)).setCause(iae);
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (ClassCastException cce) {
@@ -2718,23 +2736,23 @@ public class BrokerImpl
             endOperation();
         }
     }
-
+    
     public void refreshAll(Collection objs, OpCallbacks call) {
-        if (objs.isEmpty())
+        if (objs == null || objs.isEmpty())
             return;
 
         beginOperation(true);
         try {
             assertNontransactionalRead();
 
-            for (Iterator itr = objs.iterator(); itr.hasNext();)
+            for (Iterator itr = objs.iterator(); itr.hasNext();) 
                 gatherCascadeRefresh(itr.next(), call);
             if (_operating.isEmpty())
-                return;
+            	return;
             if (_operating.size() == 1)
-                refreshInternal(_operating.iterator().next(), call);
+            	refreshInternal(_operating.iterator().next(), call);
             else
-                refreshInternal(_operating, call);
+            	refreshInternal(_operating, call);
         } finally {
             endOperation();
         }
@@ -2750,11 +2768,11 @@ public class BrokerImpl
 
             gatherCascadeRefresh(obj, call);
             if (_operating.isEmpty())
-                return;
+            	return;
             if (_operating.size() == 1)
-                refreshInternal(_operating.iterator().next(), call);
+            	refreshInternal(_operating.iterator().next(), call);
             else
-                refreshInternal(_operating, call);
+            	refreshInternal(_operating, call);
         } finally {
             endOperation();
         }
@@ -2786,6 +2804,8 @@ public class BrokerImpl
      * cascade-refresh relations from the user-given instances.
      */
     protected void refreshInternal(Collection objs, OpCallbacks call) {
+    	if (objs == null || objs.isEmpty())
+    		return;
         List exceps = null;
         try {
             // collect instances that need a refresh
@@ -2804,11 +2824,11 @@ public class BrokerImpl
                         continue;
 
                     if (sm != null) {
-                        if (sm.isDetached())
+                        if (sm.isDetached()) 
                             throw newDetachedException(obj, "refresh");
                         else if (sm.beforeRefresh(true)) {
-                            if (load == null)
-                                load = new ArrayList(objs.size());
+                        	if (load == null)
+                        		load = new ArrayList(objs.size());
                             load.add(sm);
                         }
                     } else if (assertPersistenceCapable(obj).pcIsDetached()
@@ -2890,10 +2910,11 @@ public class BrokerImpl
             throw new GeneralException(re);
         }
     }
-
+    
+    
     public void retrieveAll(Collection objs, boolean dfgOnly,
         OpCallbacks call) {
-        if (objs.isEmpty())
+        if (objs == null || objs.isEmpty())
             return;
         if (objs.size() == 1) {
             retrieve(objs.iterator().next(), dfgOnly, call);
@@ -3527,6 +3548,10 @@ public class BrokerImpl
                 return UUIDHexSeq.getInstance();
             case ValueStrategies.UUID_STRING:
                 return UUIDStringSeq.getInstance();
+            case ValueStrategies.UUID_TYPE4_HEX:
+                return UUIDType4HexSeq.getInstance();
+            case ValueStrategies.UUID_TYPE4_STRING:
+                return UUIDType4StringSeq.getInstance();
             case ValueStrategies.SEQUENCE:
                 SequenceMetaData smd = (fmd == null)
                     ? meta.getIdentitySequenceMetaData()
@@ -4121,6 +4146,8 @@ public class BrokerImpl
         _closed = true;
         if (_log.isTraceEnabled())
             _closedException = new IllegalStateException();
+
+        _factory.releaseBroker(this);
 
         if (err != null)
             throw err;

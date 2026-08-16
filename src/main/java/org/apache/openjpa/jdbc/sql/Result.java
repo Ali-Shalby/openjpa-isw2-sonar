@@ -161,6 +161,36 @@ public interface Result
     public void setBaseMapping(ClassMapping mapping);
 
     /**
+     * If this is the result used to select a toMany relationship,
+     * the mappedByFieldMapping is field mapping representing 
+     * the inverse relationship. This is to avoid unneeded  
+     * extra sql to retrieve the eager inverse field.
+     */
+    public FieldMapping getMappedByFieldMapping();
+
+    /**
+     * If this is the result used to select a toMany relationship,
+     * the mappedByFieldMapping is field mapping representing 
+     * the inverse relationship. This is to avoid unneeded  
+     * extra sql to retrieve the eager inverse field.
+     */
+    public void setMappedByFieldMapping(FieldMapping fieldMapping);
+
+    /**
+     * If this is the result used to select a toMany relationship,
+     * the mappedByValue is value of the owner of the toMany relationship. 
+     * This is to avoid unneeded extra sql to retrieve the eager inverse field.
+     */
+    public Object getMappedByValue();
+
+    /**
+     * If this is the result used to select a toMany relationship,
+     * the mappedByValue is value of the owner of the toMany relationship. 
+     * This is to avoid unneeded extra sql to retrieve the eager inverse field.
+     */
+    public void setMappedByValue(Object mappedByValue);
+
+    /**
      * The index of the select within the UNION that the current row
      * corresponds to, or 0.
      */
@@ -212,7 +242,9 @@ public interface Result
      */
     public InputStream getBinaryStream(Object obj)
         throws SQLException;
-
+    
+    public InputStream getLOBStream(JDBCStore store, Object obj)
+        throws SQLException;
     /**
      * Return the value stored in the given column or id; may not be supported
      * by results that are not backed by a SQL result set.

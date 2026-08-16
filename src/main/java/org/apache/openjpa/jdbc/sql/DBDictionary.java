@@ -53,6 +53,7 @@ import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -60,6 +61,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+
 import javax.sql.DataSource;
 
 import org.apache.commons.lang.StringUtils;
@@ -69,6 +71,7 @@ import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.exps.ExpContext;
 import org.apache.openjpa.jdbc.kernel.exps.ExpState;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
+import org.apache.openjpa.jdbc.kernel.exps.Null;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
@@ -100,11 +103,17 @@ import org.apache.openjpa.meta.ValueStrategies;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.InvalidStateException;
+import org.apache.openjpa.util.LockException;
+import org.apache.openjpa.util.ObjectExistsException;
+import org.apache.openjpa.util.ObjectNotFoundException;
 import org.apache.openjpa.util.OpenJPAException;
+import org.apache.openjpa.util.OptimisticException;
+import org.apache.openjpa.util.ReferentialIntegrityException;
 import org.apache.openjpa.util.Serialization;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
+
 import serp.util.Numbers;
 import serp.util.Strings;
 
@@ -127,8 +136,8 @@ public class DBDictionary
     public static final String CONS_NAME_MID = "mid";
     public static final String CONS_NAME_AFTER = "after";
     
-    public int blobBufferSize = 50;
-    public int clobBufferSize = 50;
+    public int blobBufferSize = 50000;
+    public int clobBufferSize = 50000;
 
     protected static final int RANGE_POST_SELECT = 0;
     protected static final int RANGE_PRE_DISTINCT = 1;
@@ -155,16 +164,6 @@ public class DBDictionary
     private static final String ZERO_TIMESTAMP_STR =
         "'" + new Timestamp(0) + "'";
 
-    public static final List EMPTY_STRING_LIST = Arrays.asList(new String[]{});
-    public static final List[] SQL_STATE_CODES = 
-    	{EMPTY_STRING_LIST,                     // 0: Default
-    	 Arrays.asList(new String[]{"41000"}),  // 1: LOCK
-    	 EMPTY_STRING_LIST,                     // 2: OBJECT_NOT_FOUND
-    	 EMPTY_STRING_LIST,                     // 3: OPTIMISTIC
-    	 Arrays.asList(new String[]{"23000"}),  // 4: REFERENTIAL_INTEGRITY
-    	 EMPTY_STRING_LIST                      // 5: OBJECT_EXISTS
-    	}; 
-                                              
     private static final Localizer _loc = Localizer.forPackage
         (DBDictionary.class);
 
@@ -180,7 +179,6 @@ public class DBDictionary
     public int maxIndexNameLength = 128;
     public int maxIndexesPerTable = Integer.MAX_VALUE;
     public boolean supportsForeignKeys = true;
-    public boolean supportsTimestampNanos = true;
     public boolean supportsUniqueConstraints = true;
     public boolean supportsDeferredConstraints = true;
     public boolean supportsRestrictDeleteAction = true;
@@ -229,6 +227,7 @@ public class DBDictionary
     public boolean supportsSelectEndIndex = false;
     public int rangePosition = RANGE_POST_SELECT;
     public boolean requiresAliasForSubselect = false;
+    public boolean requiresTargetForDelete = false;
     public boolean allowsAliasInBulkClause = true;
     public boolean supportsMultipleNontransactionalResultSets = true;
     public String searchStringEscape = "\\";
@@ -236,6 +235,12 @@ public class DBDictionary
     public boolean requiresCastForComparisons = false;
     public boolean supportsModOperator = false;
     public boolean supportsXMLColumn = false;
+    public boolean reportsSuccessNoInfoOnBatchUpdates = false;
+    
+    /**
+     * Some Databases append whitespace after the schema name 
+     */
+    public boolean trimSchemaName = false;
 
     // functions
     public String castFunction = "CAST({0} AS {1})";
@@ -326,6 +331,7 @@ public class DBDictionary
     protected JDBCConfiguration conf = null;
     protected Log log = null;
     protected boolean connected = false;
+    protected boolean isJDBC3 = false;
     protected final Set reservedWordSet = new HashSet();
     protected final Set systemSchemaSet = new HashSet();
     protected final Set systemTableSet = new HashSet();
@@ -353,6 +359,9 @@ public class DBDictionary
     // any positive number = batch limit
     public int batchLimit = NO_BATCH;
     
+    public final Map<Integer,Set<String>> sqlStateCodes = 
+    	new HashMap<Integer, Set<String>>();
+                                              
     public DBDictionary() {
         fixedSizeTypeNameSet.addAll(Arrays.asList(new String[]{
             "BIGINT", "BIT", "BLOB", "CLOB", "DATE", "DECIMAL", "DISTINCT",
@@ -373,12 +382,28 @@ public class DBDictionary
     public void connectedConfiguration(Connection conn)
         throws SQLException {
         if (!connected) {
+            DatabaseMetaData metaData = null;
             try {
-                if (log.isTraceEnabled())
-                    log.trace(DBDictionaryFactory.toString
-                        (conn.getMetaData()));
+                metaData = conn.getMetaData();
+                try {
+                    // JDBC3-only method, so it might throw a 
+                    // AbstractMethodError
+                    isJDBC3 = metaData.getJDBCMajorVersion() >= 3;
+                } catch (Throwable t) {
+                    // ignore if not JDBC3
+                }
             } catch (Exception e) {
-                log.trace(e.toString(), e);
+                if (log.isTraceEnabled())
+                    log.trace(e.toString(), e);
+            }
+
+            if (log.isTraceEnabled()) {                    
+                log.trace(DBDictionaryFactory.toString(metaData));
+
+                if (isJDBC3)
+                    log.trace(_loc.get("connection-defaults", new Object[]{
+                        conn.getAutoCommit(), conn.getHoldability(),
+                        conn.getTransactionIsolation()}));
             }
         }
         connected = true;
@@ -483,6 +508,11 @@ public class DBDictionary
         return rs.getBinaryStream(column);
     }
 
+    public InputStream getLOBStream(JDBCStore store, ResultSet rs,
+        int column) throws SQLException {
+        return rs.getBinaryStream(column);
+    }
+    
     /**
      * Convert the specified column of the SQL ResultSet to the proper
      * java type.
@@ -1093,10 +1123,7 @@ public class DBDictionary
             nanos = 0;
         }
 
-        if (supportsTimestampNanos)
-            val.setNanos(nanos);
-        else
-            val.setNanos(0);
+        val.setNanos(nanos);
 
         if (cal == null)
             stmnt.setTimestamp(idx, val);
@@ -1865,8 +1892,16 @@ public class DBDictionary
     protected SQLBuffer toBulkOperation(ClassMapping mapping, Select sel,
         JDBCStore store, Object[] params, Map updateParams) {
         SQLBuffer sql = new SQLBuffer(this);
-        if (updateParams == null)
+        if (updateParams == null) {
+          if (requiresTargetForDelete) {
+            sql.append("DELETE ");
+            SQLBuffer deleteTargets = getDeleteTargets(sel);
+            sql.append(deleteTargets);
+            sql.append(" FROM ");
+          } else {
             sql.append("DELETE FROM ");
+          }
+        }
         else
             sql.append("UPDATE ");
         sel.addJoinClassConditions();
@@ -1962,6 +1997,28 @@ public class DBDictionary
         return sql;
     }
 
+    protected SQLBuffer getDeleteTargets(Select sel) {
+      SQLBuffer deleteTargets = new SQLBuffer(this);
+      Collection aliases = sel.getTableAliases();
+      // Assumes aliases are of the form "TABLENAME t0"
+      for (Iterator itr = aliases.iterator(); itr.hasNext();) {
+        String tableAlias = itr.next().toString();
+        int spaceIndex = tableAlias.indexOf(' ');
+        if (spaceIndex > 0 && spaceIndex < tableAlias.length() - 1) {
+          if (allowsAliasInBulkClause) {
+            deleteTargets.append(tableAlias.substring(spaceIndex + 1));
+          } else {
+            deleteTargets.append(tableAlias.substring(0, spaceIndex));
+          }
+        } else {
+          deleteTargets.append(tableAlias);
+        }
+        if (itr.hasNext())
+          deleteTargets.append(", ");
+      }      
+      return deleteTargets;      
+    }
+
     protected void appendUpdates(Select sel, JDBCStore store, SQLBuffer sql,
         Object[] params, Map updateParams, boolean allowAlias) {
         if (updateParams == null || updateParams.size() == 0)
@@ -1987,9 +2044,14 @@ public class DBDictionary
                 augmentUpdates = false;
 
             Val val = (Val) next.getValue();
-
+            if (val == null)
+            	val = new Null();
             Column col = fmd.getColumns()[0];
-            sql.append(col.getName());
+            if (allowAlias) {
+              sql.append(sel.getColumnAlias(col));
+            } else {
+              sql.append(col.getName());  
+            }            
             sql.append(" = ");
 
             ExpState state = val.initialize(sel, ctx, 0);
@@ -4043,8 +4105,32 @@ public class DBDictionary
         if (selectWords != null)
             selectWordSet.addAll(Arrays.asList(Strings.split(selectWords
                     .toUpperCase(), ",", 0)));
+        
+        // initialize the error codes
+        SQLErrorCodeReader codeReader = new SQLErrorCodeReader();
+        String rsrc = "sql-error-state-codes.xml";
+        InputStream stream = getClass().getResourceAsStream(rsrc);
+        String dictionaryClassName = getClass().getName();
+        if (stream == null) { // User supplied dictionary but no error codes xml
+        	stream = DBDictionary.class.getResourceAsStream(rsrc); // use default
+        	dictionaryClassName = getClass().getSuperclass().getName();
+        }
+        codeReader.parse(stream, dictionaryClassName, this);
     }
-
+    
+    public void addErrorCode(int errorType, String errorCode) {
+    	if (errorCode == null || errorCode.trim().length() == 0)
+    		return;
+		Set<String> codes = sqlStateCodes.get(errorType);
+    	if (codes == null) {
+    		codes = new HashSet<String>();
+    		codes.add(errorCode.trim());
+    		sqlStateCodes.put(errorType, codes);
+    	} else {
+    		codes.add(errorCode.trim());
+    	}
+    }
+    
     //////////////////////////////////////
     // ConnectionDecorator implementation
     //////////////////////////////////////
@@ -4053,7 +4139,7 @@ public class DBDictionary
      * Decorate the given connection if needed. Some databases require special
      * handling for JDBC bugs. This implementation issues any
      * {@link #initializationSQL} that has been set for the dictionary but
-     * does not decoreate the connection.
+     * does not decorate the connection.
      */
     public Connection decorate(Connection conn)
         throws SQLException {
@@ -4104,7 +4190,7 @@ public class DBDictionary
     public OpenJPAException newStoreException(String msg, SQLException[] causes,
         Object failed) {
     	if (causes != null && causes.length > 0) {
-    		OpenJPAException ret = SQLExceptions.narrow(msg, causes[0], this);
+    		OpenJPAException ret = narrow(msg, causes[0]);
     		ret.setFailedObject(failed).setNestedThrowables(causes);
     		return ret;
     	}
@@ -4113,26 +4199,36 @@ public class DBDictionary
     }
     
     /**
-     * Gets the list of String, each represents an error that can help 
-     * to narrow down a SQL exception to specific type of StoreException.<br>
-     * For example, error code <code>"23000"</code> represents referential
-     * integrity violation and hence can be narrowed down to 
-     * {@link ReferentialIntegrityException} rather than more general
-     * {@link StoreException}.<br>
-     * JDBC Drivers are not uniform in return values of SQLState for the same
-     * error and hence each database specific Dictionary can specialize.<br>
-     * 
-     * 
-     * @return an <em>unmodifiable</em> list of Strings representing supposedly 
-     * uniform SQL States for a given type of StoreException. 
-     * Default behavior is to return an empty list.
+     * Gets the subtype of StoreException by matching the given SQLException's
+     * error state code to the list of error codes supplied by the dictionary.
+     * Returns -1 if no matching code can be found.
      */
-    public List/*<String>*/ getSQLStates(int exceptionType) {
-    	if (exceptionType>=0 && exceptionType<SQL_STATE_CODES.length)
-    		return SQL_STATE_CODES[exceptionType];
-    	return EMPTY_STRING_LIST;
+    OpenJPAException narrow(String msg, SQLException ex) {
+    	String errorState = ex.getSQLState();
+    	int errorType = StoreException.GENERAL;
+    	for (Integer type : sqlStateCodes.keySet()) {
+    		Set<String> erroStates = sqlStateCodes.get(type);
+    		if (erroStates != null && erroStates.contains(errorState)) {
+    			errorType = type;
+    			break;
+    		}
+    	}
+    	switch (errorType) {
+	    	case StoreException.LOCK: 
+	            return new LockException(msg);
+	    	case StoreException.OBJECT_EXISTS:
+	            return new ObjectExistsException(msg);
+	    	case StoreException.OBJECT_NOT_FOUND:
+	            return new ObjectNotFoundException(msg);
+	    	case StoreException.OPTIMISTIC:
+	            return new OptimisticException(msg);
+	    	case StoreException.REFERENTIAL_INTEGRITY: 
+	            return new ReferentialIntegrityException(msg);
+	        default:
+	            return new StoreException(msg);
+        }
     }
-
+    
     /**
      * Closes the specified {@link DataSource} and releases any
      * resources associated with it.
@@ -4166,16 +4262,24 @@ public class DBDictionary
         return column.toString();
     }
     
-    public void insertBlobForStreamingLoad(Row row, Column col)
-    throws SQLException {
-        row.setBinaryStream(col, 
+    public void insertBlobForStreamingLoad(Row row, Column col, 
+        JDBCStore store, Object ob, Select sel) throws SQLException {
+        if (ob != null) {
+            row.setBinaryStream(col, 
                 new ByteArrayInputStream(new byte[0]), 0);
+        } else {
+            row.setNull(col);
+        }
     }
     
-    public void insertClobForStreamingLoad(Row row, Column col)
+    public void insertClobForStreamingLoad(Row row, Column col, Object ob)
     throws SQLException {
+        if (ob != null) {
         row.setCharacterStream(col,
                 new CharArrayReader(new char[0]), 0);
+        } else {
+            row.setNull(col);
+        }
     }
     
     public void updateBlob(Select sel, JDBCStore store, InputStream is)
@@ -4410,5 +4514,26 @@ public class DBDictionary
 
     public boolean needsToCreateIndex(Index idx, Table table) {
         return true;
+    }
+
+    /**
+     * Return batched statements update succes count
+     * @param ps A PreparedStatement
+     * @return return update count
+     */
+    public int getBatchUpdateCount(PreparedStatement ps) throws SQLException {
+        return 0;
+    }
+    
+    public boolean getTrimSchemaName() { 
+        return trimSchemaName;
+    }
+    
+    public void setTrimSchemaName(boolean trimSchemaName) { 
+        this.trimSchemaName = trimSchemaName; 
+    }
+    
+    public void deleteStream(JDBCStore store, Select sel) throws SQLException {
+        // Do nothing
     }
 }

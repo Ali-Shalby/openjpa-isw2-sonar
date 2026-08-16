@@ -76,7 +76,7 @@ public class OpenJPAConfigurationImpl
 
     // openjpa properties
     public ObjectValue classResolverPlugin;
-    public ObjectValue brokerPlugin;
+    public BrokerValue brokerPlugin;
     public ObjectValue dataCachePlugin;
     public ObjectValue dataCacheManagerPlugin;
     public IntValue dataCacheTimeout;
@@ -122,6 +122,7 @@ public class OpenJPAConfigurationImpl
     public BooleanValue ignoreChanges;
     public BooleanValue nontransactionalRead;
     public BooleanValue nontransactionalWrite;
+    public BooleanValue refreshFromDataCache;
     public BooleanValue multithreaded;
     public StringValue mapping;
     public PluginValue metaFactoryPlugin;
@@ -222,7 +223,12 @@ public class OpenJPAConfigurationImpl
         queryCachePlugin.setAliases(aliases);
         queryCachePlugin.setDefault(aliases[0]);
         queryCachePlugin.setString(aliases[0]);
-
+        
+        refreshFromDataCache = addBoolean("RefreshFromDataCache");
+        refreshFromDataCache.setDefault("false");
+        refreshFromDataCache.set(false);
+        refreshFromDataCache.setDynamic(true);
+        
         dynamicDataStructs = addBoolean("DynamicDataStructs");
         dynamicDataStructs.setDefault("false");
         dynamicDataStructs.set(false);
@@ -644,6 +650,20 @@ public class OpenJPAConfigurationImpl
     public String getQueryCache() {
         return queryCachePlugin.getString();
     }
+    
+    public boolean getRefreshFromDataCache() {
+    	return refreshFromDataCache.get();
+    }
+    
+    public void setRefreshFromDataCache(boolean flag) {
+    	refreshFromDataCache.set(flag);
+    }
+    
+    public void setRefreshFromDataCache(Boolean flag) {
+    	if (flag != null) {
+    		refreshFromDataCache.set(flag.booleanValue());
+    	}
+    }
 
     public boolean getDynamicDataStructs() {
         return dynamicDataStructs.get();
@@ -924,19 +944,21 @@ public class OpenJPAConfigurationImpl
     public Object getConnectionFactory() {
         if (connectionFactory.get() == null)
             connectionFactory.set(
-                lookupConnectionFactory(getConnectionFactoryName()), true);
+                lookupConnectionFactory(getConnectionFactoryName(),
+                		connectionFactory.getProperty()), true);
         return connectionFactory.get();
     }
 
     /**
      * Lookup the connection factory at the given name.
      */
-    private Object lookupConnectionFactory(String name) {
+    private Object lookupConnectionFactory(String name, String userKey) {
         name = StringUtils.trimToNull(name);
         if (name == null)
             return null;
         try {
-        	return Configurations.lookup(name);
+        	return Configurations.lookup(name, userKey,
+        			getLog(OpenJPAConfiguration.LOG_RUNTIME));
         } catch (Exception ex) {
         	return null;
         }
@@ -1007,7 +1029,8 @@ public class OpenJPAConfigurationImpl
     public Object getConnectionFactory2() {
         if (connectionFactory2.get() == null)
             connectionFactory2.set(
-                lookupConnectionFactory(getConnectionFactory2Name()), false);
+                lookupConnectionFactory(getConnectionFactory2Name(), 
+                		connectionFactory2.getProperty()), false);
         return connectionFactory2.get();
     }
 
@@ -1389,6 +1412,10 @@ public class OpenJPAConfigurationImpl
         runtimeUnenhancedClasses.set(mode);
     }
 
+    public void setRuntimeUnenhancedClasses(String mode) {
+        runtimeUnenhancedClasses.setString(mode);
+    }
+
     public String getCacheMarshallers() {
         return cacheMarshallerPlugins.getString();
     }
@@ -1399,10 +1426,6 @@ public class OpenJPAConfigurationImpl
 
     public Map getCacheMarshallerInstances() {
         return cacheMarshallerPlugins.getInstancesAsMap();
-    }
-
-    public void setRuntimeUnenhancedClasses(String mode) {
-        runtimeUnenhancedClasses.setString(mode);
     }
 
     public void instantiateAll() {

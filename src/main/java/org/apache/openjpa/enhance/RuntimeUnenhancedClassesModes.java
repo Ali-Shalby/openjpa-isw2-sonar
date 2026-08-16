@@ -14,35 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
-package org.apache.openjpa.jdbc.kernel.exps;
+package org.apache.openjpa.enhance;
 
 /**
- * Square root.
+ * Possible values for the <code>openjpa.RuntimeUnenhancedClasses</code>
+ * configuration setting.
  *
- * @author Abe White
+ * @since 1.0.0
  */
-public class Sqrt
-    extends UnaryOp {
-
-    /**
-     * Constructor. Provide the value to operate on.
-     */
-    public Sqrt(Val val) {
-        super(val);
-    }
-
-    protected Class getType(Class c) {
-        return double.class;
-    }
-
-    protected String getOperator() {
-        return "SQRT";
-    }
-
-    public int getId() {
-        return Val.SQRT_VAL;
-    }
+public interface RuntimeUnenhancedClassesModes {
+    public final static int SUPPORTED = 0;
+    public final static int UNSUPPORTED = 1;
+    public final static int WARN = 2;
 }
-

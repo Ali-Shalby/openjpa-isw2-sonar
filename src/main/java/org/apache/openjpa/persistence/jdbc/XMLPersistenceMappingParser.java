@@ -39,6 +39,8 @@ import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.ClassMappingInfo;
 import org.apache.openjpa.jdbc.meta.DiscriminatorMappingInfo;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
+import org.apache.openjpa.jdbc.meta.FieldMappingInfo;
+import org.apache.openjpa.jdbc.meta.MappingInfo;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.meta.QueryResultMapping;
 import org.apache.openjpa.jdbc.meta.SequenceMapping;
@@ -56,6 +58,8 @@ import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataParser;
+import org.apache.openjpa.util.InternalException;
+
 import static org.apache.openjpa.persistence.jdbc.MappingTag.*;
 
 /**
@@ -293,6 +297,9 @@ public class XMLPersistenceMappingParser
             case COLUMN_NAME:
                 endColumnName();
                 break;
+            case TABLE_GEN:
+            	endTableGenerator();
+            	break;
         }
     }
 
@@ -353,6 +360,8 @@ public class XMLPersistenceMappingParser
         throws SAXException {
         _secondaryTable = toTableName(attrs.getValue("schema"),
             attrs.getValue("name"));
+        ((ClassMapping)currentElement()).getMappingInfo()
+        	.addSecondaryTable(_secondaryTable);
         return true;
     }
 
@@ -405,7 +414,12 @@ public class XMLPersistenceMappingParser
         Object scope = (cur instanceof ClassMetaData)
             ? ((ClassMetaData) cur).getDescribedType() : null;
         seq.setSource(getSourceFile(), scope, seq.SRC_XML);
+        pushElement(seq);
         return true;
+    }
+    
+    private void endTableGenerator() {
+    	popElement();
     }
 
     /**
@@ -880,13 +894,9 @@ public class XMLPersistenceMappingParser
      */
     private boolean startUniqueConstraint(Attributes attrs) 
         throws SAXException {
-        Object current = currentElement();
-        if (current instanceof ClassMapping && _secondaryTable == null) {
-            Unique unique = new Unique();
-            pushElement(unique);
-            return true;
-        } 
-        return false;
+        Unique unique = new Unique();
+        pushElement(unique);
+        return true;
     }
     
     /**
@@ -897,9 +907,28 @@ public class XMLPersistenceMappingParser
      */
     private void endUniqueConstraint() {
         Unique unique = (Unique) popElement();
-        Object current = currentElement();
-        if (current instanceof ClassMapping && _secondaryTable == null)
-            ((ClassMapping) current).getMappingInfo().addUnique(unique);
+        Object ctx = currentElement();
+        String tableName = "?";
+        if (ctx instanceof ClassMapping) {
+        	ClassMappingInfo info = ((ClassMapping) ctx).getMappingInfo();
+        	tableName = (_secondaryTable == null) 
+        		? info.getTableName() : _secondaryTable;
+        	info.addUnique(tableName, unique);
+        } else if (ctx instanceof FieldMapping) {// JoinTable
+        	FieldMappingInfo info = ((FieldMapping)ctx).getMappingInfo();
+        	info.addJoinTableUnique(unique);
+        } else if (ctx instanceof SequenceMapping) {
+        	SequenceMapping seq = (SequenceMapping)ctx;
+        	unique.setTableName(seq.getTable());
+        	Column[] uniqueColumns = unique.getColumns();
+        	String[] columnNames = new String[uniqueColumns.length];
+        	int i = 0;
+        	for (Column uniqueColumn : uniqueColumns)
+        		columnNames[i++] = uniqueColumn.getName();
+        	seq.setUniqueColumns(columnNames);
+        } else {
+        	throw new InternalException();
+        }
     }
     
     /**

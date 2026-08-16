@@ -29,8 +29,11 @@ import java.util.List;
 import java.util.Properties;
 
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.lib.jdbc.DelegatingDataSource;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
+import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.StoreException;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Non-pooling driver data source.
@@ -46,6 +49,11 @@ public class SimpleDriverDataSource
     private Properties _connectionFactoryProperties;
     private Driver _driver;
     private ClassLoader _classLoader;
+    
+    protected static Localizer _loc = 
+    	Localizer.forPackage(SimpleDriverDataSource.class);
+    protected static Localizer _eloc = 
+    	Localizer.forPackage(DelegatingDataSource.class);
 
     public Connection getConnection()
         throws SQLException {
@@ -70,7 +78,12 @@ public class SimpleDriverDataSource
 
     public Connection getConnection(Properties props)
         throws SQLException {
-        return getDriver().connect(_connectionURL, props);
+    	Connection con = getDriver().connect(_connectionURL, props);
+    	if (con == null) {
+        	throw new SQLException(_eloc.get("poolds-null",
+        			_connectionDriverName, _connectionURL).getMessage());
+        }
+        return con;
     }
 
     public int getLoginTimeout() {

@@ -256,7 +256,8 @@ public class RelationFieldStrategy
             if (rel != null) {
                 ForeignKey fk = field.getForeignKey((ClassMapping)
                     rel.getMetaData());
-                if (fk.getDeleteAction() == ForeignKey.ACTION_RESTRICT) {
+                if (fk.getDeleteAction() == ForeignKey.ACTION_RESTRICT ||
+                    fk.getDeleteAction() == ForeignKey.ACTION_CASCADE) {
                     Row row = field.getRow(sm, store, rm, Row.ACTION_DELETE);
                     row.setForeignKey(fk, null, rel);
                 }
@@ -871,7 +872,7 @@ public class RelationFieldStrategy
             fieldVal = store.getContext().getObjectId(fieldVal);
         if (fieldVal instanceof OpenJPAId)
             fieldVal = ((OpenJPAId) fieldVal).getIdObject();
-        else if (relmapping.getObjectIdType() != null
+        if (relmapping.getObjectIdType() != null
             && relmapping.getObjectIdType().isInstance(fieldVal)) {
             Object[] pks = ApplicationIds.toPKValues(fieldVal, relmapping);
             fieldVal = pks[relmapping.getField(j.getFieldIndex()).

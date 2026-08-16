@@ -28,11 +28,13 @@ import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.sql.PostgresDictionary;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.Row;
 import org.apache.openjpa.jdbc.sql.RowManager;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.meta.JavaTypes;
 
 /**
  * Direct mapping from a stream value to a column.
@@ -43,6 +45,7 @@ import org.apache.openjpa.kernel.OpenJPAStateManager;
 public class LobFieldStrategy extends AbstractFieldStrategy {
 
     private int fieldType;
+    private boolean isBlob;
 
     public void map(boolean adapt) {
         assertNotMappedBy();
@@ -57,8 +60,9 @@ public class LobFieldStrategy extends AbstractFieldStrategy {
         vinfo.assertNoForeignKey(field, !adapt);
         Column tmpCol = new Column();
         tmpCol.setName(field.getName());
-        tmpCol.setJavaType(field.getTypeCode());
         tmpCol.setType(fieldType);
+        tmpCol.setJavaType(field.getTypeCode());
+        
         tmpCol.setSize(-1);
 
         Column[] cols = vinfo.getColumns(field, field.getName(),
@@ -74,24 +78,25 @@ public class LobFieldStrategy extends AbstractFieldStrategy {
         return null;
     }
 
+    public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
+        throws SQLException {
+        Select sel = createSelect(sm, store);
+        store.getDBDictionary().deleteStream(store, sel);
+    }
+    
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Object ob = toDataStoreValue(sm.fetchObjectField
             (field.getIndex()), store);
         Row row = field.getRow(sm, store, rm, Row.ACTION_INSERT);
         if (field.getColumnIO().isInsertable(0, ob == null)) {
-            if (ob != null) {
-                if (isBlob()) {
-                    store.getDBDictionary().insertBlobForStreamingLoad
-                        (row, field.getColumns()[0]);
-                } else {
-                    store.getDBDictionary().insertClobForStreamingLoad
-                        (row, field.getColumns()[0]);
-                }
+            Select sel = createSelect(sm, store);
+            if (isBlob) {
+                store.getDBDictionary().insertBlobForStreamingLoad
+                    (row, field.getColumns()[0], store, ob, sel);
             } else {
-                Column col = field.getColumns()[0];
-                col.setType(Types.OTHER);
-                row.setNull(col);
+                store.getDBDictionary().insertClobForStreamingLoad
+                    (row, field.getColumns()[0], ob);
             }
         }
     }
@@ -103,7 +108,7 @@ public class LobFieldStrategy extends AbstractFieldStrategy {
         if (field.getColumnIO().isInsertable(0, ob == null)) {
             if (ob != null) {
                 Select sel = createSelect(sm, store);
-                if (isBlob()) {
+                if (isBlob) {
                     store.getDBDictionary().updateBlob
                         (sel, store, (InputStream)ob);
                 } else {
@@ -113,26 +118,42 @@ public class LobFieldStrategy extends AbstractFieldStrategy {
             }
         }
     }
+    
+    public Boolean isCustomUpdate(OpenJPAStateManager sm, JDBCStore store) {
+        return null;
+    }
 
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Object ob = toDataStoreValue(sm.fetchObjectField
             (field.getIndex()), store);
         if (field.getColumnIO().isUpdatable(0, ob == null)) {
+            Row row = field.getRow(sm, store, rm, Row.ACTION_UPDATE);
+            Select sel = createSelect(sm, store);
+            if (isBlob) {
+                store.getDBDictionary().insertBlobForStreamingLoad
+                    (row, field.getColumns()[0], store, ob, sel);
+            } else {
+                store.getDBDictionary().insertClobForStreamingLoad
+                    (row, field.getColumns()[0], sel);
+            }
+        }
+    }
+
+    public void customUpdate(OpenJPAStateManager sm, JDBCStore store)
+        throws SQLException {
+        Object ob = toDataStoreValue(sm.fetchObjectField
+                (field.getIndex()), store);
+        if (field.getColumnIO().isUpdatable(0, ob == null)) {
             if (ob != null) {
                 Select sel = createSelect(sm, store);
-                if (isBlob()) {
+                if (isBlob) {
                     store.getDBDictionary().updateBlob
                         (sel, store, (InputStream)ob);
                 } else {
                     store.getDBDictionary().updateClob
                         (sel, store, (Reader)ob);
                 }
-            } else {
-                Row row = field.getRow(sm, store, rm, Row.ACTION_UPDATE);
-                Column col = field.getColumns()[0];
-                col.setType(Types.OTHER);
-                row.setNull(col);
             }
         }
     }
@@ -154,8 +175,8 @@ public class LobFieldStrategy extends AbstractFieldStrategy {
         JDBCFetchConfiguration fetch, Result res) throws SQLException {
         Column col = field.getColumns()[0];
         if (res.contains(col)) {
-            if (isBlob()) {
-                sm.storeObject(field.getIndex(), res.getBinaryStream(col));
+            if (isBlob) {
+                sm.storeObject(field.getIndex(), res.getLOBStream(store, col));
             } else {
                 sm.storeObject(field.getIndex(), res.getCharacterStream(col));
             }
@@ -168,18 +189,21 @@ public class LobFieldStrategy extends AbstractFieldStrategy {
     }
 
     public void setFieldMapping(FieldMapping owner) {
-        if (owner.getType().isAssignableFrom(InputStream.class)) {
-            fieldType = Types.BLOB;
-        } else if (owner.getType().isAssignableFrom(Reader.class)) {
-            fieldType = Types.CLOB;
-        }
         field = owner;
-    }
-
-    private boolean isBlob() {
-        if (fieldType == Types.BLOB)
-            return true;
-        return false;
+        if (owner.getElementMapping().getMappingRepository().getDBDictionary()
+            instanceof PostgresDictionary) {
+            fieldType = Types.INTEGER;
+            isBlob = true;
+            field.setTypeCode(JavaTypes.INT);
+        } else {
+            if (owner.getType().isAssignableFrom(InputStream.class)) {
+                isBlob = true;
+                fieldType = Types.BLOB;
+            } else if (owner.getType().isAssignableFrom(Reader.class)) {
+                isBlob = false;
+                fieldType = Types.CLOB;
+            }
+        }
     }
 
     private Select createSelect(OpenJPAStateManager sm, JDBCStore store) {
@@ -191,4 +215,5 @@ public class LobFieldStrategy extends AbstractFieldStrategy {
         sel.setLob(true);
         return sel;
     }
+    
 }

@@ -49,6 +49,7 @@ import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.UnsupportedException;
+
 import serp.util.Strings;
 
 /**
@@ -79,6 +80,8 @@ public abstract class AbstractResult
     private boolean _locking = false;
     private boolean _ignoreNext = false;
     private boolean _last = false;
+    private FieldMapping _mappedByFieldMapping = null;
+    private Object _mappedByValue = null;
 
     public Object getEager(FieldMapping key) {
         Map map = getEagerMap(true);
@@ -117,6 +120,8 @@ public abstract class AbstractResult
      */
     public void close() {
         closeEagerMap(_eager);
+        _mappedByFieldMapping = null;
+        _mappedByValue = null;
     }
 
     /**
@@ -237,6 +242,22 @@ public abstract class AbstractResult
         _base = base;
     }
 
+    public FieldMapping getMappedByFieldMapping() {
+        return (_gotEager) ? null : _mappedByFieldMapping;
+    }
+
+    public void setMappedByFieldMapping(FieldMapping fieldMapping) {
+        _mappedByFieldMapping = fieldMapping;
+    }
+
+    public Object getMappedByValue() {
+        return (_gotEager) ? null : _mappedByValue;
+    }
+
+    public void setMappedByValue(Object mappedByValue) {
+        _mappedByValue = mappedByValue;
+    }
+
     public int indexOf() {
         return _index;
     }
@@ -341,12 +362,23 @@ public abstract class AbstractResult
         return getBinaryStreamInternal(translate(col, joins), joins);
     }
 
+    public InputStream getLOBStream(JDBCStore store, Object obj)
+        throws SQLException {
+        return getLOBStreamInternal(store, translate(obj, null), null);
+    }
+
     protected InputStream getBinaryStreamInternal(Object obj, Joins joins)
         throws SQLException {
         return (InputStream) checkNull(getObjectInternal(obj,
             JavaSQLTypes.BINARY_STREAM, null, joins));
     }
 
+    protected InputStream getLOBStreamInternal(JDBCStore store, Object obj,
+        Joins joins) throws SQLException {
+        return (InputStream) checkNull(getStreamInternal(store, obj,
+            JavaSQLTypes.BINARY_STREAM, null, joins));
+    }
+    
     public Blob getBlob(Object obj)
         throws SQLException {
         return getBlobInternal(translate(obj, null), null);
@@ -670,6 +702,9 @@ public abstract class AbstractResult
         Object arg, Joins joins)
         throws SQLException;
 
+    protected abstract Object getStreamInternal(JDBCStore store, Object obj,
+            int metaType, Object arg, Joins joins) throws SQLException;
+    
     public Object getSQLObject(Object obj, Map map)
         throws SQLException {
         return getSQLObjectInternal(translate(obj, null), map, null);
