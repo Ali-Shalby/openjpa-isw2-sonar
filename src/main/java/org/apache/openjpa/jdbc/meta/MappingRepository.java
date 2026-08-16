@@ -65,6 +65,7 @@ import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.SchemaGroup;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
+import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
@@ -94,8 +95,9 @@ public class MappingRepository
             "org.apache.openjpa.jdbc.meta.strats.EnumValueHandler");
     }
 
-    private DBDictionary _dict = null;
-    private MappingDefaults _defaults = null;
+    private transient DBDictionary _dict = null;
+    private transient MappingDefaults _defaults = null;
+    
     private Map _results = new HashMap(); // object->queryresultmapping
     private SchemaGroup _schema = null;
     private StrategyInstaller _installer = null;
@@ -266,14 +268,6 @@ public class MappingRepository
         return getQueryKey(cls, name);
     }
 
-    public MetaDataRepository newInstance() {
-        MappingRepository repos = new MappingRepository();
-        repos.setConfiguration(getConfiguration());
-        repos.startConfiguration();
-        repos.endConfiguration();
-        return repos;
-    }
-
     public ClassMapping getMapping(Class cls, ClassLoader envLoader,
         boolean mustExist) {
         return (ClassMapping) super.getMetaData(cls, envLoader, mustExist);
@@ -311,8 +305,8 @@ public class MappingRepository
         // define superclass fields after mapping class, so we can tell whether
         // the class is mapped and needs to redefine abstract superclass fields
         getStrategyInstaller().installStrategy(mapping);
-        mapping.defineSuperclassFields(mapping.
-            getJoinablePCSuperclassMapping() == null);
+        mapping.defineSuperclassFields(mapping.getJoinablePCSuperclassMapping()
+            == null);
 
         // resolve everything that doesn't involve relations to allow relation
         // mappings to use the others as joinables
@@ -419,8 +413,6 @@ public class MappingRepository
      */
     protected ClassStrategy namedStrategy(ClassMapping cls) {
         String name = cls.getMappingInfo().getStrategy();
-        if (name == null)
-            return null;
         return instantiateClassStrategy(name, cls);
     }
 
@@ -429,6 +421,8 @@ public class MappingRepository
      */
     protected ClassStrategy instantiateClassStrategy(String name,
         ClassMapping cls) {
+        if (name == null)
+            return null;
         if (NoneClassStrategy.ALIAS.equals(name))
             return NoneClassStrategy.getInstance();
 
@@ -656,17 +650,27 @@ public class MappingRepository
             return instantiateClassStrategy((String) strat, cls);
         if (strat != null)
             return (ClassStrategy) strat;
+        
+        // see if there is a declared hierarchy strategy
+        ClassStrategy hstrat = null;
+        for (ClassMapping base = cls; base != null && hstrat == null;) {
+            hstrat = instantiateClassStrategy(base.getMappingInfo().
+                getHierarchyStrategy(), cls);
+            base = base.getMappedPCSuperclassMapping();
+        }
 
+        // the full strategy as applied to a hierarchy is a
+        // table-per-concrete-class strategy, so don't map abstract types
+        if (hstrat instanceof FullClassStrategy
+            && !cls.isManagedInterface()
+            && Modifier.isAbstract(cls.getDescribedType().getModifiers()))
+            return NoneClassStrategy.getInstance();
+        
         ClassMapping sup = cls.getMappedPCSuperclassMapping();
         if (sup == null)
             return new FullClassStrategy();
-
-        while (sup.getMappedPCSuperclassMapping() != null)
-            sup = sup.getMappedPCSuperclassMapping();
-        String subStrat = sup.getMappingInfo().getHierarchyStrategy();
-        if (subStrat != null)
-            return instantiateClassStrategy(subStrat, cls);
-
+        if (hstrat != null)
+            return hstrat;
         return new FlatClassStrategy();
     }
 
@@ -1006,7 +1010,7 @@ public class MappingRepository
                 return ImmutableValueHandler.getInstance();
             case JavaTypes.PC:
                 if (!val.getTypeMapping().isMapped()
-                    && useUntypedPCHandler(val))
+                    && useUntypedPCHandler(val)) 
                     return UntypedPCValueHandler.getInstance();
                 break;
             case JavaTypes.PC_UNTYPED:
@@ -1166,7 +1170,7 @@ public class MappingRepository
                 return NoneVersionStrategy.getInstance();
         }
     }
-
+    
     public void endConfiguration()
     {
         super.endConfiguration();
@@ -1175,5 +1179,10 @@ public class MappingRepository
         _dict = conf.getDBDictionaryInstance();
         if (_defaults == null)
             _defaults = conf.getMappingDefaultsInstance();
+        if (_schema != null && _schema instanceof Configurable) {
+            ((Configurable) _schema).setConfiguration(conf);
+            ((Configurable) _schema).startConfiguration();
+            ((Configurable) _schema).endConfiguration();
+        }            
     }
 }

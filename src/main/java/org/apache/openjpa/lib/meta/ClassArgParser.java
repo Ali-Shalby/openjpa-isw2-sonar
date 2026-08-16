@@ -354,10 +354,7 @@ public class ClassArgParser {
             return clsName;
         } finally {
             if (in != null)
-                try {
-                    in.close();
-                } catch (IOException ioe) {
-                }
+                try { in.close(); } catch (IOException ioe) {}
         }
     }
 

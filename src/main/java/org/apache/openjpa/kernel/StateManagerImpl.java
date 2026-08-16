@@ -215,9 +215,9 @@ public class StateManagerImpl
         }
     }
 
-    ///////////////////////////////////
+    //////////////////////////////////////
     // OpenJPAStateManager implementation
-    ///////////////////////////////////
+    //////////////////////////////////////
 
     public void initialize(Class cls, PCState state) {
         // check to see if our current object id instance is the
@@ -241,6 +241,8 @@ public class StateManagerImpl
             }
             _meta = sub;
         }
+        if (cls.isInterface())
+            cls = _meta.getInterfaceImpl();
 
         PersistenceCapable inst = PCRegistry.newInstance(cls, this, _oid, true);
         if (inst == null) {
@@ -483,7 +485,8 @@ public class StateManagerImpl
      * @param recache whether to recache ourself on the new oid
      */
     private void assertObjectIdAssigned(boolean recache) {
-        if (!isNew() || isDeleted() || (_flags & FLAG_OID_ASSIGNED) > 0)
+        if (!isNew() || isDeleted() || isProvisional() 
+            || (_flags & FLAG_OID_ASSIGNED) != 0)
             return;
         if (_oid == null) {
             if (_meta.getIdentityType() == ClassMetaData.ID_DATASTORE)
@@ -821,8 +824,7 @@ public class StateManagerImpl
         if (field != -1 && _meta.getField(field).isPrimaryKey())
             return;
 
-        boolean active = _broker.isActive();
-        if (active) {
+        if (_broker.isActive() && !_broker.isTransactionEnding()) {
             if (_broker.getOptimistic())
                 setPCState(_state.beforeOptimisticRead(this, field));
             else
@@ -903,7 +905,7 @@ public class StateManagerImpl
         Object orig = _id;
         assertObjectIdAssigned(false);
 
-        boolean wasNew = isNew() && !isDeleted();
+        boolean wasNew = isNew() && !isDeleted() && !isProvisional();
         if (_broker.getRetainState())
             setPCState(_state.commitRetain(this));
         else
@@ -989,6 +991,15 @@ public class StateManagerImpl
      */
     void transactional() {
         setPCState(_state.transactional(this));
+    }
+
+    /**
+     * Delegates to the current state.
+     *
+     * @see PCState#nonprovisional
+     */
+    void nonprovisional(boolean logical, OpCallbacks call) {
+        setPCState(_state.nonprovisional(this, logical, call));
     }
 
     /**
@@ -1250,6 +1261,10 @@ public class StateManagerImpl
         return _state.isPendingTransactional();
     }
 
+    public boolean isProvisional() {
+        return _state.isProvisional();
+    }
+
     public boolean isPersistent() {
         return _state.isPersistent();
     }
@@ -1287,6 +1302,22 @@ public class StateManagerImpl
         } catch (RuntimeException re) {
             throw translate(re);
         }
+    }
+
+    public Object getPCPrimaryKey(Object oid, int field) {
+        FieldMetaData fmd = _meta.getField(field);
+        Object pk = ApplicationIds.get(oid, fmd);
+        if (pk == null)
+            return null;
+
+        ClassMetaData relmeta = fmd.getDeclaredTypeMetaData();
+        if (relmeta.getIdentityType() == ClassMetaData.ID_DATASTORE
+            && fmd.getObjectIdFieldTypeCode() == JavaTypes.LONG)
+            pk = _broker.getStoreManager().newDataStoreId(pk, relmeta);
+        else if (relmeta.getIdentityType() == ClassMetaData.ID_APPLICATION 
+            && fmd.getObjectIdFieldType() != relmeta.getObjectIdType())
+            pk = ApplicationIds.fromPKValues(new Object[] { pk }, relmeta);
+        return _broker.find(pk, false, null);
     }
 
     public byte replaceFlags() {
@@ -2617,6 +2648,9 @@ public class StateManagerImpl
      * for all strategies that don't require flushing.
      */
     void preFlush(boolean logical, OpCallbacks call) {
+        if ((_flags & FLAG_PRE_FLUSHED) != 0)
+            return;
+
         if (isPersistent()) {
             fireLifecycleEvent(LifecycleEvent.BEFORE_STORE);
             _flags |= FLAG_PRE_FLUSHED;
@@ -2630,7 +2664,7 @@ public class StateManagerImpl
                 if ((logical || !assignField(i, true)) && !_flush.get(i)
                     && _dirty.get(i)) {
                     provideField(_pc, _single, i);
-                    if (_single.preFlush(call))
+                    if (_single.preFlush(logical, call))
                         replaceField(_pc, _single, i);
                     else
                         _single.clear();
@@ -2925,7 +2959,14 @@ public class StateManagerImpl
      * Returns whether this instance needs a version check.
      */
     public boolean isVersionCheckRequired() {
-        return (_flags & FLAG_VERSION_CHECK) > 0;
+        // explicit flag for version check
+        if ((_flags & FLAG_VERSION_CHECK) != 0)
+            return true;
+
+        if (!_broker.getOptimistic() && !_broker.getConfiguration().
+            getCompatibilityInstance().getNonOptimisticVersionCheck())
+            return false;
+        return _state.isVersionCheckRequired(this);
     }
 
     /**

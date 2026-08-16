@@ -660,7 +660,8 @@ public class MappingTool
         ClassMapping mapping = repos.getMapping(cls, null, false);
         if (mapping != null)
             return mapping;
-        if (!validate || repos.getPersistenceAware(cls) != null)
+        if (!validate || cls.isInterface() 
+            || repos.getPersistenceAware(cls) != null)
             return null;
         throw new MetaDataException(_loc.get("no-meta", cls));
     }
@@ -929,7 +930,7 @@ public class MappingTool
         flags.dropTables = opts.removeBooleanProperty
             ("dropTables", "dt", flags.dropTables);
         flags.openjpaTables = opts.removeBooleanProperty
-            ("openjpaTables", "kt", flags.openjpaTables);
+            ("openjpaTables", "ot", flags.openjpaTables);
         flags.dropSequences = opts.removeBooleanProperty
             ("dropSequences", "dsq", flags.dropSequences);
         flags.readSchema = opts.removeBooleanProperty

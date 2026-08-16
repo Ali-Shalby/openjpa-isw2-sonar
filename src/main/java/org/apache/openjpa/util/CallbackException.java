@@ -20,7 +20,7 @@ import org.apache.openjpa.lib.util.Localizer.Message;
 /**
  * Exception type thrown when an error occurs in a callback.
  *
- * @since 4.0
+ * @since 0.4.0
  * @author Marc Prud'hommeaux
  */
 public class CallbackException
@@ -28,6 +28,10 @@ public class CallbackException
 
     public CallbackException(Message msg) {
         super(msg);
+    }
+
+    public CallbackException(Throwable cause) {
+        super(cause);
     }
 
     public int getSubtype() {

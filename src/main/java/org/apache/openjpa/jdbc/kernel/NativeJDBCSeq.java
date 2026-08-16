@@ -196,11 +196,15 @@ public class NativeJDBCSeq
             : new Object[]{ name };
         _select = MessageFormat.format(_format, subs);
     }
-
+    
     protected Object nextInternal(JDBCStore store, ClassMapping mapping)
         throws SQLException {
-        long next = getSequence(getConnection(store));
-        return Numbers.valueOf(next);
+        Connection conn = getConnection(store);
+        try {
+            return Numbers.valueOf(getSequence(conn));
+        } finally {
+            closeConnection(conn);
+        }
     }
 
     /**

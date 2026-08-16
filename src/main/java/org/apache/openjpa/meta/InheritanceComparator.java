@@ -15,15 +15,17 @@
  */
 package org.apache.openjpa.meta;
 
+import java.io.Serializable;
 import java.util.Comparator;
 
 /**
  * Comparator that keeps classes in inheritance order.
  *
  * @author Abe White
+ * @nojavadoc
  */
-class InheritanceComparator
-    implements Comparator {
+public class InheritanceComparator
+    implements Comparator, Serializable {
 
     private Class _base = Object.class;
 
@@ -62,8 +64,14 @@ class InheritanceComparator
 
         int i1 = levels(c1);
         int i2 = levels(c2);
-        if (i1 == i2)
+        if (i1 == i2) {
+            // sort simple interfaces as well as simple order test will fail.
+            if (c1.isAssignableFrom(c2))
+                return -1;
+            if (c2.isAssignableFrom(c1))
+                return 1;
             return c1.getName().compareTo(c2.getName());
+        }
         return i1 - i2;
     }
 
@@ -71,6 +79,8 @@ class InheritanceComparator
      * Count the levels of inheritance between this class and our base class.
      */
     private int levels(Class to) {
+        if (to.isInterface())
+            return to.getInterfaces().length;
         for (int i = 0; to != null; i++, to = to.getSuperclass())
             if (to == _base)
                 return i;

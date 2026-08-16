@@ -29,6 +29,7 @@ import javax.resource.cci.Interaction;
 import javax.resource.cci.LocalTransaction;
 import javax.resource.cci.ResultSetInfo;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.kernel.Broker;
@@ -283,12 +284,28 @@ public class EntityManagerImpl
         _broker.removeTransactionListener(listener);
     }
 
+    public int getTransactionListenerCallbackMode() {
+        return _broker.getTransactionListenerCallbackMode();
+    }
+
+    public void setTransactionListenerCallbackMode(int mode) {
+        _broker.setTransactionListenerCallbackMode(mode);
+    }
+
     public void addLifecycleListener(Object listener, Class... classes) {
         _broker.addLifecycleListener(listener, classes);
     }
 
     public void removeLifecycleListener(Object listener) {
         _broker.removeLifecycleListener(listener);
+    }
+
+    public int getLifecycleListenerCallbackMode() {
+        return _broker.getLifecycleListenerCallbackMode();
+    }
+
+    public void setLifecycleListenerCallbackMode(int mode) {
+        _broker.setLifecycleListenerCallbackMode(mode);
     }
 
     @SuppressWarnings("unchecked")
@@ -614,7 +631,7 @@ public class EntityManagerImpl
                 getMetaDataRepositoryInstance().getSequenceMetaData(name,
                 _broker.getClassLoader(), true);
             Seq seq = meta.getInstance(_broker.getClassLoader());
-            return new Generator(seq, name, _broker, null);
+            return new GeneratorImpl(seq, name, _broker, null);
         } catch (RuntimeException re) {
             throw PersistenceExceptions.toPersistenceException(re);
         }
@@ -626,7 +643,7 @@ public class EntityManagerImpl
                 getMetaDataRepositoryInstance().getMetaData(forClass,
                 _broker.getClassLoader(), true);
             Seq seq = _broker.getIdentitySequence(meta);
-            return (seq == null) ? null : new Generator(seq, null, _broker,
+            return (seq == null) ? null : new GeneratorImpl(seq, null, _broker,
                 meta);
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
@@ -644,7 +661,7 @@ public class EntityManagerImpl
                     forClass, fieldName), null, null, false);
 
             Seq seq = _broker.getValueSequence(fmd);
-            return (seq == null) ? null : new Generator(seq, null, _broker,
+            return (seq == null) ? null : new GeneratorImpl(seq, null, _broker,
                 meta);
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
@@ -652,7 +669,7 @@ public class EntityManagerImpl
     }
 
     public <T> Extent<T> createExtent(Class<T> cls, boolean subclasses) {
-        return new Extent<T>(this, _broker.newExtent(cls, subclasses));
+        return new ExtentImpl<T>(this, _broker.newExtent(cls, subclasses));
     }
 
     public OpenJPAQuery createQuery(String query) {
@@ -713,7 +730,7 @@ public class EntityManagerImpl
      * Validate that the user provided SQL.
      */
     private static void validateSQL(String query) {
-        if (query == null || query.trim().length() == 0)
+        if (StringUtils.trimToNull(query) == null)
             throw new ArgumentException(_loc.get("no-sql"), null, null, false);
     }
 

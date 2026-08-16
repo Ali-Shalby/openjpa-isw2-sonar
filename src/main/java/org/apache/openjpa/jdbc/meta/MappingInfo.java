@@ -15,6 +15,7 @@
  */
 package org.apache.openjpa.jdbc.meta;
 
+import java.io.Serializable;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -47,7 +48,8 @@ import serp.util.Strings;
  *
  * @author Abe White
  */
-public abstract class MappingInfo {
+public abstract class MappingInfo
+    implements Serializable {
 
     public static final int JOIN_NONE = 0;
     public static final int JOIN_FORWARD = 1;
@@ -1634,7 +1636,7 @@ public abstract class MappingInfo {
         if (col.getDefaultString() != null)
             copy.setDefaultString(col.getDefaultString());
         if (col.isNotNull() && !col.isPrimaryKey()
-            && !isPrimitive(col.getJavaType()))
+            && (!isPrimitive(col.getJavaType()) || isForeignKey(col)))
             copy.setNotNull(true);
 
         // set type name if not default
@@ -1672,6 +1674,21 @@ public abstract class MappingInfo {
             copy.setType(col.getType());
 
         return copy;
+    }
+
+    /** 
+     * Return whether the given column belongs to a foreign key.
+     */ 
+    private static boolean isForeignKey(Column col) 
+    {       
+        if (col.getTable() == null)
+            return false;
+        ForeignKey[] fks = col.getTable().getForeignKeys();
+        for (int i = 0; i < fks.length; i++) 
+            if (fks[i].containsColumn(col) 
+                || fks[i].containsConstantColumn(col))
+                return true;
+        return false;
     }
 
     /**

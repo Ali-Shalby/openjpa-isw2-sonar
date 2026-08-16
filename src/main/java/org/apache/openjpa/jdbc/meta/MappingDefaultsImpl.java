@@ -44,7 +44,7 @@ import serp.util.Strings;
 public class MappingDefaultsImpl
     implements MappingDefaults, Configurable {
 
-    protected DBDictionary dict = null;
+    protected transient DBDictionary dict = null;
     private String _baseClassStrategy = null;
     private String _subclassStrategy = null;
     private String _versionStrategy = null;
@@ -335,7 +335,7 @@ public class MappingDefaultsImpl
 
     /**
      * Default base name for version identity columns, or null to the mapping's
-     * built-in name. This name may be combined with lock group names.
+     * built-in name.
      */
     public String getVersionColumnName() {
         return _versName;
@@ -343,7 +343,7 @@ public class MappingDefaultsImpl
 
     /**
      * Default base name for version identity columns, or null to the mapping's
-     * built-in name. This name may be combined with lock group names.
+     * built-in name.
      */
     public void setVersionColumnName(String versName) {
         _versName = versName;
@@ -447,7 +447,8 @@ public class MappingDefaultsImpl
             return UntypedPCValueHandler.getInstance();
         if (_ordinalEnum && !vm.isSerialized()
             && JavaVersions.isEnumeration(type))
-            return "org.apache.openjpa.jdbc.meta.strats.EnumValueHandler(StoreOrdinal=true)";
+            return "org.apache.openjpa.jdbc.meta.strats.EnumValueHandler"
+                + "(StoreOrdinal=true)";
         return null;
     }
 

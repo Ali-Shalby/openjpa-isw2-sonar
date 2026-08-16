@@ -15,38 +15,34 @@
  */
 package org.apache.openjpa.jdbc.conf;
 
+import java.util.Map;
+
 import org.apache.openjpa.conf.BrokerFactoryValue;
-import org.apache.openjpa.conf.OpenJPAConfiguration;
-import org.apache.openjpa.conf.ProductDerivation;
+import org.apache.openjpa.conf.OpenJPAProductDerivation;
 import org.apache.openjpa.jdbc.kernel.JDBCBrokerFactory;
+import org.apache.openjpa.lib.conf.AbstractProductDerivation;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 
 /**
  * Sets JDBC as default store.
  */
-public class JDBCProductDerivation
-    implements ProductDerivation {
+public class JDBCProductDerivation extends AbstractProductDerivation
+    implements OpenJPAProductDerivation {
 
-    static {
-        BrokerFactoryValue.addDefaultAlias("jdbc",
-            JDBCBrokerFactory.class.getName());
+    public void putBrokerFactoryAliases(Map m) {
+        m.put("jdbc", JDBCBrokerFactory.class.getName());
     }
 
     public int getType() {
         return TYPE_STORE;
     }
 
-    public void beforeConfigurationConstruct(ConfigurationProvider cp) {
+    public boolean beforeConfigurationConstruct(ConfigurationProvider cp) {
         // default to JDBC when no broker factory set
         if (BrokerFactoryValue.get(cp) == null) {
-            cp.addProperty(BrokerFactoryValue.getKey(cp),
-                JDBCBrokerFactory.class.getName());
+            BrokerFactoryValue.set(cp, "jdbc");
+            return true;
         }
-    }
-
-    public void beforeConfigurationLoad(OpenJPAConfiguration c) {
-    }
-
-    public void afterSpecificationSet(OpenJPAConfiguration c) {
+        return false;
     }
 }

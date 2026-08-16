@@ -21,10 +21,8 @@ import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 import java.util.TreeSet;
@@ -54,13 +52,13 @@ import serp.util.Numbers;
 /**
  * Builder for JPQL expressions. This class takes the query parsed
  * in {@link JPQL} and converts it to an expression tree using
- * an {@link ExpressionFactory}.
+ * an {@link ExpressionFactory}. Public for unit testing purposes.
  *
  * @author Marc Prud'hommeaux
  * @author Patrick Linskey
  * @nojavadoc
  */
-class JPQLExpressionBuilder
+public class JPQLExpressionBuilder
     extends AbstractExpressionBuilder
     implements JPQLTreeConstants {
 
@@ -194,8 +192,15 @@ class JPQLExpressionBuilder
         // ### this should actually be the primary SELECT instance
         // resolved against the from variable declarations
         JPQLNode from = node.findChildByID(JJTFROMITEM, true);
-        if (from == null)
-            throw parseException(EX_USER, "no-from-clause", null, null);
+        if (from == null) {
+            // OPENJPA-15 allow subquery without a FROMITEM
+            if (node.id == JJTSUBSELECT) { 
+                from = node.findChildByID(JJTFROM, true);
+            }
+            else {
+                throw parseException(EX_USER, "no-from-clause", null, null);
+            }
+        }
 
         for (int i = 0; i < from.children.length; i++) {
             JPQLNode n = from.children[i];
@@ -216,6 +221,24 @@ class JPQLExpressionBuilder
 
                 return getClassMetaData(cls, true);
             }
+            // OPENJPA-15 support subquery's from clause do not start with 
+            // identification_variable_declaration()
+            if (node.id == JJTSUBSELECT) {
+                if (n.id == JJTINNERJOIN) {
+                    n = n.getChild(0);
+                }
+                if (n.id == JJTPATH) {
+                    Path path = getPath(n);
+                    ClassMetaData cmd = getFieldType(path.last());
+                    if (cmd != null) {
+                        return cmd;
+                    }
+                    else {
+                        throw parseException(EX_USER, "no-alias", 
+                                new Object[]{ n }, null);
+                    }
+                }
+            }           
         }
 
         return null;
@@ -288,16 +311,6 @@ class JPQLExpressionBuilder
             Value proj = getValue(node);
             exps.projections[i] = proj;
             exps.projectionAliases[i] = nextAlias();
-
-            // projections along PCs in JPQL imply inner join semantics:
-            // e.g. "select x.y.z.someField from Entity x" implies
-            // "where y is not null and z is not null"
-            if (proj instanceof Path && node.id == JJTPATH) {
-                Path path = getPCPath(node);
-                if (path.last() != null
-                    && path.last().getDeclaredTypeMetaData() != null)
-                    exp = addJoin(path, null, true, exp);
-            }
         }
         return exp;
     }
@@ -427,12 +440,12 @@ class JPQLExpressionBuilder
         JPQLNode[] outers = root().findChildrenByID(JJTOUTERFETCHJOIN);
         for (int i = 0; outers != null && i < outers.length; i++)
             (joins == null ? joins = new TreeSet() : joins).
-                add(getPath(onlyChild(outers[i])).last().getFullName());
+                add(getPath(onlyChild(outers[i])).last().getFullName(false));
 
         JPQLNode[] inners = root().findChildrenByID(JJTINNERFETCHJOIN);
         for (int i = 0; inners != null && i < inners.length; i++)
             (joins == null ? joins = new TreeSet() : joins).
-                add(getPath(onlyChild(inners[i])).last().getFullName());
+                add(getPath(onlyChild(inners[i])).last().getFullName(false));
 
         if (joins != null)
             exps.fetchPaths = (String[]) joins.
@@ -444,30 +457,18 @@ class JPQLExpressionBuilder
     protected void evalSetClause(QueryExpressions exps) {
         // handle SET field = value
         JPQLNode[] nodes = root().findChildrenByID(JJTUPDATEITEM);
-
-        Map updates = null;
-
         for (int i = 0; nodes != null && i < nodes.length; i++) {
-            if (updates == null)
-                updates = new HashMap();
-
             FieldMetaData field = getPath(firstChild(nodes[i])).last();
             Value val = getValue(onlyChild(lastChild(nodes[i])));
-
-            updates.put(field, val);
+            exps.putUpdate(field, val);
         }
-
-        if (updates != null)
-            exps.updates = updates;
     }
 
     private Expression evalWhereClause(QueryExpressions exps) {
         // evaluate the WHERE clause
         JPQLNode whereNode = root().findChildByID(JJTWHERE, false);
-
         if (whereNode == null)
             return null;
-
         return (Expression) eval(whereNode);
     }
 
@@ -513,6 +514,15 @@ class JPQLExpressionBuilder
         Path path = getPath(firstChild(node), false, inner);
 
         JPQLNode alias = node.getChildCount() >= 2 ? right(node) : null;
+        // OPENJPA-15 support subquery's from clause do not start with 
+        // identification_variable_declaration()
+        if (inner && ctx().subquery != null && ctx().schemaAlias == null) {
+            setCandidate(getFieldType(path.last()), alias.text);
+
+            Path subpath = factory.newPath(ctx().subquery);
+            subpath.setMetaData(ctx().subquery.getMetaData());
+            exp =  and(exp, factory.equal(path, subpath));
+        }
 
         return addJoin(path, alias, inner, exp);
     }
@@ -811,10 +821,14 @@ class JPQLExpressionBuilder
 
                 while (inIterator.hasNext()) {
                     val2 = getValue((JPQLNode) inIterator.next());
-                    setImplicitTypes(val1, val2, null);
+
+                    // special case for <value> IN (<subquery>)
+                    if (val2 instanceof Subquery && node.getChildCount() == 2)
+                        return factory.contains(val2, val1); 
 
                     // this is currently a sequence of OR expressions, since we
                     // do not have support for IN expressions
+                    setImplicitTypes(val1, val2, null);
                     if (inExp == null)
                         inExp = factory.equal(val1, val2);
                     else
@@ -1110,7 +1124,7 @@ class JPQLExpressionBuilder
 
         try {
             QueryExpressions subexp = getQueryExpressions();
-            subq.setQueryExpressions(subexp, 0, Long.MAX_VALUE);
+            subq.setQueryExpressions(subexp);
             return subq;
         } finally {
             // remove the subquery parse context
@@ -1246,10 +1260,6 @@ class JPQLExpressionBuilder
         return getPath(node, false, true);
     }
 
-    private Path getPCPath(JPQLNode node) {
-        return getPath(node, true, true);
-    }
-
     private Path getPath(JPQLNode node, boolean pcOnly, boolean inner) {
         // resolve the first element against the aliases map ...
         // i.e., the path "SELECT x.id FROM SomeClass x where x.id > 10"
@@ -1336,7 +1346,7 @@ class JPQLExpressionBuilder
         // determind how to evauate a variabe
         if (!val.isVariable())
             return val;
-        else if (handleVar == VAR_PATH)
+        else if (handleVar == VAR_PATH && !(val instanceof Path))
             return newPath(val, val.getMetaData());
         else if (handleVar == VAR_ERROR)
             throw parseException(EX_USER, "unexpected-var",
@@ -1606,11 +1616,20 @@ class JPQLExpressionBuilder
         }
     }
 
-    static class ParsedJPQL
+    /**
+     * Public for unit testing purposes.
+     * @nojavadoc
+     */
+    public static class ParsedJPQL
         implements Serializable {
 
         protected final JPQLNode root;
         protected final String query;
+        
+        // cache of candidate type data. This is stored here in case this  
+        // parse tree is reused in a context that does not know what the 
+        // candidate type is already. 
+        private Class _candidateType;
 
         ParsedJPQL(String jpql) {
             this(jpql, parse(jpql));
@@ -1622,6 +1641,9 @@ class JPQLExpressionBuilder
         }
 
         private static final JPQLNode parse(String jpql) {
+            if (jpql == null)
+                jpql = "";
+
             try {
                 return (JPQLNode) new JPQL(jpql).parseQuery();
             } catch (Error e) {
@@ -1640,9 +1662,19 @@ class JPQLExpressionBuilder
 
             // if the owning query's context does not have
             // any candidate class, then set it here
-            if (ctx.getCandidateType() == null)
-                ctx.setCandidateType(new JPQLExpressionBuilder
-                    (null, query, this).getCandidateType(), true);
+            if (ctx.getCandidateType() == null) {
+                if (_candidateType == null)
+                    _candidateType = new JPQLExpressionBuilder
+                        (null, query, this).getCandidateType();
+                ctx.setCandidateType(_candidateType, true);
+            }
+        }
+        
+        /**
+         * Public for unit testing purposes.
+         */
+        public Class getCandidateType() {
+            return _candidateType;
         }
 
         public String toString ()

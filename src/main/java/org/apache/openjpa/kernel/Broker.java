@@ -21,6 +21,7 @@ import javax.resource.cci.LocalTransaction;
 import javax.transaction.Synchronization;
 
 import org.apache.openjpa.ee.ManagedRuntime;
+import org.apache.openjpa.event.CallbackModes;
 import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.meta.ClassMetaData;
@@ -33,14 +34,14 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  * maintains an independent object cache and an independent transactional
  * context.
  *
- * @since 4.0
+ * @since 0.4.0
  * @author Abe White
  */
 public interface Broker
     extends Synchronization, Connection, LocalTransaction,
     javax.resource.spi.LocalTransaction, Closeable, StoreContext,
     ConnectionRetainModes, DetachState, LockLevels,
-    RestoreState, AutoClear, AutoDetach {
+    RestoreState, AutoClear, AutoDetach, CallbackModes {
 
     /**
      * Set the broker's behavior for implicit actions such as flushing,
@@ -70,7 +71,7 @@ public interface Broker
     /**
      * Return the inverse manager in use.
      *
-     * @since 3.2
+     * @since 0.3.2
      */
     public InverseManager getInverseManager();
 
@@ -215,44 +216,56 @@ public interface Broker
      * Put the specified key-value pair into the map of user objects. Use
      * a value of null to remove the key.
      *
-     * @since 3.2
+     * @since 0.3.2
      */
     public Object putUserObject(Object key, Object val);
 
     /**
      * Get the value for the specified key from the map of user objects.
      *
-     * @since 3.2
+     * @since 0.3.2
      */
     public Object getUserObject(Object key);
 
     /**
      * Register a listener for transaction-related events.
      *
-     * @since 2.5
+     * @since 0.2.5
      */
     public void addTransactionListener(Object listener);
 
     /**
      * Remove a listener for transaction-related events.
      *
-     * @since 2.5
+     * @since 0.2.5
      */
     public void removeTransactionListener(Object listener);
+
+    /**
+     * The callback mode for handling exceptions from transaction event
+     * listeners.
+     */
+    public int getTransactionListenerCallbackMode();
+
+    /**
+     * The callback mode for handling exceptions from transaction event
+     * listeners.
+     */
+    public void setTransactionListenerCallbackMode(int mode);
 
     /**
      * Register a listener for lifecycle-related events on the specified
      * classes. If the classes are null, all events will be propagated to
      * the listener.
      *
-     * @since 3.3
+     * @since 0.3.3
      */
     public void addLifecycleListener(Object listener, Class[] classes);
 
     /**
      * Remove a listener for lifecycle-related events.
      *
-     * @since 3.3
+     * @since 0.3.3
      */
     public void removeLifecycleListener(Object listener);
 
@@ -260,6 +273,16 @@ public interface Broker
      * Return the lifecycle event manager associated with the broker.
      */
     public LifecycleEventManager getLifecycleEventManager();
+
+    /**
+     * The callback mode for handling exceptions from lifecycle event listeners.
+     */
+    public int getLifecycleListenerCallbackMode();
+
+    /**
+     * The callback mode for handling exceptions from lifecycle event listeners.
+     */
+    public void setLifecycleListenerCallbackMode(int mode);
 
     /**
      * Begin a transaction.
@@ -290,7 +313,7 @@ public interface Broker
      *
      * @see #commit()
      * @see #begin()
-     * @since 2.4
+     * @since 0.2.4
      */
     public void commitAndResume();
 
@@ -302,7 +325,7 @@ public interface Broker
      *
      * @see #rollback()
      * @see #begin()
-     * @since 2.4
+     * @since 0.2.4
      */
     public void rollbackAndResume();
 
@@ -351,7 +374,7 @@ public interface Broker
      * set the rollback only flag on the current transaction if it encounters
      * an error.
      *
-     * @since 2.5
+     * @since 0.2.5
      */
     public void flush();
 
@@ -361,7 +384,7 @@ public interface Broker
      * deletion of dependent instances, and instance callbacks.
      * Transaction listeners are not invoked.
      *
-     * @since 3.3
+     * @since 0.3.3
      */
     public void preFlush();
 
@@ -552,7 +575,7 @@ public interface Broker
      * @param level the lock level to use
      * @param timeout the number of milliseconds to wait for the lock before
      * giving up, or -1 for no limit
-     * @since 3.1
+     * @since 0.3.1
      */
     public void lock(Object pc, int level, int timeout, OpCallbacks call);
 
@@ -560,7 +583,7 @@ public interface Broker
      * Ensure that the given instance is locked at the current lock level, as
      * set in the {@link FetchConfiguration} for the broker.
      *
-     * @since 3.1
+     * @since 0.3.1
      */
     public void lock(Object pc, OpCallbacks call);
 
@@ -571,7 +594,7 @@ public interface Broker
      * @param level the lock level to use
      * @param timeout the number of milliseconds to wait for the lock before
      * giving up, or -1 for no limit
-     * @since 3.1
+     * @since 0.3.1
      */
     public void lockAll(Collection objs, int level, int timeout,
         OpCallbacks call);
@@ -580,7 +603,7 @@ public interface Broker
      * Ensure that the given instances are locked at the current lock level, as
      * set in the {@link FetchConfiguration} for the broker.
      *
-     * @since 3.1
+     * @since 0.3.1
      */
     public void lockAll(Collection objs, OpCallbacks call);
 
@@ -590,14 +613,14 @@ public interface Broker
      * be set.
      *
      * @return true if any statements were cancelled, false otherwise
-     * @since 3.1
+     * @since 0.3.1
      */
     public boolean cancelAll();
 
     /**
      * Mark the given class as dirty within the current transaction.
      *
-     * @since 3.0
+     * @since 0.3.0
      */
     public void dirtyType(Class cls);
 

@@ -53,13 +53,15 @@ import static org.apache.openjpa.persistence.PersistenceStrategy.*;
 import org.apache.openjpa.util.MetaDataException;
 
 /**
- * Javax persistence-based metadata defaults.
+ * JPA-based metadata defaults.
  *
  * @author Patrick Linskey
  * @author Abe White
  */
-class PersistenceMetaDataDefaults
+public class PersistenceMetaDataDefaults
     extends AbstractMetaDataDefaults {
+
+    private boolean _allowsMultipleMethodsForSameCallback = true;
 
     private static Localizer _loc = Localizer.forPackage
         (PersistenceMetaDataDefaults.class);
@@ -93,6 +95,7 @@ class PersistenceMetaDataDefaults
     public PersistenceMetaDataDefaults() {
         setCallbackMode(CALLBACK_RETHROW | CALLBACK_ROLLBACK |
             CALLBACK_FAIL_FAST);
+        setDataStoreObjectIdFieldUnwrapped(true);
     }
 
     /**
@@ -176,6 +179,35 @@ class PersistenceMetaDataDefaults
             return BASIC;
         return null;
     }
+    
+    /** 
+     * Flags if multiple methods of the same class can handle the same 
+     * callback event.
+     */
+    public boolean getAllowsMultipleMethodsForSameCallback() {
+        return _allowsMultipleMethodsForSameCallback;
+    }
+    
+    /** 
+     * Flags if multiple methods of the same class can handle the same 
+     * callback event.
+     */
+    public void setAllowsMultipleMethodsForSameCallback(boolean flag) {
+        _allowsMultipleMethodsForSameCallback = flag;
+    }
+
+    /**
+     * Auto-configuration method for the default access type of base classes 
+     * with ACCESS_UNKNOWN
+     */
+    public void setDefaultAccessType(String type) {
+        if (type == null)
+            return;
+        if ("PROPERTY".equals(type.toUpperCase()))
+            setDefaultAccessType(ClassMetaData.ACCESS_PROPERTY);
+        else
+            setDefaultAccessType(ClassMetaData.ACCESS_FIELD);
+    }
 
     @Override
     public void populate(ClassMetaData meta, int access) {
@@ -245,6 +277,21 @@ class PersistenceMetaDataDefaults
         int mods = member.getModifiers();
         if (Modifier.isTransient(mods))
             return false;
+
+        if (member instanceof Method) {
+            try {
+                // check for setters for methods
+                Method setter = meta.getDescribedType().getDeclaredMethod("set"
+                    + name.substring(0, 1).toUpperCase() + name.substring(1),
+                    new Class[] { ((Method) member).getReturnType() });
+                if (setter == null)
+                    return false;
+            } catch (Exception e) {
+                // e.g., NoSuchMethodException
+                return false;
+            }
+        }
+
         PersistenceStrategy strat = getPersistenceStrategy(null, member);
         if (strat == null || strat == PersistenceStrategy.TRANSIENT)
             return false;

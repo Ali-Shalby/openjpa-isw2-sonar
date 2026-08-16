@@ -15,14 +15,16 @@
  */
 package org.apache.openjpa.conf;
 
-import java.util.List;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Iterator;
 
 import org.apache.openjpa.abstractstore.AbstractStoreBrokerFactory;
 import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.conf.PluginValue;
+import org.apache.openjpa.lib.conf.ProductDerivations;
+import org.apache.openjpa.lib.conf.ProductDerivation;
 
 /**
  * Value type used to represent the {@link BrokerFactory}. This type is
@@ -37,40 +39,36 @@ public class BrokerFactoryValue
 
     public static final String KEY = "BrokerFactory";
 
-    private static final List _aliases = new ArrayList();
-    private static final List _prefixes = new ArrayList(2);
+    private static final String[] _aliases;
     static {
-        _prefixes.add("openjpa");
-        addDefaultAlias("abstractstore",
+        Map aliases = new HashMap();
+        aliases.put("abstractstore", 
             AbstractStoreBrokerFactory.class.getName());
-    }
-    
-    /**
-     * Add <code>prefix</code> to the list of prefixes under which configuration
-     * properties may be scoped.
-     */
-    public static void addPropertyPrefix(String prefix) {
-        if (!_prefixes.contains(prefix))
-            _prefixes.add(prefix);
-    }
-    
-    /**
-     * Add a mapping from <code>alias</code> to <code>cls</code> to the list
-     * of default aliases for new values created after this invocation.
-     */
-    public static void addDefaultAlias(String alias, String cls) {
-        _aliases.add(alias);
-        _aliases.add(cls);
+        ProductDerivation[] ds = ProductDerivations.getProductDerivations();
+        for (int i = 0; i < ds.length; i++) {
+            if (ds[i] instanceof OpenJPAProductDerivation)
+                ((OpenJPAProductDerivation) ds[i]).putBrokerFactoryAliases
+                    (aliases);
+        }
+
+        _aliases = new String[aliases.size() * 2];
+        int i = 0;
+        for (Iterator iter = aliases.entrySet().iterator(); iter.hasNext(); ) {
+            Map.Entry e = (Map.Entry) iter.next();
+            _aliases[i++] = (String) e.getKey();
+            _aliases[i++] = (String) e.getValue();
+        }
     }
 
     /**
      * Extract the value of this property if set in the given provider.
      */
     public static Object get(ConfigurationProvider cp) {
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
         Map props = cp.getProperties();
         Object bf;
-        for (int i = 0; i < _prefixes.size (); i++) {
-            bf = props.get(_prefixes.get(i) + "." + KEY);
+        for (int i = 0; i < prefixes.length; i++) {
+            bf = props.get(prefixes[i] + "." + KEY);
             if (bf != null)
                 return  bf;
         }
@@ -78,14 +76,14 @@ public class BrokerFactoryValue
     }
 
     /**
-     * Return the key to use for this property.
+     * Set the value of this property in the given provider.
      */
-    public static String getKey(ConfigurationProvider cp) {
-        return _prefixes.get(0) + "." + KEY;
+    public static void set(ConfigurationProvider cp, String value) {
+        cp.addProperty("openjpa." + KEY, value);
     }
 
     public BrokerFactoryValue() {
         super(KEY, false);
-        setAliases((String[]) _aliases.toArray(new String[_aliases.size()]));
+        setAliases(_aliases);
     }
 }

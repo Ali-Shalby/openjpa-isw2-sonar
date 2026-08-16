@@ -28,7 +28,7 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  * Delegating query that can also perform exception translation
  * for use in facades.
  *
- * @since 4.0
+ * @since 0.4.0
  * @author Abe White
  * @nojavadoc
  */
@@ -398,14 +398,6 @@ public class DelegatingQuery
     public void declareParameters(String params) {
         try {
             _query.declareParameters(params);
-        } catch (RuntimeException re) {
-            throw translate(re);
-        }
-    }
-
-    public Object[] toParameterArray(LinkedMap paramTypes, Map params) {
-        try {
-            return _query.toParameterArray(paramTypes, params);
         } catch (RuntimeException re) {
             throw translate(re);
         }

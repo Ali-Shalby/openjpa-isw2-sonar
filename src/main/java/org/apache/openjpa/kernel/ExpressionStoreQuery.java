@@ -27,6 +27,7 @@ import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.exps.AbstractExpressionVisitor;
 import org.apache.openjpa.kernel.exps.AggregateListener;
+import org.apache.openjpa.kernel.exps.Constant;
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.kernel.exps.FilterListener;
@@ -177,18 +178,13 @@ public class ExpressionStoreQuery
      * each base type
      * @param parsed the parsed query values
      * @param params parameter values, or empty array
-     * @param lrs whether the result will be handled as a potentially
-     * large result set, or will be consumed greedily
-     * @param startIdx 0-based inclusive index for first result to return
-     * from result object provider
-     * @param endIdx 0-based exclusive index for last result to return
-     * from result object provider, or {@link Long#MAX_VALUE} for no max
+     * @param range result range
      * @return a provider for matching objects
      */
     protected ResultObjectProvider executeQuery(Executor ex,
         ClassMetaData base, ClassMetaData[] types, boolean subclasses,
         ExpressionFactory[] facts, QueryExpressions[] parsed, Object[] params,
-        boolean lrs, long startIdx, long endIdx) {
+        Range range) {
         throw new UnsupportedException();
     }
 
@@ -246,16 +242,12 @@ public class ExpressionStoreQuery
      * each base type
      * @param parsed the parsed query values
      * @param params parameter values, or empty array
-     * @param startIdx 0-based inclusive index for first result to return
-     * from result object provider
-     * @param endIdx 0-based exclusive index for last result to return
-     * from result object provider, or {@link Long#MAX_VALUE} for no max
+     * @param range result range
      * @return a textual description of the query to execute
      */
     protected String[] getDataStoreActions(Executor ex, ClassMetaData base,
         ClassMetaData[] types, boolean subclasses, ExpressionFactory[] facts,
-        QueryExpressions[] parsed, Object[] params, long startIdx,
-        long endIdx) {
+        QueryExpressions[] parsed, Object[] params, Range range) {
         return StoreQuery.EMPTY_STRINGS;
     }
 
@@ -307,6 +299,10 @@ public class ExpressionStoreQuery
          * Throw proper exception if given value is a collection/map/array.
          */
         protected void assertNotContainer(Value val, StoreQuery q) {
+            // variables represent container elements, not the container itself
+            if (val.isVariable())
+                return;
+
             Class type;
             if (val instanceof Path) {
                 FieldMetaData fmd = ((Path) val).last();
@@ -326,6 +322,30 @@ public class ExpressionStoreQuery
         public final void validate(StoreQuery q) {
             QueryExpressions exps = assertQueryExpression();    
             ValidateGroupingExpressionVisitor.validate(q.getContext(), exps); 
+        }
+
+        public void getRange(StoreQuery q, Object[] params, Range range) {
+            QueryExpressions exps = assertQueryExpression();
+            if (exps.range.length == 0)
+                return;
+
+            if (exps.range.length == 2 
+                && exps.range[0] instanceof Constant
+                && exps.range[1] instanceof Constant) {
+                try {
+                    range.start = ((Number) ((Constant) exps.range[0]).
+                        getValue(params)).longValue();
+                    range.end = ((Number) ((Constant) exps.range[1]).
+                        getValue(params)).longValue();
+                    return;
+                } catch (ClassCastException cce) {
+                    // fall through to exception below
+                } catch (NullPointerException npe) {
+                    // fall through to exception below
+                }
+            }
+            throw new UserException(_loc.get("only-range-constants",
+                q.getContext().getQueryString()));
         }
 
         public final Class getResultClass(StoreQuery q) {
@@ -464,7 +484,7 @@ public class ExpressionStoreQuery
             _subs = subclasses;
             _factory = new InMemoryExpressionFactory();
 
-            _exps = new QueryExpressions[]{
+            _exps = new QueryExpressions[] {
                 parser.eval(parsed, q, _factory, _meta)
             };
             if (_exps[0].projections.length == 0)
@@ -488,7 +508,7 @@ public class ExpressionStoreQuery
         }
 
         public ResultObjectProvider executeQuery(StoreQuery q,
-            Object[] params, boolean lrs, long startIdx, long endIdx) {
+            Object[] params, Range range) {
             // execute in memory for candidate collection;
             // also execute in memory for transactional extents
             Collection coll = q.getContext().getCandidateCollection();
@@ -539,19 +559,13 @@ public class ExpressionStoreQuery
             results = _factory.distinct(_exps[0], coll == null, results);
 
             ResultObjectProvider rop = new ListResultObjectProvider(results);
-            if (startIdx != 0 || endIdx != Long.MAX_VALUE)
-                rop = new RangeResultObjectProvider(rop, startIdx, endIdx);
+            if (range.start != 0 || range.end != Long.MAX_VALUE)
+                rop = new RangeResultObjectProvider(rop, range.start,range.end);
             return rop;
         }
 
-        public ResultObjectProvider executeQuery(StoreQuery q,
-            Map params, boolean lrs, long startIdx, long endIdx) {
-            return executeQuery(q, q.getContext().toParameterArray
-                (getParameterTypes(q), params), lrs, startIdx, endIdx);
-        }
-
         public String[] getDataStoreActions(StoreQuery q, Object[] params,
-            long startIdx, long endIdx) {
+            Range range) {
             // in memory queries have no datastore actions to perform
             return StoreQuery.EMPTY_STRINGS;
         }
@@ -618,8 +632,8 @@ public class ExpressionStoreQuery
         private final ExpressionParser _parser;
         private final ExpressionFactory[] _facts;
         private final QueryExpressions[] _exps;
+        private final Class[] _projTypes;
         private Value[] _inMemOrdering;
-        private Class[] _projTypes;
 
         public DataStoreExecutor(ExpressionStoreQuery q,
             ClassMetaData meta, boolean subclasses,
@@ -634,10 +648,17 @@ public class ExpressionStoreQuery
                 _facts[i] = q.getExpressionFactory(_metas[i]);
 
             _exps = new QueryExpressions[_metas.length];
-            for (int i = 0; i < _exps.length; i++) {
+            for (int i = 0; i < _exps.length; i++)
                 _exps[i] = parser.eval(parsed, q, _facts[i], _metas[i]);
-                for (int j = 0; j < _exps[i].projections.length; j++)
-                    assertNotContainer(_exps[i].projections[j], q);
+
+            if (_exps[0].projections.length == 0)
+                _projTypes = StoreQuery.EMPTY_CLASSES;
+            else {
+                _projTypes = new Class[_exps[0].projections.length];
+                for (int i = 0; i < _exps[0].projections.length; i++) {
+                    assertNotContainer(_exps[0].projections[i], q);
+                    _projTypes[i] = _exps[0].projections[i].getType();
+                }
             }
         }
 
@@ -646,16 +667,10 @@ public class ExpressionStoreQuery
         }
 
         public ResultObjectProvider executeQuery(StoreQuery q,
-            Object[] params, boolean lrs, long startIdx, long endIdx) {
-            lrs = lrs && !isAggregate(q) && !hasGrouping(q);
+            Object[] params, Range range) {
+            range.lrs &= !isAggregate(q) && !hasGrouping(q);
             return ((ExpressionStoreQuery) q).executeQuery(this, _meta, _metas,
-                _subs, _facts, _exps, params, lrs, startIdx, endIdx);
-        }
-
-        public ResultObjectProvider executeQuery(StoreQuery q,
-            Map params, boolean lrs, long startIdx, long endIdx) {
-            return executeQuery(q, q.getContext().toParameterArray
-                (getParameterTypes(q), params), lrs, startIdx, endIdx);
+                _subs, _facts, _exps, params, range);
         }
 
         public Number executeDelete(StoreQuery q, Object[] params) {
@@ -666,11 +681,6 @@ public class ExpressionStoreQuery
             return num;
         }
 
-        public Number executeDelete(StoreQuery q, Map params) {
-            return executeDelete(q, q.getContext().toParameterArray
-                (getParameterTypes(q), params));
-        }
-
         public Number executeUpdate(StoreQuery q, Object[] params) {
             Number num = ((ExpressionStoreQuery) q).executeUpdate(this, _meta,
                 _metas, _subs, _facts, _exps, params);
@@ -679,15 +689,10 @@ public class ExpressionStoreQuery
             return num;
         }
 
-        public Number executeUpdate(StoreQuery q, Map params) {
-            return executeUpdate(q, q.getContext().toParameterArray
-                (getParameterTypes(q), params));
-        }
-
         public String[] getDataStoreActions(StoreQuery q, Object[] params,
-            long startIdx, long endIdx) {
+            Range range) {
             return ((ExpressionStoreQuery) q).getDataStoreActions(this, _meta,
-                _metas, _subs, _facts, _exps, params, startIdx, endIdx);
+                _metas, _subs, _facts, _exps, params, range);
         }
 
         public Object getOrderingValue(StoreQuery q, Object[] params,
@@ -712,29 +717,16 @@ public class ExpressionStoreQuery
                     _inMemOrdering = _parser.eval(_exps[0].orderingClauses,
                         (ExpressionStoreQuery) q, factory, _meta);
                 }
-
-                // use the parsed ordering expression to extract the ordering
-                // value
-                Val val = (Val) _inMemOrdering[orderIndex];
-                return val.evaluate(resultObject, resultObject,
-                    q.getContext().getStoreContext(), params);
             }
+
+            // use the parsed ordering expression to extract the ordering value
+            Val val = (Val) _inMemOrdering[orderIndex];
+            return val.evaluate(resultObject, resultObject,
+                q.getContext().getStoreContext(), params);
         }
 
         public Class[] getProjectionTypes(StoreQuery q) {
-            if (_exps[0].projections.length == 0)
-                return StoreQuery.EMPTY_CLASSES;
-
-            synchronized (this) {
-                if (_projTypes == null) {
-                    // delay creating this array until it is requested b/c
-                    // before execution the types might not be initialized
-                    _projTypes = new Class[_exps[0].projections.length];
-                    for (int i = 0; i < _exps[0].projections.length; i++)
-                        _projTypes[i] = _exps[0].projections[i].getType();
-				}
-				return _projTypes;
-			}
+            return _projTypes;
 		}
 	}
 }

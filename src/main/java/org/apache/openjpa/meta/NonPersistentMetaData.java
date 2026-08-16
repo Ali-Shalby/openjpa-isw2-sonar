@@ -1,6 +1,22 @@
+/*
+ * Copyright 2006 The Apache Software Foundation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.openjpa.meta;
 
 import java.io.File;
+import java.io.Serializable;
 
 import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.xml.Commentable;
@@ -10,20 +26,26 @@ import org.apache.openjpa.lib.xml.Commentable;
  *
  * @author Pinaki Poddar
  */
-public class PersistenceAwareClass 
-	implements Comparable, SourceTracker, Commentable, MetaDataContext {
+public class NonPersistentMetaData 
+	implements Comparable, SourceTracker, Commentable, MetaDataContext,
+        Serializable {
+    public static final int TYPE_PERSISTENCE_AWARE = 1;
+    public static final int TYPE_NON_MAPPED_INTERFACE = 2;
 
     private final MetaDataRepository _repos;
 	private final Class _class;
+    private final int _type;
 	
     private File _srcFile = null;
     private int _srcType = SRC_OTHER;
     private String[] _comments = null;
     private int _listIndex = -1;
 	
-	protected PersistenceAwareClass(Class cls, MetaDataRepository repos) {
+	protected NonPersistentMetaData(Class cls, MetaDataRepository repos, 
+        int type) {
 		_repos = repos;
 		_class = cls;
+        _type = type;
 	}
 	
     /**
@@ -39,6 +61,13 @@ public class PersistenceAwareClass
 	public Class getDescribedType() {
 		return _class;
 	}
+
+    /**
+     * The type of metadata.
+     */
+    public int getType() {
+        return _type;
+    }
 	
     /**
      * The index in which this class was listed in the metadata. Defaults to
@@ -85,13 +114,14 @@ public class PersistenceAwareClass
         _comments = comments;
     }
     
-    public int compareTo(Object other) {
-        if (other == this)
+    public int compareTo(Object o) {
+        if (o == this)
             return 0;
-        if (!(other instanceof PersistenceAwareClass))
+        if (!(o instanceof NonPersistentMetaData))
         	return 1;
-        return _class.getName().compareTo(((PersistenceAwareClass) other).
-            getDescribedType().getName());
+        NonPersistentMetaData other = (NonPersistentMetaData) o;
+        if (_type != other.getType())
+            return _type - other.getType();
+        return _class.getName().compareTo(other.getDescribedType().getName());
     }
-
 }

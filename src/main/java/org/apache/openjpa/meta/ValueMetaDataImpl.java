@@ -36,7 +36,7 @@ public class ValueMetaDataImpl
     // embedded metadata, make sure to add it to the copy() method
     ///////////////////////////////////////////////////////////////
 
-    private final FieldMetaData _owner;
+    private FieldMetaData _owner;
     private Class _decType = Object.class;
     private int _decCode = JavaTypes.OBJECT;
     private ClassMetaData _decTypeMeta = null;
@@ -57,6 +57,12 @@ public class ValueMetaDataImpl
 
     protected ValueMetaDataImpl(FieldMetaData owner) {
         _owner = owner;
+    }
+    
+    /**
+     * Constructor for serialization.
+     */
+    protected ValueMetaDataImpl() {
     }
 
     public FieldMetaData getFieldMetaData() {
@@ -316,7 +322,7 @@ public class ValueMetaDataImpl
     }
 
     public String toString() {
-        String ret = _owner.getFullName();
+        String ret = _owner.getFullName(true);
         if (this == _owner.getKey())
             return ret + "<key:" + _decType + ">";
         if (this == _owner.getElement()) {
@@ -433,10 +439,11 @@ public class ValueMetaDataImpl
         _attach = vmd.getCascadeAttach();
         _refresh = vmd.getCascadeRefresh();
         _typeOverride = vmd.getTypeOverride();
+        _serialized = vmd.isSerialized();
         if (_embeddedMeta != null)
             _embeddedMeta.setDescribedType(vmd.getDeclaredType());
 
-        // don't allow copy to override embedded; don't copy serialized at all
+        // don't allow copy to override embedded
         if (_embedded == null)
             setEmbedded(vmd.isEmbedded());
     }

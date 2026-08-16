@@ -15,6 +15,7 @@
  */
 package org.apache.openjpa.jdbc.kernel;
 
+import java.io.Serializable;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -69,8 +70,8 @@ public class TableJDBCSeq
     private static final Localizer _loc = Localizer.forPackage
         (TableJDBCSeq.class);
 
-    private JDBCConfiguration _conf = null;
-    private Log _log = null;
+    private transient JDBCConfiguration _conf = null;
+    private transient Log _log = null;
     private int _alloc = 50;
     private final Status _stat = new Status();
 
@@ -188,7 +189,7 @@ public class TableJDBCSeq
     public void endConfiguration() {
         buildTable();
     }
-
+    
     public void addSchema(ClassMapping mapping, SchemaGroup group) {
         // table already exists?
         if (group.isKnownTable(_table))
@@ -213,20 +214,29 @@ public class TableJDBCSeq
             throw new InvalidStateException(_loc.get("bad-seq-type",
                 getClass(), mapping));
 
-        // make sure seq is at least 1, since autoassigned ids of 0 can
-        // conflict with uninitialized values
-        stat.seq = Math.max(stat.seq, 1);
-        if (stat.seq >= stat.max)
+        while (true) {
+            synchronized (stat) {
+                // make sure seq is at least 1, since autoassigned ids of 0 can
+                // conflict with uninitialized values
+                stat.seq = Math.max(stat.seq, 1);
+                if (stat.seq < stat.max)
+                    return Numbers.valueOf(stat.seq++);
+            }
             allocateSequence(store, mapping, stat, _alloc, true);
-        return Numbers.valueOf(stat.seq++);
+        }
     }
 
     protected Object currentInternal(JDBCStore store, ClassMapping mapping)
         throws Exception {
         if (current == null) {
-            long cur = getSequence(mapping, getConnection(store));
-            if (cur != -1)
-                current = Numbers.valueOf(cur);
+            Connection conn = getConnection(store);
+            try {
+                long cur = getSequence(mapping, conn);
+                if (cur != -1)
+                    current = Numbers.valueOf(cur);
+            } finally {
+                closeConnection(conn);
+            }
         }
         return super.currentInternal(store, mapping);
     }
@@ -235,9 +245,18 @@ public class TableJDBCSeq
         ClassMapping mapping)
         throws SQLException {
         Status stat = getStatus(mapping);
-        if (stat != null && stat.max - stat.seq < count)
-            allocateSequence(store, mapping, stat,
-                count - (int) (stat.max - stat.seq), false);
+        if (stat == null)
+            return;
+
+        while (true) {
+            int available;
+            synchronized (stat) {
+                available = (int) (stat.max - stat.seq);
+                if (available >= count)
+                    return;
+            }
+            allocateSequence(store, mapping, stat, count - available, false);
+        }
     }
 
     /**
@@ -295,40 +314,45 @@ public class TableJDBCSeq
      * Updates the max available sequence value.
      */
     private void allocateSequence(JDBCStore store, ClassMapping mapping,
-        Status stat, int alloc, boolean updateStatSeq) {
-        try {
-            // if the update fails, probably because row doesn't exist yet
-            if (!setSequence(mapping, stat, alloc, updateStatSeq,
-                getConnection(store))) {
-                closeConnection();
-
-                // possible that we might get errors when inserting if
-                // another thread/process is inserting same pk at same time
-                SQLException err = null;
-                Connection conn = _conf.getDataSource2(store.getContext()).
-                    getConnection();
-                try {
-                    insertSequence(mapping, conn);
-                } catch (SQLException se) {
-                    err = se;
-                } finally {
-                    try {
-                        conn.close();
-                    } catch (SQLException se) {
-                    }
-                }
-
-                // now we should be able to update...
-                if (!setSequence(mapping, stat, alloc, updateStatSeq,
-                    getConnection(store)))
-                    throw(err != null) ? err : new SQLException(_loc.get
-                        ("no-seq-row", mapping, _table).getMessage());
-            }
+        Status stat, int alloc, boolean updateStatSeq) 
+        throws SQLException {
+        Connection conn = getConnection(store);
+        try { 
+            if (setSequence(mapping, stat, alloc, updateStatSeq, conn))
+                return;
+        } catch (SQLException se) {
+            throw SQLExceptions.getStore(_loc.get("bad-seq-up", _table),
+                se, _conf.getDBDictionaryInstance());
+        } finally {
+            closeConnection(conn);
         }
-        catch (SQLException se2) {
+        
+        try {
+            // possible that we might get errors when inserting if
+            // another thread/process is inserting same pk at same time
+            SQLException err = null;
+            conn = _conf.getDataSource2(store.getContext()).getConnection();
+            try {
+                insertSequence(mapping, conn);
+            } catch (SQLException se) {
+                err = se;
+            } finally {
+                try { conn.close(); } catch (SQLException se) {}
+            }
+
+            // now we should be able to update...
+            conn = getConnection(store);
+            try {
+                if (!setSequence(mapping, stat, alloc, updateStatSeq, conn))
+                    throw (err != null) ? err : new SQLException(_loc.get
+                        ("no-seq-row", mapping, _table).getMessage());
+            } finally {
+                closeConnection(conn);
+            }
+        } catch (SQLException se2) {
             throw SQLExceptions.getStore(_loc.get("bad-seq-up", _table),
                 se2, _conf.getDBDictionaryInstance());
-        }
+        } 
     }
 
     /**
@@ -362,10 +386,7 @@ public class TableJDBCSeq
             stmnt.executeUpdate();
         } finally {
             if (stmnt != null)
-                try {
-                    stmnt.close();
-                } catch (SQLException se) {
-                }
+                try { stmnt.close(); } catch (SQLException se) {}
             if (!wasAuto)
                 conn.setAutoCommit(false);
         }
@@ -401,14 +422,8 @@ public class TableJDBCSeq
             return dict.getLong(rs, 1);
         } finally {
             if (rs != null)
-                try {
-                    rs.close();
-                } catch (SQLException se) {
-                }
-            try {
-                stmnt.close();
-            } catch (SQLException se) {
-            }
+                try { rs.close(); } catch (SQLException se) {}
+            try { stmnt.close(); } catch (SQLException se) {}
         }
     }
 
@@ -433,8 +448,7 @@ public class TableJDBCSeq
         SQLBuffer where = new SQLBuffer(dict).append(_pkColumn).append(" = ").
             appendValue(pk, _pkColumn);
 
-        // not all databases support locking, so loop until we have a
-        // successful atomic select/update sequence
+        // loop until we have a successful atomic select/update sequence
         long cur = 0;
         PreparedStatement stmnt;
         ResultSet rs;
@@ -459,23 +473,20 @@ public class TableJDBCSeq
                 stmnt = upd.prepareStatement(conn);
                 updates = stmnt.executeUpdate();
             } finally {
-                if (rs != null)
-                    try {
-                        rs.close();
-                    } catch (SQLException se) {
-                    }
+                if (rs != null) 
+                    try { rs.close(); } catch (SQLException se) {}
                 if (stmnt != null)
-                    try {
-                        stmnt.close();
-                    } catch (SQLException se) {
-                    }
+                    try { stmnt.close(); } catch (SQLException se) {}
             }
         }
 
         // setup new sequence range
-        if (updateStatSeq)
-            stat.seq = cur;
-        stat.max = cur + inc;
+        synchronized (stat) {
+            if (updateStatSeq && stat.seq < cur)
+                stat.seq = cur;
+            if (stat.max < cur + inc)
+                stat.max = cur + inc;
+        }
         return true;
     }
 
@@ -604,10 +615,7 @@ public class TableJDBCSeq
             catch (NumberFormatException nfe) {
                 return false;
             } finally {
-                try {
-                    conn.close();
-                } catch (SQLException se) {
-                }
+                try { conn.close(); } catch (SQLException se) {}
             }
         } else
             return false;
@@ -617,7 +625,8 @@ public class TableJDBCSeq
     /**
      * Helper struct to hold status information.
      */
-    protected static class Status {
+    protected static class Status
+        implements Serializable {
 
         public long seq = 1L;
         public long max = 0L;

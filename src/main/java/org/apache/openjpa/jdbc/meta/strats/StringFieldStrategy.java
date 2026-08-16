@@ -43,7 +43,7 @@ import org.apache.openjpa.util.MetaDataException;
  * Direct mapping from a string value to a column.
  *
  * @author Abe White
- * @since 4.0
+ * @since 0.4.0
  */
 public class StringFieldStrategy
     extends AbstractFieldStrategy
@@ -201,7 +201,7 @@ public class StringFieldStrategy
     }
 
     public Object getPrimaryKeyValue(Result res, Column[] cols, ForeignKey fk,
-        Joins joins)
+        JDBCStore store, Joins joins)
         throws SQLException {
         Column col = cols[0];
         if (fk != null)

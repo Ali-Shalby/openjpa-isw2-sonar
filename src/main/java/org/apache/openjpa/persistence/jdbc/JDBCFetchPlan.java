@@ -15,95 +15,103 @@
  */
 package org.apache.openjpa.persistence.jdbc;
 
-import org.apache.openjpa.jdbc.kernel.DelegatingJDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
-import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.LRSSizes;
 import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
-import org.apache.openjpa.kernel.DelegatingFetchConfiguration;
-import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.persistence.FetchPlan;
-import org.apache.openjpa.persistence.PersistenceExceptions;
 
 /**
  * JDBC extensions to the fetch plan.
  *
- * @since 4.0
+ * @since 0.4.1
  * @author Abe White
+ * @author Pinaki Poddar
  * @published
  */
-public class JDBCFetchPlan
-    extends FetchPlan
-    implements EagerFetchModes, LRSSizes, JoinSyntaxes {
-
-    private DelegatingJDBCFetchConfiguration _fetch;
+public interface JDBCFetchPlan
+    extends FetchPlan, EagerFetchModes, LRSSizes, JoinSyntaxes {
 
     /**
-     * Constructor; supply delegate.
+     * Eager fetch mode in loading relations.
+     * 
+     * @see EagerFetchModes
      */
-    public JDBCFetchPlan(FetchConfiguration fetch) {
-        super(fetch);
-    }
+    public int getEagerFetchMode();
 
-    @Override
-    protected DelegatingFetchConfiguration newDelegatingFetchConfiguration
-        (FetchConfiguration fetch) {
-        _fetch = new DelegatingJDBCFetchConfiguration((JDBCFetchConfiguration)
-            fetch, PersistenceExceptions.TRANSLATOR);
-        return _fetch;
-    }
+    /**
+     * Eager fetch mode in loading relations.
+     * 
+     * @see EagerFetchModes
+     */
+    public JDBCFetchPlan setEagerFetchMode(int mode);
 
-    public int getEagerFetchMode() {
-        return _fetch.getEagerFetchMode();
-    }
+    /**
+     * Eager fetch mode in loading subclasses.
+     * 
+     * @see EagerFetchModes
+     */
+    public int getSubclassFetchMode();
 
-    public JDBCFetchPlan setEagerFetchMode(int mode) {
-        _fetch.setEagerFetchMode(mode);
-        return this;
-    }
+    /**
+     * Eager fetch mode in loading subclasses.
+     * 
+     * @see EagerFetchModes
+     */
+    public JDBCFetchPlan setSubclassFetchMode(int mode);
 
-    public int getSubclassFetchMode() {
-        return _fetch.getSubclassFetchMode();
-    }
+    /**
+     * Type of JDBC result set to use for query results.
+     * 
+     * @see java.sql.ResultSet
+     */
+    public int getResultSetType();
 
-    public JDBCFetchPlan setSubclassFetchMode(int mode) {
-        _fetch.setSubclassFetchMode(mode);
-        return this;
-    }
+    /**
+     * Type of JDBC result set to use for query results.
+     * 
+     * @see java.sql.ResultSet
+     */
+    public JDBCFetchPlan setResultSetType(int type);
 
-    public int getResultSetType() {
-        return _fetch.getResultSetType();
-    }
+    /**
+     * Result set fetch direction.
+     * 
+     * @see java.sql.ResultSet
+     */
+    public int getFetchDirection();
 
-    public JDBCFetchPlan setResultSetType(int type) {
-        _fetch.setResultSetType(type);
-        return this;
-    }
+    /**
+     * Result set fetch direction.
+     * 
+     * @see java.sql.ResultSet
+     */
+    public JDBCFetchPlan setFetchDirection(int direction);
 
-    public int getFetchDirection() {
-        return _fetch.getFetchDirection();
-    }
+    /**
+     * How to determine the size of a large result set.
+     * 
+     * @see LRSSizes
+     */
+    public int getLRSSize();
 
-    public JDBCFetchPlan setFetchDirection(int direction) {
-        _fetch.setFetchDirection(direction);
-        return this;
-    }
+    /**
+     * How to determine the size of a large result set.
+     * 
+     * @see LRSSizes
+     */
+    public JDBCFetchPlan setLRSSize(int lrsSize);
 
-    public int getLRSSize() {
-        return _fetch.getLRSSize();
-    }
+    /**
+     * SQL join syntax.
+     *
+     * @see JoinSyntaxes
+     */
+    public int getJoinSyntax();
 
-    public JDBCFetchPlan setLRSSize(int lrsSize) {
-        _fetch.setLRSSize(lrsSize);
-        return this;
-    }
-
-    public int getJoinSyntax() {
-        return _fetch.getJoinSyntax();
-    }
-
-    public JDBCFetchPlan setJoinSyntax(int syntax) {
-        _fetch.setJoinSyntax(syntax);
-        return this;
-    }
+    /**
+     * SQL join syntax.
+     *
+     * @see JoinSyntaxes
+     */
+    public JDBCFetchPlan setJoinSyntax(int syntax);
 }

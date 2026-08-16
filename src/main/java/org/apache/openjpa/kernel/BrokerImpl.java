@@ -52,7 +52,6 @@ import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.PersistenceCapable;
-import org.apache.openjpa.event.CallbackModes;
 import org.apache.openjpa.event.LifecycleEvent;
 import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.event.RemoteCommitEventManager;
@@ -135,6 +134,7 @@ public class BrokerImpl
     private static final int FLAG_FLUSH_REQUIRED = 2 << 8;
     private static final int FLAG_REMOTE_LISTENER = 2 << 9;
     private static final int FLAG_RETAINED_CONN = 2 << 10;
+    private static final int FLAG_TRANS_ENDING = 2 << 11;
 
     private static final Localizer _loc =
         Localizer.forPackage(BrokerImpl.class);
@@ -211,7 +211,6 @@ public class BrokerImpl
     private int _autoDetach = 0;
     private int _detachState = DETACH_LOADED;
     private boolean _detachedNew = true;
-    private int _callbackMode = CallbackModes.CALLBACK_IGNORE;
     private boolean _orderDirty = false;
 
     // status
@@ -220,7 +219,9 @@ public class BrokerImpl
 
     // event managers
     private TransactionEventManager _transEventManager = null;
+    private int _transCallbackMode = 0;
     private LifecycleEventManager _lifeEventManager = null;
+    private int _lifeCallbackMode = 0;
 
     /**
      * Set the persistence manager's authentication. This is the first
@@ -250,13 +251,10 @@ public class BrokerImpl
         DelegatingStoreManager sm, boolean managed, int connMode) {
         _conf = factory.getConfiguration();
         _compat = _conf.getCompatibilityInstance();
-
         _factory = factory;
         _log = _conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
         _cache = new ManagedCache(newManagedObjectCache());
-        _lifeEventManager = new LifecycleEventManager();
-        _callbackMode = _conf.getMetaDataRepositoryInstance().
-            getMetaDataFactory(). getDefaults().getCallbackMode();
+        _operating = MapBackedSet.decorate(new IdentityMap());
         _connRetainMode = connMode;
         _managed = managed;
         if (managed)
@@ -264,9 +262,15 @@ public class BrokerImpl
         else
             _runtime = new LocalManagedRuntime(this);
 
+        _lifeEventManager = new LifecycleEventManager();
+        _transEventManager = new TransactionEventManager();
+        int cmode = _conf.getMetaDataRepositoryInstance().
+            getMetaDataFactory().getDefaults().getCallbackMode();
+        setLifecycleListenerCallbackMode(cmode);
+        setTransactionListenerCallbackMode(cmode);
+
         // setup default options
         _factory.configureBroker(this);
-        _operating = MapBackedSet.decorate(new IdentityMap());
 
         // make sure to do this after configuring broker so that store manager
         // can look to broker configuration; we set both store and lock managers
@@ -623,6 +627,20 @@ public class BrokerImpl
         }
     }
 
+    public int getLifecycleListenerCallbackMode() {
+        return _lifeCallbackMode;
+    }
+
+    public void setLifecycleListenerCallbackMode(int mode) {
+        beginOperation(false);
+        try {
+            _lifeCallbackMode = mode;
+            _lifeEventManager.setFailFast((mode & CALLBACK_FAIL_FAST) != 0);
+        } finally {
+            endOperation();
+        }
+    }
+
     /**
      * Give state managers access to the lifecycle event manager.
      */
@@ -631,41 +649,45 @@ public class BrokerImpl
     }
 
     /**
-     * Fire lifecycle events, handling any exceptions appropriately.
+     * Fire given lifecycle event, handling any exceptions appropriately.
      *
-     * @return whether events are being processed at this time.
+     * @return whether events are being processed at this time
      */
     boolean fireLifecycleEvent(Object src, Object related, ClassMetaData meta,
         int eventType) {
-        if (_lifeEventManager == null) // uninitialized
+        if (_lifeEventManager == null)
             return false;
-
-        Exception[] exceps = _lifeEventManager.fireEvent(src, related, meta,
-            eventType);
-        if (exceps.length == 0
-            || (_callbackMode & CallbackModes.CALLBACK_IGNORE) != 0)
-            return true;
-
-        OpenJPAException ke = new CallbackException
-            (_loc.get("callback-err", meta)).
-            setNestedThrowables(exceps).setFatal(true);
-        if ((_callbackMode & CallbackModes.CALLBACK_ROLLBACK) != 0
-            && (_flags & FLAG_ACTIVE) != 0)
-            setRollbackOnlyInternal();
-        if ((_callbackMode & CallbackModes.CALLBACK_LOG) != 0
-            && _log.isWarnEnabled())
-            _log.warn(ke);
-        if ((_callbackMode & CallbackModes.CALLBACK_RETHROW) != 0)
-            throw ke;
+        handleCallbackExceptions(_lifeEventManager.fireEvent(src, related, 
+            meta, eventType), _lifeCallbackMode);
         return true;
+    }
+
+    /**
+     * Take actions on callback exceptions depending on callback mode.
+     */
+    private void handleCallbackExceptions(Exception[] exceps, int mode) {
+        if (exceps.length == 0 || (mode & CALLBACK_IGNORE) != 0)
+            return;
+
+        OpenJPAException ce;
+        if (exceps.length == 1)
+            ce = new CallbackException(exceps[0]);
+        else 
+            ce = new CallbackException(_loc.get("callback-err")).
+                setNestedThrowables(exceps);
+        if ((mode & CALLBACK_ROLLBACK) != 0 && (_flags & FLAG_ACTIVE) != 0) {
+            ce.setFatal(true);
+            setRollbackOnlyInternal();
+        }
+        if ((mode & CALLBACK_LOG) != 0 && _log.isWarnEnabled())
+            _log.warn(ce);
+        if ((mode & CALLBACK_RETHROW) != 0)
+            throw ce;
     }
 
     public void addTransactionListener(Object tl) {
         beginOperation(false);
         try {
-            if (_transEventManager == null)
-                _transEventManager = new TransactionEventManager();
-
             _transEventManager.addListener(tl);
             if (tl instanceof RemoteCommitEventManager)
                 _flags |= FLAG_REMOTE_LISTENER;
@@ -677,13 +699,37 @@ public class BrokerImpl
     public void removeTransactionListener(Object tl) {
         beginOperation(false);
         try {
-            if (_transEventManager != null
-                && _transEventManager.removeListener(tl)
+            if (_transEventManager.removeListener(tl)
                 && (tl instanceof RemoteCommitEventManager))
                 _flags &= ~FLAG_REMOTE_LISTENER;
         } finally {
             endOperation();
         }
+    }
+
+    public int getTransactionListenerCallbackMode() {
+        return _transCallbackMode;
+    }
+
+    public void setTransactionListenerCallbackMode(int mode) {
+        beginOperation(false);
+        try {
+            _transCallbackMode = mode;
+            _transEventManager.setFailFast((mode & CALLBACK_FAIL_FAST) != 0);
+        } finally {
+            endOperation();
+        }
+    }
+
+    /**
+     * Fire given transaction event, handling any exceptions appropriately.
+     *
+     * @return whether events are being processed at this time
+     */
+    private void fireTransactionEvent(TransactionEvent trans) {
+        if (_transEventManager != null)
+            handleCallbackExceptions(_transEventManager.fireEvent(trans),
+                _transCallbackMode);
     }
 
     ///////////
@@ -1150,9 +1196,8 @@ public class BrokerImpl
             }
             _lm.beginTransaction();
 
-            if (_transEventManager != null
-                && _transEventManager.hasBeginListeners())
-                _transEventManager.fireEvent(new TransactionEvent(this,
+            if (_transEventManager.hasBeginListeners())
+                fireTransactionEvent(new TransactionEvent(this,
                     TransactionEvent.AFTER_BEGIN, null, null, null, null));
         } catch (OpenJPAException ke) {
             // if we already started the transaction, don't let it commit
@@ -1232,10 +1277,7 @@ public class BrokerImpl
         catch (RuntimeException re) {
             if (!rollback) {
                 forcedRollback = true;
-                try {
-                    _store.rollback();
-                } catch (RuntimeException re2) {
-                }
+                try { _store.rollback(); } catch (RuntimeException re2) {}
             }
             err = re;
         } finally {
@@ -1309,7 +1351,7 @@ public class BrokerImpl
         lock();
         try {
             if ((_flags & FLAG_ACTIVE) != 0)
-                throw new InvalidStateException(_loc.get("active"));
+                return true;
             if (!_managed)
                 throw new InvalidStateException(_loc.get("trans-not-managed"));
             if (_factory.syncWithManagedTransaction(this, false)) {
@@ -1640,6 +1682,14 @@ public class BrokerImpl
         }
     }
 
+    /**
+     * Return whether the current transaction is ending, i.e. in the 2nd phase
+     * of a commit or rollback
+     */
+    boolean isTransactionEnding() {
+        return (_flags & FLAG_TRANS_ENDING) != 0;
+    }
+
     public boolean beginOperation(boolean syncTrans) {
         lock();
         try {
@@ -1722,6 +1772,7 @@ public class BrokerImpl
         try {
             assertActiveTransaction();
 
+            _flags |= FLAG_TRANS_ENDING;
             endTransaction(status);
             if (_sync != null)
                 _sync.afterCompletion(status);
@@ -1746,10 +1797,12 @@ public class BrokerImpl
         } finally {
             _flags &= ~FLAG_ACTIVE;
             _flags &= ~FLAG_FLUSHED;
+            _flags &= ~FLAG_TRANS_ENDING;
 
-            if (_transEventManager != null &&
-                _transEventManager.hasEndListeners()) {
-                _transEventManager.fireEvent(new TransactionEvent(this,
+            // event manager nulled if freed broker
+            if (_transEventManager != null 
+                && _transEventManager.hasEndListeners()) {
+                fireTransactionEvent(new TransactionEvent(this,
                     status == Status.STATUS_COMMITTED
                         ? TransactionEvent.AFTER_COMMIT_COMPLETE
                         : TransactionEvent.AFTER_ROLLBACK_COMPLETE,
@@ -1783,7 +1836,7 @@ public class BrokerImpl
      *
      * @param reason one of {@link #FLUSH_INC}, {@link #FLUSH_COMMIT},
      * {@link #FLUSH_ROLLBACK}, or {@link #FLUSH_LOGICAL}
-     * @since 2.5
+     * @since 0.2.5
      */
     protected void flush(int reason) {
         // this will enlist proxied states as necessary so we know whether we
@@ -1796,8 +1849,7 @@ public class BrokerImpl
         // special case the remote commit listener used by the datacache cause
         // we know it doesn't require the commit event when nothing changes
         boolean flush = (_flags & FLAG_FLUSH_REQUIRED) != 0;
-        boolean listeners = _transEventManager != null
-            && (_transEventManager.hasFlushListeners()
+        boolean listeners = (_transEventManager.hasFlushListeners()
             || _transEventManager.hasEndListeners())
             && ((_flags & FLAG_REMOTE_LISTENER) == 0
             || _transEventManager.getListeners().size() > 1);
@@ -1832,26 +1884,25 @@ public class BrokerImpl
                 if ((_flags & FLAG_STORE_ACTIVE) == 0)
                     beginStoreManagerTransaction(false);
 
-                if (_transEventManager != null
-                    && (_transEventManager.hasFlushListeners()
+                if ((_transEventManager.hasFlushListeners()
                     || _transEventManager.hasEndListeners())
                     && (flush || reason == FLUSH_COMMIT)) {
                     // fire events
                     mobjs = new ManagedObjectCollection(transactional);
                     if (reason == FLUSH_COMMIT
                         && _transEventManager.hasEndListeners()) {
-                        _transEventManager.fireEvent(new TransactionEvent
-                            (this, TransactionEvent.BEFORE_COMMIT, mobjs,
-                                _persistedClss, _updatedClss, _deletedClss));
+                        fireTransactionEvent(new TransactionEvent(this, 
+                            TransactionEvent.BEFORE_COMMIT, mobjs,
+                            _persistedClss, _updatedClss, _deletedClss));
 
                         flushAdditions(transactional, reason);
                         flush = (_flags & FLAG_FLUSH_REQUIRED) != 0;
                     }
 
                     if (flush && _transEventManager.hasFlushListeners()) {
-                        _transEventManager.fireEvent(new TransactionEvent
-                            (this, TransactionEvent.BEFORE_FLUSH, mobjs,
-                                _persistedClss, _updatedClss, _deletedClss));
+                        fireTransactionEvent(new TransactionEvent(this, 
+                            TransactionEvent.BEFORE_FLUSH, mobjs,
+                            _persistedClss, _updatedClss, _deletedClss));
                         flushAdditions(transactional, reason);
                     }
                 }
@@ -1876,8 +1927,7 @@ public class BrokerImpl
                 exceps = add(exceps,
                     newFlushException(_store.flush(transactional)));
             }
-        }
-        finally {
+        } finally {
             _flags &= ~FLAG_STORE_FLUSHING;
 
             if (reason == FLUSH_ROLLBACK)
@@ -1890,21 +1940,24 @@ public class BrokerImpl
                 StateManagerImpl sm;
                 for (Iterator itr = transactional.iterator(); itr.hasNext();) {
                     sm = (StateManagerImpl) itr.next();
+                    try {
+                        // the state may have become transient, such as if
+                        // it is embedded and the owner has been deleted during
+                        // this flush process; bug #1100
+                        if (sm.getPCState() == PCState.TRANSIENT)
+                            continue;
 
-                    // the state may have become transient, such as if
-                    // it is embedded and the owner has been deleted during
-                    // this flush process; bug #1100
-                    if (sm.getPCState() == PCState.TRANSIENT)
-                        continue;
-
-                    sm.afterFlush(reason);
-                    if (reason == FLUSH_INC) {
-                        // if not about to clear trans cache for commit anyway,
-                        // re-cache dirty objects with default soft refs; we
-                        // don't need hard refs now that the changes have been
-                        // flushed
-                        sm.proxyFields(true, false);
-                        _transCache.flushed(sm);
+                        sm.afterFlush(reason);
+                        if (reason == FLUSH_INC) {
+                            // if not about to clear trans cache for commit 
+                            // anyway, re-cache dirty objects with default soft
+                            // refs; we don't need hard refs now that the 
+                            // changes have been flushed
+                            sm.proxyFields(true, false);
+                            _transCache.flushed(sm);
+                        }
+                    } catch (Exception e) {
+                        exceps = add(exceps, e);
                     }
                 }
             }
@@ -1914,9 +1967,8 @@ public class BrokerImpl
         throwNestedExceptions(exceps, true);
 
         if (flush && reason != FLUSH_ROLLBACK && reason != FLUSH_LOGICAL
-            && _transEventManager != null
             && _transEventManager.hasFlushListeners()) {
-            _transEventManager.fireEvent(new TransactionEvent(this,
+            fireTransactionEvent(new TransactionEvent(this,
                 TransactionEvent.AFTER_FLUSH, mobjs, _persistedClss,
                 _updatedClss, _deletedClss));
         }
@@ -2056,13 +2108,12 @@ public class BrokerImpl
 
         // fire after rollback/commit event
         Collection mobjs = null;
-        if (_transEventManager != null && _transEventManager.hasEndListeners())
-        {
+        if (_transEventManager.hasEndListeners()) {
             mobjs = new ManagedObjectCollection(transStates);
             int eventType = (rollback) ? TransactionEvent.AFTER_ROLLBACK
                 : TransactionEvent.AFTER_COMMIT;
-            _transEventManager.fireEvent(new TransactionEvent(this, eventType,
-                mobjs, _persistedClss, _updatedClss, _deletedClss));
+            fireTransactionEvent(new TransactionEvent(this, eventType, mobjs, 
+                _persistedClss, _updatedClss, _deletedClss));
         }
 
         // null transactional caches now so that all the removeFromTransaction
@@ -2122,10 +2173,9 @@ public class BrokerImpl
         _savepointCache = null;
 
         // fire after state change event
-        if (_transEventManager != null && _transEventManager.hasEndListeners())
-            _transEventManager.fireEvent(new TransactionEvent(this,
-                TransactionEvent.AFTER_STATE_TRANSITIONS, mobjs, null, null,
-                null));
+        if (_transEventManager.hasEndListeners())
+            fireTransactionEvent(new TransactionEvent(this, TransactionEvent.
+                AFTER_STATE_TRANSITIONS, mobjs, null, null, null));
 
         // now clear trans cache; keep cleared version rather than
         // null to avoid having to re-create the set later; more efficient
@@ -2141,7 +2191,25 @@ public class BrokerImpl
     // Object lifecycle
     ////////////////////
 
+    public void persist(Object obj, OpCallbacks call) {
+        persist(obj, null, true, call);
+    }
+
+    public OpenJPAStateManager persist(Object obj, Object id,
+        OpCallbacks call) {
+        return persist(obj, id, true, call);
+    }
+
     public void persistAll(Collection objs, OpCallbacks call) {
+        persistAll(objs, true, call);
+    }
+
+    /**
+     * Persist the given objects.  Indicate whether this was an explicit persist
+     * (PNEW) or a provisonal persist (PNEWPROVISIONAL).
+     */
+    public void persistAll(Collection objs, boolean explicit, 
+        OpCallbacks call) {
         if (objs.isEmpty())
             return;
 
@@ -2152,7 +2220,7 @@ public class BrokerImpl
 
             for (Iterator itr = objs.iterator(); itr.hasNext();) {
                 try {
-                    persist(itr.next(), call);
+                    persist(itr.next(), explicit, call);
                 } catch (UserException ue) {
                     exceps = add(exceps, ue);
                 }
@@ -2201,11 +2269,20 @@ public class BrokerImpl
         throw err.setNestedThrowables(t).setFatal(fatal);
     }
 
-    public void persist(Object obj, OpCallbacks call) {
-        persist(obj, null, call);
+    /**
+     * Persist the given object.  Indicate whether this was an explicit persist
+     * (PNEW) or a provisonal persist (PNEWPROVISIONAL)
+     */
+    public void persist(Object obj, boolean explicit, OpCallbacks call) {
+        persist(obj, null, explicit, call);
     }
 
-    public OpenJPAStateManager persist(Object obj, Object id,
+    /**
+     * Persist the given object.  Indicate whether this was an explicit persist
+     * (PNEW) or a provisonal persist (PNEWPROVISIONAL).
+     * See {@link Broker} for details on this method.
+     */
+    public OpenJPAStateManager persist(Object obj, Object id, boolean explicit,
         OpCallbacks call) {
         if (obj == null)
             return null;
@@ -2288,9 +2365,12 @@ public class BrokerImpl
 
             // create new sm
             sm = new StateManagerImpl(id, meta, this);
-            if ((_flags & FLAG_ACTIVE) != 0)
-                sm.initialize(pc, PCState.PNEW);
-            else
+            if ((_flags & FLAG_ACTIVE) != 0) {
+                if (explicit)
+                    sm.initialize(pc, PCState.PNEW);
+                else
+                    sm.initialize(pc, PCState.PNEWPROVISIONAL);
+            } else
                 sm.initialize(pc, PCState.PNONTRANSNEW);
             if ((action & OpCallbacks.ACT_CASCADE) != 0)
                 sm.cascadePersist(call);
@@ -2404,9 +2484,9 @@ public class BrokerImpl
         if (sm != null) {
             if (sm.isDetached())
                 throw newDetachedException(obj, "delete");
-            sm.delete();
             if ((action & OpCallbacks.ACT_CASCADE) != 0)
                 sm.cascadeDelete(call);
+            sm.delete();
         } else if (assertPersistenceCapable(obj).pcIsDetached() == Boolean.TRUE)
             throw newDetachedException(obj, "delete");
     }
@@ -2494,6 +2574,9 @@ public class BrokerImpl
 
             PersistenceCapable copy;
             PCState state;
+            Class type = meta.getDescribedType();
+            if (type.isInterface())
+                type = meta.getInterfaceImpl();
             if (obj != null) {
                 // give copy and the original instance the same state manager
                 // so that we can copy fields from one to the other
@@ -2512,8 +2595,7 @@ public class BrokerImpl
                     // copy the instance.  we do this even if it doesn't already
                     // have a state manager in case it is later assigned to a
                     // PC field; at that point it's too late to copy
-                    copy = PCRegistry.newInstance(meta.getDescribedType(),
-                        copySM, false);
+                    copy = PCRegistry.newInstance(type, copySM, false);
                     int[] fields = new int[meta.getFields().length];
                     for (int i = 0; i < fields.length; i++)
                         fields[i] = i;
@@ -2527,8 +2609,7 @@ public class BrokerImpl
                         pc.pcReplaceStateManager(null);
                 }
             } else {
-                copy = PCRegistry.newInstance(meta.getDescribedType(), sm,
-                    false);
+                copy = PCRegistry.newInstance(type, sm, false);
                 if ((_flags & FLAG_ACTIVE) != 0 && !_optimistic)
                     state = PCState.ECLEAN;
                 else
@@ -2680,7 +2761,7 @@ public class BrokerImpl
             // refresh all
             if (load != null) {
                 Collection failed = _store.loadAll(load, null,
-                    _store.FORCE_LOAD_REFRESH, _fc, null);
+                    StoreManager.FORCE_LOAD_REFRESH, _fc, null);
                 if (failed != null && !failed.isEmpty())
                     exceps = add(exceps, newObjectNotFoundException(failed));
 
@@ -3015,10 +3096,9 @@ public class BrokerImpl
         StateManagerImpl sm;
         for (Iterator itr = states.iterator(); itr.hasNext();) {
             sm = (StateManagerImpl) itr.next();
-            if (!sm.isPersistent()) {
-                sm.nontransactional();
+            if (!sm.isPersistent())
                 itr.remove();
-            } else if (!sm.getMetaData().isDetachable()) {
+            else if (!sm.getMetaData().isDetachable()) {
                 sm.release(true);
                 itr.remove();
             }
@@ -3388,8 +3468,8 @@ public class BrokerImpl
             default:
                 // use store manager for native sequence
                 if (fmd == null) {
-                    // this will return a sequence even for app id classes, which
-                    // is what we want for backwards-compatibility
+                    // this will return a sequence even for app id classes, 
+                    // which is what we want for backwards-compatibility
                     return _store.getDataStoreIdSequence(meta);
                 }
                 return _store.getValueSequence(fmd);
@@ -3753,8 +3833,7 @@ public class BrokerImpl
                         _transAdditions = new HashSet();
                     _transAdditions.add(sm);
                 }
-            }
-            finally {
+            } finally {
                 unlock();
             }
         }
@@ -3951,10 +4030,7 @@ public class BrokerImpl
             _extents = null;
         }
 
-        try {
-            releaseConnection();
-        } catch (RuntimeException re) {
-        }
+        try { releaseConnection(); } catch (RuntimeException re) {}
 
         _lm.close();
         _store.close();
@@ -3986,8 +4062,11 @@ public class BrokerImpl
     public Object newInstance(Class cls) {
         assertOpen();
 
-        //### JDO2
-        if (cls.isInterface() || Modifier.isAbstract(cls.getModifiers()))
+        if (cls.isInterface()) {
+            ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
+                getMetaData(cls, _loader, true);
+            cls = meta.getInterfaceImpl();
+        } else if (Modifier.isAbstract(cls.getModifiers()))
             throw new UnsupportedOperationException(_loc.get
                 ("new-abstract", cls).getMessage());
 
@@ -4125,6 +4204,18 @@ public class BrokerImpl
             return null;
         if (obj instanceof PersistenceCapable)
             return (PersistenceCapable) obj;
+
+        // check for difference instances of the PersistenceCapable interface
+        // and throw a better error that mentions the class loaders
+        Class[] intfs = obj.getClass().getInterfaces();
+        for (int i = 0; intfs != null && i < intfs.length; i++) {
+            if (intfs[i].getName().equals(PersistenceCapable.class.getName())) {
+                throw new UserException(_loc.get("pc-loader-different",
+                    Exceptions.toString(obj),
+                    PersistenceCapable.class.getClassLoader(),
+                    intfs[i].getClassLoader())).setFailedObject(obj);
+            }
+        }
 
         // not enhanced
         throw new UserException(_loc.get("pc-cast",

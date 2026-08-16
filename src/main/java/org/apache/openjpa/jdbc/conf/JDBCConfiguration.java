@@ -226,7 +226,7 @@ public interface JDBCConfiguration
      * </li>
      * </ul>
      *
-     * @since 3.0
+     * @since 0.3.0
      */
     public String getEagerFetchMode();
 
@@ -241,7 +241,6 @@ public interface JDBCConfiguration
      * <li><code>parallel</code>: When querying for objects, also select for
      * both 1-1 relations using joins and to-many relations using batched
      * selects.</li>
-     * </li>
      * </ul>
      */
     public void setEagerFetchMode(String mode);
@@ -254,7 +253,7 @@ public interface JDBCConfiguration
      * <li>{@link EagerFetchModes#EAGER_PARALLEL}</li>
      * </ul>
      *
-     * @since 3.0
+     * @since 0.3.0
      */
     public int getEagerFetchModeConstant();
 
@@ -266,7 +265,7 @@ public interface JDBCConfiguration
      * <li>{@link EagerFetchModes#EAGER_PARALLEL}</li>
      * </ul>
      *
-     * @since 3.0
+     * @since 0.3.0
      */
     public void setEagerFetchMode(int eagerFetchMode);
 
@@ -281,7 +280,7 @@ public interface JDBCConfiguration
      * separately.</li>
      * </ul>
      *
-     * @since 3.2
+     * @since 0.3.2
      */
     public String getSubclassFetchMode();
 
@@ -296,7 +295,7 @@ public interface JDBCConfiguration
      * separately.</li>
      * </ul>
      *
-     * @since 3.2
+     * @since 0.3.2
      */
     public void setSubclassFetchMode(String mode);
 
@@ -309,7 +308,7 @@ public interface JDBCConfiguration
      * <li>{@link EagerFetchModes#EAGER_PARALLEL}</li>
      * </ul>
      *
-     * @since 3.2
+     * @since 0.3.2
      */
     public int getSubclassFetchModeConstant();
 
@@ -321,7 +320,7 @@ public interface JDBCConfiguration
      * <li>{@link EagerFetchModes#EAGER_PARALLEL}</li>
      * </ul>
      *
-     * @since 3.2
+     * @since 0.3.2
      */
     public void setSubclassFetchMode(int subclassFetchMode);
 
@@ -535,28 +534,28 @@ public interface JDBCConfiguration
     /**
      * A plugin string describing the {@link MappingDefaults} to use.
      *
-     * @since 4.0
+     * @since 0.4.0
      */
     public String getMappingDefaults();
 
     /**
      * A plugin string describing the {@link MappingDefaults} to use.
      *
-     * @since 4.0
+     * @since 0.4.0
      */
     public void setMappingDefaults(String map);
 
     /**
      * The {@link MappingDefaults} to use with a repository.
      *
-     * @since 4.0
+     * @since 0.4.0
      */
     public MappingDefaults getMappingDefaultsInstance();
 
     /**
      * The {@link MappingDefaults} to use with a repository.
      *
-     * @since 4.0
+     * @since 0.4.0
      */
     public void setMappingDefaults(MappingDefaults map);
 

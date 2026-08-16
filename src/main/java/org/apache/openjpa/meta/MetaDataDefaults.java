@@ -28,10 +28,16 @@ public interface MetaDataDefaults
     extends CallbackModes {
 
     /**
-     * Return the default access type for base persistent class with
+     * Return the default access type for a base persistent class with
      * {@link ClassMetaData#ACCESS_UNKNOWN} access type.
      */
     public int getDefaultAccessType();
+
+    /**
+     * Return the default identity type for unmapped classes without primary
+     * key fields.
+     */
+    public int getDefaultIdentityType();
 
     /**
      * What to do on lifecycle callback exceptions.
@@ -43,7 +49,20 @@ public interface MetaDataDefaults
      * event type. Defaults to false.
      */
     public boolean getCallbacksBeforeListeners(int type);
+   
+    /**
+     * Whether declared interfaces of a class are treated as persistent
+     * types. Defaults to true.
+     */
+    public boolean isDeclaredInterfacePersistent();
 
+    /**
+     * Whether the field in the object id class corresponding to a 
+     * datastore id persistence-capable primary key field is the simple 
+     * datastore id value of the related instance.  Defaults to false.
+     */
+    public boolean isDataStoreObjectIdFieldUnwrapped();
+ 
     /**
      * Whether to ignore members which are not persistent by default
      * during metadata population. Defaults to true.
@@ -61,4 +80,10 @@ public interface MetaDataDefaults
      * Return the backing member for the given field metadata.
      */
     public Member getBackingMember(FieldMetaData field);
+
+    /**
+     * Return a runtime exception class to throw for un-implemented
+     * managed interface methods.
+     */
+    public Class getUnimplementedExceptionType();
 }

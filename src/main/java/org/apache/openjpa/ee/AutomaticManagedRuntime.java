@@ -58,17 +58,14 @@ public class AutomaticManagedRuntime
     private static final String [] METHODS = new String[]{
         "com.arjuna.jta.JTA_TransactionManager.transactionManager", // hp
         "com.bluestone.jta.SaTransactionManagerFactory.SaGetTransactionManager",
-        "com.ibm.ejs.jts.jta.JTSXA.getTransactionManager",
-        "com.ibm.ejs.jts.jta.TransactionManagerFactory.getTransactionManager",
-        "com.ibm.ws.Transaction.TransactionManagerFactory."
-            + "getTransactionManager", // WS 5.1
         "org.openejb.OpenEJB.getTransactionManager",
         "com.sun.jts.jta.TransactionManagerImpl.getTransactionManagerImpl",
         "com.inprise.visitransact.jta.TransactionManagerImpl."
             + "getTransactionManagerImpl", // borland
     };
-    private static final ManagedRuntime WLS;
-    private static final ManagedRuntime SUNONE;
+    private static final WLSManagedRuntime WLS;
+    private static final SunOneManagedRuntime SUNONE;
+    private static final WASManagedRuntime WAS;
 
     private static Localizer _loc = Localizer.forPackage
         (AutomaticManagedRuntime.class);
@@ -79,14 +76,22 @@ public class AutomaticManagedRuntime
             mr = new WLSManagedRuntime();
         } catch (Throwable t) {
         }
-        WLS = mr;
+        WLS = (WLSManagedRuntime) mr;
 
         mr = null;
         try {
             mr = new SunOneManagedRuntime();
         } catch (Throwable t) {
         }
-        SUNONE = mr;
+        SUNONE = (SunOneManagedRuntime) mr;
+
+        mr = null;
+        try {
+            mr = new WASManagedRuntime();
+        }
+        catch(Throwable t) {
+        }
+        WAS= (WASManagedRuntime) mr;
     }
 
     private Configuration _conf = null;
@@ -108,6 +113,21 @@ public class AutomaticManagedRuntime
             }
             if (tm != null) {
                 _runtime = WLS;
+                return tm;
+            }
+        }
+
+        if (WAS != null) {
+            try {
+                WAS.setConfiguration(_conf);
+                WAS.startConfiguration();
+                WAS.endConfiguration();
+                tm = WAS.getTransactionManager();
+            } catch (Throwable t) {
+                errors.add(t);
+            }
+            if (tm != null) {
+                _runtime = WAS;
                 return tm;
             }
         }

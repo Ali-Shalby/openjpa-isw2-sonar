@@ -67,7 +67,7 @@ import org.apache.openjpa.util.UserException;
  * Mapping for an embedded persistent object.
  *
  * @author Abe White
- * @since 4.0
+ * @since 0.4.0
  */
 public class EmbedFieldStrategy
     extends AbstractFieldStrategy {
@@ -627,6 +627,10 @@ public class EmbedFieldStrategy
             return isFlushed();
         }
 
+        public boolean isProvisional() {
+            return _owner.isProvisional();
+        }
+
         public BitSet getLoaded() {
             // consider everything loaded
             if (_full == null) {
@@ -942,6 +946,10 @@ public class EmbedFieldStrategy
         ///////////////////////////////
 
         public byte replaceFlags() {
+            throw new InternalException();
+        }
+
+        public Object getPCPrimaryKey(Object oid, int field) {
             throw new InternalException();
         }
 

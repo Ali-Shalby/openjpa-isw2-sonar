@@ -20,8 +20,8 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
@@ -38,6 +38,7 @@ import org.apache.openjpa.kernel.StoreManager;
 import org.apache.openjpa.kernel.StoreQuery;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.MetaDataRepository;
+import org.apache.openjpa.util.OptimisticException;
 
 /**
  * StoreManager proxy that delegates to a data cache when possible.
@@ -503,20 +504,36 @@ public class DataCacheStoreManager
 
     public Collection flush(Collection states) {
         Collection exceps = super.flush(states);
-        if (!exceps.isEmpty() || _ctx.isLargeTransaction())
+
+        // if there were errors evict bad instances and don't record changes
+        if (!exceps.isEmpty()) {
+            for (Iterator iter = exceps.iterator(); iter.hasNext(); ) {
+                Exception e = (Exception) iter.next();
+                if (e instanceof OptimisticException)
+                    evictOptimisticLockFailure((OptimisticException) e);
+            }
+            return exceps;
+        }
+
+        // if large transaction mode don't record individual changes
+        if (_ctx.isLargeTransaction())
             return exceps;
 
         OpenJPAStateManager sm;
         for (Iterator itr = states.iterator(); itr.hasNext();) {
             sm = (OpenJPAStateManager) itr.next();
 
-            if (sm.getPCState() == PCState.PNEW) {
+            if (sm.getPCState() == PCState.PNEW && !sm.isFlushed()) {
                 if (_inserts == null)
-                    _inserts = new LinkedList();
+                    _inserts = new ArrayList();
                 _inserts.add(sm);
-            } else if (_inserts != null &&
-                (sm.getPCState() == PCState.PNEWDELETED ||
-                sm.getPCState() == PCState.PNEWFLUSHEDDELETED))
+
+                // may have been re-persisted
+                if (_deletes != null)
+                    _deletes.remove(sm);
+            } else if (_inserts != null 
+                && (sm.getPCState() == PCState.PNEWDELETED 
+                || sm.getPCState() == PCState.PNEWFLUSHEDDELETED))
                 _inserts.remove(sm);
             else if (sm.getPCState() == PCState.PDIRTY) {
                 if (_updates == null)
@@ -524,18 +541,87 @@ public class DataCacheStoreManager
                 _updates.put(sm, sm.getDirty());
             } else if (sm.getPCState() == PCState.PDELETED) {
                 if (_deletes == null)
-                    _deletes = new LinkedList();
+                    _deletes = new HashSet();
                 _deletes.add(sm);
             }
         }
         return Collections.EMPTY_LIST;
     }
 
+    /**
+     * Evict from the cache the OID (if available) that resulted in an
+     * optimistic lock exception iff the version information in the cache 
+     * matches the version information in the state manager for the failed
+     * instance. This means that we will evict data from the cache for records 
+     * that should have successfully committed according to the data cache but 
+     * did not. The only predictable reason that could cause this behavior
+     * is a concurrent out-of-band modification to the database that was not 
+     * communicated to the cache. This logic makes OpenJPA's data cache 
+     * somewhat tolerant of such behavior, in that the cache will be cleaned 
+     * up as failures occur.
+     */
+    private void evictOptimisticLockFailure(OptimisticException e) {
+        Object o = ((OptimisticException) e).getFailedObject();
+        OpenJPAStateManager sm = _ctx.getStateManager(o);
+        if (sm == null)
+            return;
+
+        // this logic could be more efficient -- we could aggregate
+        // all the cache->oid changes, and then use DataCache.removeAll() 
+        // and less write locks to do the mutation.
+        ClassMetaData meta = sm.getMetaData();
+        DataCache cache = meta.getDataCache();
+        if (cache == null)
+            return;
+
+        cache.writeLock();
+        try {
+            DataCachePCData data = cache.get(sm.getId());
+            if (data == null)
+                return;
+
+            boolean remove;
+            switch (compareVersion(sm, sm.getVersion(), data.getVersion())) {
+                case StoreManager.VERSION_LATER:
+                case StoreManager.VERSION_SAME:
+                    // This tx's current version is later than or the same as 
+                    // the data cache version. In this case, the commit should 
+                    // have succeeded from the standpoint of the cache. Remove 
+                    // the instance from cache in the hopes that the cache is 
+                    // out of sync.
+                    remove = true;
+                    break;
+                case StoreManager.VERSION_EARLIER:
+                    // This tx's current version is earlier than the data 
+                    // cache version. This is a normal optimistic lock failure. 
+                    // Do not clean up the cache; it probably already has the 
+                    // right values, and if not, it'll get cleaned up by a tx
+                    // that fails in one of the other case statements.
+                    remove = false;
+                    break;
+                case StoreManager.VERSION_DIFFERENT:
+                    // The version strategy for the failed object does not
+                    // store enough information to optimize for expected
+                    // failures. Clean up the cache.
+                    remove = true;
+                    break;
+                default:
+                    // Unexpected return value. Remove to be future-proof.
+                    remove = true;
+                    break;
+            }
+            if (remove)
+                cache.remove(sm.getId());
+        } finally {
+            cache.writeUnlock();
+        }
+    }
+
     public StoreQuery newQuery(String language) {
         StoreQuery q = super.newQuery(language);
 
         // if the query can't be parsed or it's using a non-parsed language
-        // (one for which there is no OpenJPA ExpressionParser), we can't cache it.
+        // (one for which there is no ExpressionParser), we can't cache it.
         if (q == null || QueryLanguages.parserForLanguage(language) == null)
             return q;
 
@@ -572,10 +658,10 @@ public class DataCacheStoreManager
      */
     private static class Modifications {
 
-        public final List additions = new LinkedList();
-        public final List newUpdates = new LinkedList();
-        public final List existingUpdates = new LinkedList();
-        public final List deletes = new LinkedList();
+        public final List additions = new ArrayList();
+        public final List newUpdates = new ArrayList();
+        public final List existingUpdates = new ArrayList();
+        public final List deletes = new ArrayList();
     }
 
     private static class PCDataHolder {

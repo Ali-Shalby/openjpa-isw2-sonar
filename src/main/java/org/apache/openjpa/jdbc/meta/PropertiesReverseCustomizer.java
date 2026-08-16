@@ -19,6 +19,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Table;
@@ -156,7 +157,7 @@ public class PropertiesReverseCustomizer
     }
 
     public void customize(FieldMapping field) {
-        String type = getProperty(field.getFullName() + ".type");
+        String type = getProperty(field.getFullName(false) + ".type");
         if (type != null)
             field.setDeclaredType(Strings.toClass(type, null));
     }
@@ -195,7 +196,7 @@ public class PropertiesReverseCustomizer
     }
 
     public String getInitialValue(FieldMapping field) {
-        return getProperty(field.getFullName() + ".value");
+        return getProperty(field.getFullName(false) + ".value");
     }
 
     public String getDeclaration(FieldMapping field) {
@@ -219,12 +220,7 @@ public class PropertiesReverseCustomizer
      * Return the property value for the given key, or null if none.
      */
     protected String getProperty(String key) {
-        String val = _props.getProperty(key);
-        if (val != null) {
-            val = val.trim();
-            if (val.length() == 0)
-                val = null;
-        }
+        String val = StringUtils.trimToNull(_props.getProperty(key));
         _unaccessed.remove(key);
         return val;
     }

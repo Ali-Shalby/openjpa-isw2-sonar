@@ -56,9 +56,12 @@ import java.util.Map;
 import java.util.Set;
 import javax.sql.DataSource;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
+import org.apache.openjpa.jdbc.kernel.exps.ExpContext;
+import org.apache.openjpa.jdbc.kernel.exps.ExpState;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -117,6 +120,7 @@ public class DBDictionary
     protected static final int RANGE_POST_SELECT = 0;
     protected static final int RANGE_PRE_DISTINCT = 1;
     protected static final int RANGE_POST_DISTINCT = 2;
+    protected static final int RANGE_POST_LOCK = 3;
 
     protected static final int NANO = 1;
     protected static final int MICRO = NANO * 1000;
@@ -150,6 +154,7 @@ public class DBDictionary
     public int maxIndexNameLength = 128;
     public int maxIndexesPerTable = Integer.MAX_VALUE;
     public boolean supportsForeignKeys = true;
+    public boolean supportsTimestampNanos = true;
     public boolean supportsUniqueConstraints = true;
     public boolean supportsDeferredConstraints = true;
     public boolean supportsRestrictDeleteAction = true;
@@ -531,9 +536,7 @@ public class DBDictionary
             return (char) getInt(rs, column);
 
         String str = getString(rs, column);
-        if (str == null || str.length() == 0)
-            return 0;
-        return str.charAt(0);
+        return (StringUtils.isEmpty(str)) ? 0 : str.charAt(0);
     }
 
     /**
@@ -638,7 +641,7 @@ public class DBDictionary
     public Locale getLocale(ResultSet rs, int column)
         throws SQLException {
         String str = getString(rs, column);
-        if (str == null || str.length() == 0)
+        if (StringUtils.isEmpty(str))
             return null;
 
         String[] params = Strings.split(str, "_", 3);
@@ -1037,7 +1040,11 @@ public class DBDictionary
             val.setTime(val.getTime() + 1000);
             nanos = 0;
         }
-        val.setNanos(nanos);
+
+        if (supportsTimestampNanos)
+            val.setNanos(nanos);
+        else
+            val.setNanos(0);
 
         if (cal == null)
             stmnt.setTimestamp(idx, val);
@@ -1480,7 +1487,7 @@ public class DBDictionary
      * from {@link Types}.
      */
     public String getTypeName(Column col) {
-        if (col.getTypeName() != null && col.getTypeName().length() > 0)
+        if (!StringUtils.isEmpty(col.getTypeName()))
             return appendSize(col, col.getTypeName());
 
         if (col.isAutoAssigned() && autoAssignTypeName != null)
@@ -1615,7 +1622,7 @@ public class DBDictionary
             joinSyntax = SYNTAX_TRADITIONAL;
         else if ("database".equals(syntax))
             joinSyntax = SYNTAX_DATABASE;
-        else if (syntax != null && syntax.length() > 0)
+        else if (!StringUtils.isEmpty(syntax))
             throw new IllegalArgumentException(syntax);
     }
 
@@ -1790,6 +1797,17 @@ public class DBDictionary
             return sql;
         }
 
+        Table table = mapping.getTable();
+        String tableName = getFullName(table, false);
+
+        // only use a  subselect if the where is not empty; otherwise
+        // an unqualified delete or update will work
+        if (sel.getWhere() == null || sel.getWhere().isEmpty()) {
+            sql.append(tableName);
+            appendUpdates(sel, store, sql, params, updateParams, false);
+            return sql;
+        }
+
         // we need to use a subselect if we are to bulk delete where
         // the select includes multiple tables; if the database
         // doesn't support it, then we need to sigal this by returning null
@@ -1797,8 +1815,6 @@ public class DBDictionary
             return null;
 
         Column[] pks = mapping.getPrimaryKeyColumns();
-        Table table = mapping.getTable();
-        String tableName = getFullName(table, false);
         sel.clearSelects();
         sel.setDistinct(true);
 
@@ -1851,6 +1867,8 @@ public class DBDictionary
 
         // manually build up the SET clause for the UPDATE statement
         sql.append(" SET ");
+        ExpContext ctx = new ExpContext(store, params, 
+            store.getFetchConfiguration());
         for (Iterator i = updateParams.entrySet().iterator(); i.hasNext();) {
             Map.Entry next = (Map.Entry) i.next();
             FieldMetaData fmd = (FieldMetaData) next.getKey();
@@ -1859,15 +1877,15 @@ public class DBDictionary
             Column col = ((FieldMapping) fmd).getColumns()[0];
             sql.append(col.getName());
             sql.append(" = ");
-            val.initialize(sel, store, false);
-            JDBCFetchConfiguration fetch = store.getFetchConfiguration();
-            val.calculateValue(sel, store, params, null, fetch);
+
+            ExpState state = val.initialize(sel, ctx, 0);
+            val.calculateValue(sel, ctx, state, null, null);
 
             // append the value with a null for the Select; i
             // indicates that the
-            for (int j = 0; j < val.length(); j++)
-                val.appendTo(sql, j, (allowAlias) ? sel : null, store, params, 
-                    fetch);
+            int length = val.length(sel, ctx, state);
+            for (int j = 0; j < length; j++)
+                val.appendTo((allowAlias) ? sel : null, ctx, state, sql, j);
 
             if (i.hasNext())
                 sql.append(", ");
@@ -2129,6 +2147,8 @@ public class DBDictionary
             if (forUpdateClause != null)
                 buf.append(" ").append(forUpdateClause);
         }
+        if (range && rangePosition == RANGE_POST_LOCK)
+            appendSelectRange(buf, start, end);
         return buf;
     }
 
@@ -2290,8 +2310,8 @@ public class DBDictionary
         FilterValue rhs) {
         boolean castlhs = false;
         boolean castrhs = false;
-        Class lc = lhs.getType();
-        Class rc = rhs.getType();
+        Class lc = Filters.wrap(lhs.getType());
+        Class rc = Filters.wrap(rhs.getType());
         int type = 0;
         if (requiresCastForMathFunctions && (lc != rc
             || (lhs.isConstant() && rhs.isConstant()))) {
@@ -2342,8 +2362,8 @@ public class DBDictionary
         FilterValue rhs) {
         boolean castlhs = false;
         boolean castrhs = false;
-        Class lc = lhs.getType();
-        Class rc = rhs.getType();
+        Class lc = Filters.wrap(lhs.getType());
+        Class rc = Filters.wrap(rhs.getType());
         int type = 0;
         if (requiresCastForComparisons && (lc != rc
             || (lhs.isConstant() && rhs.isConstant()))) {
@@ -2895,11 +2915,19 @@ public class DBDictionary
             || !supportsUpdateAction(fk.getUpdateAction()))
             return null;
 
-        String delAction = getActionName(fk.getDeleteAction());
-        String upAction = getActionName(fk.getUpdateAction());
-
         Column[] locals = fk.getColumns();
         Column[] foreigns = fk.getPrimaryKeyColumns();
+
+        int delActionId = fk.getDeleteAction();
+        if (delActionId == ForeignKey.ACTION_NULL) {
+            for (int i = 0; i < foreigns.length; i++) {
+                if (foreigns[i].isNotNull())
+                    delActionId = ForeignKey.ACTION_NONE;
+            }
+        }
+
+        String delAction = getActionName(delActionId);
+        String upAction = getActionName(fk.getUpdateAction());
 
         StringBuffer buf = new StringBuffer();
         if (fk.getName() != null
@@ -3223,8 +3251,7 @@ public class DBDictionary
             == DatabaseMetaData.columnNoNulls);
 
         String def = colMeta.getString("COLUMN_DEF");
-        if (def != null && def.length() > 0
-            && !"null".equalsIgnoreCase(def))
+        if (!StringUtils.isEmpty(def) && !"null".equalsIgnoreCase(def))
             c.setDefaultString(def);
         return c;
     }
@@ -3534,14 +3561,8 @@ public class DBDictionary
             return key;
         } finally {
             if (rs != null)
-                try {
-                    rs.close();
-                } catch (SQLException se) {
-                }
-            try {
-                stmnt.close();
-            } catch (SQLException se) {
-            }
+                try { rs.close(); } catch (SQLException se) {}
+            try { stmnt.close(); } catch (SQLException se) {} 
         }
     }
 
@@ -3607,10 +3628,7 @@ public class DBDictionary
         } catch (IOException ioe) {
             throw new GeneralException(ioe);
         } finally {
-            try {
-                in.close();
-            } catch (IOException e) {
-            }
+            try { in.close(); } catch (IOException e) {}
         }
 
         // add additional reserved words set by user
@@ -3635,8 +3653,7 @@ public class DBDictionary
 
         // if user has unset sequence sql, null it out so we know sequences
         // aren't supported
-        if (nextSequenceQuery != null && nextSequenceQuery.length() == 0)
-            nextSequenceQuery = null;
+        nextSequenceQuery = StringUtils.trimToNull(nextSequenceQuery);
     }
 
     //////////////////////////////////////
@@ -3653,7 +3670,7 @@ public class DBDictionary
         throws SQLException {
         if (!connected)
             connectedConfiguration(conn);
-        if (initializationSQL != null && initializationSQL.length() > 0) {
+        if (!StringUtils.isEmpty(initializationSQL)) {
             PreparedStatement stmnt = null;
             try {
                 stmnt = conn.prepareStatement(initializationSQL);

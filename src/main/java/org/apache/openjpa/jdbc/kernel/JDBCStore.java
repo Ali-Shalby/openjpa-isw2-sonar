@@ -21,9 +21,7 @@ import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
-import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.SQLFactory;
-import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.util.Id;
 
@@ -31,7 +29,7 @@ import org.apache.openjpa.util.Id;
  * Represents the JDBC store.
  *
  * @author Abe White
- * @since 4.0
+ * @since 0.4.0
  */
 public interface JDBCStore {
 

@@ -33,19 +33,9 @@ import org.apache.openjpa.kernel.Bootstrap;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
-import org.apache.openjpa.lib.conf.MapConfigurationProvider;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
-import org.apache.openjpa.util.ByteId;
-import org.apache.openjpa.util.CharId;
-import org.apache.openjpa.util.Id;
-import org.apache.openjpa.util.ImplHelper;
-import org.apache.openjpa.util.IntId;
-import org.apache.openjpa.util.LongId;
-import org.apache.openjpa.util.ObjectId;
-import org.apache.openjpa.util.OpenJPAId;
-import org.apache.openjpa.util.ShortId;
-import org.apache.openjpa.util.StringId;
+import org.apache.openjpa.util.*;
 
 /**
  * Static helper method for JPA users, including switching
@@ -53,7 +43,7 @@ import org.apache.openjpa.util.StringId;
  *
  * @author Abe White
  * @published
- * @since 4.0
+ * @since 0.4.0
  */
 public class OpenJPAPersistence
     extends Persistence {
@@ -66,11 +56,9 @@ public class OpenJPAPersistence
     private static Localizer _loc =
         Localizer.forPackage(OpenJPAPersistence.class);
 
-    /**
-     * Return an entity manager factory facade to the given broker factory.
-     */
+    
     public static OpenJPAEntityManagerFactory toEntityManagerFactory
-        (BrokerFactory factory) {
+       (BrokerFactory factory) {
         if (factory == null)
             return null;
 
@@ -79,7 +67,7 @@ public class OpenJPAPersistence
             OpenJPAEntityManagerFactory emf = (OpenJPAEntityManagerFactory)
                 factory.getUserObject(EMF_KEY);
             if (emf == null) {
-                emf = new EntityManagerFactoryImpl(factory);
+                emf = EntityManagerFactoryValue.newFactory(factory);
                 factory.putUserObject(EMF_KEY, emf);
             }
             return emf;
@@ -89,14 +77,26 @@ public class OpenJPAPersistence
             factory.unlock();
         }
     }
-
+    
     /**
      * Return the underlying broker factory for the given persistence manager
      * factory facade.
      */
     public static BrokerFactory toBrokerFactory(EntityManagerFactory emf) {
-        return (emf == null) ? null
-            : ((EntityManagerFactoryImpl) emf).getBrokerFactory();
+        if (emf == null)
+            return null;
+        if (!(emf instanceof EntityManagerFactoryImpl)) {
+            Class c = emf.getClass();
+            try {
+                // either cast here may fail
+                emf = (EntityManagerFactoryImpl) ((OpenJPAEntityManagerFactory)
+                    emf).getUserObject(EMF_KEY);
+            } catch (ClassCastException cce) {
+                throw new ArgumentException(_loc.get
+                    ("cant-convert-brokerfactory", c), null, null, false);
+            }
+        }
+        return ((EntityManagerFactoryImpl) emf).getBrokerFactory();
     }
 
     /**
@@ -114,10 +114,9 @@ public class OpenJPAPersistence
             if (em == null) {
                 EntityManagerFactoryImpl emf = (EntityManagerFactoryImpl)
                     toEntityManagerFactory(broker.getBrokerFactory());
-                em = new EntityManagerImpl(emf, broker);
+                em = emf.newEntityManagerImpl(broker);
                 broker.putUserObject(EM_KEY, em);
             }
-
             return em;
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
@@ -130,7 +129,20 @@ public class OpenJPAPersistence
      * Return the underlying broker for the given entity manager facade.
      */
     public static Broker toBroker(EntityManager em) {
-        return (em == null) ? null : ((EntityManagerImpl) em).getBroker();
+        if (em == null)
+            return null;
+        if (!(em instanceof EntityManagerImpl)) {
+            Class c = em.getClass();
+            try {
+                // either cast here may fail
+                em = (EntityManagerImpl) ((OpenJPAEntityManager) em).
+                    getUserObject(EM_KEY);
+            } catch (ClassCastException cce) {
+                throw new ArgumentException(_loc.get("cant-convert-broker", c),
+                    null, null, false);
+            }
+        }
+        return ((EntityManagerImpl) em).getBroker();
     }
 
     /**
@@ -144,7 +156,9 @@ public class OpenJPAPersistence
      * Return the OpenJPA facade to the given entity manager.
      */
     public static OpenJPAEntityManager cast(EntityManager em) {
-        return (OpenJPAEntityManager) em;
+        if (em instanceof OpenJPAEntityManager)
+            return (OpenJPAEntityManager) em;
+        return (OpenJPAEntityManager) em.getDelegate();
     }
 
     /**
@@ -170,10 +184,10 @@ public class OpenJPAPersistence
      * overrides.
      */
     public static OpenJPAEntityManagerFactory getEntityManagerFactory(Map map) {
-        ConfigurationProvider cp = new MapConfigurationProvider(map);
+        ConfigurationProvider cp = new PersistenceProductDerivation.
+            ConfigurationProviderImpl(map);
         try {
-            return toEntityManagerFactory(Bootstrap.getBrokerFactory
-                (cp, null));
+            return toEntityManagerFactory(Bootstrap.getBrokerFactory(cp, null));
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
         }
@@ -248,8 +262,7 @@ public class OpenJPAPersistence
             if (o instanceof PersistenceCapable)
                 return toEntityManager((Broker) ((PersistenceCapable) o).
                     pcGetGenericContext());
-            else
-                return null;
+            return null;
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
         }

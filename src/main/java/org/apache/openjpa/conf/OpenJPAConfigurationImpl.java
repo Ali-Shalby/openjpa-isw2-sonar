@@ -17,7 +17,9 @@ package org.apache.openjpa.conf;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Map;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.datacache.ConcurrentDataCache;
 import org.apache.openjpa.datacache.ConcurrentQueryCache;
 import org.apache.openjpa.datacache.DataCacheManager;
@@ -38,15 +40,7 @@ import org.apache.openjpa.kernel.SavepointManager;
 import org.apache.openjpa.kernel.Seq;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
-import org.apache.openjpa.lib.conf.BooleanValue;
-import org.apache.openjpa.lib.conf.ConfigurationImpl;
-import org.apache.openjpa.lib.conf.Configurations;
-import org.apache.openjpa.lib.conf.IntValue;
-import org.apache.openjpa.lib.conf.ObjectValue;
-import org.apache.openjpa.lib.conf.PluginListValue;
-import org.apache.openjpa.lib.conf.PluginValue;
-import org.apache.openjpa.lib.conf.StringListValue;
-import org.apache.openjpa.lib.conf.StringValue;
+import org.apache.openjpa.lib.conf.*;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.MetaDataFactory;
@@ -67,8 +61,8 @@ public class OpenJPAConfigurationImpl
     extends ConfigurationImpl
     implements OpenJPAConfiguration {
 
-    private static final Localizer _loc = Localizer.forPackage
-        (OpenJPAConfigurationImpl.class);
+    private static final Localizer _loc =
+        Localizer.forPackage(OpenJPAConfigurationImpl.class);
 
     // cached state; some of this is created in getter methods, so make
     // protected in case subclasses want to access without creating
@@ -132,6 +126,7 @@ public class OpenJPAConfigurationImpl
     public ObjectValue savepointManagerPlugin;
     public ObjectValue orphanedKeyPlugin;
     public ObjectValue compatibilityPlugin;
+    public QueryCompilationCacheValue queryCompilationCachePlugin;
 
     // custom values
     public BrokerFactoryValue brokerFactoryPlugin;
@@ -140,7 +135,6 @@ public class OpenJPAConfigurationImpl
 
     private Collection supportedOptions = new HashSet(33);
     private String spec = null;
-    
     private final StoreFacadeTypeRegistry _storeFacadeRegistry =
         new StoreFacadeTypeRegistry();
 
@@ -170,20 +164,12 @@ public class OpenJPAConfigurationImpl
         super(false);
         String[] aliases;
 
-        // setup super's log factory plugin
-        logFactoryPlugin.setProperty("Log");
-        logFactoryPlugin.setAlias("openjpa", 
-            "org.apache.openjpa.lib.log.LogFactoryImpl");
-        aliases = logFactoryPlugin.getAliases();
-        logFactoryPlugin.setDefault(aliases[0]);
-        logFactoryPlugin.setString(aliases[0]);
-
         classResolverPlugin = addPlugin("ClassResolver", true);
-        aliases = new String[]{
-            "default", "org.apache.openjpa.util.ClassResolverImpl",
-            // deprecated alias
-            "spec", "org.apache.openjpa.util.ClassResolverImpl",
-        };
+        aliases =
+            new String[] { "default",
+                "org.apache.openjpa.util.ClassResolverImpl",
+                // deprecated alias
+                "spec", "org.apache.openjpa.util.ClassResolverImpl", };
         classResolverPlugin.setAliases(aliases);
         classResolverPlugin.setDefault(aliases[0]);
         classResolverPlugin.setString(aliases[0]);
@@ -193,26 +179,24 @@ public class OpenJPAConfigurationImpl
         addValue(brokerFactoryPlugin);
 
         brokerPlugin = addPlugin("BrokerImpl", false);
-        aliases = new String[]{ "default", BrokerImpl.class.getName() };
+        aliases = new String[] { "default", BrokerImpl.class.getName() };
         brokerPlugin.setAliases(aliases);
         brokerPlugin.setDefault(aliases[0]);
         brokerPlugin.setString(aliases[0]);
 
         dataCacheManagerPlugin = addPlugin("DataCacheManager", true);
-        aliases = new String[]{
-            "default", DataCacheManagerImpl.class.getName(),
-        };
+        aliases =
+            new String[] { "default", DataCacheManagerImpl.class.getName(), };
         dataCacheManagerPlugin.setAliases(aliases);
         dataCacheManagerPlugin.setDefault(aliases[0]);
         dataCacheManagerPlugin.setString(aliases[0]);
         dataCacheManagerPlugin.setInstantiatingGetter("getDataCacheManager");
 
         dataCachePlugin = addPlugin("DataCache", false);
-        aliases = new String[]{
-            "false", null,
-            "true", ConcurrentDataCache.class.getName(),
-            "concurrent", ConcurrentDataCache.class.getName(),
-        };
+        aliases =
+            new String[] { "false", null, "true",
+                ConcurrentDataCache.class.getName(), "concurrent",
+                ConcurrentDataCache.class.getName(), };
         dataCachePlugin.setAliases(aliases);
         dataCachePlugin.setDefault(aliases[0]);
         dataCachePlugin.setString(aliases[0]);
@@ -222,11 +206,10 @@ public class OpenJPAConfigurationImpl
         dataCacheTimeout.set(-1);
 
         queryCachePlugin = addPlugin("QueryCache", true);
-        aliases = new String[]{
-            "true", ConcurrentQueryCache.class.getName(),
-            "concurrent", ConcurrentQueryCache.class.getName(),
-            "false", null,
-        };
+        aliases =
+            new String[] { "true", ConcurrentQueryCache.class.getName(),
+                "concurrent", ConcurrentQueryCache.class.getName(), "false",
+                null, };
         queryCachePlugin.setAliases(aliases);
         queryCachePlugin.setDefault(aliases[0]);
         queryCachePlugin.setString(aliases[0]);
@@ -236,71 +219,67 @@ public class OpenJPAConfigurationImpl
         dynamicDataStructs.set(false);
 
         lockManagerPlugin = addPlugin("LockManager", false);
-        aliases = new String[]{
-            "none", "org.apache.openjpa.kernel.NoneLockManager",
-            "version", "org.apache.openjpa.kernel.VersionLockManager",
-        };
+        aliases =
+            new String[] { "none", "org.apache.openjpa.kernel.NoneLockManager",
+                "version", "org.apache.openjpa.kernel.VersionLockManager", };
         lockManagerPlugin.setAliases(aliases);
         lockManagerPlugin.setDefault(aliases[0]);
         lockManagerPlugin.setString(aliases[0]);
 
         inverseManagerPlugin = addPlugin("InverseManager", false);
-        aliases = new String[]{
-            "false", null,
-            "true", "org.apache.openjpa.kernel.InverseManager",
-        };
+        aliases =
+            new String[] { "false", null, "true",
+                "org.apache.openjpa.kernel.InverseManager", };
         inverseManagerPlugin.setAliases(aliases);
         inverseManagerPlugin.setDefault(aliases[0]);
         inverseManagerPlugin.setString(aliases[0]);
 
         savepointManagerPlugin = addPlugin("SavepointManager", true);
-        aliases = new String[]{
-            "in-mem", "org.apache.openjpa.kernel.InMemorySavepointManager",
-        };
+        aliases =
+            new String[] { "in-mem",
+                "org.apache.openjpa.kernel.InMemorySavepointManager", };
         savepointManagerPlugin.setAliases(aliases);
         savepointManagerPlugin.setDefault(aliases[0]);
         savepointManagerPlugin.setString(aliases[0]);
-        savepointManagerPlugin.setInstantiatingGetter
-            ("getSavepointManagerInstance");
+        savepointManagerPlugin
+            .setInstantiatingGetter("getSavepointManagerInstance");
 
         orphanedKeyPlugin = addPlugin("OrphanedKeyAction", true);
-        aliases = new String[]{
-            "log", "org.apache.openjpa.event.LogOrphanedKeyAction",
-            "exception", "org.apache.openjpa.event.ExceptionOrphanedKeyAction",
-            "none", "org.apache.openjpa.event.NoneOrphanedKeyAction",
-        };
+        aliases =
+            new String[] { "log",
+                "org.apache.openjpa.event.LogOrphanedKeyAction", "exception",
+                "org.apache.openjpa.event.ExceptionOrphanedKeyAction", "none",
+                "org.apache.openjpa.event.NoneOrphanedKeyAction", };
         orphanedKeyPlugin.setAliases(aliases);
         orphanedKeyPlugin.setDefault(aliases[0]);
         orphanedKeyPlugin.setString(aliases[0]);
-        orphanedKeyPlugin.setInstantiatingGetter
-            ("getOrphanedKeyActionInstance");
+        orphanedKeyPlugin
+            .setInstantiatingGetter("getOrphanedKeyActionInstance");
 
         remoteProviderPlugin = new RemoteCommitProviderValue();
         addValue(remoteProviderPlugin);
 
         transactionMode = addBoolean("TransactionMode");
-        aliases = new String[]{
-            "local", "false",
-            "managed", "true",
-        };
+        aliases = new String[] { "local", "false", "managed", "true", };
         transactionMode.setAliases(aliases);
         transactionMode.setDefault(aliases[0]);
 
         managedRuntimePlugin = addPlugin("ManagedRuntime", true);
-        aliases = new String[]{
-            "auto", "org.apache.openjpa.ee.AutomaticManagedRuntime",
-            "jndi", "org.apache.openjpa.ee.JNDIManagedRuntime",
-            "invocation", "org.apache.openjpa.ee.InvocationManagedRuntime",
-        };
+        aliases =
+            new String[] { "auto",
+                "org.apache.openjpa.ee.AutomaticManagedRuntime", "jndi",
+                "org.apache.openjpa.ee.JNDIManagedRuntime", "invocation",
+                "org.apache.openjpa.ee.InvocationManagedRuntime", };
         managedRuntimePlugin.setAliases(aliases);
         managedRuntimePlugin.setDefault(aliases[0]);
         managedRuntimePlugin.setString(aliases[0]);
-        managedRuntimePlugin.setInstantiatingGetter
-            ("getManagedRuntimeInstance");
+        managedRuntimePlugin
+            .setInstantiatingGetter("getManagedRuntimeInstance");
 
         proxyManagerPlugin = addPlugin("ProxyManager", true);
-        aliases = new String[]{ "default",
-            "org.apache.openjpa.util.ProxyManagerImpl" };
+        aliases =
+            new String[] { "default",
+                "org.apache.openjpa.util.ProxyManagerImpl" };
         proxyManagerPlugin.setAliases(aliases);
         proxyManagerPlugin.setDefault(aliases[0]);
         proxyManagerPlugin.setString(aliases[0]);
@@ -310,8 +289,9 @@ public class OpenJPAConfigurationImpl
         metaFactoryPlugin = addPlugin("MetaDataFactory", false);
 
         metaRepositoryPlugin = addPlugin("MetaDataRepository", false);
-        aliases = new String[]{ "default", 
-            "org.apache.openjpa.meta.MetaDataRepository" };
+        aliases =
+            new String[] { "default",
+                "org.apache.openjpa.meta.MetaDataRepository" };
         metaRepositoryPlugin.setAliases(aliases);
         metaRepositoryPlugin.setDefault(aliases[0]);
         metaRepositoryPlugin.setString(aliases[0]);
@@ -334,15 +314,12 @@ public class OpenJPAConfigurationImpl
         connection2URL = addString("Connection2URL");
         connection2DriverName = addString("Connection2DriverName");
         connection2Properties = addString("Connection2Properties");
-        connectionFactory2Properties = addString(
-            "ConnectionFactory2Properties");
+        connectionFactory2Properties =
+            addString("ConnectionFactory2Properties");
         connectionFactory2Name = addString("ConnectionFactory2Name");
 
         connectionFactoryMode = addBoolean("ConnectionFactoryMode");
-        aliases = new String[]{
-            "local", "false",
-            "managed", "true",
-        };
+        aliases = new String[] { "local", "false", "managed", "true", };
         connectionFactoryMode.setAliases(aliases);
         connectionFactoryMode.setDefault(aliases[0]);
 
@@ -351,10 +328,10 @@ public class OpenJPAConfigurationImpl
         optimistic.set(true);
 
         autoClear = addInt("AutoClear");
-        aliases = new String[]{
-            "datastore", String.valueOf(AutoClear.CLEAR_DATASTORE),
-            "all", String.valueOf(AutoClear.CLEAR_ALL),
-        };
+        aliases =
+            new String[] { "datastore",
+                String.valueOf(AutoClear.CLEAR_DATASTORE), "all",
+                String.valueOf(AutoClear.CLEAR_ALL), };
         autoClear.setAliases(aliases);
         autoClear.setDefault(aliases[0]);
         autoClear.set(AutoClear.CLEAR_DATASTORE);
@@ -365,14 +342,13 @@ public class OpenJPAConfigurationImpl
         retainState.set(true);
 
         restoreState = addInt("RestoreState");
-        aliases = new String[]{
-            "none", String.valueOf(RestoreState.RESTORE_NONE),
-            "false", String.valueOf(RestoreState.RESTORE_NONE),
-            "immutable", String.valueOf(RestoreState.RESTORE_IMMUTABLE),
-            // "true" for compat with jdo RestoreValues
-            "true", String.valueOf(RestoreState.RESTORE_IMMUTABLE),
-            "all", String.valueOf(RestoreState.RESTORE_ALL),
-        };
+        aliases =
+            new String[] { "none", String.valueOf(RestoreState.RESTORE_NONE),
+                "false", String.valueOf(RestoreState.RESTORE_NONE),
+                "immutable", String.valueOf(RestoreState.RESTORE_IMMUTABLE),
+                // "true" for compat with jdo RestoreValues
+                "true", String.valueOf(RestoreState.RESTORE_IMMUTABLE), "all",
+                String.valueOf(RestoreState.RESTORE_ALL), };
         restoreState.setAliases(aliases);
         restoreState.setDefault(aliases[0]);
         restoreState.set(RestoreState.RESTORE_IMMUTABLE);
@@ -382,11 +358,10 @@ public class OpenJPAConfigurationImpl
         addValue(autoDetach);
 
         detachStatePlugin = addPlugin("DetachState", true);
-        aliases = new String[]{
-            "loaded", DetachOptions.Loaded.class.getName(),
-            "fgs", DetachOptions.FetchGroups.class.getName(),
-            "all", DetachOptions.All.class.getName(),
-        };
+        aliases =
+            new String[] { "loaded", DetachOptions.Loaded.class.getName(),
+                "fgs", DetachOptions.FetchGroups.class.getName(), "all",
+                DetachOptions.All.class.getName(), };
         detachStatePlugin.setAliases(aliases);
         detachStatePlugin.setDefault(aliases[0]);
         detachStatePlugin.setString(aliases[0]);
@@ -406,20 +381,19 @@ public class OpenJPAConfigurationImpl
         fetchBatchSize.set(-1);
 
         maxFetchDepth = addInt("MaxFetchDepth");
-        maxFetchDepth.setDefault("1");
-        maxFetchDepth.set(1);
+        maxFetchDepth.setDefault("-1");
+        maxFetchDepth.set(-1);
 
         fetchGroups = addStringList("FetchGroups");
         fetchGroups.setDefault("default");
-        fetchGroups.set(new String[]{ "default" });
+        fetchGroups.set(new String[] { "default" });
 
         flushBeforeQueries = addInt("FlushBeforeQueries");
-        aliases = new String[]{
-            "true", String.valueOf(QueryFlushModes.FLUSH_TRUE),
-            "false", String.valueOf(QueryFlushModes.FLUSH_FALSE),
-            "with-connection", String.valueOf
-            (QueryFlushModes.FLUSH_WITH_CONNECTION),
-        };
+        aliases =
+            new String[] { "true", String.valueOf(QueryFlushModes.FLUSH_TRUE),
+                "false", String.valueOf(QueryFlushModes.FLUSH_FALSE),
+                "with-connection",
+                String.valueOf(QueryFlushModes.FLUSH_WITH_CONNECTION), };
         flushBeforeQueries.setAliases(aliases);
         flushBeforeQueries.setDefault(aliases[0]);
         flushBeforeQueries.set(QueryFlushModes.FLUSH_TRUE);
@@ -430,22 +404,20 @@ public class OpenJPAConfigurationImpl
         lockTimeout.set(-1);
 
         readLockLevel = addInt("ReadLockLevel");
-        aliases = new String[]{
-            "read", String.valueOf(LockLevels.LOCK_READ),
-            "write", String.valueOf(LockLevels.LOCK_WRITE),
-            "none", String.valueOf(LockLevels.LOCK_NONE),
-        };
+        aliases =
+            new String[] { "read", String.valueOf(LockLevels.LOCK_READ),
+                "write", String.valueOf(LockLevels.LOCK_WRITE), "none",
+                String.valueOf(LockLevels.LOCK_NONE), };
         readLockLevel.setAliases(aliases);
         readLockLevel.setDefault(aliases[0]);
         readLockLevel.set(LockLevels.LOCK_READ);
         readLockLevel.setAliasListComprehensive(true);
 
         writeLockLevel = addInt("WriteLockLevel");
-        aliases = new String[]{
-            "read", String.valueOf(LockLevels.LOCK_READ),
-            "write", String.valueOf(LockLevels.LOCK_WRITE),
-            "none", String.valueOf(LockLevels.LOCK_NONE),
-        };
+        aliases =
+            new String[] { "read", String.valueOf(LockLevels.LOCK_READ),
+                "write", String.valueOf(LockLevels.LOCK_WRITE), "none",
+                String.valueOf(LockLevels.LOCK_NONE), };
         writeLockLevel.setAliases(aliases);
         writeLockLevel.setDefault(aliases[1]);
         writeLockLevel.set(LockLevels.LOCK_WRITE);
@@ -456,39 +428,44 @@ public class OpenJPAConfigurationImpl
         addValue(seqPlugin);
 
         connectionRetainMode = addInt("ConnectionRetainMode");
-        aliases = new String[]{
-            "on-demand",
-            String.valueOf(ConnectionRetainModes.CONN_RETAIN_DEMAND),
-            "transaction",
-            String.valueOf(ConnectionRetainModes.CONN_RETAIN_TRANS),
-            "always",
-            String.valueOf(ConnectionRetainModes.CONN_RETAIN_ALWAYS),
-            // deprecated
-            "persistence-manager",
-            String.valueOf(ConnectionRetainModes.CONN_RETAIN_ALWAYS),
-        };
+        aliases =
+            new String[] { "on-demand",
+                String.valueOf(ConnectionRetainModes.CONN_RETAIN_DEMAND),
+                "transaction",
+                String.valueOf(ConnectionRetainModes.CONN_RETAIN_TRANS),
+                "always",
+                String.valueOf(ConnectionRetainModes.CONN_RETAIN_ALWAYS),
+                // deprecated
+                "persistence-manager",
+                String.valueOf(ConnectionRetainModes.CONN_RETAIN_ALWAYS), };
         connectionRetainMode.setAliases(aliases);
         connectionRetainMode.setDefault(aliases[0]);
         connectionRetainMode.setAliasListComprehensive(true);
         connectionRetainMode.set(ConnectionRetainModes.CONN_RETAIN_DEMAND);
 
         filterListenerPlugins = addPluginList("FilterListeners");
-        filterListenerPlugins.setInstantiatingGetter
-            ("getFilterListenerInstances");
+        filterListenerPlugins
+            .setInstantiatingGetter("getFilterListenerInstances");
 
         aggregateListenerPlugins = addPluginList("AggregateListeners");
-        aggregateListenerPlugins.setInstantiatingGetter
-            ("getAggregateListenerInstances");
+        aggregateListenerPlugins
+            .setInstantiatingGetter("getAggregateListenerInstances");
 
         retryClassRegistration = addBoolean("RetryClassRegistration");
 
         compatibilityPlugin = addPlugin("Compatibility", true);
-        aliases = new String[]{ "default", Compatibility.class.getName() };
+        aliases = new String[] { "default", Compatibility.class.getName() };
         compatibilityPlugin.setAliases(aliases);
         compatibilityPlugin.setDefault(aliases[0]);
         compatibilityPlugin.setString(aliases[0]);
         compatibilityPlugin.setInstantiatingGetter("getCompatibilityInstance");
-
+        
+        queryCompilationCachePlugin = new QueryCompilationCacheValue(
+            "QueryCompilationCache");
+        queryCompilationCachePlugin.setInstantiatingGetter(
+            "getQueryCompilationCacheInstance");
+        addValue(queryCompilationCachePlugin);
+        
         // initialize supported options that some runtimes may not support
         supportedOptions.add(OPTION_NONTRANS_READ);
         supportedOptions.add(OPTION_OPTIMISTIC);
@@ -527,11 +504,10 @@ public class OpenJPAConfigurationImpl
         if (this.spec != null) {
             if (!this.spec.equals(spec)
                 && getConfigurationLog().isWarnEnabled())
-                getConfigurationLog().warn(_loc.get("diff-specs", this.spec,
-                    spec));
+                getConfigurationLog().warn(
+                    _loc.get("diff-specs", this.spec, spec));
             return false;
         }
-
         this.spec = spec;
         ProductDerivations.afterSpecificationSet(this);
         return true;
@@ -576,8 +552,8 @@ public class OpenJPAConfigurationImpl
     }
 
     public BrokerImpl newBrokerInstance(String user, String pass) {
-        BrokerImpl broker = (BrokerImpl) brokerPlugin.instantiate
-            (BrokerImpl.class, this);
+        BrokerImpl broker =
+            (BrokerImpl) brokerPlugin.instantiate(BrokerImpl.class, this);
         if (broker != null)
             broker.setAuthentication(user, pass);
         return broker;
@@ -602,8 +578,9 @@ public class OpenJPAConfigurationImpl
     public DataCacheManager getDataCacheManagerInstance() {
         DataCacheManager dcm = (DataCacheManager) dataCacheManagerPlugin.get();
         if (dcm == null) {
-            dcm = (DataCacheManager) dataCacheManagerPlugin.instantiate
-                (DataCacheManager.class, this);
+            dcm =
+                (DataCacheManager) dataCacheManagerPlugin.instantiate(
+                    DataCacheManager.class, this);
             dcm.initialize(this, dataCachePlugin, queryCachePlugin);
         }
         return dcm;
@@ -680,8 +657,8 @@ public class OpenJPAConfigurationImpl
     }
 
     public InverseManager newInverseManagerInstance() {
-        return (InverseManager) inverseManagerPlugin.instantiate
-            (InverseManager.class, this);
+        return (InverseManager) inverseManagerPlugin.instantiate(
+            InverseManager.class, this);
     }
 
     public void setSavepointManager(String savepointManager) {
@@ -732,8 +709,8 @@ public class OpenJPAConfigurationImpl
         return remoteProviderPlugin.instantiateProvider(this);
     }
 
-    public void setRemoteCommitEventManager
-        (RemoteCommitEventManager remoteEventManager) {
+    public void setRemoteCommitEventManager(
+        RemoteCommitEventManager remoteEventManager) {
         assertNotReadOnly();
         this.remoteEventManager = remoteEventManager;
         remoteProviderPlugin.configureEventManager(remoteEventManager);
@@ -824,8 +801,8 @@ public class OpenJPAConfigurationImpl
     }
 
     public MetaDataFactory newMetaDataFactoryInstance() {
-        return (MetaDataFactory) metaFactoryPlugin.instantiate
-            (MetaDataFactory.class, this);
+        return (MetaDataFactory) metaFactoryPlugin.instantiate(
+            MetaDataFactory.class, this);
     }
 
     public void setMetaDataRepository(String meta) {
@@ -844,14 +821,13 @@ public class OpenJPAConfigurationImpl
 
     public MetaDataRepository getMetaDataRepositoryInstance() {
         if (metaRepository == null)
-            metaRepository = (MetaDataRepository) metaRepositoryPlugin.
-                instantiate(MetaDataRepository.class, this);
+            metaRepository = newMetaDataRepositoryInstance();
         return metaRepository;
     }
 
     public MetaDataRepository newMetaDataRepositoryInstance() {
-        return (MetaDataRepository) metaRepositoryPlugin.instantiate
-            (MetaDataRepository.class, this);
+        return (MetaDataRepository) metaRepositoryPlugin.instantiate(
+            MetaDataRepository.class, this);
     }
 
     public void setConnectionUserName(String connectionUserName) {
@@ -899,8 +875,8 @@ public class OpenJPAConfigurationImpl
         return connectionProperties.getString();
     }
 
-    public void setConnectionFactoryProperties
-        (String connectionFactoryProperties) {
+    public void setConnectionFactoryProperties(
+        String connectionFactoryProperties) {
         assertNotReadOnly();
         this.connectionFactoryProperties.setString(connectionFactoryProperties);
     }
@@ -943,8 +919,8 @@ public class OpenJPAConfigurationImpl
 
     public Object getConnectionFactory() {
         if (connectionFactory.get() == null)
-            connectionFactory.set(lookupConnectionFactory
-                (getConnectionFactoryName()), true);
+            connectionFactory.set(
+                lookupConnectionFactory(getConnectionFactoryName()), true);
         return connectionFactory.get();
     }
 
@@ -952,9 +928,9 @@ public class OpenJPAConfigurationImpl
      * Lookup the connection factory at the given name.
      */
     private Object lookupConnectionFactory(String name) {
-        if (name == null || name.trim().length() == 0)
+        name = StringUtils.trimToNull(name);
+        if (name == null)
             return null;
-
         return Configurations.lookup(name);
     }
 
@@ -1003,11 +979,11 @@ public class OpenJPAConfigurationImpl
         return connection2Properties.getString();
     }
 
-    public void setConnectionFactory2Properties
-        (String connectionFactory2Properties) {
+    public void setConnectionFactory2Properties(
+        String connectionFactory2Properties) {
         assertNotReadOnly();
-        this.connectionFactory2Properties.setString
-            (connectionFactory2Properties);
+        this.connectionFactory2Properties
+            .setString(connectionFactory2Properties);
     }
 
     public String getConnectionFactory2Properties() {
@@ -1030,8 +1006,8 @@ public class OpenJPAConfigurationImpl
 
     public Object getConnectionFactory2() {
         if (connectionFactory2.get() == null)
-            connectionFactory2.set(lookupConnectionFactory
-                (getConnectionFactory2Name()), false);
+            connectionFactory2.set(
+                lookupConnectionFactory(getConnectionFactory2Name()), false);
         return connectionFactory2.get();
     }
 
@@ -1411,23 +1387,37 @@ public class OpenJPAConfigurationImpl
         return (Compatibility) compatibilityPlugin.get();
     }
 
+    public String getQueryCompilationCache() {
+        return queryCompilationCachePlugin.getString();
+    }
+
+    public void setQueryCompilationCache(String queryCompilationCache) {
+        queryCompilationCachePlugin.setString(queryCompilationCache);
+    }
+    
+    public Map getQueryCompilationCacheInstance() {
+        if (queryCompilationCachePlugin.get() == null)
+            queryCompilationCachePlugin.instantiate(Map.class, this);
+        return (Map) queryCompilationCachePlugin.get();
+    }
+
     public StoreFacadeTypeRegistry getStoreFacadeTypeRegistry() {
         return _storeFacadeRegistry;
     }
-
+    
     public void instantiateAll() {
         super.instantiateAll();
         getMetaDataRepositoryInstance();
         getRemoteCommitEventManager();
     }
 
-    public void close() {
+    protected void preClose() {
         ImplHelper.close(metaRepository);
         ImplHelper.close(remoteEventManager);
-        super.close();
+        super.preClose();
     }
 
     public Log getConfigurationLog() {
         return getLog(LOG_RUNTIME);
-	}
+    }
 }

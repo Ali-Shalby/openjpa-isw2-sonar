@@ -19,8 +19,8 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import javax.sql.DataSource;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
-import org.apache.openjpa.conf.ProductDerivations;
 import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
 import org.apache.openjpa.jdbc.kernel.JDBCBrokerFactory;
 import org.apache.openjpa.jdbc.kernel.LRSSizes;
@@ -39,6 +39,7 @@ import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.conf.IntValue;
 import org.apache.openjpa.lib.conf.ObjectValue;
 import org.apache.openjpa.lib.conf.PluginValue;
+import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.StringListValue;
 import org.apache.openjpa.lib.conf.StringValue;
 import org.apache.openjpa.lib.jdbc.ConnectionDecorator;
@@ -535,7 +536,7 @@ public class JDBCConfigurationImpl
         if (dbdictionary == null) {
             String clsName = dbdictionaryPlugin.getClassName();
             String props = dbdictionaryPlugin.getProperties();
-            if (clsName != null && clsName.length() > 0) {
+            if (!StringUtils.isEmpty(clsName)) {
                 dbdictionary = DBDictionaryFactory.newDBDictionary
                     (this, clsName, props);
             } else {
@@ -754,7 +755,7 @@ public class JDBCConfigurationImpl
                 // the driver name is always required, so if not specified,
                 // then no connection factory 2
                 String driver = getConnection2DriverName();
-                if (driver != null && driver.length() > 0)
+                if (!StringUtils.isEmpty(driver))
                     ds = DataSourceFactory.newDataSource(this, true);
             }
             if (ds != null) {
@@ -852,7 +853,7 @@ public class JDBCConfigurationImpl
     /**
      * Free the data sources.
      */
-    public void close() {
+    protected void preClose() {
         if (dataSource != null) {
             getDBDictionaryInstance().closeDataSource(dataSource);
             connectionFactory.set(null, true); // so super doesn't close it
@@ -861,13 +862,19 @@ public class JDBCConfigurationImpl
             getDBDictionaryInstance().closeDataSource(dataSource);
             connectionFactory2.set(null, true); // so super doesn't close it
         }
-        super.close();
+        super.preClose();
     }
 
     protected boolean isInvalidProperty(String propName) {
+        if (super.isInvalidProperty(propName))
+            return true;
+
         // handle openjpa.jdbc.SomeMisspelledProperty, but not
         // openjpa.someotherimplementation.SomeProperty
-        return super.isInvalidProperty(propName)
-            || propName.toLowerCase().startsWith("openjpa.jdbc");
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
+        for (int i = 0; i < prefixes.length; i++)
+            if (propName.toLowerCase().startsWith(prefixes[i] + ".jdbc"))
+                return true; 
+        return false;
     }
 }

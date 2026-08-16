@@ -101,6 +101,7 @@ public class ConfigurationImpl
         (ConfigurationImpl.class);
 
     public ObjectValue logFactoryPlugin;
+    public StringValue id;
 
     private String _product = null;
     private boolean _readOnly = false;
@@ -108,7 +109,6 @@ public class ConfigurationImpl
     private boolean _globals = false;
     private String _auto = null;
     private final List _vals = new ArrayList();
-    private List _prefixes = new ArrayList(2);
 
     // property listener helper
     private PropertyChangeSupport _changeSupport = null;
@@ -119,7 +119,7 @@ public class ConfigurationImpl
 
     /**
      * Default constructor. Attempts to load default properties through
-     * system's configured {@link ConfigurationProvider}s.
+     * system's configured {@link ProductDerivation}s.
      */
     public ConfigurationImpl() {
         this(true);
@@ -131,11 +131,12 @@ public class ConfigurationImpl
      * @param loadGlobals whether to attempt to load the global properties
      */
     public ConfigurationImpl(boolean loadGlobals) {
-        setProductName("openjpa"); // also adds as prop prefix
+        setProductName("openjpa");
 
         logFactoryPlugin = addPlugin("Log", true);
         String[] aliases = new String[]{
             "true", LogFactoryImpl.class.getName(),
+            "openjpa", LogFactoryImpl.class.getName(),
             "commons", "org.apache.openjpa.lib.log.CommonsLogFactory",
             "log4j", "org.apache.openjpa.lib.log.Log4JLogFactory",
             "none", NoneLogFactory.class.getName(),
@@ -146,16 +147,18 @@ public class ConfigurationImpl
         logFactoryPlugin.setString(aliases[0]);
         logFactoryPlugin.setInstantiatingGetter("getLogFactory");
 
+        id = addString("Id");
+        
         if (loadGlobals)
             loadGlobals();
     }
 
     /**
      * Automatically load global values from the system's
-     * {@link ConfigurationProvider}s, and from System properties.
+     * {@link ProductDerivation}s, and from System properties.
      */
     public boolean loadGlobals() {
-        ConfigurationProvider provider = Configurations.loadGlobals
+        ConfigurationProvider provider = ProductDerivations.loadGlobals
             (getClass().getClassLoader());
         if (provider != null)
             provider.setInto(this);
@@ -183,7 +186,6 @@ public class ConfigurationImpl
 
     public void setProductName(String name) {
         _product = name;
-        addPropertyPrefix(name);
     }
 
     public LogFactory getLogFactory() {
@@ -208,6 +210,15 @@ public class ConfigurationImpl
 
     public Log getLog(String category) {
         return getLogFactory().getLog(category);
+    }
+
+    public String getId() {
+        return id.get();
+    }
+    
+    public void setId(String id) {
+        assertNotReadOnly();
+        this.id.set(id);
     }
 
     /**
@@ -307,8 +318,8 @@ public class ConfigurationImpl
         // keep cached props up to date
         if (_props != null) {
             if (newString == null)
-                remove(_props, val);
-            else if (containsKey(_props, val)
+                Configurations.removeProperty(val.getProperty(), _props);
+            else if (Configurations.containsProperty(val.getProperty(), _props)
                 || val.getDefault() == null
                 || !val.getDefault().equals(newString))
                 put(_props, val, newString);
@@ -318,7 +329,11 @@ public class ConfigurationImpl
     /**
      * Closes all closeable values and plugins.
      */
-    public void close() {
+    public final void close() {
+        ProductDerivations.beforeClose(this);
+        
+        preClose();
+        
         ObjectValue val;
         for (int i = 0; i < _vals.size(); i++) {
             if (_vals.get(i) instanceof Closeable) {
@@ -338,6 +353,16 @@ public class ConfigurationImpl
                 }
             }
         }
+    }
+    
+    /**
+     * Invoked by final method {@link #close} after invoking the 
+     * {@link ProductDerivation#beforeConfigurationClose} callbacks
+     * but before performing internal close operations.
+     * 
+     * @since 0.9.7
+     */
+    protected void preClose() {
     }
 
     ///////////////////////////
@@ -371,12 +396,19 @@ public class ConfigurationImpl
     public synchronized MethodDescriptor[] getMethodDescriptors() {
         if (_mds != null)
             return _mds;
+
         PropertyDescriptor[] pds = getPropertyDescriptors();
-        _mds = new MethodDescriptor[pds.length * 2];
+        List descs = new ArrayList(); 
         for (int i = 0; i < pds.length; i++) {
-            _mds[i * 2] = new MethodDescriptor(pds[i].getWriteMethod());
-            _mds[(i * 2) + 1] = new MethodDescriptor(pds[i].getReadMethod());
+            Method write = pds[i].getWriteMethod();
+            Method read = pds[i].getReadMethod();
+            if (read != null && write != null) {
+                descs.add(new MethodDescriptor(write));
+                descs.add(new MethodDescriptor(read));
+            }
         }
+        _mds = (MethodDescriptor[])descs.
+            toArray(new MethodDescriptor[descs.size()]);
         return _mds;
     }
 
@@ -419,8 +451,8 @@ public class ConfigurationImpl
         // set up property descriptor
         PropertyDescriptor pd;
         try {
-            pd = new PropertyDescriptor
-                (Introspector.decapitalize(prop), getClass());
+            pd = new PropertyDescriptor(Introspector.decapitalize(prop), 
+                getClass());
         } catch (IntrospectionException ie) {
             // if there aren't any methods for this value(i.e., if it's a
             // dynamically-added value), then an IntrospectionException will
@@ -527,11 +559,6 @@ public class ConfigurationImpl
     // To/from maps
     ////////////////
 
-    public void addPropertyPrefix(String prefix) {
-        if (!_prefixes.contains(prefix))
-            _prefixes.add(prefix);
-    }
-
     public Map toProperties(boolean storeDefaults) {
         // clone properties before making any modifications; we need to keep
         // the internal properties instance consistent to maintain equals and
@@ -553,7 +580,8 @@ public class ConfigurationImpl
                 // if key in existing properties, we already know value is up
                 // to date
                 val = (Value) _vals.get(i);
-                if (_props != null && containsKey(_props, val))
+                if (_props != null && Configurations.containsProperty
+                    (val.getProperty(), _props))
                     continue;
 
                 str = val.getString();
@@ -598,14 +626,13 @@ public class ConfigurationImpl
                 ser &= o instanceof Serializable;
                 val.setObject(o);
             }
-            remove(remaining, val);
+            Configurations.removeProperty(val.getProperty(), remaining);
         }
         
         // convention is to point product at a resource with the
         // <prefix>.properties System property; remove that property so we
         // we don't warn about it
-        for (int i = 0; i < _prefixes.size(); i++)
-            remaining.remove(_prefixes.get(i) + ".properties");
+        Configurations.removeProperty("properties", remaining);
 
         // now warn if there are any remaining properties that there
         // is an unhandled prop
@@ -630,39 +657,20 @@ public class ConfigurationImpl
     private void put(Map map, Value val, Object o) {
         Object key = val.getLoadKey();
         if (key == null)
-            key = _prefixes.get(0) + "." + val.getProperty();
+            key = "openjpa." + val.getProperty();
         map.put(key, o);
-    }
-
-    /**
-     * Return whether <code>map</code> contains an entry for <code>val</code>.
-     */
-    private boolean containsKey(Map map, Value val) {
-        for (int i = 0; i < _prefixes.size(); i++)
-            if (map.containsKey(_prefixes.get(i) + "." + val.getProperty()))
-                return true;
-        return false;
-    }
-
-    /**
-     * Removes <code>val</code> from <code>map</code>. Use this method
-     * instead of attempting to remove the value directly because this will
-     * account for any duplicate-but-same-valued keys in the map.
-     */
-    private void remove(Map map, Value val) {
-        for (int i = 0; i < _prefixes.size(); i++)
-            map.remove(_prefixes.get(i) + "." + val.getProperty());
     }
 
     /**
      * Look up the given value, testing all available prefixes.
      */
     private Object get(Map map, Value val, boolean setLoadKey) {
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
         String firstKey = null;
         String key;
         Object o = null;
-        for (int i = 0; i < _prefixes.size(); i++) {
-            key = _prefixes.get(i) + "." + val.getProperty();
+        for (int i = 0; i < prefixes.length; i++) {
+            key = prefixes[i] + "." + val.getProperty();
             if (firstKey == null) {
                 o = map.get(key);
                 if (o != null)
@@ -705,11 +713,11 @@ public class ConfigurationImpl
      * Return a comprehensive list of recognized map keys.
      */
     private Collection newPropertyList() {
-        List l = new ArrayList(_vals.size() * _prefixes.size());
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
+        List l = new ArrayList(_vals.size() * prefixes.length);
         for (int i = 0; i < _vals.size(); i++) {
-            for (int j = 0; j < _prefixes.size(); j++)
-                l.add(_prefixes.get(j) + "." 
-                    + ((Value) _vals.get(i)).getProperty());
+            for (int j = 0; j < prefixes.length; j++)
+                l.add(prefixes[j] + "." + ((Value) _vals.get(i)).getProperty());
         }
         return l;
     }
@@ -722,12 +730,13 @@ public class ConfigurationImpl
         // handle warnings for openjpa.SomeString, but not for
         // openjpa.some.subpackage.SomeString, since it might be valid for some
         // specific implementation of OpenJPA
-        String prefix;
-        for (int i = 0; i < _prefixes.size(); i++) {
-            prefix = (String) _prefixes.get(i) + ".";
-            if (propName.toLowerCase().startsWith(prefix)
-                && propName.length() > prefix.length()
-                && propName.indexOf('.', prefix.length()) == -1)
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
+        for (int i = 0; i < prefixes.length; i++) {
+            if (propName.toLowerCase().startsWith(prefixes[i])
+                && propName.length() > prefixes[i].length() + 1
+                && propName.indexOf('.', prefixes[i].length()) 
+                == prefixes[i].length()
+                && propName.indexOf('.', prefixes[i].length() + 1) == -1)
                 return true;
         }
         return false;
@@ -743,8 +752,8 @@ public class ConfigurationImpl
      * <code>properties</code> value with the name of a resource.
      */
     public void setProperties(String resourceName) throws IOException {
-        Configurations.load(resourceName, getClass().getClassLoader()).
-            setInto(this);
+        ProductDerivations.load(resourceName, null, 
+            getClass().getClassLoader()).setInto(this);
         _auto = resourceName;
     }
 
@@ -754,7 +763,8 @@ public class ConfigurationImpl
      * <code>propertiesFile</code> value with the name of a file.
      */
     public void setPropertiesFile(File file) throws IOException {
-        Configurations.load(file, getClass().getClassLoader()).setInto(this);
+        ProductDerivations.load(file, null, getClass().getClassLoader()).
+            setInto(this);
         _auto = file.toString();
     }
 
@@ -853,7 +863,6 @@ public class ConfigurationImpl
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
         fromProperties((Map) in.readObject());
-        _prefixes = (List) in.readObject();
         _globals = in.readBoolean();
     }
 
@@ -866,7 +875,6 @@ public class ConfigurationImpl
             out.writeObject(_props);
         else
             out.writeObject(toProperties(false));
-        out.writeObject(_prefixes);
         out.writeBoolean(_globals);
     }
 
@@ -880,8 +888,6 @@ public class ConfigurationImpl
                 (new Class[]{ boolean.class });
             ConfigurationImpl clone = (ConfigurationImpl) cons.newInstance
                 (new Object[]{ Boolean.FALSE });
-            clone._prefixes.clear();
-            clone._prefixes.addAll(_prefixes);
             clone._globals = _globals;
             clone.fromProperties(toProperties(true));
             return clone;

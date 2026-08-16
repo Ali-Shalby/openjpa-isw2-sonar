@@ -15,6 +15,7 @@
  */
 package org.apache.openjpa.jdbc.meta;
 
+import java.io.Serializable;
 import java.sql.SQLException;
 
 import org.apache.openjpa.jdbc.schema.Column;
@@ -31,10 +32,10 @@ import org.apache.openjpa.meta.ValueMetaData;
  * Specialization of value metadata for relational databases.
  *
  * @author Abe White
- * @since 4.0
+ * @since 0.4.0
  */
 public interface ValueMapping
-    extends ValueMetaData, MetaDataContext {
+    extends ValueMetaData, MetaDataContext, Serializable {
 
     /**
      * Standard forward join.

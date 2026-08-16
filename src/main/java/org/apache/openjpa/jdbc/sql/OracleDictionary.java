@@ -80,7 +80,7 @@ public class OracleDictionary
     public String autoAssignSequenceName = null;
 
     /**
-     * Flag to use OpenJPA 3 style naming for auto assign sequence name and
+     * Flag to use OpenJPA 0.3 style naming for auto assign sequence name and
      * trigger name for backwards compatibility.
      */
     public boolean openjpa3GeneratedKeyNames = false;
@@ -135,6 +135,9 @@ public class OracleDictionary
         smallintTypeName = "NUMBER{0}";
         tinyintTypeName = "NUMBER{0}";
         longVarcharTypeName = "LONG";
+        binaryTypeName = "BLOB";
+        varbinaryTypeName = "BLOB";
+        longVarbinaryTypeName = "BLOB";
         timeTypeName = "DATE";
         varcharTypeName = "VARCHAR2{0}";
         fixedSizeTypeNameSet.addAll(Arrays.asList(new String[]{
@@ -533,8 +536,16 @@ public class OracleDictionary
 
     public Timestamp getTimestamp(ResultSet rs, int column, Calendar cal)
         throws SQLException {
-        if (cal == null)
-            return super.getTimestamp(rs, column, cal);
+        if (cal == null) {
+            try {
+                return super.getTimestamp(rs, column, cal);
+            } catch (ArrayIndexOutOfBoundsException ae) {
+                // CR295604: issue a warning this this bug can be gotten
+                // around with SupportsTimestampNanos=false
+                log.warn(_loc.get("oracle-timestamp-bug"), ae);
+                throw ae;
+            }
+        }
 
         // handle Oracle bug where nanos not returned from call with Calendar
         // parameter
@@ -546,7 +557,7 @@ public class OracleDictionary
 
     public Object getObject(ResultSet rs, int column, Map map)
         throws SQLException {
-        // recent oracle dirvers return oracle-specific types for timestamps
+        // recent oracle drivers return oracle-specific types for timestamps
         // and dates
         Object obj = super.getObject(rs, column, map);
         if (obj == null)

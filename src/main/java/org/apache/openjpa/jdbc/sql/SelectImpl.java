@@ -36,6 +36,7 @@ import java.util.Stack;
 import java.util.TreeMap;
 
 import org.apache.commons.collections.iterators.EmptyIterator;
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
@@ -283,7 +284,7 @@ public class SelectImpl
         throws SQLException {
         if (fetch == null)
             fetch = store.getFetchConfiguration();
-        return execute(this, store.getContext(), store, fetch,
+        return execute(store.getContext(), store, fetch,
             fetch.getReadLockLevel());
     }
 
@@ -292,31 +293,31 @@ public class SelectImpl
         throws SQLException {
         if (fetch == null)
             fetch = store.getFetchConfiguration();
-        return execute(this, store.getContext(), store, fetch, lockLevel);
+        return execute(store.getContext(), store, fetch, lockLevel);
     }
 
     /**
      * Execute this select in the context of the given store manager. The
      * context is passed in separately for profiling purposes.
      */
-    private static Result execute(SelectImpl sel, StoreContext ctx,
-        JDBCStore store, JDBCFetchConfiguration fetch, int lockLevel)
+    protected Result execute(StoreContext ctx, JDBCStore store, 
+        JDBCFetchConfiguration fetch, int lockLevel)
         throws SQLException {
         boolean forUpdate = false;
-        if (!sel.isAggregate() && sel._grouping == null) {
+        if (!isAggregate() && _grouping == null) {
             JDBCLockManager lm = store.getLockManager();
             if (lm != null)
-                forUpdate = lm.selectForUpdate(sel, lockLevel);
+                forUpdate = lm.selectForUpdate(this, lockLevel);
         }
 
-        SQLBuffer sql = sel.toSelect(forUpdate, fetch);
-        int rsType = (sel.isLRS() && sel.supportsRandomAccess(forUpdate))
+        SQLBuffer sql = toSelect(forUpdate, fetch);
+        int rsType = (isLRS() && supportsRandomAccess(forUpdate))
             ? -1 : ResultSet.TYPE_FORWARD_ONLY;
         Connection conn = store.getConnection();
         PreparedStatement stmnt = null;
         ResultSet rs = null;
         try {
-            if (sel.isLRS())
+            if (isLRS())
                 stmnt = sql.prepareStatement(conn, fetch, rsType, -1);
             else
                 stmnt = sql.prepareStatement(conn, rsType, -1);
@@ -329,12 +330,12 @@ public class SelectImpl
             throw se;
         }
 
-        SelectResult res = new SelectResult(conn, stmnt, rs, sel._dict);
-        res.setSelect(sel);
+        SelectResult res = new SelectResult(conn, stmnt, rs, _dict);
+        res.setSelect(this);
         res.setStore(store);
         res.setLocking(forUpdate);
         try {
-            addEagerResults(res, sel, store, fetch);
+            addEagerResults(res, this, store, fetch);
         } catch (SQLException se) {
             res.close();
             throw se;
@@ -759,7 +760,7 @@ public class SelectImpl
 
         // delegate to store manager to select in same order it loads result
         ((JDBCStoreManager) store).select(wrapper, mapping, subclasses, null,
-            null, fetch, eager, ident);
+            null, fetch, eager, ident, (_flags & OUTER) != 0);
 
         // reset
         if (hasJoins)
@@ -1121,6 +1122,15 @@ public class SelectImpl
             (mapping.getPrimaryKeyColumns(), fk.getPrimaryKeyColumns())) {
             if (joins == null)
                 joins = newJoins();
+            // traverse to foreign key target mapping
+            while (mapping.getTable() != fk.getPrimaryKeyTable()) {
+                if (joins == null)
+                    joins = newJoins();
+                joins = mapping.joinSuperclass(joins, false);
+                mapping = mapping.getJoinablePCSuperclassMapping();
+                if (mapping == null)
+                    throw new InternalException();
+            }
             joins = joins.join(fk, false, false);
             wherePrimaryKey(oid, mapping, joins, store);
             return;
@@ -1159,8 +1169,7 @@ public class SelectImpl
         int count = 0;
         for (int i = 0; i < toCols.length; i++, count++) {
             if (pks == null)
-                val = (oid == null) ? null
-                    : Numbers.valueOf(((Id) oid).getId());
+                val = (oid == null) ? null : Numbers.valueOf(((Id)oid).getId());
             else {
                 // must be app identity; use pk index to get correct pk value
                 join = mapping.assertJoinable(toCols[i]);
@@ -1256,7 +1265,7 @@ public class SelectImpl
      */
     private void where(String sql, PathJoins pj) {
         // no need to use joins...
-        if (sql == null || sql.length() == 0)
+        if (StringUtils.isEmpty(sql))
             return;
 
         if (_where == null)
@@ -1302,7 +1311,7 @@ public class SelectImpl
      */
     private void having(String sql, PathJoins pj) {
         // no need to use joins...
-        if (sql == null || sql.length() == 0)
+        if (StringUtils.isEmpty(sql))
             return;
 
         if (_having == null)
@@ -1470,7 +1479,7 @@ public class SelectImpl
         Select[] clones = null;
         SelectImpl sel;
         for (int i = 0; i < sels; i++) {
-            sel = new SelectImpl(_conf);
+            sel = (SelectImpl) _conf.getSQLFactoryInstance().newSelect();
             sel._flags = _flags;
             sel._flags &= ~AGGREGATE;
             sel._flags &= ~OUTER;
@@ -1626,6 +1635,10 @@ public class SelectImpl
         return this;
     }
 
+    public Joins newOuterJoins() {
+        return ((PathJoins) newJoins()).setOuter(true);
+    }
+
     public void append(SQLBuffer buf, Joins joins) {
         if (joins == null || joins.isEmpty())
             return;
@@ -1744,10 +1757,9 @@ public class SelectImpl
             return joins;
 
         // record that this is an outer join set, even if it's empty
-        PathJoins pj = (PathJoins) joins;
-        pj.setOuter(true);
-        if (joins.isEmpty())
-            return joins;
+        PathJoins pj = ((PathJoins) joins).setOuter(true);
+        if (pj.isEmpty())
+            return pj;
 
         Join join;
         Join rec;
@@ -1928,7 +1940,8 @@ public class SelectImpl
         return false;
     }
 
-    public void setOuter(boolean outer) {
+    public PathJoins setOuter(boolean outer) {
+        return new SelectJoins(this).setOuter(true);
     }
 
     public boolean isDirty() {
@@ -1994,14 +2007,12 @@ public class SelectImpl
      * Represents a SQL string selected with null id.
      */
     private static class NullId {
-
     }
 
     /**
      * Represents a placeholder SQL string.
      */
     private static class Placeholder {
-
     }
 
     /**
@@ -2256,8 +2267,7 @@ public class SelectImpl
                     return FROM_SELECT_ALIAS + "." + alias + "_" + col;
                 return alias + "_" + col;
             }
-            alias = _sel.toAlias(_sel.getTableIndex(col.getTable(), pj,
-                false));
+            alias = _sel.toAlias(_sel.getTableIndex(col.getTable(), pj, false));
             return (alias == null) ? null : alias + "." + col;
         }
 
@@ -2269,7 +2279,8 @@ public class SelectImpl
             return false;
         }
 
-        public void setOuter(boolean outer) {
+        public PathJoins setOuter(boolean outer) {
+            return this;
         }
 
         public boolean isDirty() {
@@ -2345,7 +2356,8 @@ public class SelectImpl
             return false;
         }
 
-        public void setOuter(boolean outer) {
+        public PathJoins setOuter(boolean outer) {
+            return this;
         }
 
         public boolean isDirty() {
@@ -2452,8 +2464,9 @@ public class SelectImpl
             return _outer;
         }
 
-        public void setOuter(boolean outer) {
+        public PathJoins setOuter(boolean outer) {
             _outer = outer;
+            return this;
         }
 
         public boolean isDirty() {
@@ -2568,10 +2581,9 @@ public class SelectImpl
             _outer = outer;
 
             if (createJoin) {
-                Table table2 = (inverse) ? fk.getTable()
+                Table table2 = (inverse) ? fk.getTable() 
                     : fk.getPrimaryKeyTable();
                 int alias2 = _sel.getTableIndex(table2, this, true);
-
                 Join j = new Join(table1, alias1, table2, alias2, fk, inverse);
                 j.setType((outer) ? Join.TYPE_OUTER : Join.TYPE_INNER);
 
@@ -2797,14 +2809,9 @@ interface PathJoins
     extends Joins {
 
     /**
-     * Return whether this join set ended with an outer join.
-     */
-    public boolean isOuter();
-
-    /**
      * Mark this as an outer joins set.
      */
-    public void setOuter(boolean outer);
+    public PathJoins setOuter(boolean outer);
 
     /**
      * Return true if this instance has a path, any joins, or a variable.

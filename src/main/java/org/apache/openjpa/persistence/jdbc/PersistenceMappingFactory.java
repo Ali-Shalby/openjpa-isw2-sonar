@@ -21,12 +21,13 @@ import org.apache.openjpa.meta.MetaDataFactory;
 import org.apache.openjpa.persistence.AnnotationPersistenceMetaDataParser;
 import org.apache.openjpa.persistence.PersistenceMetaDataFactory;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataParser;
+import org.apache.openjpa.persistence.XMLPersistenceMetaDataSerializer;
 
 /**
  * {@link MetaDataFactory} for JPA mapping information.
  *
  * @author Abe White
- * @since 4.0
+ * @since 0.4.0
  */
 public class PersistenceMappingFactory
     extends PersistenceMetaDataFactory {
@@ -54,5 +55,13 @@ public class PersistenceMappingFactory
             parser.setMappingOverride(((MappingRepository) repos).
                 getStrategyInstaller().isAdapting());
         return parser;
+    }
+
+    protected XMLPersistenceMetaDataSerializer newXMLSerializer() {
+        XMLPersistenceMappingSerializer ser = 
+            new XMLPersistenceMappingSerializer((JDBCConfiguration) 
+            repos.getConfiguration());
+        ser.setSyncMappingInfo(true);
+        return ser;
     }
 }

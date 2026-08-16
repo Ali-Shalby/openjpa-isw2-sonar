@@ -30,14 +30,18 @@ import javax.persistence.Entity;
 import javax.persistence.MappedSuperclass;
 import javax.persistence.NamedQueries;
 import javax.persistence.NamedQuery;
+import javax.persistence.NamedNativeQueries;
+import javax.persistence.NamedNativeQuery;
 
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.lib.conf.GenericConfigurable;
 import org.apache.openjpa.lib.meta.ClassAnnotationMetaDataFilter;
 import org.apache.openjpa.lib.meta.ClassArgParser;
 import org.apache.openjpa.lib.meta.MetaDataFilter;
 import org.apache.openjpa.lib.meta.MetaDataParser;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.meta.AbstractCFMetaDataFactory;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -52,22 +56,22 @@ import org.apache.openjpa.util.MetaDataException;
  * {@link MetaDataFactory} for JPA metadata.
  *
  * @author Steve Kim
- * @since 4.0
+ * @since 0.4.0
  */
 public class PersistenceMetaDataFactory
     extends AbstractCFMetaDataFactory
-    implements Configurable {
+    implements Configurable, GenericConfigurable {
 
     private static final Localizer _loc = Localizer.forPackage
         (PersistenceMetaDataFactory.class);
 
+    private final PersistenceMetaDataDefaults _def = 
+        new PersistenceMetaDataDefaults();
     private AnnotationPersistenceMetaDataParser _annoParser = null;
     private XMLPersistenceMetaDataParser _xmlParser = null;
-    private PersistenceMetaDataDefaults _def = null;
     private Map<URL, Set> _xml = null; // xml rsrc -> class names
     private Set<URL> _unparsed = null; // xml rsrc
     private boolean _fieldOverride = true;
-    private int _access = ClassMetaData.ACCESS_FIELD;
 
     /**
      * Whether to use field-level override or class-level override.
@@ -83,18 +87,6 @@ public class PersistenceMetaDataFactory
      */
     public boolean getFieldOverride() {
         return _fieldOverride;
-    }
-
-    /**
-     * The default access type for base classes with ACCESS_UNKNOWN
-     */
-    public void setDefaultAccessType(String type) {
-        if (type == null)
-            return;
-        if ("PROPERTY".equals(type.toUpperCase()))
-            _access = ClassMetaData.ACCESS_PROPERTY;
-        else
-            _access = ClassMetaData.ACCESS_FIELD;
     }
 
     /**
@@ -230,7 +222,7 @@ public class PersistenceMetaDataFactory
         ClassLoader loader = repos.getConfiguration().
             getClassResolverInstance().getClassLoader(cls, envLoader);
         XMLPersistenceMetaDataParser xmlParser = getXMLParser();
-        xmlParser.setClassLoader(loader);
+        xmlParser.setClassLoader(envLoader != null ? envLoader : loader);
         xmlParser.setEnvClassLoader(envLoader);
         xmlParser.setMode(mode);
         try {
@@ -274,8 +266,16 @@ public class PersistenceMetaDataFactory
                 (queryName, (NamedQuery) cls.getAnnotation(NamedQuery.class)))
                 return cls;
             if (cls.isAnnotationPresent(NamedQueries.class) &&
-                hasNamedQuery(queryName, ((NamedQueries) cls.getAnnotation
-                    (NamedQueries.class)).value()))
+                hasNamedQuery(queryName, ((NamedQueries) cls.
+                    getAnnotation(NamedQueries.class)).value()))
+                return cls;
+            if (cls.isAnnotationPresent(NamedNativeQuery.class) &&
+                hasNamedNativeQuery(queryName, (NamedNativeQuery) cls.
+                    getAnnotation(NamedNativeQuery.class)))
+                return cls;
+            if (cls.isAnnotationPresent(NamedNativeQueries.class) &&
+                hasNamedNativeQuery(queryName, ((NamedNativeQueries) cls.
+                    getAnnotation(NamedNativeQueries.class)).value()))
                 return cls;
         }
         return null;
@@ -283,6 +283,15 @@ public class PersistenceMetaDataFactory
 
     private boolean hasNamedQuery(String query, NamedQuery... queries) {
         for (NamedQuery q : queries) {
+            if (query.equals(q.name()))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean hasNamedNativeQuery(String query,
+        NamedNativeQuery... queries) {
+        for (NamedNativeQuery q : queries) {
             if (query.equals(q.name()))
                 return true;
         }
@@ -314,10 +323,6 @@ public class PersistenceMetaDataFactory
     }
 
     public MetaDataDefaults getDefaults() {
-        if (_def == null) {
-            _def = new PersistenceMetaDataDefaults();
-            _def.setDefaultAccessType(_access);
-        }
         return _def;
     }
 
@@ -396,4 +401,8 @@ public class PersistenceMetaDataFactory
         else
 			rsrcs.add ("META-INF/orm.xml");
 	}
+
+    public void setInto(Options opts) {
+        opts.keySet().retainAll(opts.setInto(_def).keySet());
+    }
 }

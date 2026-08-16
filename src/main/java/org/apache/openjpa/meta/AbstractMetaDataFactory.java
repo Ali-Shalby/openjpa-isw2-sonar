@@ -22,6 +22,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.ClassArgParser;
@@ -37,11 +38,12 @@ public abstract class AbstractMetaDataFactory
     implements MetaDataFactory {
 
     protected MetaDataRepository repos = null;
-    protected Log log = null;
+    protected transient Log log = null;
     protected File dir = null;
     protected int store = STORE_DEFAULT;
     protected boolean strict = false;
     protected Set types = null;
+
 
     /**
      * Set of persistent type names supplied by user.
@@ -55,7 +57,7 @@ public abstract class AbstractMetaDataFactory
      * auto-configuration.
      */
     public void setTypes(String types) {
-        this.types = (types == null || types.length() == 0) ? null
+        this.types = (StringUtils.isEmpty(types)) ? null
             : new HashSet(Arrays.asList(Strings.split(types, ";", 0)));
     }
 

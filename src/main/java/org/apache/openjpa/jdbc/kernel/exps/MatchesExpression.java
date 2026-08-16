@@ -17,10 +17,7 @@ package org.apache.openjpa.jdbc.kernel.exps;
 
 import java.util.Map;
 
-import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
-import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.schema.Column;
-import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
@@ -39,7 +36,6 @@ class MatchesExpression
     private final String _single;
     private final String _multi;
     private final String _escape;
-    private Joins _joins = null;
 
     /**
      * Constructor. Supply values.
@@ -53,26 +49,26 @@ class MatchesExpression
         _escape = escape;
     }
 
-    public void initialize(Select sel, JDBCStore store,
-        Object[] params, Map contains) {
-        _val.initialize(sel, store, false);
-        _const.initialize(sel, store, false);
-        _joins = sel.and(_val.getJoins(), _const.getJoins());
+    public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
+        ExpState s1 = _val.initialize(sel, ctx, 0);
+        ExpState s2 = _const.initialize(sel, ctx, 0);
+        return new BinaryOpExpState(sel.and(s1.joins, s2.joins), s1, s2);
     }
 
-    public void appendTo(SQLBuffer buf, Select sel, JDBCStore store,
-        Object[] params, JDBCFetchConfiguration fetch) {
-        _val.calculateValue(sel, store, params, _const, fetch);
-        _const.calculateValue(sel, store, params, _val, fetch);
+    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+        SQLBuffer buf) {
+        BinaryOpExpState bstate = (BinaryOpExpState) state;
+        _val.calculateValue(sel, ctx, bstate.state1, _const, bstate.state2);
+        _const.calculateValue(sel, ctx, bstate.state2, _val, bstate.state1);
 
         Column col = null;
         if (_val instanceof PCPath) {
-            Column[] cols = ((PCPath) _val).getColumns();
+            Column[] cols = ((PCPath) _val).getColumns(bstate.state1);
             if (cols.length == 1)
                 col = cols[0];
         }
 
-        Object o = _const.getValue();
+        Object o = _const.getValue(ctx, bstate.state2);
         if (o == null)
             buf.append("1 <> 1");
         else {
@@ -92,36 +88,59 @@ class MatchesExpression
             // append target
             if (ignoreCase)
                 buf.append("LOWER(");
-            _val.appendTo(buf, 0, sel, store, params, fetch);
+            _val.appendTo(sel, ctx, bstate.state1, buf, 0);
             if (ignoreCase)
                 buf.append(")");
 
             // create a DB wildcard string by replacing the
             // multi token (e.g., '.*') and the single token (e.g., ".")
             // with '%' and '.' with '_'
-            str = Strings.replace(str, _multi, "%");
-            str = Strings.replace(str, _single, "_");
-
+            str = replaceEscape(str, _multi, "%", _escape);
+            str = replaceEscape(str, _single, "_", _escape);
             buf.append(" LIKE ").appendValue(str, col);
 
             // escape out characters by using the database's escape sequence
             if (_escape != null)
                 buf.append(" ESCAPE '").append(_escape).append("'");
         }
-        sel.append(buf, _joins);
-
-        _val.clearParameters();
-        _const.clearParameters();
+        sel.append(buf, state.joins);
     }
 
-    public void selectColumns(Select sel, JDBCStore store,
-        Object[] params, boolean pks, JDBCFetchConfiguration fetch) {
-        _val.selectColumns(sel, store, params, true, fetch);
-        _const.selectColumns(sel, store, params, true, fetch);
+    /** 
+     * Perform a string replacement with simplistic escape handing. 
+     *  
+     * @param  str      the source string
+     * @param  from     the string to find
+     * @param  to       the string to replace
+     * @param  escape   the string to use to escape replacement
+     * @return          the replaced string
+     */
+    private static String replaceEscape(String str, String from, String to,
+        String escape) {
+        String[] parts = Strings.split(str, from, Integer.MAX_VALUE);
+        StringBuffer repbuf = new StringBuffer();
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) {
+                // if the previous part ended with an escape character, then
+                // escape the character and remove the previous escape;
+                // this doesn't support any double-escaping or other more
+                // sophisticated features
+                if (!from.equals(to) && parts[i - 1].endsWith(escape)) {
+                    repbuf.setLength(repbuf.length() - 1);
+                    repbuf.append(from);
+                } else
+                    repbuf.append(to);
+            }
+            repbuf.append(parts[i]);
+        }
+        return repbuf.toString();
     }
 
-    public Joins getJoins() {
-        return _joins;
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+        boolean pks) {
+        BinaryOpExpState bstate = (BinaryOpExpState) state;
+        _val.selectColumns(sel, ctx, bstate.state1, true);
+        _const.selectColumns(sel, ctx, bstate.state2, true);
     }
 
     public void acceptVisit(ExpressionVisitor visitor) {

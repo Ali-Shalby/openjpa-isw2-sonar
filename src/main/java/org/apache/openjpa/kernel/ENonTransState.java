@@ -17,7 +17,7 @@ package org.apache.openjpa.kernel;
 
 /**
  * Lifecycle state.
- *  Represents an embedded instance that is not transactional, but that
+ * Represents an embedded instance that is not transactional, but that
  * allows access to persistent data. This state is reachable only if the
  * retainValues flag of the broker is set.
  *
@@ -55,13 +55,11 @@ class ENonTransState
     }
 
     PCState beforeRead(StateManagerImpl context, int field) {
-        error("embed-ref", context);
-        return null;
+        return error("embed-ref", context);
     }
 
     PCState beforeWrite(StateManagerImpl context, int field, boolean mutate) {
-        error("embed-ref", context);
-        return null;
+        return error("embed-ref", context);
     }
 
     PCState beforeOptimisticWrite(StateManagerImpl context, int field,

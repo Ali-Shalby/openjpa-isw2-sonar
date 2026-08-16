@@ -23,6 +23,7 @@ import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Arrays;
 
+import org.apache.commons.lang.StringUtils;
 import org.hsqldb.Trace;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -32,7 +33,6 @@ import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.ReferentialIntegrityException;
-import serp.util.Numbers;
 
 /**
  * Dictionary for Hypersonic SQL database.
@@ -77,6 +77,7 @@ public class HSQLDictionary
 
         useGetObjectForBlobs = true;
         blobTypeName = "VARBINARY";
+        doubleTypeName = "NUMERIC";
 
         supportsNullTableForGetPrimaryKeys = true;
         supportsNullTableForGetIndexInfo = true;
@@ -146,7 +147,7 @@ public class HSQLDictionary
         String pkStr;
         if (pk != null) {
             pkStr = getPrimaryKeyConstraintSQL(pk);
-            if (pkStr != null && pkStr.length() > 0)
+            if (!StringUtils.isEmpty(pkStr))
                 buf.append(", ").append(pkStr);
         }
 
@@ -213,14 +214,16 @@ public class HSQLDictionary
         return cols;
     }
 
-    public void setLong(PreparedStatement stmnt, int idx, long val, Column col)
+    public void setDouble(PreparedStatement stmnt, int idx, double val,
+        Column col)
         throws SQLException {
-        if (val == Long.MIN_VALUE) {
-            val = Long.MIN_VALUE + 1;
-            storageWarning(Numbers.valueOf(Long.MIN_VALUE),
-                Numbers.valueOf(val));
+        // HSQL has a bug where it cannot store a double if it is
+        // exactly the same as Long.MAX_VALUE or MIN_VALUE
+        if (val == Long.MAX_VALUE || val == Long.MIN_VALUE) {
+            stmnt.setLong(idx, (long)val);
+        } else  {
+            super.setDouble(stmnt, idx, val, col);
         }
-        super.setLong(stmnt, idx, val, col);
     }
 
     public void setBigDecimal(PreparedStatement stmnt, int idx, BigDecimal val,

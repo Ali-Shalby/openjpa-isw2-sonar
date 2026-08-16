@@ -85,7 +85,8 @@ public class LogicalUnion
 
         SelectImpl seed;
         for (int i = 0; i < sels; i++) {
-            seed = (seeds == null) ? new SelectImpl(conf)
+            seed = (seeds == null)
+                ? (SelectImpl) conf.getSQLFactoryInstance().newSelect()
                 : (SelectImpl) seeds[i];
             this.sels[i] = newUnionSelect(seed, i);
         }
@@ -123,6 +124,10 @@ public class LogicalUnion
 
     public JDBCConfiguration getConfiguration() {
         return sels[0].getConfiguration();
+    }
+
+    public DBDictionary getDBDictionary() {
+        return dict;
     }
 
     public SQLBuffer toSelect(boolean forUpdate, JDBCFetchConfiguration fetch) {
@@ -808,6 +813,10 @@ public class LogicalUnion
 
         public Joins newJoins() {
             return sel.newJoins();
+        }
+
+        public Joins newOuterJoins() {
+            return sel.newOuterJoins();
         }
 
         public void append(SQLBuffer buf, Joins joins) {

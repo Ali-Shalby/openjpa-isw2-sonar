@@ -15,6 +15,8 @@
  */
 package org.apache.openjpa.kernel.exps;
 
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.commons.collections.map.LinkedMap;
@@ -27,7 +29,7 @@ import org.apache.openjpa.meta.FieldMetaData;
  * Struct to hold the state of a parsed expression query.
  *
  * @author Abe White
- * @since 3.2
+ * @since 0.3.2
  * @nojavadoc
  */
 public class QueryExpressions {
@@ -40,8 +42,7 @@ public class QueryExpressions {
     /**
      * Map of {@link FieldMetaData},{@link Value} for update statements.
      */
-    public Map updates = null;
-
+    public Map updates = Collections.EMPTY_MAP;
     public int distinct = DISTINCT_AUTO;
     public String alias = null;
     public Value[] projections = EMPTY_VALUES;
@@ -59,8 +60,12 @@ public class QueryExpressions {
     public int operation = QueryOperations.OP_SELECT;
     public ClassMetaData[] accessPath = StoreQuery.EMPTY_METAS;
     public String[] fetchPaths = StoreQuery.EMPTY_STRINGS;
+    public Value[] range = EMPTY_VALUES;
     private Boolean _aggregate = null;
 
+    /**
+     * Whether this is an aggregate results.
+     */
     public boolean isAggregate() {
         if (projections.length == 0)
             return false; 
@@ -68,6 +73,15 @@ public class QueryExpressions {
             _aggregate = (AggregateExpressionVisitor.isAggregate(projections))
                 ? Boolean.TRUE : Boolean.FALSE;
         return _aggregate.booleanValue();    
+    }
+
+    /**
+     * Add an update.
+     */
+    public void putUpdate(FieldMetaData fmd, Value val) {
+        if (updates == Collections.EMPTY_MAP)
+            updates = new HashMap();
+        updates.put(fmd, val);
     }
 
     /**

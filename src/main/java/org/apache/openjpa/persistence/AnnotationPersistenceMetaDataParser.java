@@ -98,8 +98,8 @@ import org.apache.openjpa.meta.SequenceMetaData;
 import org.apache.openjpa.meta.UpdateStrategies;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.meta.ValueStrategies;
+import org.apache.openjpa.meta.MetaDataDefaults;
 import static org.apache.openjpa.persistence.MetaDataTag.*;
-import static org.apache.openjpa.persistence.MetaDataTag.LRS;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
@@ -472,11 +472,9 @@ public class AnnotationPersistenceMetaDataParser
         if (isMetaDataMode()) {
             // while the spec only provides for embedded exclusive, it doesn't
             // seem hard to support otherwise
-            if (entity == null) {
+            if (entity == null)
                 meta.setEmbeddedOnly(true);
-                if (_cls.isAnnotationPresent(MappedSuperclass.class))
-                    meta.setIdentityType(ClassMetaData.ID_UNKNOWN);
-            } else {
+            else {
                 meta.setEmbeddedOnly(false);
                 if (!StringUtils.isEmpty(entity.name()))
                     meta.setTypeAlias(entity.name());
@@ -580,14 +578,14 @@ public class AnnotationPersistenceMetaDataParser
                         highs[i] = listeners[i].size();
             }
             recordCallbacks(meta, parseCallbackMethods(_cls, listeners, false,
-                false), highs, false);
+                false, getRepository()), highs, false);
 
             // scan possibly non-PC hierarchy for callbacks.
             // redundant for PC superclass but we don't know that yet
             // so let LifecycleMetaData determine that
             if (!Object.class.equals(_cls.getSuperclass())) {
-                recordCallbacks(meta, parseCallbackMethods(_cls.
-                    getSuperclass(), null, true, false), null, true);
+                recordCallbacks(meta, parseCallbackMethods(_cls.getSuperclass(),
+                    null, true, false, getRepository()), null, true);
             }
         }
 
@@ -759,7 +757,8 @@ public class AnnotationPersistenceMetaDataParser
         Class[] classes = listeners.value();
         Collection<LifecycleCallbacks>[] parsed = null;
         for (Class cls : classes)
-            parsed = parseCallbackMethods(cls, parsed, true, true);
+            parsed = parseCallbackMethods(cls, parsed, true, true, 
+                getRepository());
         return parsed;
     }
 
@@ -773,7 +772,7 @@ public class AnnotationPersistenceMetaDataParser
      */
     public static Collection<LifecycleCallbacks>[] parseCallbackMethods
         (Class cls, Collection<LifecycleCallbacks>[] callbacks, boolean sups,
-            boolean listener) {
+        boolean listener, MetaDataRepository repos) {
         // first sort / filter based on inheritance
         Set<Method> methods = new TreeSet<Method>(MethodComparator.
             getInstance());
@@ -796,16 +795,15 @@ public class AnnotationPersistenceMetaDataParser
                 }
             }
             sup = sup.getSuperclass();
-        }
-        while (sups && !Object.class.equals(sup));
+        } while (sups && !Object.class.equals(sup));
 
+        MetaDataDefaults def = repos.getMetaDataFactory().getDefaults();
         for (Method m : methods) {
             for (Annotation anno : m.getDeclaredAnnotations()) {
                 MetaDataTag tag = _tags.get(anno.annotationType());
                 if (tag == null)
                     continue;
-
-                int[] events = XMLPersistenceMetaDataParser.getEventTypes(tag);
+                int[] events = MetaDataParsers.getEventTypes(tag);
                 if (events == null)
                     continue;
 
@@ -813,12 +811,13 @@ public class AnnotationPersistenceMetaDataParser
                     callbacks = (Collection<LifecycleCallbacks>[])
                         new Collection[LifecycleEvent.ALL_EVENTS.length];
 
-                for (int i = 0; events != null && i < events.length; i++) {
+                for (int i = 0; i < events.length; i++) {
                     int e = events[i];
                     if (callbacks[e] == null)
                         callbacks[e] = new ArrayList(3);
-
                     if (listener) {
+                        MetaDataParsers.validateMethodsForSameCallback(cls, 
+                            callbacks[e], m, tag, def, repos.getLog());
                         callbacks[e].add(new BeanLifecycleCallbacks(cls, m,
                             false));
                     } else {
@@ -830,7 +829,7 @@ public class AnnotationPersistenceMetaDataParser
         }
         return callbacks;
     }
-
+    
     /**
      * Store lifecycle metadata.
      */
@@ -1202,7 +1201,7 @@ public class AnnotationPersistenceMetaDataParser
         if (!anno.optional())
             fmd.setNullValue(FieldMetaData.NULL_EXCEPTION);
         if (anno.targetEntity() != void.class)
-            fmd.setDeclaredType(anno.targetEntity());
+            fmd.setTypeOverride(anno.targetEntity());
         setCascades(fmd, anno.cascade());
     }
 
@@ -1225,7 +1224,7 @@ public class AnnotationPersistenceMetaDataParser
         if (isMappingOverrideMode() && !StringUtils.isEmpty(anno.mappedBy()))
             fmd.setMappedBy(anno.mappedBy());
         if (anno.targetEntity() != void.class)
-            fmd.setDeclaredType(anno.targetEntity());
+            fmd.setTypeOverride(anno.targetEntity());
         setCascades(fmd, anno.cascade());
     }
 
@@ -1463,9 +1462,9 @@ public class AnnotationPersistenceMetaDataParser
             props = null;
         } else if (seq.indexOf('(') != -1) // plugin
         {
-            seq = null;
             clsName = Configurations.getClassName(seq);
             props = Configurations.getProperties(seq);
+            seq = null;
         } else {
             clsName = SequenceMetaData.IMPL_NATIVE;
             props = null;

@@ -1,3 +1,18 @@
+/*
+ * Copyright 2006 The Apache Software Foundation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package org.apache.openjpa.util;
 
 import java.util.Map;
@@ -48,6 +63,27 @@ public class StoreFacadeTypeRegistry {
                 return impl; 
         }    
         return (Class) _impls.get(facadeType);
+    }
+    
+    /**
+     * Return the implementation for the given facade and store. If no 
+     * registered implementation is found then returns the given default type
+     * provided it the facade type is assignable from the deafult type.
+     *
+     * @param facadeType the facade interface
+     * @param storeType the store's 
+     * {@link org.apache.openjpa.kernel.StoreManager} type, or null for generic
+     * @param implType the registered implementor
+     * @param defaultType class if no registered implementation is available.
+     */
+    public Class getImplementation(Class facadeType, Class storeType, 
+    	Class defaultType) {
+    	Class result = getImplementation(facadeType, storeType);
+    	if (result == null)
+    		result = defaultType;
+    	if (facadeType == null || !facadeType.isAssignableFrom(result))
+    		throw new InternalException();
+    	return result;
     }
 
     /**

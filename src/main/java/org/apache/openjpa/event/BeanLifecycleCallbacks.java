@@ -15,6 +15,9 @@
  */
 package org.apache.openjpa.event;
 
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
 import java.lang.reflect.Method;
 
 import org.apache.openjpa.lib.util.Localizer;
@@ -31,16 +34,17 @@ public class BeanLifecycleCallbacks
     private static final Localizer _loc = Localizer.forPackage
         (BeanLifecycleCallbacks.class);
 
-    private Object _listener;
+    private transient Object _listener;
 
     /**
      * Constructor. Make the callback on an instance of the given type.
      *
      * @arg whether another argunent is expected such as AfterDetach
      */
-    public BeanLifecycleCallbacks(Class cls, String method, boolean arg) {
+    public BeanLifecycleCallbacks(Class cls, String method, boolean arg,
+        Class type) {
         this(cls, getMethod(cls, method, arg ? new Class[]{ Object.class,
-            Object.class } : new Class[]{ Object.class }), arg);
+            type } : new Class[]{ type }), arg);
     }
 
     /**
@@ -48,8 +52,12 @@ public class BeanLifecycleCallbacks
      */
     public BeanLifecycleCallbacks(Class cls, Method method, boolean arg) {
         super(method, arg);
+        _listener = newListener(cls);
+    }
+    
+    private Object newListener(Class cls) {
         try {
-            _listener = cls.newInstance();
+            return cls.newInstance();
         } catch (Throwable t) {
             throw new UserException(_loc.get("bean-constructor",
                 cls.getName()), t);
@@ -65,5 +73,18 @@ public class BeanLifecycleCallbacks
             callback.invoke(_listener, new Object[]{ obj, rel });
         else
             callback.invoke(_listener, new Object[]{ obj });
+    }
+
+    public void readExternal(ObjectInput in)
+        throws IOException, ClassNotFoundException {
+        super.readExternal(in);
+        Class cls = (Class) in.readObject();
+        _listener = newListener(cls);
+    }
+
+    public void writeExternal(ObjectOutput out)
+        throws IOException {
+        super.writeExternal(out);
+        out.writeObject(_listener.getClass());
     }
 }

@@ -47,7 +47,7 @@ import org.apache.openjpa.util.UserException;
  * Allows configuration and optimization of how objects are loaded from
  * the data store.
  *
- * @since 3.0
+ * @since 0.3.0
  * @author Abe White
  * @author Pinaki Poddar
  * @nojavadoc
@@ -524,7 +524,7 @@ public class FetchConfigurationImpl
         FetchConfigurationImpl clone = newInstance(_state);
         clone._parent = this;
         clone._availableDepth = reduce(_availableDepth);
-        clone._fromField = fm.getFullName();
+        clone._fromField = fm.getFullName(false);
         clone._fromType = type;
         clone._availableRecursion = getAvailableRecursionDepth(fm, type, true);
         return clone;
@@ -537,7 +537,7 @@ public class FetchConfigurationImpl
         if ((fmd.isInDefaultFetchGroup() 
             && hasFetchGroup(FetchGroup.NAME_DEFAULT))
             || hasFetchGroup(FetchGroup.NAME_ALL)
-            || hasField(fmd.getFullName()))
+            || hasField(fmd.getFullName(false)))
             return true;
         String[] fgs = fmd.getCustomFetchGroups();
         for (int i = 0; i < fgs.length; i++)

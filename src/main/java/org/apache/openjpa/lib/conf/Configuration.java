@@ -78,8 +78,7 @@ public interface Configuration
     public String getProductName();
     
     /**
-     * Set the product name.  The set name will automatically be added to
-     * the property prefixes.
+     * Set the product name.
      */
     public void setProductName(String name);
 
@@ -115,6 +114,25 @@ public interface Configuration
      * Return the log to use for configuration messages.
      */
     public Log getConfigurationLog();
+
+    
+    /**
+     * An environment-specific identifier for this configuration. This 
+     * might correspond to a JPA persistence-unit name, or to some other
+     * more-unique value available in the current environment.
+     * 
+     * @since 0.9.7
+     */
+    public String getId();
+
+    /**
+     * An environment-specific identifier for this configuration. This 
+     * might correspond to a JPA persistence-unit name, or to some other
+     * more-unique value available in the current environment.
+     * 
+     * @since 0.9.7
+     */
+    public void setId(String id);
 
     /**
      * Return the {@link Value} for the given property, or null if none.
@@ -159,14 +177,6 @@ public interface Configuration
      * part of the equality and hashing calculations.
      */
     public void fromProperties(Map map);
-
-    /**
-     * Add <code>prefix</code> to the list of prefixes to use
-     * to identify valid configuration properties. "openjpa" and any
-     * product name set with {@link #setProductName} will automatically
-     * be added.
-     */
-    public void addPropertyPrefix(String prefix);
 
     /**
      * Adds a listener for any property changes. The property events fired

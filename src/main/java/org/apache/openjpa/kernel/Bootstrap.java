@@ -19,9 +19,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 import org.apache.openjpa.conf.BrokerFactoryValue;
-import org.apache.openjpa.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.conf.MapConfigurationProvider;
+import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.OpenJPAException;
@@ -30,7 +30,7 @@ import org.apache.openjpa.util.UserException;
 /**
  * Helper methods for acquiring {@link BrokerFactory} objects
  *
- * @since 4.0.0
+ * @since 0.4.0.0
  */
 public class Bootstrap {
 
@@ -53,23 +53,17 @@ public class Bootstrap {
      */
     public static BrokerFactory newBrokerFactory(ConfigurationProvider conf,
         ClassLoader loader) {
-        if (conf == null)
-            conf = new MapConfigurationProvider();
-        ProductDerivations.beforeConfigurationConstruct(conf);
-
-        Class cls = getFactoryClass(conf, loader);
         try {
-            Method meth = cls.getMethod("newInstance", FACTORY_ARGS);
-            return (BrokerFactory) meth.invoke(null, new Object[]{ conf });
+            return invokeFactory(conf, loader, "newInstance");
         } catch (InvocationTargetException ite) {
             Throwable cause = ite.getTargetException();
             if (cause instanceof OpenJPAException)
                 throw (OpenJPAException) cause;
             throw new InternalException(s_loc.get("new-brokerfactory-excep",
-                cls), cause);
+                getFactoryClassName(conf, loader)), cause);
         } catch (Exception e) {
-            throw new UserException(s_loc.get("bad-new-brokerfactory", cls),
-                e).setFatal(true);
+            throw new UserException(s_loc.get("bad-new-brokerfactory",
+                getFactoryClassName(conf, loader)), e).setFatal(true);
         }
     }
 
@@ -87,23 +81,48 @@ public class Bootstrap {
      */
     public static BrokerFactory getBrokerFactory(ConfigurationProvider conf,
         ClassLoader loader) {
+        try {
+            return invokeFactory(conf, loader, "getInstance");
+        } catch (InvocationTargetException ite) {
+            Throwable cause = ite.getTargetException();
+            if (cause instanceof OpenJPAException)
+                throw (OpenJPAException) cause;
+            throw new InternalException(s_loc.get("brokerfactory-excep",
+                getFactoryClassName(conf, loader)), cause);
+        } catch (Exception e) {
+            throw new UserException(s_loc.get("bad-brokerfactory",
+                getFactoryClassName(conf, loader)), e).setFatal(true);
+        }
+    }
+
+    private static BrokerFactory invokeFactory(ConfigurationProvider conf,
+        ClassLoader loader, String methodName)
+        throws InvocationTargetException, NoSuchMethodException,
+            IllegalAccessException {
         if (conf == null)
             conf = new MapConfigurationProvider();
         ProductDerivations.beforeConfigurationConstruct(conf);
 
         Class cls = getFactoryClass(conf, loader);
+        Method meth;
         try {
-            Method meth = cls.getMethod("getInstance", FACTORY_ARGS);
-            return (BrokerFactory) meth.invoke(null, new Object[]{ conf });
-        } catch (InvocationTargetException ite) {
-            Throwable cause = ite.getTargetException();
-            if (cause instanceof OpenJPAException)
-                throw (OpenJPAException) cause;
-            throw new InternalException(s_loc.get("brokerfactory-excep", cls),
-                cause);
+            meth = cls.getMethod(methodName, FACTORY_ARGS); 
+        } catch (NoSuchMethodException nsme) {
+            // handle cases where there is a mismatch between loaders by falling
+            // back to the configuration's class loader for broker resolution
+            cls = getFactoryClass(conf, conf.getClass().getClassLoader());
+            meth = cls.getMethod(methodName, FACTORY_ARGS); 
+        }
+
+        return (BrokerFactory) meth.invoke(null, new Object[]{ conf });
+    }
+
+    private static String getFactoryClassName(ConfigurationProvider conf,
+        ClassLoader loader) {
+        try {
+            return getFactoryClass(conf, loader).getName();
         } catch (Exception e) {
-            throw new UserException(s_loc.get("bad-brokerfactory", cls), e).
-                setFatal(true);
+            return "<" + e.toString() + ">";
         }
     }
 

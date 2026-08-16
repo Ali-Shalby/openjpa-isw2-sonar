@@ -16,10 +16,11 @@
 package org.apache.openjpa.jdbc.schema;
 
 import java.sql.DatabaseMetaData;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.LinkedHashMap;
 
-import org.apache.commons.collections.map.LinkedMap;
 import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.StringDistance;
@@ -64,17 +65,18 @@ public class ForeignKey
      */
     public static final int ACTION_DEFAULT = 5;
 
-    private static Localizer _loc = Localizer.forPackage(ForeignKey.class);
+    private static final Localizer _loc = 
+        Localizer.forPackage(ForeignKey.class);
 
     private String _pkTableName = null;
     private String _pkSchemaName = null;
     private String _pkColumnName = null;
     private int _seq = 0;
 
-    private LinkedMap _joins = null;
-    private LinkedMap _joinsPK = null;
-    private LinkedMap _consts = null;
-    public LinkedMap _constsPK = null;
+    private LinkedHashMap _joins = null;
+    private LinkedHashMap _joinsPK = null;
+    private LinkedHashMap _consts = null;
+    private LinkedHashMap _constsPK = null;
     private int _delAction = ACTION_NONE;
     private int _upAction = ACTION_NONE;
     private int _index = 0;
@@ -161,24 +163,59 @@ public class ForeignKey
     }
 
     /**
-     * Whether the primary key columns of this key are auto-incrementing.
+     * Whether the primary key columns of this key are auto-incrementing, or
+     * whether they themselves are members of a foreign key who's primary key
+     * is auto-incrementing (recursing to arbitrary depth).
      */
     public boolean isPrimaryKeyAutoAssigned() {
-        if (_autoAssign == null) {
-            Column[] cols = getPrimaryKeyColumns();
-            if (cols.length == 0)
-                return false;
+        if (_autoAssign != null)
+            return _autoAssign.booleanValue();
+        return isPrimaryKeyAutoAssigned(new ArrayList(3));
+    }
 
-            boolean auto = false;
-            for (int i = 0; i < cols.length; i++) {
-                if (cols[i].isAutoAssigned()) {
-                    auto = true;
-                    break;
+    /**
+     * Helper to calculate whether this foreign key depends on auto-assigned 
+     * columns.  Recurses appropriately if the primary key columns this key
+     * joins to are themselves members of a foreign key that is dependent on
+     * auto-assigned columns.  Caches calculated auto-assign value as a side 
+     * effect.
+     *
+     * @param seen track seen foreign keys to prevent infinite recursion in
+     * the case of foreign key cycles
+     */
+    private boolean isPrimaryKeyAutoAssigned(List seen) {
+        if (_autoAssign != null) 
+            return _autoAssign.booleanValue();
+
+        Column[] cols = getPrimaryKeyColumns();
+        if (cols.length == 0) {
+            _autoAssign = Boolean.FALSE;
+            return false;
+        }
+
+        for (int i = 0; i < cols.length; i++) {
+            if (cols[i].isAutoAssigned()) {
+                _autoAssign = Boolean.TRUE;
+                return true;
+            }
+        }
+
+        ForeignKey[] fks = _pkTable.getForeignKeys();
+        seen.add(this);
+        for (int i = 0; i < cols.length; i++) {
+            for (int j = 0; j < fks.length; j++) {
+                if (!fks[j].containsColumn(cols[i]))
+                    continue;
+                if (!seen.contains(fks[j])
+                    && fks[j].isPrimaryKeyAutoAssigned(seen)) {
+                    _autoAssign = Boolean.TRUE;
+                    return true;
                 }
             }
-            _autoAssign = (auto) ? Boolean.TRUE : Boolean.FALSE;
         }
-        return _autoAssign.booleanValue();
+
+        _autoAssign = Boolean.FALSE;
+        return false;
     }
 
     /**
@@ -489,15 +526,17 @@ public class ForeignKey
 
         _pkTable = pkTable;
         if (_joins == null)
-            _joins = new LinkedMap();
+            _joins = new LinkedHashMap();
         _joins.put(local, toPK);
         if (_joinsPK == null)
-            _joinsPK = new LinkedMap();
+            _joinsPK = new LinkedHashMap();
         _joinsPK.put(toPK, local);
 
         // force re-cache
         _locals = null;
         _pks = null;
+        if (_autoAssign == Boolean.FALSE)
+            _autoAssign = null;
     }
 
     /**
@@ -512,7 +551,7 @@ public class ForeignKey
 
         _pkTable = pkTable;
         if (_constsPK == null)
-            _constsPK = new LinkedMap();
+            _constsPK = new LinkedHashMap();
         _constsPK.put(toPK, val);
 
         // force re-cache
@@ -526,7 +565,7 @@ public class ForeignKey
      */
     public void joinConstant(Column col, Object val) {
         if (_consts == null)
-            _consts = new LinkedMap();
+            _consts = new LinkedHashMap();
         _consts.put(col, val);
 
         // force re-cache
@@ -583,6 +622,8 @@ public class ForeignKey
         if ((_joins == null || _joins.isEmpty())
             && (_constsPK == null || _constsPK.isEmpty()))
             _pkTable = null;
+        if (remd && _autoAssign == Boolean.TRUE)
+            _autoAssign = null;
         return remd;
     }
 

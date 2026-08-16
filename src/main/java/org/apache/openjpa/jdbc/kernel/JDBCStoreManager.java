@@ -39,7 +39,6 @@ import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
 import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.Result;
-import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.jdbc.sql.SQLFactory;
 import org.apache.openjpa.jdbc.sql.Select;
@@ -268,43 +267,43 @@ public class JDBCStoreManager
         Object oid = sm.getObjectId();
         ClassMapping mapping = (ClassMapping) sm.getMetaData();
         Result res = null;
-        if (info != null && info.result != null) {
-            res = info.result;
-            info.sm = sm;
-            if (info.mapping == null)
-                info.mapping = mapping;
-            mapping = info.mapping;
-        } else if (oid instanceof OpenJPAId
-            && !((OpenJPAId) oid).hasSubclasses()) {
-            Boolean custom = customLoad(sm, mapping, state, fetch);
-            if (custom != null)
-                return custom.booleanValue();
-            res = getInitializeStateResult(sm, mapping, fetch,
-                Select.SUBS_EXACT);
-            if (res == null && !selectPrimaryKey(sm, mapping, fetch))
-                return false;
-            if (res != null && !res.next())
-                return false;
-        } else {
-            ClassMapping[] mappings = mapping.
-                getIndependentAssignableMappings();
-            if (mappings.length == 1) {
-                mapping = mappings[0];
+        try {
+            if (info != null && info.result != null) {
+                res = info.result;
+                info.sm = sm;
+                if (info.mapping == null)
+                    info.mapping = mapping;
+                mapping = info.mapping;
+            } else if (oid instanceof OpenJPAId
+                && !((OpenJPAId) oid).hasSubclasses()) {
                 Boolean custom = customLoad(sm, mapping, state, fetch);
                 if (custom != null)
                     return custom.booleanValue();
                 res = getInitializeStateResult(sm, mapping, fetch,
-                    Select.SUBS_ANY_JOINABLE);
+                    Select.SUBS_EXACT);
                 if (res == null && !selectPrimaryKey(sm, mapping, fetch))
                     return false;
-            } else
-                res = getInitializeStateUnionResult(sm, mapping, mappings,
-                    fetch);
-            if (res != null && !res.next())
-                return false;
-        }
+                if (res != null && !res.next())
+                    return false;
+            } else {
+                ClassMapping[] mappings = mapping.
+                    getIndependentAssignableMappings();
+                if (mappings.length == 1) {
+                    mapping = mappings[0];
+                    Boolean custom = customLoad(sm, mapping, state, fetch);
+                    if (custom != null)
+                        return custom.booleanValue();
+                    res = getInitializeStateResult(sm, mapping, fetch,
+                        Select.SUBS_ANY_JOINABLE);
+                    if (res == null && !selectPrimaryKey(sm, mapping, fetch))
+                        return false;
+                } else
+                    res = getInitializeStateUnionResult(sm, mapping, mappings,
+                        fetch);
+                if (res != null && !res.next())
+                    return false;
+            }
 
-        try {
             // figure out what type of object this is; the state manager
             // only guarantees to provide a base class
             Class type;
@@ -367,7 +366,7 @@ public class JDBCStoreManager
         throws SQLException {
         Select sel = _sql.newSelect();
         if (!select(sel, mapping, subs, sm, null, fetch,
-            JDBCFetchConfiguration.EAGER_JOIN, true))
+            JDBCFetchConfiguration.EAGER_JOIN, true, false))
             return null;
 
         sel.wherePrimaryKey(sm.getObjectId(), mapping, this);
@@ -454,17 +453,17 @@ public class JDBCStoreManager
 
             // if the instance is hollow and there's a customized
             // get by id method, use it
-            if (sm.getLoaded().length() == 0)
-                if (mapping.customLoad(sm, this, null, jfetch))
-                    removeLoadedFields(sm, fields);
+            if (sm.getLoaded().length() == 0 
+                && mapping.customLoad(sm, this, null, jfetch))
+                removeLoadedFields(sm, fields);
 
             //### select is kind of a big object, and in some cases we don't
             //### use it... would it be worth it to have a small shell select
             //### object that only creates a real select when actually used?
 
             Select sel = _sql.newSelect();
-            if (select(sel, mapping, sel.SUBS_EXACT, sm, fields, jfetch,
-                EagerFetchModes.EAGER_JOIN, true)) {
+            if (select(sel, mapping, Select.SUBS_EXACT, sm, fields, jfetch,
+                EagerFetchModes.EAGER_JOIN, true, false)) {
                 sel.wherePrimaryKey(sm.getObjectId(), mapping, this);
                 res = sel.execute(this, jfetch, lockLevel);
                 try {
@@ -730,9 +729,9 @@ public class JDBCStoreManager
 
     /**
      * Connect to the database. This method is separated out so that it
-     * can be profiled.
+     * can be overridden.
      */
-    private RefCountConnection connectInternal() throws SQLException {
+    protected RefCountConnection connectInternal() throws SQLException {
         return new RefCountConnection(_ds.getConnection());
     }
 
@@ -854,18 +853,20 @@ public class JDBCStoreManager
      * @param eager eager fetch mode to use
      * @param ident whether to select primary key columns as distinct
      * identifiers
+     * @param outer whether we're outer-joining to this type
      * @return true if the select is required, false otherwise
      */
     public boolean select(Select sel, ClassMapping mapping, int subs,
         OpenJPAStateManager sm, BitSet fields, JDBCFetchConfiguration fetch,
-        int eager, boolean ident) {
+        int eager, boolean ident, boolean outer) {
         // add class conditions so that they're cloned for any batched selects
         boolean joinedSupers = false;
         if ((sm == null || sm.getPCState() == PCState.TRANSIENT)
-            && (subs == sel.SUBS_JOINABLE || subs == sel.SUBS_NONE)) {
+            && (subs == Select.SUBS_JOINABLE || subs == Select.SUBS_NONE)) {
             loadSubclasses(mapping); 
+            Joins joins = (outer) ? sel.newOuterJoins() : null;
             joinedSupers = mapping.getDiscriminator().addClassConditions(sel,
-                subs == sel.SUBS_JOINABLE, null);
+                subs == Select.SUBS_JOINABLE, joins);
         }
 
         // create all our eager selects so that those fields are reserved
@@ -889,7 +890,7 @@ public class JDBCStoreManager
                 fetch.traverseJDBC(eagerToMany), eager);
 
         // optionally select subclass mappings
-        if (subs == sel.SUBS_JOINABLE || subs == sel.SUBS_ANY_JOINABLE)
+        if (subs == Select.SUBS_JOINABLE || subs == Select.SUBS_ANY_JOINABLE)
             selectSubclassMappings(sel, mapping, sm, fetch);
         if (sm != null)
             sel.setDistinct(false);
@@ -929,7 +930,7 @@ public class JDBCStoreManager
                 && sel.eagerClone(fms[i], jtype, false, 1) != null)
                 continue;
 
-            boolean hasJoin = fetch.hasJoin(fms[i].getFullName());
+            boolean hasJoin = fetch.hasJoin(fms[i].getFullName(false));
 
             // if the field declares a preferred select mode of join or does not
             // have a preferred mode and we're doing a by-id lookup, try
@@ -1235,7 +1236,7 @@ public class JDBCStoreManager
      * Connection wrapper that keeps an internal ref count so that it knows
      * when to really close.
      */
-    private class RefCountConnection extends DelegatingConnection {
+    protected class RefCountConnection extends DelegatingConnection {
 
         private boolean _retain = false;
         private int _refs = 0;

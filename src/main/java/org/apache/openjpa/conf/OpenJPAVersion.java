@@ -17,7 +17,6 @@ package org.apache.openjpa.conf;
 
 import java.io.File;
 import java.io.InputStream;
-import java.util.Date;
 import java.util.Properties;
 import java.util.StringTokenizer;
 
@@ -31,30 +30,23 @@ import java.util.StringTokenizer;
 public class OpenJPAVersion {
 
     public static final String VERSION_NUMBER;
-    private static final long RELEASE_SECONDS = 1147454303;
-
-    public static final Date RELEASE_DATE = new Date(RELEASE_SECONDS * 1000);
-
     public static final String VERSION_ID;
     public static final String VENDOR_NAME = "OpenJPA";
     public static final int MAJOR_RELEASE;
     public static final int MINOR_RELEASE;
     public static final int PATCH_RELEASE;
     public static final String RELEASE_STATUS;
-    public static final int REVISION_NUMBER;
+    public static final String REVISION_NUMBER;
 
     static {
         Package pack = OpenJPAVersion.class.getPackage();
         String vers = pack == null ? null : pack.getImplementationVersion();
-        if (vers == null || vers.length() == 0)
+        if (vers == null || "".equals(vers.trim()))
             vers = "0.0.0";
-
         VERSION_NUMBER = vers;
 
         StringTokenizer tok = new StringTokenizer(VERSION_NUMBER, ".-");
-
         int major, minor, patch;
-
         try {
             major = tok.hasMoreTokens() ? Integer.parseInt(tok.nextToken()) : 0;
         } catch (Exception e) {
@@ -73,16 +65,15 @@ public class OpenJPAVersion {
             patch = 0;
         }
 
-        int revision = 0;
+        String revision = "";
         try {
-            InputStream in = OpenJPAVersion.class.
-                getResourceAsStream("/META-INF/revision.properties");
+            InputStream in = OpenJPAVersion.class.getResourceAsStream
+                ("/META-INF/org.apache.openjpa.revision.properties");
             if (in != null) {
                 try {
                     Properties props = new Properties();
                     props.load(in);
-                    revision = Integer.parseInt
-                        (props.getProperty("revision.number"));
+                    revision = props.getProperty("revision.number");
                 } finally {
                     in.close();
                 }
@@ -95,7 +86,7 @@ public class OpenJPAVersion {
         PATCH_RELEASE = patch;
         RELEASE_STATUS = tok.hasMoreTokens() ? tok.nextToken("!") : "";
         REVISION_NUMBER = revision;
-        VERSION_ID = VERSION_NUMBER + "-r" + REVISION_NUMBER;
+        VERSION_ID = "openjpa-" + VERSION_NUMBER + "-r" + REVISION_NUMBER;
     }
 
     public static void main(String [] args) {
@@ -104,20 +95,15 @@ public class OpenJPAVersion {
 
     public String toString() {
         StringBuffer buf = new StringBuffer(80 * 30);
-        buf.append("OpenJPA ");
-        buf.append(VERSION_NUMBER);
+        appendOpenJPABanner(buf);
         buf.append("\n");
-        buf.append("version id: ").append(VERSION_ID);
-        buf.append("\n");
-        buf.append("revision: ").append(REVISION_NUMBER);
-        buf.append("\n\n");
 
-        getProperty("os.name", buf).append("\n");
-        getProperty("os.version", buf).append("\n");
-        getProperty("os.arch", buf).append("\n\n");
+        appendProperty("os.name", buf).append("\n");
+        appendProperty("os.version", buf).append("\n");
+        appendProperty("os.arch", buf).append("\n\n");
 
-        getProperty("java.version", buf).append("\n");
-        getProperty("java.vendor", buf).append("\n\n");
+        appendProperty("java.version", buf).append("\n");
+        appendProperty("java.vendor", buf).append("\n\n");
 
         buf.append("java.class.path:\n");
         StringTokenizer tok = new StringTokenizer
@@ -128,13 +114,21 @@ public class OpenJPAVersion {
         }
         buf.append("\n");
 
-        getProperty("user.dir", buf);
-
+        appendProperty("user.dir", buf);
         return buf.toString();
     }
 
-    private StringBuffer getProperty(String prop, StringBuffer buf) {
-        buf.append(prop).append(": ").append(System.getProperty(prop));
-        return buf;
+    public void appendOpenJPABanner(StringBuffer buf) {
+        buf.append(VENDOR_NAME).append(" ");
+        buf.append(VERSION_NUMBER);
+        buf.append("\n");
+        buf.append("version id: ").append(VERSION_ID);
+        buf.append("\n");
+        buf.append("Apache svn revision: ").append(REVISION_NUMBER);
+        buf.append("\n");
+    }
+
+    private StringBuffer appendProperty(String prop, StringBuffer buf) {
+        return buf.append(prop).append(": ").append(System.getProperty(prop));
     }
 }

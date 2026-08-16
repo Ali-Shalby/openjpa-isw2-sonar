@@ -53,12 +53,6 @@ public class Localizer {
             new StreamResourceBundleProvider(),
             new ZipResourceBundleProvider(), }));
 
-    // the local file name and class' classloader
-    private ResourceBundle _bundle = null;
-
-    // the package that this localizer was created for.
-    private Package _package;
-
     /**
      * Return a Localizer instance that will access the properties file
      * in the package of the given class using the system default locale.
@@ -84,35 +78,28 @@ public class Localizer {
             locale = Locale.getDefault();
 
         int dot = (cls == null) ? -1 : cls.getName().lastIndexOf('.');
+        String pkg;
         String file;
-        if (dot == -1)
+        if (dot == -1) {
+            pkg = "";
             file = "localizer";
-        else
-            file = cls.getName().substring(0, dot + 1) + "localizer";
+        } else {
+            pkg = cls.getName().substring(0, dot);
+            file = pkg + ".localizer";
+        }
         String key = file + locale.toString();
 
         // no locking; ok if bundle created multiple times
-
         // check for cached version
         Localizer loc = (Localizer) _localizers.get(key);
         if (loc != null)
             return loc;
-
-        // find resource bundle
-        ResourceBundle bundle = null;
-        ClassLoader loader = (cls == null) ? null : cls.getClassLoader();
-        for (Iterator itr = _providers.iterator(); itr.hasNext();) {
-            bundle = ((ResourceBundleProvider) itr.next()).findResource
-                (file, locale, loader);
-            if (bundle != null)
-                break;
+        else {
+            loc = new Localizer(pkg, file, locale, 
+                cls == null ? null : cls.getClassLoader());
+            _localizers.put(key, loc);
+            return loc;
         }
-
-        // cache the localizer
-        loc = new Localizer(cls == null ? null : cls.getPackage());
-        loc._bundle = bundle;
-        _localizers.put(key, loc);
-        return loc;
     }
 
     /**
@@ -129,8 +116,30 @@ public class Localizer {
         return _providers.remove(provider);
     }
 
-    private Localizer(Package p) {
-        _package = p;
+    private String _file;
+    private String _pkg;
+    private ResourceBundle _bundle = null;
+    private Locale _locale;
+    private ClassLoader _loader;
+
+    private Localizer(String pkg, String f, Locale locale, ClassLoader loader) {
+        _pkg = pkg;
+        _file = f;
+        _locale = locale;
+        _loader = loader;
+    }
+    
+    private ResourceBundle getBundle() {
+        // no locking; it's ok to create multiple bundles
+        if (_bundle == null) {
+            // find resource bundle
+            for (Iterator itr = _providers.iterator();
+                itr.hasNext() && _bundle == null; ) {
+                _bundle = ((ResourceBundleProvider) itr.next())
+                    .findResource(_file, _locale, _loader);
+            }
+        }
+        return _bundle;
     }
 
     /**
@@ -207,7 +216,7 @@ public class Localizer {
      * @see #get(String)
      */
     public Message get(String key, Object[] subs) {
-        return new Message(_package, _bundle, key, subs, false);
+        return new Message(_pkg, getBundle(), key, subs, false);
     }
 
     /**
@@ -219,7 +228,7 @@ public class Localizer {
      * @see #getFatal(String)
      */
     public Message getFatal(String key, Object[] subs) {
-        return new Message(_package, _bundle, key, subs, true);
+        return new Message(_pkg, getBundle(), key, subs, true);
     }
 
     /**
@@ -229,17 +238,17 @@ public class Localizer {
      */
     public static class Message {
 
-        private final Package _package;
+        private final String _pkg;
         private final String _key;
         private final Object[] _subs;
         private final String _localizedMessage;
 
-        private Message(Package pkg, ResourceBundle bundle, String key, 
+        private Message(String packageName, ResourceBundle bundle, String key, 
             Object[] subs, boolean fatal) {
             if (bundle == null && fatal)
                 throw new MissingResourceException(key, key, key);
 
-            _package = pkg;
+            _pkg = packageName;
             _key = key;
             _subs = subs;
             if (bundle == null) {
@@ -277,13 +286,10 @@ public class Localizer {
             return _subs;
         }
 
-        /**
-         * Package containing localized resource for this message.
-         */
-        public Package getPackage() {
-            return _package;
+        public String getPackageName() {
+            return _pkg;
         }
-        
+
         public String toString() {
             return getMessage();
         }

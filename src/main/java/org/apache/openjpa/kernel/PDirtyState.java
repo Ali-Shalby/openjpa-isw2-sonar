@@ -17,7 +17,7 @@ package org.apache.openjpa.kernel;
 
 /**
  * Lifecycle state.
- *  Represents a persistent instance that is participating in the current
+ * Represents a persistent instance that is participating in the current
  * transaction, and has been modified.
  *
  * @author Abe White
@@ -62,6 +62,10 @@ class PDirtyState
 
     PCState release(StateManagerImpl context) {
         return error("dirty", context);
+    }
+
+    boolean isVersionCheckRequired(StateManagerImpl context) {
+        return !context.isFlushed() || context.isFlushedDirty(); 
     }
 
     PCState afterRefresh() {

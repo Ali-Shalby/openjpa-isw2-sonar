@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import javax.sql.DataSource;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.conf.Configurations;
@@ -60,21 +61,18 @@ public class DataSourceFactory {
      */
     public static DataSource newDataSource(JDBCConfiguration conf,
         boolean factory2) {
-        String driver = (factory2)
-            ? conf.getConnection2DriverName()
+        String driver = (factory2) ? conf.getConnection2DriverName()
             : conf.getConnectionDriverName();
-        if (driver == null || driver.length() == 0)
+        if (StringUtils.isEmpty(driver))
             throw new UserException(_loc.get("no-driver", driver)).
                 setFatal(true);
 
         ClassLoader loader = conf.getClassResolverInstance().
             getClassLoader(DataSourceFactory.class, null);
-        String props = (factory2)
-            ? conf.getConnection2Properties()
+        String props = (factory2) ? conf.getConnection2Properties()
             : conf.getConnectionProperties();
         try {
             Class driverClass;
-
             try {
                 driverClass = Class.forName(driver, true, loader);
             } catch (ClassNotFoundException cnfe) {
@@ -86,25 +84,23 @@ public class DataSourceFactory {
                 DriverDataSource ds = conf.newDriverDataSourceInstance();
                 ds.setClassLoader(loader);
                 ds.setConnectionDriverName(driver);
-                ds.setConnectionProperties
-                    (Configurations.parseProperties(props));
+                ds.setConnectionProperties(Configurations.
+                    parseProperties(props));
 
                 if (!factory2) {
-                    ds.setConnectionFactoryProperties
-                        (Configurations.parseProperties
-                            (conf.getConnectionFactoryProperties()));
+                    ds.setConnectionFactoryProperties(Configurations.
+                        parseProperties(conf.getConnectionFactoryProperties()));
                     ds.setConnectionURL(conf.getConnectionURL());
                     ds.setConnectionUserName(conf.getConnectionUserName());
                     ds.setConnectionPassword(conf.getConnectionPassword());
                 } else {
                     ds.setConnectionFactoryProperties
-                        (Configurations.parseProperties
-                            (conf.getConnectionFactory2Properties()));
+                        (Configurations.parseProperties(conf.
+                        getConnectionFactory2Properties()));
                     ds.setConnectionURL(conf.getConnection2URL());
                     ds.setConnectionUserName(conf.getConnection2UserName());
                     ds.setConnectionPassword(conf.getConnection2Password());
                 }
-
                 return ds;
             }
 
@@ -121,8 +117,7 @@ public class DataSourceFactory {
         }
 
         // not a driver or a data source; die
-        throw new UserException(_loc.get("bad-driver", driver)).
-            setFatal(true);
+        throw new UserException(_loc.get("bad-driver", driver)).setFatal(true);
     }
 
     /**
@@ -152,11 +147,9 @@ public class DataSourceFactory {
                 ecd.addListener(listeners[i]);
             decorators.add(ecd);
 
-            // ask the DriverDataSource to provide any additional
-            // decorators
+            // ask the DriverDataSource to provide any additional decorators
             if (ds instanceof DriverDataSource) {
-                List decs = ((DriverDataSource) ds).
-                    createConnectionDecorators();
+                List decs = ((DriverDataSource)ds).createConnectionDecorators();
                 if (decs != null)
                     decorators.addAll(decs);
             }
@@ -186,7 +179,6 @@ public class DataSourceFactory {
         DecoratingDataSource ds, final JDBCConfiguration conf,
         boolean factory2) {
         DataSource inner = ds.getInnermostDelegate();
-
         if (inner instanceof DriverDataSource)
             ((DriverDataSource) inner).initDBDictionary(dict);
 
@@ -204,8 +196,7 @@ public class DataSourceFactory {
             // transaction isolation, etc)
             ConfiguringConnectionDecorator ccd =
                 new ConfiguringConnectionDecorator();
-            ccd.setTransactionIsolation
-                (conf.getTransactionIsolationConstant());
+            ccd.setTransactionIsolation(conf.getTransactionIsolationConstant());
             if (factory2 || !conf.isConnectionFactoryModeManaged()) {
                 if (!dict.supportsMultipleNontransactionalResultSets)
                     ccd.setAutoCommit(Boolean.FALSE);

@@ -23,6 +23,7 @@ import javax.persistence.Query;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.ee.ManagedRuntime;
+import org.apache.openjpa.event.CallbackModes;
 import org.apache.openjpa.kernel.AutoClear;
 import org.apache.openjpa.kernel.AutoDetach;
 import org.apache.openjpa.kernel.ConnectionRetainModes;
@@ -33,7 +34,7 @@ import org.apache.openjpa.lib.util.Closeable;
 /**
  * Interface implemented by OpenJPA entity managers.
  *
- * @since 4.0
+ * @since 0.4.0
  * @author Abe White
  * @published
  */
@@ -41,7 +42,7 @@ public interface OpenJPAEntityManager
     extends EntityManager, EntityTransaction, javax.resource.cci.Connection,
     javax.resource.cci.LocalTransaction, javax.resource.spi.LocalTransaction,
     Closeable, ConnectionRetainModes, DetachState, RestoreState, AutoDetach,
-    AutoClear {
+    AutoClear, CallbackModes {
 
     /**
      * Return the factory that produced this entity manager.
@@ -246,7 +247,7 @@ public interface OpenJPAEntityManager
      * Whether objects accessed during this transaction will be added to the
      * store cache. Defaults to true.
      *
-     * @since 3.4
+     * @since 0.3.4
      */
     public boolean getPopulateStoreCache();
 
@@ -254,7 +255,7 @@ public interface OpenJPAEntityManager
      * Whether to populate the store cache with objects used by this
      * transaction. Defaults to true.
      *
-     * @since 3.4
+     * @since 0.3.4
      */
     public void setPopulateStoreCache(boolean cache);
 
@@ -262,7 +263,7 @@ public interface OpenJPAEntityManager
      * Whether memory usage is reduced during this transaction at the expense
      * of possibly more aggressive data cache evictions.
      *
-     * @since 3.4
+     * @since 0.3.4
      */
     public boolean isLargeTransaction();
 
@@ -271,7 +272,7 @@ public interface OpenJPAEntityManager
      * during this transaction setting this option to true will reduce memory
      * usage if you perform periodic flushes.
      *
-     * @since 3.4
+     * @since 0.3.4
      */
     public void setLargeTransaction(boolean largeTransaction);
 
@@ -301,6 +302,18 @@ public interface OpenJPAEntityManager
     public void removeTransactionListener(Object listener);
 
     /**
+     * The {@link CallbackModes} flags for handling transaction listener
+     * exceptions.
+     */
+    public int getTransactionListenerCallbackMode();
+
+    /**
+     * The {@link CallbackModes} flags for handling transaction listener
+     * exceptions.
+     */
+    public void setTransactionListenerCallbackMode(int callbackMode);
+
+    /**
      * Register a listener for lifecycle-related events on the specified
      * classes. If the classes are null, all events will be propagated to
      * the listener.
@@ -311,6 +324,18 @@ public interface OpenJPAEntityManager
      * Remove a listener for lifecycle-related events.
      */
     public void removeLifecycleListener(Object listener);
+
+    /**
+     * The {@link CallbackModes} flags for handling lifecycle listener
+     * exceptions.
+     */
+    public int getLifecycleListenerCallbackMode();
+
+    /**
+     * The {@link CallbackModes} flags for handling lifecycle listener
+     * exceptions.
+     */
+    public void setLifecycleListenerCallbackMode(int callbackMode);
 
     ///////////
     // Lookups
@@ -423,7 +448,7 @@ public interface OpenJPAEntityManager
      * deletion of dependent instances, and instance callbacks.
      * Transaction listeners are not invoked.
      *
-     * @since 3.3
+     * @since 0.3.3
      */
     public void preFlush();
 

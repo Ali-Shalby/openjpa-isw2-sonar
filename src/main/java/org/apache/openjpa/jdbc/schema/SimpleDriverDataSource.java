@@ -23,10 +23,12 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.Properties;
 
-import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
-import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.util.StoreException;
 
+/**
+ * Non-pooling driver data source.
+ */
 public class SimpleDriverDataSource
     implements DriverDataSource {
 
@@ -36,41 +38,8 @@ public class SimpleDriverDataSource
     private String _connectionPassword;
     private Properties _connectionProperties;
     private Properties _connectionFactoryProperties;
-    private JDBCConfiguration _conf;
     private Driver _driver;
     private ClassLoader _classLoader;
-
-    private synchronized Driver getDriver()
-        throws SQLException {
-        if (_driver == null)
-            _driver = DriverManager.getDriver(_connectionURL);
-
-        if (_driver == null) {
-            try {
-                Class.forName(_connectionDriverName, true, _classLoader);
-            } catch (Exception e) {
-            }
-
-            _driver = DriverManager.getDriver(_connectionURL);
-        }
-
-        if (_driver == null) {
-            try {
-                _driver = (Driver) Class.forName(_connectionDriverName,
-                    true, _classLoader).newInstance();
-            } catch (Exception e) {
-                if (e instanceof SQLException)
-                    throw(SQLException) e;
-
-                if (e instanceof RuntimeException)
-                    throw(RuntimeException) e;
-
-                throw new SQLException(e.getClass() + ": " + e.getMessage());
-            }
-        }
-
-        return _driver;
-    }
 
     public Connection getConnection()
         throws SQLException {
@@ -80,16 +49,13 @@ public class SimpleDriverDataSource
     public Connection getConnection(String username, String password)
         throws SQLException {
         Properties props = new Properties();
-
         if (username == null)
             username = _connectionUserName;
-
         if (username != null)
             props.put("user", username);
 
         if (password == null)
             password = _connectionPassword;
-
         if (password != null)
             props.put("password", password);
 
@@ -98,7 +64,7 @@ public class SimpleDriverDataSource
 
     public Connection getConnection(Properties props)
         throws SQLException {
-        return getDriver().connect(_conf.getConnectionURL(), props);
+        return getDriver().connect(_connectionURL, props);
     }
 
     public int getLoginTimeout() {
@@ -113,16 +79,6 @@ public class SimpleDriverDataSource
     }
 
     public void setLogWriter(PrintWriter out) {
-    }
-
-    public void startConfiguration() {
-    }
-
-    public void endConfiguration() {
-    }
-
-    public void setConfiguration(Configuration conf) {
-        _conf = (JDBCConfiguration) conf;
     }
 
     public void initDBDictionary(DBDictionary dict) {
@@ -182,6 +138,39 @@ public class SimpleDriverDataSource
 
     public String getConnectionDriverName() {
         return _connectionDriverName;
+    }
+
+    private Driver getDriver() {
+        if (_driver != null)
+            return _driver;
+
+        try { 
+            _driver = DriverManager.getDriver(_connectionURL);
+            if (_driver != null)
+                return _driver;
+        } catch (Exception e) {
+        }
+
+        try {
+            Class.forName(_connectionDriverName, true, _classLoader);
+        } catch (Exception e) {
+        }
+        try {
+            _driver = DriverManager.getDriver(_connectionURL);
+            if (_driver != null)
+                return _driver;
+        } catch (Exception e) {
+        }
+
+        try {
+            _driver = (Driver) Class.forName(_connectionDriverName,
+                true, _classLoader).newInstance();
+            return _driver;
+        } catch (Exception e) {
+            if (e instanceof RuntimeException)
+                throw(RuntimeException) e;
+            throw new StoreException(e);
+        }
     }
 }
 

@@ -34,6 +34,8 @@ import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.kernel.DelegatingBrokerFactory;
 import org.apache.openjpa.kernel.DelegatingFetchConfiguration;
 import org.apache.openjpa.kernel.FetchConfiguration;
+import org.apache.openjpa.lib.conf.Configurations;
+import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.Value;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.ImplHelper;
@@ -53,17 +55,22 @@ public class EntityManagerFactoryImpl
     private static final Localizer _loc = Localizer.forPackage
         (EntityManagerFactoryImpl.class);
 
-    private final DelegatingBrokerFactory _factory;
+    private DelegatingBrokerFactory _factory = null;
     private transient Constructor<FetchPlan> _plan = null;
     private transient StoreCache _cache = null;
     private transient QueryResultCache _queryCache = null;
 
     /**
-     * Constructor. Delegate must be provided on construction.
+     * Default constructor provided for auto-instantiation.
      */
-    protected EntityManagerFactoryImpl(BrokerFactory factory) {
-        _factory = new DelegatingBrokerFactory(factory,
-            PersistenceExceptions.TRANSLATOR);
+    public EntityManagerFactoryImpl() {
+    }
+
+    /**
+     * Supply delegate on construction.
+     */
+    public EntityManagerFactoryImpl(BrokerFactory factory) {
+        setBrokerFactory(factory);
     }
 
     /**
@@ -71,6 +78,14 @@ public class EntityManagerFactoryImpl
      */
     public BrokerFactory getBrokerFactory() {
         return _factory.getDelegate();
+    }
+
+    /**
+     * Delegate must be provided before use.
+     */
+    public void setBrokerFactory(BrokerFactory factory) {
+        _factory = new DelegatingBrokerFactory(factory,
+            PersistenceExceptions.TRANSLATOR);
     }
 
     public OpenJPAConfiguration getConfiguration() {
@@ -94,7 +109,7 @@ public class EntityManagerFactoryImpl
         try {
             if (_cache == null) {
                 OpenJPAConfiguration conf = _factory.getConfiguration();
-                _cache = new StoreCache(this,
+                _cache = new StoreCacheImpl(this,
                     conf.getDataCacheManagerInstance().getSystemDataCache());
             }
             return _cache;
@@ -104,7 +119,7 @@ public class EntityManagerFactoryImpl
     }
 
     public StoreCache getStoreCache(String cacheName) {
-        return new StoreCache(this, _factory.getConfiguration().
+        return new StoreCacheImpl(this, _factory.getConfiguration().
             getDataCacheManagerInstance().getDataCache(cacheName));
     }
 
@@ -112,8 +127,9 @@ public class EntityManagerFactoryImpl
         _factory.lock();
         try {
             if (_queryCache == null)
-                _queryCache = new QueryResultCache(_factory.getConfiguration().
-                    getDataCacheManagerInstance().getSystemQueryCache());
+                _queryCache = new QueryResultCacheImpl(_factory.
+                    getConfiguration().getDataCacheManagerInstance().
+                    getSystemQueryCache());
             return _queryCache;
         } finally {
             _factory.unlock();
@@ -131,42 +147,42 @@ public class EntityManagerFactoryImpl
             props = new HashMap(props);
 
         OpenJPAConfiguration conf = getConfiguration();
-        String user =
-            (String) props.remove("openjpa.ConnectionUserName");
+        String user = (String) Configurations.removeProperty
+            ("ConnectionUserName", props);
         if (user == null)
             user = conf.getConnectionUserName();
-        String pass =
-            (String) props.remove("openjpa.ConnectionPassword");
+        String pass = (String) Configurations.removeProperty
+            ("ConnectionPassword", props);
         if (pass == null)
             pass = conf.getConnectionPassword();
 
-        String str =
-            (String) props.remove("openjpa.TransactionMode");
+        String str = (String) Configurations.removeProperty
+            ("TransactionMode", props);
         boolean managed;
         if (str == null)
             managed = conf.isTransactionModeManaged();
         else {
-            Value val = conf.getValue("openjpa.TransactionMode");
+            Value val = conf.getValue("TransactionMode");
             managed = Boolean.parseBoolean(val.unalias(str));
         }
 
-        Object obj = props.remove("openjpa.ConnectionRetainMode");
+        Object obj = Configurations.removeProperty("ConnectionRetainMode", 
+            props);
         int retainMode;
         if (obj instanceof Number)
             retainMode = ((Number) obj).intValue();
-        else if (obj != null) {
-            Value val =
-                conf.getValue("openjpa.ConnectionRetainMode");
+        else if (obj == null)
+            retainMode = conf.getConnectionRetainModeConstant();
+        else {
+            Value val = conf.getValue("ConnectionRetainMode");
             try {
                 retainMode = Integer.parseInt(val.unalias((String) obj));
             } catch (Exception e) {
                 throw new ArgumentException(_loc.get("bad-em-prop",
                     "openjpa.ConnectionRetainMode", obj),
-                    new Throwable[]{ e },
-                    obj, true);
+                    new Throwable[]{ e }, obj, true);
             }
-        } else
-            retainMode = conf.getConnectionRetainModeConstant();
+        }
 
         Broker broker = _factory.newBroker(user, pass, managed, retainMode,
             false);
@@ -174,18 +190,26 @@ public class EntityManagerFactoryImpl
         // regardless of PersistenceContextType
         broker.setAutoDetach(AutoDetach.DETACH_CLOSE);
         broker.setDetachedNew(false);
-        OpenJPAEntityManager em = OpenJPAPersistence.toEntityManager(broker);
+        OpenJPAEntityManager em = newEntityManagerImpl(broker);
 
         // allow setting of other bean properties of EM
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
         List<RuntimeException> errs = null;
         Method setter = null;
-        String prop;
+        String prop, prefix;
         Object val;
         for (Map.Entry entry : (Set<Map.Entry>) props.entrySet()) {
             prop = (String) entry.getKey();
-            if (!prop.startsWith("openjpa."))
-                continue;
-            prop = prop.substring(5);
+            prefix = null;
+            for (int i = 0; i < prefixes.length; i++) {
+                prefix = prefixes[i] + ".";
+                if (prop.startsWith(prefix))
+                    break;
+                prefix = null; 
+            } 
+            if (prefix == null)
+                continue; 
+            prop = prop.substring(prefix.length());
             try {
                 setter = ImplHelper.getSetter(em.getClass(), prop);
             } catch (OpenJPAException ke) {
@@ -223,8 +247,14 @@ public class EntityManagerFactoryImpl
                 (Throwable[]) errs.toArray(new Throwable[errs.size()]),
                 null, true);
         }
-
         return em;
+    }
+
+    /**
+     * Create a new entity manager around the given broker.
+     */
+    protected EntityManagerImpl newEntityManagerImpl(Broker broker) {
+        return new EntityManagerImpl(this, broker);
     }
 
     public void addLifecycleListener(Object listener, Class... classes) {
@@ -274,9 +304,8 @@ public class EntityManagerFactoryImpl
                     getStoreManager().getInnermostDelegate().getClass();
                 Class cls = _factory.getConfiguration().
                     getStoreFacadeTypeRegistry().
-                    getImplementation(FetchPlan.class, storeType);
-                if (cls == null)
-                    cls = FetchPlan.class;
+                    getImplementation(FetchPlan.class, storeType, 
+                    		FetchPlanImpl.class);
                 _plan = cls.getConstructor(FetchConfiguration.class);
             }
             return _plan.newInstance(fetch);

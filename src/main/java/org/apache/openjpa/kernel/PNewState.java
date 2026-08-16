@@ -17,7 +17,7 @@ package org.apache.openjpa.kernel;
 
 /**
  * Lifecycle state.
- *  Represents an instance that was made persistent within the
+ * Represents an instance that was made persistent within the
  * current	transaction.
  *
  * @author Abe White
@@ -66,6 +66,10 @@ class PNewState
 
     PCState release(StateManagerImpl context) {
         return error("new", context);
+    }
+
+    boolean isVersionCheckRequired(StateManagerImpl context) {
+        return context.isFlushedDirty(); 
     }
 
     boolean isTransactional() {

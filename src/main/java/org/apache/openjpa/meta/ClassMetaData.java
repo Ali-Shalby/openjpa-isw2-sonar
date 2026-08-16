@@ -111,11 +111,11 @@ public class ClassMetaData
     private static final Localizer _loc = Localizer.forPackage
         (ClassMetaData.class);
 
-    // the repository this class belongs to, if any, and source file
-    private final MetaDataRepository _repos;
+    private MetaDataRepository _repos;
+    private transient ClassLoader _loader = null;
+
     private final ValueMetaData _owner;
     private final LifecycleMetaData _lifeMeta = new LifecycleMetaData(this);
-    private ClassLoader _loader = null;
     private File _srcFile = null;
     private int _srcType = SRC_OTHER;
     private String[] _comments = null;
@@ -140,7 +140,11 @@ public class ClassMetaData
     private Boolean _openjpaId = null;
     private Boolean _extent = null;
     private Boolean _embedded = null;
-    private int _identity = -1;
+    private Boolean _interface = null;
+    private Class _impl = null;
+    private List _interfaces = null;
+    private final Map _ifaceMap = new HashMap();
+    private int _identity = ID_UNKNOWN;
     private int _idStrategy = ValueStrategies.NONE;
     private int _accessType = ACCESS_UNKNOWN;
 
@@ -215,9 +219,8 @@ public class ClassMetaData
      * an embedded value changes its declared type.
      */
     protected void setDescribedType(Class type) {
-        if (type.isInterface())
-            throw new MetaDataException(_loc.get("interface", type));
-        if ("java.lang.Enum".equals(type.getSuperclass().getName()))
+        if (type.getSuperclass() != null && "java.lang.Enum".equals
+            (type.getSuperclass().getName()))
             throw new MetaDataException(_loc.get("enum", type));
         _type = type;
     }
@@ -373,23 +376,17 @@ public class ClassMetaData
      * primary key fields, and {@link #ID_APPLICATION} otherwise.
      */
     public int getIdentityType() {
-        switch (_identity) {
-            case -1:
-                ClassMetaData sup = getPCSuperclassMetaData();
-                if (sup != null && sup.getIdentityType() != ID_UNKNOWN)
-                    _identity = sup.getIdentityType();
-                else {
-                    FieldMetaData[] pks = getPrimaryKeyFields();
-                    if (pks.length > 0)
-                        _identity = ID_APPLICATION;
-                    else
-                        _identity = ID_DATASTORE;
-                }
-                break;
-            case ID_UNKNOWN:
-                if (getPrimaryKeyFields().length > 0)
-                    _identity = ID_APPLICATION;
-                break;
+        if (_identity == ID_UNKNOWN) {
+            ClassMetaData sup = getPCSuperclassMetaData();
+            if (sup != null && sup.getIdentityType() != ID_UNKNOWN)
+                _identity = sup.getIdentityType();
+            else if (getPrimaryKeyFields().length > 0)
+                _identity = ID_APPLICATION;
+            else if (isMapped())
+                _identity = ID_DATASTORE;
+            else
+                _identity = _repos.getMetaDataFactory().getDefaults().
+                    getDefaultIdentityType();
         }
         return _identity;
     }
@@ -431,7 +428,7 @@ public class ClassMetaData
         FieldMetaData[] pks = getPrimaryKeyFields();
         if (pks.length != 1)
             return null;
-        switch (pks[0].getDeclaredTypeCode()) {
+        switch (pks[0].getObjectIdFieldTypeCode()) {
             case JavaTypes.BYTE:
             case JavaTypes.BYTE_OBJ:
                 _objectId = ByteId.class;
@@ -459,6 +456,7 @@ public class ClassMetaData
                 _objectId = DateId.class;
                 break;
             case JavaTypes.OID:
+            case JavaTypes.OBJECT:
                 _objectId = ObjectId.class;
                 break;
         }
@@ -539,7 +537,7 @@ public class ClassMetaData
      * The datastore identity sequence name, or null for none.
      */
     public String getIdentitySequenceName() {
-        if (_seqName == DEFAULT_STRING) {
+        if (DEFAULT_STRING.equals(_seqName)) {
             if (_super != null)
                 _seqName = getPCSuperclassMetaData().getIdentitySequenceName();
             else
@@ -670,6 +668,112 @@ public class ClassMetaData
     }
 
     /**
+     * Whether the type is a managed interface.
+     */
+    public boolean isManagedInterface() {
+        if (!_type.isInterface())
+            return false;
+        return _interface == null ? false : _interface.booleanValue();
+    }
+
+    /**
+     * Whether the type is a managed interface
+     */
+    public void setManagedInterface(boolean managedInterface) {
+        if (!_type.isInterface())
+            throw new MetaDataException(_loc.get("not-interface", _type));
+        _interface = managedInterface ? Boolean.TRUE : Boolean.FALSE;
+    }
+
+    /**
+     * Return the managed interface implementor if any.
+     */
+    public Class getInterfaceImpl() {
+        return _impl;
+    }
+
+    /**
+     * Set the managed interface implementor class.
+     */
+    public void setInterfaceImpl(Class impl) {
+        _impl = impl;
+    }
+
+    /**
+     * Return all explicitly declared interfaces this class implements.
+     */
+    public Class[] getDeclaredInterfaces() {
+        if (_interfaces == null)
+            return MetaDataRepository.EMPTY_CLASSES;
+        return (Class[]) _interfaces.toArray(new Class[_interfaces.size()]);
+    }
+
+    /**
+     * Explicitly declare the given interface among the ones this
+     * class implements.
+     */
+    public void addDeclaredInterface(Class iface) {
+        if (iface == null || !iface.isInterface())
+            throw new MetaDataException(_loc.get("declare-non-interface",
+                this, iface));
+        if (_interfaces == null)
+            _interfaces = new ArrayList();
+        _interfaces.add(iface);
+    }
+
+    /**
+     * Remove the given interface from the declared list.
+     */
+    public boolean removeDeclaredInterface(Class iface) {
+        if (_interfaces == null)
+            return false;
+        return _interfaces.remove(iface);
+    }
+
+    /**
+     * Alias properties from the given interface during  queries to
+     * the local field.
+     */
+    public void setInterfacePropertyAlias(Class iface, String orig, 
+        String local) {
+        synchronized (_ifaceMap) {
+            Map fields = (Map) _ifaceMap.get(iface);
+            if (fields == null) {
+                fields = new HashMap();
+                _ifaceMap.put(iface, fields);
+            }
+            if (fields.containsKey(orig))
+                throw new MetaDataException(_loc.get("duplicate-iface-alias", 
+                    this, orig, local));
+            fields.put(orig, local);
+        }
+    }
+    
+    /**
+     * Get local field alias for the given interface property.
+     */
+    public String getInterfacePropertyAlias(Class iface, String orig) {
+        synchronized (_ifaceMap) {
+            Map fields = (Map) _ifaceMap.get(iface);
+            if (fields == null)
+                return null;
+            return (String) fields.get(orig);
+        }
+    }
+    
+    /**
+     * Return all aliases property named for the given interface.
+     */
+    public String[] getInterfaceAliasedProperties(Class iface) {
+        synchronized (_ifaceMap) {
+            Map fields = (Map) _ifaceMap.get(iface);
+            if (fields == null)
+                return new String[0];
+            return (String[]) fields.keySet().toArray(new String[0]);
+        }
+    }
+    
+    /**
      * Return the number of fields that use impl or intermediate data, in
      * order to create a compacted array for storage of said data.
      */
@@ -784,8 +888,8 @@ public class ClassMetaData
      * Return the superclass copy of the given field.
      */
     protected FieldMetaData getSuperclassField(FieldMetaData supField) {
-        FieldMetaData fmd = getPCSuperclassMetaData().
-            getField(supField.getName());
+        ClassMetaData sm = getPCSuperclassMetaData();
+        FieldMetaData fmd = sm == null ? null : sm.getField(supField.getName());
         if (fmd == null || fmd.getManagement() != fmd.MANAGE_PERSISTENT)
             throw new MetaDataException(_loc.get("unmanaged-sup-field",
                 supField, this));
@@ -1175,7 +1279,7 @@ public class ClassMetaData
      * The name of the datacache to use for this class, or null if none.
      */
     public String getDataCacheName() {
-        if (_cacheName == DEFAULT_STRING) {
+        if (DEFAULT_STRING.equals(_cacheName)) {
             if (_super != null)
                 _cacheName = getPCSuperclassMetaData().getDataCacheName();
             else
@@ -1249,7 +1353,7 @@ public class ClassMetaData
      * The name of the detach state field, or null if none.
      */
     public String getDetachedState() {
-        if (_detachState == DEFAULT_STRING) {
+        if (DEFAULT_STRING.equals(_detachState)) {
             ClassMetaData sup = getPCSuperclassMetaData();
             if (sup != null && sup.isDetachable() == isDetachable())
                 _detachState = sup.getDetachedState();
@@ -1481,7 +1585,8 @@ public class ClassMetaData
             log.trace(_loc.get((embed) ? "resolve-embed-meta" : "resolve-meta",
                 this + "@" + System.identityHashCode(this)));
 
-        if (runtime && !PersistenceCapable.class.isAssignableFrom(_type))
+        if (runtime && !_type.isInterface() && 
+            !PersistenceCapable.class.isAssignableFrom(_type))
             throw new MetaDataException(_loc.get("not-enhanced", _type));
 
         // are we the target of an embedded value?
@@ -1550,10 +1655,26 @@ public class ClassMetaData
         // resolve lifecycle metadata now to prevent lazy threading problems
         _lifeMeta.resolve();
 
+        // record implements in the repository
+        if (_interfaces != null) {
+            for (Iterator it = _interfaces.iterator(); it.hasNext();)
+                _repos.addDeclaredInterfaceImpl(this, (Class) it.next());
+        }
+
         // resolve fetch groups
         if (_fgMap != null)
             for (Iterator itr = _fgMap.values().iterator(); itr.hasNext();)
                 ((FetchGroup) itr.next()).resolve();
+
+        if (!embed && _type.isInterface()) {
+            if (_interface != Boolean.TRUE)
+                throw new MetaDataException(_loc.get("interface", _type));
+
+            if (runtime) {
+                _impl = _repos.getImplGenerator().createImpl(this);
+                _repos.setInterfaceImpl(this, _impl);
+            }
+        }
 
         // if this is runtime, create a pc instance and scan it for comparators
         if (runtime && !Modifier.isAbstract(_type.getModifiers())) {
@@ -1592,8 +1713,6 @@ public class ClassMetaData
      * Validate mapping data.
      */
     protected void validateMapping(boolean runtime) {
-        if (isMapped() && getIdentityType() == ID_UNKNOWN)
-            throw new MetaDataException(_loc.get("mapped-unknownid", this));
     }
 
     /**
@@ -1632,28 +1751,30 @@ public class ClassMetaData
      */
     private void validateIdentity(boolean runtime) {
         // make sure identity types are consistent
-        if (_super != null && _identity != -1
-            && getPCSuperclassMetaData().getIdentityType() != _identity)
+        ClassMetaData sup = getPCSuperclassMetaData();
+        int id = getIdentityType();
+        if (sup != null && sup.getIdentityType() != ID_UNKNOWN
+            && sup.getIdentityType() != id)
             throw new MetaDataException(_loc.get("id-types", _type));
 
         // check for things the data store doesn't support
         Collection opts = _repos.getConfiguration().supportedOptions();
-        if (getIdentityType() == ID_APPLICATION
+        if (id == ID_APPLICATION
             && !opts.contains(OpenJPAConfiguration.OPTION_ID_APPLICATION)) {
             throw new UnsupportedException(_loc.get("appid-not-supported",
                 _type));
         }
-        if (getIdentityType() == ID_DATASTORE
+        if (id == ID_DATASTORE
             && !opts.contains(OpenJPAConfiguration.OPTION_ID_DATASTORE)) {
             throw new UnsupportedException(_loc.get
                 ("datastoreid-not-supported", _type));
         }
 
-        if (getIdentityType() == ID_APPLICATION) {
+        if (id == ID_APPLICATION) {
             if (_idStrategy != ValueStrategies.NONE)
                 throw new MetaDataException(_loc.get("appid-strategy", _type));
             validateAppIdClass(runtime);
-        } else
+        } else if (id != ID_UNKNOWN)
             validateNoPKFields();
 
         int strategy = getIdentityStrategy();
@@ -1778,29 +1899,31 @@ public class ClassMetaData
             Method m;
             String cap;
             int type;
-            Class comp;
+            Class c;
             int access = meta.getAccessType();
             for (int i = 0; i < fmds.length; i++) {
                 switch (fmds[i].getDeclaredTypeCode()) {
                     case JavaTypes.ARRAY:
-                        comp = fmds[i].getDeclaredType().getComponentType();
-                        if (comp == byte.class || comp == Byte.class
-                            || comp == char.class || comp == Character.class)
+                        c = fmds[i].getDeclaredType().getComponentType();
+                        if (c == byte.class || c == Byte.class
+                            || c == char.class || c == Character.class) {
+                            c = fmds[i].getDeclaredType();
                             break;
+                        }
                         // else no break
+                    case JavaTypes.PC_UNTYPED:
                     case JavaTypes.COLLECTION:
                     case JavaTypes.MAP:
-                    case JavaTypes.PC:
-                    case JavaTypes.PC_UNTYPED:
                     case JavaTypes.OID: // we're validating embedded fields
                         throw new MetaDataException(_loc.get("bad-pk-type",
                             fmds[i]));
+                    default:
+                        c = fmds[i].getObjectIdFieldType();
                 }
 
                 if (access == ACCESS_FIELD) {
                     f = findField(oid, fmds[i].getName(), runtime);
-                    if (f == null || !f.getType().isAssignableFrom(fmds[i].
-                        getDeclaredType()))
+                    if (f == null || !f.getType().isAssignableFrom(c))
                         throw new MetaDataException(_loc.get("invalid-id",
                             _type)).setFailedObject(fmds[i].getName());
                 } else if (access == ACCESS_PROPERTY) {
@@ -1811,8 +1934,7 @@ public class ClassMetaData
                     if (m == null && (type == JavaTypes.BOOLEAN
                         || type == JavaTypes.BOOLEAN_OBJ))
                         m = findMethod(oid, "is" + cap, null, runtime);
-                    if (m == null || !m.getReturnType().
-                        isAssignableFrom(fmds[i].getDeclaredType()))
+                    if (m == null || !m.getReturnType().isAssignableFrom(c))
                         throw new MetaDataException(_loc.get("invalid-id",
                             _type)).setFailedObject("get" + cap);
 
@@ -2113,6 +2235,8 @@ public class ClassMetaData
         _objectId = meta.getObjectIdType();
         _extent = (meta.getRequiresExtent()) ? Boolean.TRUE : Boolean.FALSE;
         _embedded = (meta.isEmbeddedOnly()) ? Boolean.TRUE : Boolean.FALSE;
+        _interface = (meta.isManagedInterface()) ? Boolean.TRUE : Boolean.FALSE;
+        _impl = meta.getInterfaceImpl();
         _identity = meta.getIdentityType();
         _idStrategy = meta.getIdentityStrategy();
         _seqName = meta.getIdentitySequenceName();
@@ -2122,13 +2246,13 @@ public class ClassMetaData
 
         // only copy this information if it wasn't set explicitly for this
         // instance
-        if (_cacheName == DEFAULT_STRING)
+        if (DEFAULT_STRING.equals(_cacheName))
             _cacheName = meta.getDataCacheName();
         if (_cacheTimeout == Integer.MIN_VALUE)
             _cacheTimeout = meta.getDataCacheTimeout();
         if (_detachable == null)
             _detachable = meta._detachable;
-        if (_detachState == DEFAULT_STRING)
+        if (DEFAULT_STRING.equals(_detachState))
             _detachState = meta.getDetachedState();
 
         // synch field information; first remove extra fields
@@ -2155,6 +2279,10 @@ public class ClassMetaData
             fg = addDeclaredFetchGroup(fgs[i].getName());
             fg.copy(fgs[i]); 
         }
+
+        // copy iface re-mapping
+        _ifaceMap.clear();
+        _ifaceMap.putAll(meta._ifaceMap);
     }
 
     /**
@@ -2201,7 +2329,8 @@ public class ClassMetaData
             FieldMetaData f2 = (FieldMetaData) o2;
             if (f1.getListingIndex() == f2.getListingIndex()) {
                 if (f1.getIndex() == f2.getIndex())
-                    return f1.getFullName ().compareTo (f2.getFullName ());
+                    return f1.getFullName(false).compareTo
+                        (f2.getFullName(false));
 				if (f1.getIndex () == -1)
 					return 1;
 				if (f2.getIndex () == -1)

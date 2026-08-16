@@ -15,7 +15,6 @@
  */
 package org.apache.openjpa.lib.conf;
 
-import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -47,25 +46,7 @@ public class MapConfigurationProvider implements ConfigurationProvider {
      * Constructor; supply properties map.
      */
     public MapConfigurationProvider(Map props) {
-        this();
         addProperties(props);
-    }
-
-    public boolean loadGlobals(ClassLoader loader) throws Exception {
-        return false;
-    }
-
-    public boolean loadDefaults(ClassLoader loader) throws Exception {
-        return false;
-    }
-
-    public boolean load(String resource, String anchor, ClassLoader loader) 
-        throws Exception {
-        return false;
-    }
-
-    public boolean load(File file, String anchor) throws Exception {
-        return false;
     }
 
     public Map getProperties() {
@@ -97,7 +78,6 @@ public class MapConfigurationProvider implements ConfigurationProvider {
     protected void setInto(Configuration conf, Log log) {
         if (log != null && log.isTraceEnabled())
             log.trace(_loc.get("conf-load", getProperties()));
-        
         if (_props != null)
             conf.fromProperties(_props);
     }

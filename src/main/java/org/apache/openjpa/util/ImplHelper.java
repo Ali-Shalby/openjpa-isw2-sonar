@@ -17,6 +17,7 @@ package org.apache.openjpa.util;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
@@ -41,7 +42,7 @@ import org.apache.openjpa.meta.ValueStrategies;
 /**
  * Helper for OpenJPA back-ends.
  *
- * @since 3.0
+ * @since 0.3.0
  * @author Abe White
  * @nojavadoc
  */
@@ -87,7 +88,7 @@ public class ImplHelper {
      * to the proper singular method for each state manager.
      *
      * @see StoreManager#loadAll
-     * @since 4.0
+     * @since 0.4.0
      */
     public static Collection loadAll(Collection sms, StoreManager store,
         PCState state, int load, FetchConfiguration fetch, Object context) {
@@ -139,7 +140,8 @@ public class ImplHelper {
      */
     public static Object generateFieldValue(StoreContext ctx,
         FieldMetaData fmd) {
-        return generateValue(ctx, null, fmd, fmd.getDeclaredTypeCode());
+        return generateValue(ctx, fmd.getDefiningMetaData(), fmd, 
+            fmd.getDeclaredTypeCode());
     }
 
     /**
@@ -163,6 +165,27 @@ public class ImplHelper {
             default:
                 return null;
         }
+    }
+
+    /** 
+     * Returns the fields of the state that require an update. 
+     *  
+     * @param  sm  the state to check
+     * @return the BitSet of fields that need update, or null if none
+     */
+    public static BitSet getUpdateFields(OpenJPAStateManager sm) {
+        if ((sm.getPCState() == PCState.PDIRTY
+            && (!sm.isFlushed() || sm.isFlushedDirty()))
+            || (sm.getPCState() == PCState.PNEW && sm.isFlushedDirty())) {
+            BitSet dirty = sm.getDirty();
+            if (sm.isFlushed()) {
+                dirty = (BitSet) dirty.clone();
+                dirty.andNot(sm.getFlushed());
+            }
+            if (dirty.length() > 0)
+                return dirty;
+        }
+        return null;
     }
 
     /**

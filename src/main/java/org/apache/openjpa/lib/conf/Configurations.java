@@ -16,7 +16,6 @@
 package org.apache.openjpa.lib.conf;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Iterator;
@@ -28,12 +27,12 @@ import javax.naming.Context;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.exception.NestableRuntimeException;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.lib.util.ParseException;
-import org.apache.openjpa.lib.util.Services;
 import org.apache.openjpa.lib.util.StringDistance;
 import serp.util.Strings;
 
@@ -68,7 +67,7 @@ public class Configurations {
     private static String getPluginComponent(String plugin, boolean clsName) {
         if (plugin != null)
             plugin = plugin.trim();
-        if (plugin == null || plugin.length() == 0)
+        if (StringUtils.isEmpty(plugin))
             return null;
 
         int openParen = -1;
@@ -93,9 +92,9 @@ public class Configurations {
      * Combine the given class name and properties into a plugin string.
      */
     public static String getPlugin(String clsName, String props) {
-        if (clsName == null || clsName.length() == 0)
+        if (StringUtils.isEmpty(clsName))
             return props;
-        if (props == null || props.length() == 0)
+        if (StringUtils.isEmpty(props))
             return clsName;
         return clsName + "(" + props + ")";
     }
@@ -126,7 +125,7 @@ public class Configurations {
      */
     static Object newInstance(String clsName, Value val, Configuration conf,
         ClassLoader loader, boolean fatal) {
-        if (clsName == null || clsName.length() == 0)
+        if (StringUtils.isEmpty(clsName))
             return null;
         if (loader == null && conf != null)
             loader = conf.getClass().getClassLoader();
@@ -157,6 +156,55 @@ public class Configurations {
                 log.error(_loc.get("plugin-creation-exception", val), re);
             return null;
         }
+    }
+
+    /**
+     * Set the given {@link Configuration} instance from the command line
+     * options provided. All property names of the given configuration are
+     * recognized; additionally, if a <code>properties</code> or
+     * <code>p</code> argument exists, the resource it
+     * points to will be loaded and set into the given configuration instance.
+     * It can point to either a file or a resource name.
+     */
+    public static void populateConfiguration(Configuration conf, Options opts) {
+        String props = opts.removeProperty("properties", "p", null);
+        ConfigurationProvider provider;
+        if (!StringUtils.isEmpty(props)) {
+            String path = props;
+            String anchor = null;
+            int idx = path.lastIndexOf('#');
+            if (idx != -1) {
+                if (idx < path.length() - 1)
+                    anchor = path.substring(idx + 1);
+                path = path.substring(0, idx);
+                if (path.length() == 0)
+                    throw new MissingResourceException(_loc.get("anchor-only",
+                        props).getMessage(), Configurations.class.getName(), 
+                        props);
+            }
+
+            File file = new File(path);
+            if (file.isFile())
+                provider = ProductDerivations.load(file, anchor, null);
+            else {
+                file = new File("META-INF" + File.separatorChar + path);
+                if (file.isFile())
+                    provider = ProductDerivations.load(file, anchor, null);
+                else
+                    provider = ProductDerivations.load(path, anchor, null);
+            }
+            if (provider != null)
+                provider.setInto(conf);
+            else
+                throw new MissingResourceException(_loc.get("no-provider",
+                    props).getMessage(), Configurations.class.getName(), 
+                    props);
+        } else {
+            provider = ProductDerivations.loadDefaults(null);
+            if (provider != null)
+                provider.setInto(conf);
+        }
+        opts.setInto(conf);
     }
 
     /**
@@ -227,7 +275,7 @@ public class Configurations {
             return;
 
         Properties props = null;
-        if (properties != null && properties.length() > 0)
+        if (!StringUtils.isEmpty(properties))
             props = parseProperties(properties);
         configureInstance(obj, conf, props, configurationName);
     }
@@ -286,7 +334,7 @@ public class Configurations {
 				first.indexOf('.') == -1) {
 				// if there's just one misspelling and this is not a
 				// path traversal, check for near misses.
-				Collection options = Options.findOptionsFor(obj.getClass());
+				Collection options = findOptionsFor(obj.getClass());
 				String close = StringDistance.getClosestLevenshteinDistance
 					(first, options, 0.75f);
 				if (close != null)
@@ -299,12 +347,25 @@ public class Configurations {
                 msg = _loc.get("invalid-config-params", new String[]{
                     configurationName, obj.getClass().getName(),
                     invalidEntries.keySet().toString(),
-                    Options.findOptionsFor(obj.getClass()).toString(), });
+                    findOptionsFor(obj.getClass()).toString(), });
             }
             throw new ParseException(msg);
         }
         if (configurable != null)
             configurable.endConfiguration();
+    }
+
+    private static Collection findOptionsFor(Class cls) {
+        Collection c = Options.findOptionsFor(cls);
+        
+        // remove Configurable.setConfiguration() and 
+        // GenericConfigurable.setInto() from the set, if applicable.
+        if (Configurable.class.isAssignableFrom(cls))
+            c.remove("Configuration");
+        if (GenericConfigurable.class.isAssignableFrom(cls))
+            c.remove("Into");
+        
+        return c;
     }
 
     /**
@@ -336,10 +397,8 @@ public class Configurations {
      */
     public static Options parseProperties(String properties) {
         Options opts = new Options();
+        properties = StringUtils.trimToNull(properties);
         if (properties == null)
-            return opts;
-        properties = properties.trim();
-        if (properties.length() == 0)
             return opts;
 
         try {
@@ -398,261 +457,10 @@ public class Configurations {
     }
 
     /**
-     * Set the given {@link Configuration} instance from the command line
-     * options provided. All property names of the given configuration are
-     * recognized; additionally, if a <code>properties</code> or
-     * <code>p</code> argument exists, the resource it
-     * points to will be loaded and set into the given configuration instance.
-     * It can point to either a file or a resource name.
-     */
-    public static void populateConfiguration(Configuration conf, Options opts) {
-        String props = opts.removeProperty("properties", "p", null);
-        if (props != null && props.length() > 0) {
-            String path = props;
-            String anchor = null;
-            int idx = path.lastIndexOf('#');
-            if (idx != -1) {
-                if (idx < path.length() - 1)
-                    anchor = path.substring(idx + 1);
-                path = path.substring(0, idx);
-                if (path.length() == 0)
-                    throw new MissingResourceException(_loc.get("anchor-only",
-                        props).getMessage(), Configurations.class.getName(), 
-                        props);
-            }
-
-            File file = new File(path);
-            ConfigurationProvider provider;
-            if (file.isFile())
-                provider = load(file, anchor, null);
-            else {
-                file = new File("META-INF" + File.separatorChar + path);
-                if (file.isFile())
-                    provider = load(file, anchor, null);
-                else
-                    provider = load(path, anchor, null);
-            }
-            provider.setInto(conf);
-        } else {
-            ConfigurationProvider provider = loadDefaults(null);
-            if (provider != null)
-                provider.setInto(conf);
-        }
-        opts.setInto(conf);
-    }
-
-    /**
-     * Return a {@link ConfigurationProvider} that has parsed system defaults.
-     */
-    public static ConfigurationProvider loadDefaults(ClassLoader loader) {
-        return load(loader, false);
-    }
-
-    /**
-     * Return a {@link ConfigurationProvider} that has parsed system globals.
-     */
-    static ConfigurationProvider loadGlobals(ClassLoader loader) {
-        return load(loader, true);
-    }
-
-    /**
-     * Load globals or defaults.
-     */
-    private static ConfigurationProvider load(ClassLoader loader, 
-        boolean globals) {
-        if (loader == null)
-            loader = Thread.currentThread().getContextClassLoader();
-        Class[] impls = Services.getImplementorClasses
-            (ConfigurationProvider.class, loader);
-        ConfigurationProvider provider = null;
-        int providerCount = 0;
-        StringBuffer errs = null;
-        for (int i = 0; i < impls.length; i++) {
-            provider = newProvider(impls[i]);
-            if (provider == null)
-                continue;
-
-            providerCount++;
-            try {
-                if ((globals && provider.loadGlobals(loader))
-                    || (!globals && provider.loadDefaults(loader)))
-                    return provider;
-            } catch (MissingResourceException mre) {
-                throw mre;
-            } catch (Exception e) {
-                if (errs == null)
-                    errs = new StringBuffer();
-                else
-                    errs.append(", ");
-                errs.append(e.toString());
-            }
-        }
-
-        String type = (globals) ? "globals" : "defaults";
-        if (errs != null)
-            throw new MissingResourceException(errs.toString(),
-                Configurations.class.getName(), type);
-        if (providerCount == 0)
-            throw new MissingResourceException(_loc.get ("no-providers", 
-                ConfigurationProvider.class.getName()).getMessage(),
-                Configurations.class.getName(), type);
-        return null;
-    }
-
-    /**
-     * Return a new new configuration provider instance of the given class,
-     * or null if the class cannot be instantiated.
-     */
-    private static ConfigurationProvider newProvider(Class cls) {
-        try {
-            return (ConfigurationProvider) cls.newInstance();
-        } catch (Throwable e) {
-            return null;
-        }
-    }
-
-    /**
-     * Return a {@link ConfigurationProvider} that has parsed the given
-     * resource. Throws {@link MissingResourceException} if resource does
-     * not exist.
-     */
-    public static ConfigurationProvider load(String resource, 
-        ClassLoader loader) {
-        if (resource == null || resource.length() == 0)
-            return null;
-
-        String path = resource;
-        String anchor = null;
-        int idx = path.indexOf('#');
-        if (idx != -1) {
-            if (idx < path.length() - 1)
-                anchor = path.substring(idx + 1);
-            path = path.substring(0, idx);
-            if (path.length() == 0)
-                throw new MissingResourceException(_loc.get("anchor-only", 
-                    resource).getMessage(), Configurations.class.getName(), 
-                    resource);
-        }
-        return load(path, anchor, loader);
-    }
-
-    /**
-     * Return a {@link ConfigurationProvider} that has parsed the given
-     * resource. Throws {@link MissingResourceException} if resource does
-     * not exist.
-     */
-    public static ConfigurationProvider load(String resource, String anchor, 
-        ClassLoader loader) {
-        if (resource == null || resource.length() == 0)
-            return null;
-
-        if (loader == null)
-            loader = Thread.currentThread().getContextClassLoader();
-        Class[] impls = Services.getImplementorClasses
-            (ConfigurationProvider.class, loader);
-        ConfigurationProvider provider = null;
-        int providerCount = 0;
-        StringBuffer errs = null;
-        for (int i = 0; i < impls.length; i++) {
-            provider = newProvider(impls[i]);
-            if (provider == null)
-                continue;
-
-            providerCount++;
-            try {
-                if (provider.load(resource, anchor, loader))
-                    return provider;
-            } catch (MissingResourceException mre) {
-                throw mre;
-            } catch (Exception e) {
-                if (errs == null)
-                    errs = new StringBuffer();
-                else
-                    errs.append(", ");
-                errs.append(e.toString());
-            }
-        }
-        String msg;
-        if (errs != null)
-            msg = errs.toString();
-        else if (providerCount == 0)
-            msg = _loc.get("no-providers", 
-                ConfigurationProvider.class.getName()).getMessage();
-        else
-            msg = _loc.get("no-provider", resource).getMessage();
-        
-        throw new MissingResourceException(msg,
-            Configurations.class.getName(), resource);
-    }
-
-    /**
-     * Return a {@link ConfigurationProvider} that has parsed the given
-     * file. Throws {@link MissingResourceException} if file does not exist.
-     */
-    public static ConfigurationProvider load(File file, ClassLoader loader) {
-        if (file == null)
-            return null;
-
-        String anchor = null;
-        try {
-            String path = file.getCanonicalPath();
-            int idx = path.indexOf('#');
-            if (idx != -1) {
-                if (idx < path.length() - 1)
-                    anchor = path.substring(idx + 1);
-                path = path.substring(0, idx);
-                if (path.length() == 0)
-                    throw new MissingResourceException(_loc.get("anchor-only",
-                        file).getMessage(), Configurations.class.getName(), 
-                        file.toString());
-                file = new File(path);
-            }
-        } catch (IOException ioe) {
-            // ignore
-        }
-        return load(file, anchor, loader);
-    }
-
-    /**
-     * Return a {@link ConfigurationProvider} that has parsed the given
-     * file. Throws {@link MissingResourceException} if file does not exist.
-     */
-    public static ConfigurationProvider load(File file, String anchor, 
-        ClassLoader loader) {
-        if (file == null)
-            return null;
-
-        if (loader == null)
-            loader = Thread.currentThread().getContextClassLoader();
-        Class[] impls = Services.getImplementorClasses
-            (ConfigurationProvider.class, loader);
-        ConfigurationProvider provider = null;
-        StringBuffer errs = null;
-        for (int i = 0; i < impls.length; i++) {
-            provider = newProvider(impls[i]);
-            try {
-                if (provider != null && provider.load(file, anchor))
-                    return provider;
-            } catch (MissingResourceException mre) {
-                throw mre;
-            } catch (Exception e) {
-                if (errs == null)
-                    errs = new StringBuffer();
-                else
-                    errs.append(", ");
-                errs.append(e.toString());
-            }
-        }
-        String msg = (errs == null) ? file.toString() : errs.toString();
-        throw new MissingResourceException(msg,
-            Configurations.class.getName(), file.toString());
-    }
-
-    /**
      * Looks up the given name in JNDI. If the name is null, null is returned.
      */
     public static Object lookup(String name) {
-        if (name == null || name.length() == 0)
+        if (StringUtils.isEmpty(name))
             return null;
 
         Context ctx = null;
@@ -666,5 +474,54 @@ public class Configurations {
             if (ctx != null)
                 try { ctx.close(); } catch (Exception e) {}
         }
+    }
+
+    /**
+     * Test whether the map contains the given key, prefixed with any possible
+     * configuration prefix.
+     */
+    public static boolean containsProperty(String key, Map props) {
+        if (key == null || props == null)
+            return false;
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
+        for (int i = 0; i < prefixes.length; i++)
+            if (props.containsKey(prefixes[i] + "." + key))
+                return true;
+        return false;
+    }
+
+    /**
+     * Get the property under the given key, prefixed with any possible
+     * configuration prefix.
+     */
+    public static Object getProperty(String key, Map props) {
+        if (key == null || props == null)
+            return null;
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
+        Object val;
+        for (int i = 0; i < prefixes.length; i++) {
+            val = props.get(prefixes[i] + "." + key);
+            if (val != null)
+                return val;
+        }
+        return null;
+    }
+
+    /**
+     * Remove the property under the given key, prefixed with any possible
+     * configuration prefix.
+     */
+    public static Object removeProperty(String key, Map props) {
+        if (key == null || props == null)
+            return null;
+        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
+        Object val = null;
+        Object cur;
+        for (int i = 0; i < prefixes.length; i++) {
+            cur = props.remove(prefixes[i] + "." + key);
+            if (cur != null && val == null)
+                val = cur;
+        }
+        return val;
     }
 }

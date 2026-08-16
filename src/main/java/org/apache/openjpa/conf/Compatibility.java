@@ -26,6 +26,7 @@ public class Compatibility {
     private boolean _copyIds = false;
     private boolean _closeOnCommit = true;
     private boolean _quotedNumbers = false;
+    private boolean _nonOptimisticVersionCheck = false;
 
     /**
      * Whether to require exact identity value types when creating object
@@ -45,7 +46,7 @@ public class Compatibility {
 
     /**
      * Whether to interpret quoted numbers in query strings as numbers.
-     * OpenJPA versions 3.1 and prior treated them as numbers; more recent
+     * OpenJPA versions 0.3.1 and prior treated them as numbers; more recent
      * versions treat them as strings.
      */
     public boolean getQuotedNumbersInQueries() {
@@ -54,7 +55,7 @@ public class Compatibility {
 
     /**
      * Whether to interpret quoted numbers in query strings as numbers.
-     * OpenJPA versions 3.1 and prior treated them as numbers; more recent
+     * OpenJPA versions 0.3.1 and prior treated them as numbers; more recent
      * versions treat them as strings.
      */
     public void setQuotedNumbersInQueries(boolean quotedNumbers) {
@@ -64,8 +65,8 @@ public class Compatibility {
     /**
      * Whether to return hollow instances to broker lookups with a
      * <code>validate</code> parameter of false. OpenJPA versions prior to
-     * 4.0 did not return hollow instances without special configuration
-     * (the <code>ObjectLookupMode</code>). Beginning with 4.0, hollow
+     * 0.4.0 did not return hollow instances without special configuration
+     * (the <code>ObjectLookupMode</code>). Beginning with 0.4.0, hollow
      * objects are the default.
      */
     public boolean getValidateFalseReturnsHollow() {
@@ -75,8 +76,8 @@ public class Compatibility {
     /**
      * Whether to return hollow instances to broker lookups with a
      * <code>validate</code> parameter of false. OpenJPA versions prior to
-     * 4.0 did not return hollow instances without special configuration
-     * (the <code>ObjectLookupMode</code>). Beginning with 4.0, hollow
+     * 0.4.0 did not return hollow instances without special configuration
+     * (the <code>ObjectLookupMode</code>). Beginning with 0.4.0, hollow
      * objects are the default.
      */
     public void setValidateFalseReturnsHollow(boolean hollow) {
@@ -86,7 +87,7 @@ public class Compatibility {
     /**
      * Whether to check the datastore for the existence of a nontransactional
      * cached object in broker lookups with a <code>validate</code> parameter
-     * of true. OpenJPA versions prior to 4.0 checked the datastore.
+     * of true. OpenJPA versions prior to 0.4.0 checked the datastore.
      */
     public boolean getValidateTrueChecksStore() {
         return _checkStore;
@@ -95,7 +96,7 @@ public class Compatibility {
     /**
      * Whether to check the datastore for the existence of a nontransactional
      * cached object in broker lookups with a <code>validate</code> parameter
-     * of true. OpenJPA versions prior to 4.0 checked the datastore.
+     * of true. OpenJPA versions prior to 0.4.0 checked the datastore.
      */
     public void setValidateTrueChecksStore(boolean check) {
         _checkStore = check;
@@ -103,7 +104,7 @@ public class Compatibility {
 
     /**
      * Whether to copy identity objects before returning them to client code.
-     * Versions of OpenJPA prior to 3.0 always copied identity objects. Also,
+     * Versions of OpenJPA prior to 0.3.0 always copied identity objects. Also,
      * you should configure OpenJPA to copy identity objects if you mutate them
      * after use.
      */
@@ -113,7 +114,7 @@ public class Compatibility {
 
     /**
      * Whether to copy identity objects before returning them to client code.
-     * Versions of OpenJPA prior to 3.0 always copied identity objects. Also,
+     * Versions of OpenJPA prior to 0.3.0 always copied identity objects. Also,
      * you should configure OpenJPA to copy identity objects if you mutate them
      * after use.
      */
@@ -123,7 +124,7 @@ public class Compatibility {
 
     /**
      * Whether to close the broker when the managed transaction commits.
-     * Versions of OpenJPA prior to 3.0 did not close the broker.
+     * Versions of OpenJPA prior to 0.3.0 did not close the broker.
      */
     public boolean getCloseOnManagedCommit() {
         return _closeOnCommit;
@@ -131,9 +132,28 @@ public class Compatibility {
 
     /**
      * Whether to close the broker when the managed transaction commits.
-     * Versions of OpenJPA prior to 3.0 did not close the broker.
+     * Versions of OpenJPA prior to 0.3.0 did not close the broker.
      */
     public void setCloseOnManagedCommit(boolean close) {
         _closeOnCommit = close;
 	}	
+
+    /** 
+     * Whether or not to perform a version check on instances being updated
+     * in a datastore transaction. Version of OpenJPA prior to 0.4.1 always
+     * forced a version check.
+     */
+    public void setNonOptimisticVersionCheck
+        (boolean nonOptimisticVersionCheck) {
+        _nonOptimisticVersionCheck = nonOptimisticVersionCheck;
+    }
+
+    /** 
+     * Whether or not to perform a version check on instances being updated
+     * in a datastore transaction. Version of OpenJPA prior to 0.4.1 always
+     * forced a version check.
+     */
+    public boolean getNonOptimisticVersionCheck() {
+        return _nonOptimisticVersionCheck;
+    }
 }

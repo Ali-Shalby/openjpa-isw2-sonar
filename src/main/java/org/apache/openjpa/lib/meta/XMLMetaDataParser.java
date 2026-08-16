@@ -332,7 +332,6 @@ public abstract class XMLMetaDataParser extends DefaultHandler
         // even if we want to validate, specify that it won't happen
         // if we have neither a DocType not a Schema
         Object schemaSource = getSchemaSource();
-
         if (schemaSource != null && _schemaBug) {
             if (_log != null && _log.isInfoEnabled())
                 _log.info(_loc.get("parser-schema-bug"));
@@ -668,7 +667,9 @@ public abstract class XMLMetaDataParser extends DefaultHandler
         if (cause != null && _log != null && _log.isTraceEnabled())
             _log.trace(_loc.get("sax-exception",
                 getSourceName(), _location.getLocation()), cause);
-        return new SAXException(getSourceName() + currentLocation() +
+        SAXException e = new SAXException(getSourceName() + currentLocation() +
             ": " + msg + " [" + cause + "]");
+        e.initCause(cause);
+        return e;
     }
 }

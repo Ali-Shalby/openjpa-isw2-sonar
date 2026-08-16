@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.collections.map.LinkedMap;
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.rop.ListResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
@@ -135,7 +136,7 @@ public class MethodStoreQuery
         }
 
         public ResultObjectProvider executeQuery(StoreQuery q,
-            Object[] params, boolean lrs, long startIdx, long endIdx) {
+            Object[] params, Range range) {
             // convert the parameters into a map
             Map paramMap;
             if (params.length == 0)
@@ -148,19 +149,14 @@ public class MethodStoreQuery
                     itr.hasNext(); idx++)
                     paramMap.put(itr.next(), params[idx]);
             }
-            return executeQuery(q, paramMap, lrs, startIdx, endIdx);
-        }
 
-        public ResultObjectProvider executeQuery(StoreQuery q,
-            Map params, boolean lrs, long startIdx, long endIdx) {
             FetchConfiguration fetch = q.getContext().getFetchConfiguration();
             StoreContext sctx = q.getContext().getStoreContext();
-
             ResultObjectProvider rop;
             Object[] args;
             if (_inMem) {
                 args = new Object[]{ sctx, _meta, (_subs) ? Boolean.TRUE
-                    : Boolean.FALSE, null, params, fetch };
+                    : Boolean.FALSE, null, paramMap, fetch };
 
                 Iterator itr = null;
                 Collection coll = q.getContext().getCandidateCollection();
@@ -192,12 +188,12 @@ public class MethodStoreQuery
             } else {
                 // datastore
                 args = new Object[]{ sctx, _meta, (_subs) ? Boolean.TRUE
-                    : Boolean.FALSE, params, fetch };
+                    : Boolean.FALSE, paramMap, fetch };
                 rop = (ResultObjectProvider) invoke(q, args);
             }
 
-            if (startIdx != 0 || endIdx != Long.MAX_VALUE)
-                rop = new RangeResultObjectProvider(rop, startIdx, endIdx);
+            if (range.start != 0 || range.end != Long.MAX_VALUE)
+                rop = new RangeResultObjectProvider(rop, range.start,range.end);
             return rop;
         }
 
@@ -222,7 +218,7 @@ public class MethodStoreQuery
                 return;
 
             String methName = q.getContext().getQueryString();
-            if (methName == null || methName.length() == 0)
+            if (StringUtils.isEmpty(methName))
                 throw new UserException(_loc.get("no-method"));
 
             int dotIdx = methName.lastIndexOf('.');

@@ -24,12 +24,14 @@ import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.Embeddable;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
+import org.apache.openjpa.jdbc.meta.Joinable;
 import org.apache.openjpa.jdbc.meta.MappingInfo;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
+import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.Joins;
@@ -45,18 +47,22 @@ import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.ApplicationIds;
+import org.apache.openjpa.util.ImplHelper;
+import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.OpenJPAId;
+import org.apache.openjpa.util.UnsupportedException;
+import serp.util.Numbers;
 
 /**
  * Mapping for a single-valued relation to another entity.
  *
  * @author Abe White
- * @since 4.0
+ * @since 0.4.0
  */
 public class RelationFieldStrategy
     extends AbstractFieldStrategy
-    implements Embeddable {
+    implements Joinable, Embeddable {
 
     private static final Localizer _loc = Localizer.forPackage
         (RelationFieldStrategy.class);
@@ -146,8 +152,19 @@ public class RelationFieldStrategy
                 adapt);
 
         field.setUseClassCriteria(criteria);
-        field.mapConstraints(field.getName(), adapt);
         field.mapPrimaryKey(adapt);
+        PrimaryKey pk = field.getTable().getPrimaryKey();
+        if (field.isPrimaryKey()) {
+            Column[] cols = field.getColumns();
+            if (pk != null && (adapt || pk.isLogical()))
+                for (int i = 0; i < cols.length; i++)
+                    pk.addColumn(cols[i]);
+            for (int i = 0; i < cols.length; i++)
+                field.getDefiningMapping().setJoinable(cols[i], this);
+        }
+
+        // map constraints after pk so we don't re-index / re-unique pk col
+        field.mapConstraints(field.getName(), adapt);
     }
 
     /**
@@ -180,7 +197,7 @@ public class RelationFieldStrategy
         OpenJPAStateManager rel = RelationStrategies.getStateManager
             (sm.fetchObjectField(field.getIndex()), store.getContext());
         if (field.getJoinDirection() == field.JOIN_INVERSE)
-            updateInverse(sm, rel, store, rm, sm);
+            updateInverse(sm, rel, store, rm);
         else {
             Row row = field.getRow(sm, store, rm, Row.ACTION_INSERT);
             if (row != null)
@@ -198,7 +215,7 @@ public class RelationFieldStrategy
 
         if (field.getJoinDirection() == field.JOIN_INVERSE) {
             nullInverse(sm, rm);
-            updateInverse(sm, rel, store, rm, sm);
+            updateInverse(sm, rel, store, rm);
         } else {
             Row row = field.getRow(sm, store, rm, Row.ACTION_UPDATE);
             if (row != null)
@@ -215,7 +232,7 @@ public class RelationFieldStrategy
             if (sm.getLoaded().get(field.getIndex())) {
                 OpenJPAStateManager rel = RelationStrategies.getStateManager(sm.
                     fetchObjectField(field.getIndex()), store.getContext());
-                updateInverse(sm, rel, store, rm, null);
+                updateInverse(sm, rel, store, rm);
             } else
                 nullInverse(sm, rm);
         } else {
@@ -241,14 +258,17 @@ public class RelationFieldStrategy
      */
     private void nullInverse(OpenJPAStateManager sm, RowManager rm)
         throws SQLException {
+        if (field.getUseClassCriteria())
+            return;
+
         ForeignKey fk = field.getForeignKey();
         ColumnIO io = field.getColumnIO();
         if (!io.isAnyUpdatable(fk, true))
             return;
 
+        // null inverse if not already enforced by fk
         if (field.getIndependentTypeMappings().length != 1)
             throw RelationStrategies.uninversable(field);
-
         Row row = rm.getAllRows(fk.getTable(), Row.ACTION_UPDATE);
         row.setForeignKey(fk, io, null);
         row.whereForeignKey(fk, sm);
@@ -260,11 +280,9 @@ public class RelationFieldStrategy
      * with the given object.
      */
     private void updateInverse(OpenJPAStateManager sm, OpenJPAStateManager rel,
-        JDBCStore store, RowManager rm, OpenJPAStateManager sm2)
+        JDBCStore store, RowManager rm)
         throws SQLException {
-        // nothing to do if inverse is null or about to be deleted
-        //### should we throw an exception if the inverse is null?
-        if (rel == null || rel.isDeleted())
+        if (rel == null)
             return;
 
         ForeignKey fk = field.getForeignKey();
@@ -272,11 +290,17 @@ public class RelationFieldStrategy
 
         int action;
         if (rel.isNew() && !rel.isFlushed()) {
-            if (sm2 == null || !io.isAnyInsertable(fk, false))
+            if (sm.isDeleted() || !io.isAnyInsertable(fk, false))
                 return;
             action = Row.ACTION_INSERT;
+        } else if (rel.isDeleted()) {
+            if (rel.isFlushed() || !sm.isDeleted())
+                return;
+            action = Row.ACTION_DELETE;
         } else {
-            if (!io.isAnyUpdatable(fk, sm2 == null))
+            if (sm.isDeleted())
+                sm = null;
+            if (!io.isAnyUpdatable(fk, sm == null))
                 return;
             action = Row.ACTION_UPDATE;
         }
@@ -306,7 +330,7 @@ public class RelationFieldStrategy
             row.wherePrimaryKey(rel);
 
         // update the inverse pointer with our oid value
-        row.setForeignKey(fk, io, sm2);
+        row.setForeignKey(fk, io, sm);
     }
 
     public int supportsSelect(Select sel, int type, OpenJPAStateManager sm,
@@ -392,8 +416,10 @@ public class RelationFieldStrategy
      */
     private Joins eagerJoin(Joins joins, ClassMapping cls, boolean forceInner) {
         boolean inverse = field.getJoinDirection() == field.JOIN_INVERSE;
-        if (!inverse)
+        if (!inverse) {
             joins = join(joins, false);
+            joins = setEmbeddedVariable(joins);
+        }
 
         // and join into relation
         ForeignKey fk = field.getForeignKey(cls);
@@ -402,6 +428,17 @@ public class RelationFieldStrategy
                 getTypeMapping(), field.getSelectSubclasses(), inverse, false);
         return joins.joinRelation(field.getName(), fk, field.getTypeMapping(), 
             field.getSelectSubclasses(), inverse, false);
+    }
+
+    /**
+     * If joining from an embedded owner, use variable to create a unique
+     * alias in case owner contains other same-typed embedded relations.
+     */
+    private Joins setEmbeddedVariable(Joins joins) {
+        if (field.getDefiningMetaData().getEmbeddingMetaData() == null)
+            return joins;
+        return joins.setVariable(field.getDefiningMetaData().
+            getEmbeddingMetaData().getFieldMetaData().getName());
     }
 
     public int select(Select sel, OpenJPAStateManager sm, JDBCStore store,
@@ -662,12 +699,104 @@ public class RelationFieldStrategy
                 throw RelationStrategies.unjoinable(field);
             return joins;
         }
+
+        joins = setEmbeddedVariable(joins);
         if (forceOuter)
             return joins.outerJoinRelation(field.getName(), 
                 field.getForeignKey(clss[0]), clss[0], 
                 field.getSelectSubclasses(), false, false);
         return joins.joinRelation(field.getName(), field.getForeignKey(clss[0]),
             clss[0], field.getSelectSubclasses(), false, false);
+    }
+
+    ///////////////////////////
+    // Joinable implementation
+    ///////////////////////////
+
+    public int getFieldIndex() {
+        return field.getIndex();
+    }
+
+    public Object getPrimaryKeyValue(Result res, Column[] cols, ForeignKey fk,
+        JDBCStore store, Joins joins)
+        throws SQLException {
+        ClassMapping relmapping = field.getTypeMapping();
+        if (relmapping.getIdentityType() == ClassMapping.ID_DATASTORE) {
+            Column col = cols[0];
+            if (fk != null)
+                col = fk.getColumn(col);   
+            long id = res.getLong(col, joins);
+            if (field.getObjectIdFieldTypeCode() == JavaTypes.LONG)
+                return Numbers.valueOf(id);
+            return store.newDataStoreId(id, relmapping, field.getPolymorphic() 
+                != ValueMapping.POLY_FALSE);
+        }
+
+        if (relmapping.isOpenJPAIdentity())
+            return ((Joinable) relmapping.getPrimaryKeyFieldMappings()[0].
+                getStrategy()).getPrimaryKeyValue(res, cols, fk, store, joins);
+
+        if (cols == getColumns() && fk == null)
+            fk = field.getForeignKey();
+        else
+            fk = createTranslatingForeignKey(relmapping, cols, fk); 
+        return relmapping.getObjectId(store, res, fk,
+            field.getPolymorphic() != ValueMapping.POLY_FALSE, joins);
+    }
+
+    /**
+     * Create a faux foreign key that translates between the columns to pull
+     * the data from and our related type's primary key columns.
+     */
+    private ForeignKey createTranslatingForeignKey(ClassMapping relmapping,
+        Column[] gcols, ForeignKey gfk) {
+        ForeignKey fk = field.getForeignKey(); 
+        Column[] cols = fk.getColumns();
+
+        ForeignKey tfk = null;
+        Column tcol;
+        for (int i = 0; i < gcols.length; i++) {
+            tcol = gcols[i];
+            if (gfk != null)
+                tcol = gfk.getColumn(tcol);
+            if (tfk == null)
+                tfk = new ForeignKey(null, tcol.getTable());
+            tfk.join(tcol, fk.getPrimaryKeyColumn(cols[i]));
+        }
+        return tfk;
+    }
+
+    public Object getJoinValue(Object fieldVal, Column col, JDBCStore store) {
+        Object o = field.getForeignKey().getConstant(col);
+        if (o != null)
+            return o;
+        col = field.getForeignKey().getPrimaryKeyColumn(col);
+        if (col == null)
+            throw new InternalException();
+
+        ClassMapping relmapping = field.getTypeMapping();
+        Joinable j = field.getTypeMapping().assertJoinable(col);
+        if (ImplHelper.isManageable(fieldVal))
+            fieldVal = store.getContext().getObjectId(fieldVal);
+        if (fieldVal instanceof OpenJPAId)
+            fieldVal = ((OpenJPAId) fieldVal).getIdObject();
+        else if (relmapping.getObjectIdType() != null
+            && relmapping.getObjectIdType().isInstance(fieldVal)) {
+            Object[] pks = ApplicationIds.toPKValues(fieldVal, relmapping);
+            fieldVal = pks[relmapping.getField(j.getFieldIndex()).
+                getPrimaryKeyIndex()];
+        }
+        return j.getJoinValue(fieldVal, col, store);
+    }
+
+    public Object getJoinValue(OpenJPAStateManager sm, Column col,
+        JDBCStore store) {
+        return getJoinValue(sm.fetch(field.getIndex()), col, store);
+    }
+
+    public void setAutoAssignedValue(OpenJPAStateManager sm, JDBCStore store,
+        Column col, Object autoInc) {
+        throw new UnsupportedException();
     }
 
     /////////////////////////////

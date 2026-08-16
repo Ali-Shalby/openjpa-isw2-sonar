@@ -93,6 +93,10 @@ public class NoneMetaDataFactory
         return ClassMetaData.ACCESS_UNKNOWN;
     }
 
+    public int getDefaultIdentityType() {
+        return ClassMetaData.ID_UNKNOWN;
+    }
+
     public int getCallbackMode() {
         return CALLBACK_IGNORE;
     }
@@ -104,10 +108,22 @@ public class NoneMetaDataFactory
     public void setIgnoreNonPersistent(boolean ignore) {
     }
 
+    public boolean isDeclaredInterfacePersistent() {
+        return false;
+    }
+
+    public boolean isDataStoreObjectIdFieldUnwrapped() {
+        return false;
+    }
+
     public void populate(ClassMetaData meta, int access) {
     }
 
     public Member getBackingMember(FieldMetaData fmd) {
+        return null;
+    }
+
+    public Class getUnimplementedExceptionType() {
         return null;
     }
 }

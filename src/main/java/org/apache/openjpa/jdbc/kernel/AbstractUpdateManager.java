@@ -35,6 +35,7 @@ import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.PCState;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.OptimisticException;
 
@@ -67,10 +68,7 @@ public abstract class AbstractUpdateManager
                 conn);
             return flush(states, store, psMgr);
         } finally {
-            try {
-                conn.close();
-            } catch (SQLException se) {
-            }
+            try { conn.close(); } catch (SQLException se) {}
         }
     }
 
@@ -139,6 +137,7 @@ public abstract class AbstractUpdateManager
         RowManager rowMgr, JDBCStore store, Collection exceps,
         Collection customs) {
         try {
+            BitSet dirty;
             if (sm.getPCState() == PCState.PNEW && !sm.isFlushed()) {
                 insert(sm, (ClassMapping) sm.getMetaData(), rowMgr, store,
                     customs);
@@ -146,26 +145,17 @@ public abstract class AbstractUpdateManager
                 || sm.getPCState() == PCState.PDELETED) {
                 delete(sm, (ClassMapping) sm.getMetaData(), rowMgr, store,
                     customs);
-            } else if ((sm.getPCState() == PCState.PDIRTY && (!sm.isFlushed() || sm
-                .isFlushedDirty()))
-                || (sm.getPCState() == PCState.PNEW && sm.isFlushedDirty())) {
-                BitSet dirty = sm.getDirty();
-                if (sm.isFlushed()) {
-                    dirty = (BitSet) dirty.clone();
-                    dirty.andNot(sm.getFlushed());
-                }
-
-                if (dirty.length() > 0)
-                    update(sm, dirty, (ClassMapping) sm.getMetaData(), rowMgr,
-                        store, customs);
+            } else if ((dirty = ImplHelper.getUpdateFields(sm)) != null) {
+                update(sm, dirty, (ClassMapping) sm.getMetaData(), rowMgr,
+                    store, customs);
             } else if (sm.isVersionUpdateRequired()) {
                 updateIndicators(sm, (ClassMapping) sm.getMetaData(), rowMgr,
                     store, customs, true);
             } else if (sm.isVersionCheckRequired()) {
-                if (!((ClassMapping) sm.getMetaData()).getVersion()
-                    .checkVersion(sm, store, false))
-                    exceps = addException(exceps, new OptimisticException(sm
-                        .getManagedInstance()));
+                if (!((ClassMapping) sm.getMetaData()).getVersion().
+                    checkVersion(sm, store, false))
+                    exceps = addException(exceps, new OptimisticException(sm.
+                        getManagedInstance()));
             }
         } catch (SQLException se) {
             exceps = addException(exceps, SQLExceptions.getStore(se, dict));

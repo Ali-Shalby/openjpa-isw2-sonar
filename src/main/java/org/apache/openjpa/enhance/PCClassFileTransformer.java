@@ -45,9 +45,10 @@ public class PCClassFileTransformer
 
     private final MetaDataRepository _repos;
     private final PCEnhancer.Flags _flags;
-    private final ClassLoader _loader;
+    private final ClassLoader _tmpLoader;
     private final Log _log;
     private final Set _names;
+    private boolean _transforming = false;
 
     /**
      * Constructor.
@@ -86,14 +87,15 @@ public class PCClassFileTransformer
      * if none are configured
      */
     public PCClassFileTransformer(MetaDataRepository repos,
-        PCEnhancer.Flags flags, ClassLoader loader, boolean devscan) {
+        PCEnhancer.Flags flags, ClassLoader tmpLoader, boolean devscan) {
         _repos = repos;
-        _log =
-            repos.getConfiguration().getLog(OpenJPAConfiguration.LOG_ENHANCE);
-        _flags = flags;
-        _loader = loader;
+        _tmpLoader = tmpLoader;
 
-        _names = repos.getPersistentTypeNames(devscan, loader);
+        _log = repos.getConfiguration().
+            getLog(OpenJPAConfiguration.LOG_ENHANCE);
+        _flags = flags;
+
+        _names = repos.getPersistentTypeNames(devscan, tmpLoader);
         if (_names == null && _log.isInfoEnabled())
             _log.info(_loc.get("runtime-enhance-pcclasses"));
     }
@@ -101,9 +103,16 @@ public class PCClassFileTransformer
     public byte[] transform(ClassLoader loader, String className,
         Class redef, ProtectionDomain domain, byte[] bytes)
         throws IllegalClassFormatException {
-        if (loader == _loader)
+        if (loader == _tmpLoader)
             return null;
 
+        // prevent re-entrant calls, which can occur if the enhanceing
+        // loader is used to also load OpenJPA libraries; this is to prevent 
+        // recursive enhancement attempts for internal openjpa libraries
+        if (_transforming)
+            return null;
+
+        _transforming = true;
         try {
             Boolean enhance = needsEnhance(className, redef, bytes);
             if (enhance != null && _log.isTraceEnabled())
@@ -114,7 +123,7 @@ public class PCClassFileTransformer
 
             PCEnhancer enhancer = new PCEnhancer(_repos.getConfiguration(),
                 new Project().loadClass(new ByteArrayInputStream(bytes),
-                    _loader), _repos);
+                    _tmpLoader), _repos);
             enhancer.setAddDefaultConstructor(_flags.addDefaultConstructor);
             enhancer.setEnforcePropertyRestrictions
                 (_flags.enforcePropertyRestrictions);
@@ -129,6 +138,8 @@ public class PCClassFileTransformer
             if (t instanceof IllegalClassFormatException)
                 throw (IllegalClassFormatException) t;
             throw new GeneralException(t);
+        } finally {
+            _transforming = false;
         }
     }
 
@@ -157,7 +168,8 @@ public class PCClassFileTransformer
             return Boolean.FALSE;
 
         try {
-            Class c = Class.forName(clsName.replace('/', '.'), false, _loader);
+            Class c = Class.forName(clsName.replace('/', '.'), false,
+                _tmpLoader);
             if (_repos.getMetaData(c, null, false) != null)
                 return Boolean.TRUE;
             return null;
@@ -185,7 +197,7 @@ public class PCClassFileTransformer
             clsEntry = table.readUnsignedShort(idx);
             utfEntry = table.readUnsignedShort(table.get(clsEntry));
             name = table.readString(table.get(utfEntry));
-            if ("openjpa/enhance/PersistenceCapable".equals(name))
+            if ("org/apache/openjpa/enhance/PersistenceCapable".equals(name))
                 return true;
         }
         return false;

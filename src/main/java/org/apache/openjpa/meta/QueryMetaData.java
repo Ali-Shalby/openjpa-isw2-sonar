@@ -16,9 +16,11 @@
 package org.apache.openjpa.meta;
 
 import java.io.File;
+import java.io.Serializable;
 import java.util.LinkedList;
 import java.util.List;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.kernel.Query;
 import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.xml.Commentable;
@@ -31,7 +33,7 @@ import org.apache.openjpa.lib.xml.Commentable;
  * @author Steve Kim
  */
 public class QueryMetaData
-    implements MetaDataModes, SourceTracker, Commentable {
+    implements MetaDataModes, SourceTracker, Commentable, Serializable {
 
     private static final String[] EMPTY_KEYS = new String[0];
     private static final Object[] EMPTY_VALS = new Object[0];
@@ -185,7 +187,7 @@ public class QueryMetaData
     public void setInto(Query query) {
         if (_candidate != null)
             query.setCandidateType(_candidate, true);
-        if (_query != null && _query.length() > 0)
+        if (!StringUtils.isEmpty(_query))
             query.setQuery(_query);
         if (_res != null)
             query.setResultType(_res);

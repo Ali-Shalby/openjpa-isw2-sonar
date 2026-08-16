@@ -19,7 +19,7 @@ package org.apache.openjpa.kernel.exps;
  * Query value representing a subquery.
  *
  * @author Abe White
- * @since 3.2
+ * @since 0.3.2
  */
 public interface Subquery
     extends Value {
@@ -32,6 +32,5 @@ public interface Subquery
     /**
      * Set the parsed subquery.
      */
-    public void setQueryExpressions(QueryExpressions query, long startIdx,
-        long endIdx);
+    public void setQueryExpressions(QueryExpressions query);
 }
