@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -287,7 +290,6 @@ public class StateManagerImpl
         }
 
         pc.pcSetDetachedState(null);
-        pc.pcReplaceFlags();
         _pc = pc;
 
         if (_oid instanceof OpenJPAId)
@@ -408,7 +410,8 @@ public class StateManagerImpl
                     load = !fmds[i].isTransient();
                     break;
                 case LOAD_FGS:
-                    load = fetch == null || fetch.requiresFetch(fmds[i]);
+                    load = fetch == null || fetch.requiresFetch(fmds[i]) 
+                        != FetchConfiguration.FETCH_NONE;
                     break;
                 default: // LOAD_ALL
                     load = true;
@@ -575,17 +578,24 @@ public class StateManagerImpl
     }
 
     public void setVersion(Object version) {
-        _version = version;
         _loadVersion = version;
+        assignVersionField(version);
+    }
 
+    Object getLoadVersion() {
+        return _loadVersion;
+    }
+
+    public void setNextVersion(Object version) {
+        assignVersionField(version);
+    }
+
+    private void assignVersionField(Object version) {
+        _version = version;
         FieldMetaData vfield = _meta.getVersionField();
         if (vfield != null)
             store(vfield.getIndex(), JavaTypes.convert(version,
                 vfield.getTypeCode()));
-    }
-
-    public void setNextVersion(Object version) {
-        _version = version;
     }
 
     public PCState getPCState() {
@@ -655,8 +665,7 @@ public class StateManagerImpl
         boolean loaded) {
         int idx = _meta.getExtraFieldDataIndex(field);
         if (idx == -1)
-            throw new InternalException(String.valueOf(_meta.getField
-                (field)));
+            throw new InternalException(String.valueOf(_meta.getField(field)));
 
         Object old = (_fieldImpl == null) ? null : _fieldImpl[idx];
         if (data != null) {
@@ -879,7 +888,7 @@ public class StateManagerImpl
                 fireLifecycleEvent(LifecycleEvent.AFTER_STORE);
         } else if (reason == BrokerImpl.FLUSH_ROLLBACK) {
             // revert to last loaded version and original oid
-            _version = _loadVersion;
+            assignVersionField(_loadVersion);
             if (isNew() && (_flags & FLAG_OID_ASSIGNED) == 0)
                 _oid = null;
         }
@@ -951,6 +960,8 @@ public class StateManagerImpl
         _loaded = loaded;
         _dirty = savepoint.getDirty();
         _flush = savepoint.getFlushed();
+        _version = savepoint.getVersion();
+        _loadVersion = savepoint.getLoadVersion();
     }
 
     /**
@@ -1063,8 +1074,8 @@ public class StateManagerImpl
         // note: all logic placed here rather than in the states for
         // optimization; this method public b/c used by remote package
 
-        // nothing to do for non persistent or new instances
-        if (!isPersistent() || isNew())
+        // nothing to do for non persistent or new unflushed instances
+        if (!isPersistent() || (isNew() && !isFlushed()))
             return false;
 
         lock();
@@ -2844,9 +2855,11 @@ public class StateManagerImpl
      * field manager.
      */
     void provideField(PersistenceCapable pc, FieldManager store, int field) {
+        FieldManager beforeFM = _fm;
         _fm = store;
         pc.pcProvideField(field);
-        _fm = null;
+        // Retaining original FM because of the possibility of reentrant calls
+        _fm = beforeFM;
     }
 
     /**
@@ -2854,9 +2867,11 @@ public class StateManagerImpl
      * field manager.
      */
     void replaceField(PersistenceCapable pc, FieldManager load, int field) {
+        FieldManager beforeFM = _fm;
         _fm = load;
         pc.pcReplaceField(field);
-        _fm = null;
+        // Retaining original FM because of the possibility of reentrant calls
+        _fm = beforeFM;
     }
 
     /**

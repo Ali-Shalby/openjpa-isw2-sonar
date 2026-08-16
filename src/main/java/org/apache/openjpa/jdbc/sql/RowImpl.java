@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -59,7 +62,7 @@ public class RowImpl
     private static final int RAW = Integer.MIN_VALUE;
 
     protected byte flags = 0;
-    private final Table _table;
+    private final Column[] _cols;
     private final int _action;
     private final Object[] _vals;
     private final int[] _types;
@@ -73,12 +76,16 @@ public class RowImpl
      * @param action the action on the row
      */
     public RowImpl(Table table, int action) {
-        _table = table;
+        this(table.getColumns(), action);
+    }
+
+    protected RowImpl(Column[] cols, int action) {
+        _cols = cols;
         _action = action;
 
         // we need room for values and types for all columns; if an update or
         // delete, then we need to double that for where column conditions
-        int len = table.getColumns().length;
+        int len = _cols.length;
         if (action != ACTION_INSERT)
             len *= 2;
         _vals = new Object[len];
@@ -86,7 +93,11 @@ public class RowImpl
     }
 
     public Table getTable() {
-        return _table;
+        return _cols[0].getTable();
+    }
+
+    public Column[] getColumns() {
+        return _cols;
     }
 
     public int getAction() {
@@ -168,7 +179,7 @@ public class RowImpl
         boolean set)
         throws SQLException {
         ClassMapping mapping = (ClassMapping) sm.getMetaData();
-        while (mapping.getTable() != _table)
+        while (mapping.getTable() != getTable())
             mapping = mapping.getPCSuperclassMapping();
         Column[] cols = mapping.getPrimaryKeyColumns();
         flushJoinValues(sm, cols, cols, io, set);
@@ -730,15 +741,14 @@ public class RowImpl
         buf.append("UPDATE ").append(dict.getFullName(getTable(), false)).
             append(" SET ");
 
-        Column[] cols = getTable().getColumns();
         boolean hasVal = false;
-        for (int i = 0; i < cols.length; i++) {
+        for (int i = 0; i < _cols.length; i++) {
             if (_vals[i] == null)
                 continue;
 
             if (hasVal)
                 buf.append(", ");
-            buf.append(cols[i]);
+            buf.append(_cols[i]);
             if (_types[i] == RAW)
                 buf.append(" = ").append(_vals[i]);
             else
@@ -759,9 +769,8 @@ public class RowImpl
         buf.append("INSERT INTO ").
             append(dict.getFullName(getTable(), false)).append(" (");
 
-        Column[] cols = getTable().getColumns();
         boolean hasVal = false;
-        for (int i = 0; i < cols.length; i++) {
+        for (int i = 0; i < _cols.length; i++) {
             if (_vals[i] == null)
                 continue;
 
@@ -769,7 +778,7 @@ public class RowImpl
                 buf.append(", ");
                 vals.append(", ");
             }
-            buf.append(cols[i]);
+            buf.append(_cols[i]);
             if (_types[i] == RAW)
                 vals.append(_vals[i]);
             else
@@ -796,10 +805,9 @@ public class RowImpl
      * Appends the where clause onto the given sql buffer.
      */
     private void appendWhere(StringBuffer buf) {
-        Column[] cols = getTable().getColumns();
         boolean hasWhere = false;
-        for (int i = 0; i < cols.length; i++) {
-            if (_vals[getWhereIndex(cols[i])] == null)
+        for (int i = 0; i < _cols.length; i++) {
+            if (_vals[getWhereIndex(_cols[i])] == null)
                 continue;
 
             if (!hasWhere)
@@ -809,12 +817,12 @@ public class RowImpl
 
             // sqlserver seems to have problems using null parameters in the
             // where clause
-            if (_vals[getWhereIndex(cols[i])] == NULL)
-                buf.append(cols[i]).append(" IS NULL");
+            if (_vals[getWhereIndex(_cols[i])] == NULL)
+                buf.append(_cols[i]).append(" IS NULL");
             else if (_types[i] == RAW)
-                buf.append(cols[i]).append(" = ").append(_vals[i]);
+                buf.append(_cols[i]).append(" = ").append(_vals[i]);
             else
-                buf.append(cols[i]).append(" = ?");
+                buf.append(_cols[i]).append(" = ?");
             hasWhere = true;
         }
     }
@@ -841,14 +849,13 @@ public class RowImpl
     public void flush(PreparedStatement stmnt, int idx, DBDictionary dict,
         JDBCStore store)
         throws SQLException {
-        Column[] cols = getTable().getColumns();
 
         // this simple method works because the SQL is always prepared
         // based on the indexing of the columns in the table object -- the
         // same ordering we use when storing values and meta types. skip
         // updates when setting params for DELETEs; the updates are just there
         // to let us eval fk constraints
-        int i = (getAction() == ACTION_DELETE) ? cols.length : 0;
+        int i = (getAction() == ACTION_DELETE) ? _cols.length: 0;
         Column col;
         Object val;
         int half = _vals.length / 2;
@@ -863,10 +870,10 @@ public class RowImpl
 
             // if this is an update the vals array will be 2 x the cols
             // array length; it repeats for where values
-            if (i < cols.length)
-                col = cols[i];
+            if (i < _cols.length)
+                col = _cols[i];
             else
-                col = cols[i - cols.length];
+                col = _cols[i - _cols.length];
 
             val = _vals[i];
             if (val == NULL)
@@ -890,14 +897,14 @@ public class RowImpl
      * The array value array index for the given column's value.
      */
     private int getWhereIndex(Column col) {
-        return col.getIndex() + getTable().getColumns().length;
+        return col.getIndex() + _cols.length;
     }
 
     /**
      * Performs a proper deep clone.
      */
     public Object clone() {
-        RowImpl clone = newInstance(getTable(), getAction());
+        RowImpl clone = newInstance(getColumns(), getAction());
         copyInto(clone, false);
         return clone;
     }
@@ -905,8 +912,8 @@ public class RowImpl
     /**
      * Return a new row.
      */
-    protected RowImpl newInstance(Table table, int action) {
-        return new RowImpl(table, action);
+    protected RowImpl newInstance(Column[] cols, int action) {
+        return new RowImpl(cols, action);
     }
 
     /**
@@ -939,4 +946,3 @@ public class RowImpl
             row.setValid(true);
     }
 }
-

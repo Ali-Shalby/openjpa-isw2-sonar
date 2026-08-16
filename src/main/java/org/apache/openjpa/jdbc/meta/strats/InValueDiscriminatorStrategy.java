@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -113,19 +116,23 @@ public abstract class InValueDiscriminatorStrategy
         return getClass(cls, store);
     }
 
-    public SQLBuffer getClassConditions(Select sel, Joins joins, 
-        ClassMapping base, boolean subclasses) {
+    public boolean hasClassConditions(ClassMapping base, boolean subclasses) {
         // if selecting the first mapped class and all subclasses, no need
         // to limit the query
         if (isFinal || (base.getJoinablePCSuperclassMapping() == null
             && subclasses))
-            return null;
+            return false;
 
         // if no subclasses or superclass, no need for conditions
         ClassMapping[] subs = base.getJoinablePCSubclassMappings();
         if (subs.length == 0 && base.getJoinablePCSuperclassMapping() == null)
-            return null;
+            return false;
 
+        return true;
+    }
+
+    public SQLBuffer getClassConditions(Select sel, Joins joins, 
+        ClassMapping base, boolean subclasses) {
         Column col = disc.getColumns()[0];
         SQLBuffer sql = new SQLBuffer(sel.getConfiguration().
             getDBDictionaryInstance());
@@ -136,6 +143,7 @@ public abstract class InValueDiscriminatorStrategy
         sql.append(alias);
 
         // if not selecting subclasses, limit to just the given class
+        ClassMapping[] subs = base.getJoinablePCSubclassMappings();
         if (!outer && (!subclasses || subs.length == 0))
             return sql.append(" = ").appendValue(getDiscriminatorValue(base),
                 col);

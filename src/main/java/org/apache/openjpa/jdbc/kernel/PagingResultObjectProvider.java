@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -22,10 +25,12 @@ import java.util.BitSet;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.jdbc.sql.SelectExecutor;
+import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.util.Closeable;
@@ -89,7 +94,7 @@ public class PagingResultObjectProvider
         FieldMapping[] fms = mapping.getDefinedFieldMappings();
         BitSet paged = null;
         for (int i = 0; i < fms.length; i++) {
-            if (!fetch.requiresFetch(fms[i]))
+            if (fetch.requiresFetch(fms[i]) != FetchConfiguration.FETCH_LOAD)
                 continue;
 
             if (fms[i].supportsSelect(sel, sel.EAGER_PARALLEL, null, store,
@@ -149,28 +154,24 @@ public class PagingResultObjectProvider
         // try to find a good page size.  if the known size < batch size, use
         // it.  if the batch size is set, then use that; if it's sorta close
         // to the size, then use the size / 2 to get two full pages rather
-        // than a possible big one and small one.  cap everything at 50.
+        // than a possible big one and small one
         int batch = getFetchConfiguration().getFetchBatchSize();
         int pageSize;
-        if (size <= batch && size <= 50)
+        if (batch < 0)
             pageSize = (int) size;
-        else if (batch > 0 && batch <= 50) {
-            if (size <= batch * 2) {
+        else {
+            if (batch == 0)
+                batch = 50; // reasonable default
+            if (size <= batch)
+                pageSize = (int) size;
+            else if (size <= batch * 2) {
                 if (size % 2 == 0)
                     pageSize = (int) (size / 2);
                 else
                     pageSize = (int) (size / 2 + 1);
             } else
                 pageSize = batch;
-        } else if (size <= 50)
-            pageSize = (int) size;
-        else if (size <= 100) {
-            if (size % 2 == 0)
-                pageSize = (int) (size / 2);
-            else
-                pageSize = (int) (size / 2 + 1);
-        } else
-            pageSize = 50;
+        }
 
         _page = new Object[pageSize];
         if (_paged.length > 1)
@@ -341,10 +342,11 @@ public class PagingResultObjectProvider
         // create where condition limiting instances to this page
         JDBCStore store = getStore();
         Select sel = store.getSQLFactory().newSelect();
-        SQLBuffer buf = new SQLBuffer(store.getDBDictionary());
+        DBDictionary dict = store.getDBDictionary();
+        SQLBuffer buf = new SQLBuffer(dict);
         Column[] pks = mapping.getPrimaryKeyColumns();
         if (pks.length == 1)
-            inContains(sel, buf, mapping, pks, start, end);
+            createInContains(sel, dict, buf, mapping, pks, start, end);
         else
             orContains(sel, buf, mapping, pks, start, end);
         sel.where(buf);
@@ -388,6 +390,26 @@ public class PagingResultObjectProvider
         }
     }
 
+    /**
+     *  Based on the DBDictionary, create the needed IN clauses.
+     */
+    private void createInContains(Select sel, DBDictionary dict, SQLBuffer buf, 
+        ClassMapping mapping, Column[] pks, int start, int end) {
+        int inClauseLimit = dict.inClauseLimit;
+        if (inClauseLimit <= 0 || end - start <= inClauseLimit)
+            inContains(sel, buf, mapping, pks, start, end);
+        else {
+            buf.append("(");
+            for (int low = start, high; low < end; low = high) {
+                if (low > start)
+                    buf.append(" OR ");
+                high = Math.min(low + inClauseLimit, end);
+                inContains(sel, buf, mapping, pks, low, high);
+            }
+            buf.append(")");
+        }
+    }
+    
     /**
      * Create an IN clause limiting the results to the current page.
      */

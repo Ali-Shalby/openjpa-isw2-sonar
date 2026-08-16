@@ -1,23 +1,28 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.kernel;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import javax.sql.DataSource;
+import javax.transaction.Transaction;
+import javax.transaction.TransactionManager;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -40,6 +45,7 @@ public abstract class AbstractJDBCSeq
 
     protected int type = TYPE_DEFAULT;
     protected Object current = null;
+    private transient Transaction _outerTransaction;
 
     /**
      * Records the sequence type.
@@ -106,6 +112,11 @@ public abstract class AbstractJDBCSeq
     protected abstract Object nextInternal(JDBCStore store,
         ClassMapping mapping)
         throws Exception;
+    
+    /**
+     * Return the {@link JDBCConfiguration} for this sequence.
+     */
+    public abstract JDBCConfiguration getConfiguration();
 
     /**
      * Return the current sequence object. By default returns the last
@@ -140,13 +151,24 @@ public abstract class AbstractJDBCSeq
         throws SQLException {
         if (type == TYPE_TRANSACTIONAL || type == TYPE_CONTIGUOUS)
             return store.getConnection();
-
-        JDBCConfiguration conf = store.getConfiguration();
-        DataSource ds = conf.getDataSource2(store.getContext());
-        Connection conn = ds.getConnection();
-        if (conn.getAutoCommit())
-            conn.setAutoCommit(false);
-        return conn;
+        else if (suspendInJTA()) {
+            try {
+                TransactionManager tm = getConfiguration()
+                    .getManagedRuntimeInstance().getTransactionManager();
+                _outerTransaction = tm.suspend();
+                tm.begin();
+                return store.getConnection();
+            } catch (Exception e) {
+                throw new StoreException(e);
+            }
+        } else {
+            JDBCConfiguration conf = store.getConfiguration();
+            DataSource ds = conf.getDataSource2(store.getContext());
+            Connection conn = ds.getConnection();
+            if (conn.getAutoCommit())
+                conn.setAutoCommit(false);
+            return conn;
+        }
     }
 
     /**
@@ -156,13 +178,41 @@ public abstract class AbstractJDBCSeq
         if (conn == null)
             return;
 
-        try {
-            if (type != TYPE_TRANSACTIONAL && type != TYPE_CONTIGUOUS)
+        if (type == TYPE_TRANSACTIONAL || type == TYPE_CONTIGUOUS) {
+            // do nothing; this seq is part of the business transaction
+            return;
+        } else if (suspendInJTA()) {
+            try {
+                TransactionManager tm = getConfiguration()
+                    .getManagedRuntimeInstance().getTransactionManager();
+                tm.commit();
+                try { conn.close(); } catch (SQLException se) {}
+
+                if (_outerTransaction != null)
+                    tm.resume(_outerTransaction);
+
+            } catch (Exception e) {
+                throw new StoreException(e);
+            } finally {
+                _outerTransaction = null;
+            }
+        } else {
+            try {
                 conn.commit();
-        } catch (SQLException se) {
-            throw SQLExceptions.getStore(se);
-        } finally {
-            try { conn.close(); } catch (SQLException se) {}
+            } catch (SQLException se) {
+                throw SQLExceptions.getStore(se);
+            } finally {
+                try { conn.close(); } catch (SQLException se) {}
+            }
         }
+    }
+    
+    /**
+     * Detect whether or not OpenJPA should suspend the transaction in 
+     * a managed environment.
+     */
+    protected boolean suspendInJTA() {
+        return getConfiguration().isConnectionFactoryModeManaged() && 
+            getConfiguration().getConnectionFactory2() == null;
     }
 }

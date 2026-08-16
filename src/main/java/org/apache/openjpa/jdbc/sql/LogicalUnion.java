@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -53,7 +56,7 @@ public class LogicalUnion
     protected final ClassMapping[] mappings;
     protected final BitSet desc = new BitSet();
     private boolean _distinct = true;
-    private boolean _single = false;
+   
 
     /**
      * Constructor.
@@ -102,15 +105,7 @@ public class LogicalUnion
     public Select[] getSelects() {
         return sels;
     }
-
-    public boolean isSingleResult() {
-        return _single;
-    }
-
-    public void setSingleResult(boolean single) {
-        _single = single;
-    }
-
+   
     public boolean isUnion() {
         return false;
     }
@@ -164,6 +159,16 @@ public class LogicalUnion
             sels[i].setLRS(lrs);
     }
 
+    public int getExpectedResultCount() {
+        return sels[0].getExpectedResultCount();
+    }
+    
+    public void setExpectedResultCount(int expectedResultCount,
+        boolean force) {
+        for (int i = 0; i < sels.length; i++)
+            sels[i].setExpectedResultCount(expectedResultCount, force);
+    }
+
     public int getJoinSyntax() {
         return sels[0].getJoinSyntax();
     }
@@ -215,7 +220,7 @@ public class LogicalUnion
             return res;
         }
 
-        if (_single) {
+        if (getExpectedResultCount() == 1) {
             AbstractResult res;
             for (int i = 0; i < sels.length; i++) {
                 res = (AbstractResult) sels[i].execute(store, fetch,
@@ -305,7 +310,7 @@ public class LogicalUnion
         protected final int pos;
         protected int orders = 0;
         protected List orderIdxs = null;
-
+       
         public UnionSelect(SelectImpl sel, int pos) {
             this.sel = sel;
             this.pos = pos;
@@ -837,6 +842,15 @@ public class LogicalUnion
 
         public String toString() {
             return sel.toString();
+        }
+
+        public int getExpectedResultCount() {
+            return sel.getExpectedResultCount();
+        }
+
+        public void setExpectedResultCount(int expectedResultCount, 
+            boolean force) {
+            sel.setExpectedResultCount(expectedResultCount, force);
         }
     }
 

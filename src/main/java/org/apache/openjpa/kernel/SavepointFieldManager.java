@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -45,6 +48,9 @@ class SavepointFieldManager
     private final BitSet _flush;
     private final PCState _state;
     private PersistenceCapable _copy;
+
+    private final Object _version;
+    private final Object _loadVersion;
 
     // used to track field value during store/fetch cycle
     private Object _field = null;
@@ -81,6 +87,9 @@ class SavepointFieldManager
         // we need to proxy the fields so that we can track future changes
         // from this savepoint forward for PNew instances' mutable fields
         _sm.proxyFields(false, false);
+
+        _version = _sm.getVersion ();
+        _loadVersion = _sm.getLoadVersion ();
     }
 
     /**
@@ -88,6 +97,14 @@ class SavepointFieldManager
      */
     public StateManagerImpl getStateManager() {
         return _sm;
+    }
+
+    public Object getVersion() {
+        return _version;
+    }
+
+    public Object getLoadVersion() {
+        return _loadVersion;
     }
 
     /**

@@ -1,20 +1,24 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence.jdbc;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
@@ -44,12 +48,32 @@ import serp.util.Strings;
 public class PersistenceMappingDefaults
     extends MappingDefaultsImpl {
 
+    private boolean _prependFieldNameToJoinTableInverseJoinColumns = true;
+
     public PersistenceMappingDefaults() {
         setDefaultMissingInfo(true);
         setStoreEnumOrdinal(true);
         setOrderLists(false);
         setAddNullIndicator(false);
         setDiscriminatorColumnName("DTYPE");
+    }
+
+    /**
+     * Whether to prepend the field name to the default name of inverse join
+     * columns within join tables.  Defaults to true per spec, but set to false
+     * for compatibility with older versions of OpenJPA.
+     */
+    public boolean getPrependFieldNameToJoinTableInverseJoinColumns() {
+        return _prependFieldNameToJoinTableInverseJoinColumns;
+    }
+
+    /**
+     * Whether to prepend the field name to the default name of inverse join
+     * columns within join tables.  Defaults to true per spec, but set to false
+     * for compatibility with older versions of OpenJPA.
+     */
+    public void setPrependFieldNameToJoinTableInverseJoinColumns(boolean val) {
+        _prependFieldNameToJoinTableInverseJoinColumns = val;
     }
 
     @Override
@@ -94,6 +118,8 @@ public class PersistenceMappingDefaults
 
     @Override
     public String getTableName(ClassMapping cls, Schema schema) {
+        if (cls.getTypeAlias() != null)
+            return cls.getTypeAlias();
         return Strings.getClassName(cls.getDescribedType()).replace('$', '_');
     }
 
@@ -140,17 +166,22 @@ public class PersistenceMappingDefaults
     public void populateForeignKeyColumn(ValueMapping vm, String name,
         Table local, Table foreign, Column col, Object target, boolean inverse,
         int pos, int cols) {
+        boolean elem = vm == vm.getFieldMapping().getElement()
+            && vm.getFieldMapping().getTypeCode() != JavaTypes.MAP;
+
         // if this is a non-inverse collection element key, it must be in
-        // a join table; jpa says to use the target column name,
-        // which is the default
-        if (!inverse && vm == vm.getFieldMapping().getElement()
-            && vm.getFieldMapping().getTypeCode() != JavaTypes.MAP)
+        // a join table: if we're not prepending the field name, leave the
+        // default
+        if (!_prependFieldNameToJoinTableInverseJoinColumns && !inverse && elem)
             return;
 
         // otherwise jpa always uses <field>_<pkcol> for column name, even
         // when only one col
-        if (target instanceof Column)
+        if (target instanceof Column) {
+            if (elem)
+                name = vm.getFieldMapping().getName();
             col.setName(name + "_" + ((Column) target).getName());
+        }
     }
 
     @Override

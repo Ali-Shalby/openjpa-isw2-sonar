@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -61,6 +64,7 @@ import static org.apache.openjpa.persistence.MetaDataTag.*;
 import static org.apache.openjpa.persistence.PersistenceStrategy.*;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.UnsupportedException;
+import serp.util.Strings;
 
 /**
  * Custom SAX parser used by the system to quickly parse persistence i
@@ -86,6 +90,8 @@ public class XMLPersistenceMetaDataParser
     protected static final String ELEM_CASCADE_REF = "cascade-refresh";
     protected static final String ELEM_PU_META = "persistence-unit-metadata";
     protected static final String ELEM_PU_DEF = "persistence-unit-defaults";
+    protected static final String ELEM_XML_MAP_META_COMPLETE =
+        "xml-mapping-metadata-complete";
 
     private static final Map<String, Object> _elems =
         new HashMap<String, Object>();
@@ -103,6 +109,7 @@ public class XMLPersistenceMetaDataParser
         _elems.put(ELEM_CASCADE_REF, ELEM_CASCADE_REF);
         _elems.put(ELEM_PU_META, ELEM_PU_META);
         _elems.put(ELEM_PU_DEF, ELEM_PU_DEF);
+        _elems.put(ELEM_XML_MAP_META_COMPLETE, ELEM_XML_MAP_META_COMPLETE);
 
         _elems.put("entity-listeners", ENTITY_LISTENERS);
         _elems.put("pre-persist", PRE_PERSIST);
@@ -455,11 +462,22 @@ public class XMLPersistenceMetaDataParser
                 case ENTITY_LISTENERS:
                     ret = startEntityListeners(attrs);
                     break;
+                case PRE_PERSIST:
+                case POST_PERSIST:
+                case PRE_REMOVE:
+                case POST_REMOVE:
+                case PRE_UPDATE:
+                case POST_UPDATE:
+                case POST_LOAD:
+                    ret = startCallback((MetaDataTag) tag, attrs);
+                    break;
                 default:
                     warnUnsupportedTag(name);
             }
         } else if (tag == ELEM_PU_META || tag == ELEM_PU_DEF)
             ret = isMetaDataMode();
+        else if (tag == ELEM_XML_MAP_META_COMPLETE)
+            setAnnotationParser(null);
         else if (tag == ELEM_ACCESS)
             ret = _mode != MODE_QUERY;
         else if (tag == ELEM_LISTENER)
@@ -707,14 +725,15 @@ public class XMLPersistenceMetaDataParser
         // query mode only?
         _cls = classForName(currentClassName());
         if (_mode == MODE_QUERY) {
-            if (_parser != null)
+            if (_parser != null &&
+                !"true".equals(attrs.getValue("metadata-complete")))
                 _parser.parse(_cls);
             return true;
         }
 
         Log log = getLog();
-        if (log.isInfoEnabled())
-            log.info(_loc.get("parse-class", _cls.getName()));
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-class", _cls.getName()));
 
         MetaDataRepository repos = getRepository();
         ClassMetaData meta = repos.getCachedMetaData(_cls);
@@ -728,15 +747,25 @@ public class XMLPersistenceMetaDataParser
             return false;
         }
 
+        // if we don't know the access type, check to see if a superclass
+        // has already defined the access type
+        int defaultAccess = _access;
+        if (defaultAccess == ClassMetaData.ACCESS_UNKNOWN) {
+            ClassMetaData sup = repos.getCachedMetaData(_cls.getSuperclass());
+            if (sup != null)
+                defaultAccess = sup.getAccessType();
+        }
+
         if (meta == null) {
             // add metadata for this type
-            int access = toAccessType(attrs.getValue("access"), _access);
+            int access = toAccessType(attrs.getValue("access"), defaultAccess);
             meta = repos.addMetaData(_cls, access);
             meta.setEnvClassLoader(_envLoader);
             meta.setSourceMode(MODE_NONE);
 
             // parse annotations first so XML overrides them
-            if (_parser != null)
+            if (_parser != null &&
+                !"true".equals(attrs.getValue("metadata-complete")))
                 _parser.parse(_cls);
         }
 
@@ -745,6 +774,9 @@ public class XMLPersistenceMetaDataParser
             meta.setSource(getSourceFile(), meta.SRC_XML);
             meta.setSourceMode(MODE_META, true);
             meta.setListingIndex(_clsPos);
+            String name = attrs.getValue("name");
+            if (!StringUtils.isEmpty(name))
+                meta.setTypeAlias(name);
             meta.setEmbeddedOnly(mappedSuper || "embeddable".equals(elem));
             if (mappedSuper)
                 meta.setIdentityType(meta.ID_UNKNOWN);
@@ -830,8 +862,8 @@ public class XMLPersistenceMetaDataParser
 
         String name = attrs.getValue("name");
         Log log = getLog();
-        if (log.isInfoEnabled())
-            log.info(_loc.get("parse-sequence", name));
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-sequence", name));
 
         SequenceMetaData meta = getRepository().getCachedSequenceMetaData(name);
         if (meta != null && log.isWarnEnabled())
@@ -1167,6 +1199,12 @@ public class XMLPersistenceMetaDataParser
         val = attrs.getValue("optional");
         if ("false".equals(val))
             fmd.setNullValue(FieldMetaData.NULL_EXCEPTION);
+        else if ("true".equals(val)
+                && fmd.getNullValue() == FieldMetaData.NULL_EXCEPTION) {
+            // Reset value if the field was annotated with optional=false. 
+            // Otherwise leave it alone.
+            fmd.setNullValue(FieldMetaData.NULL_UNSET);
+        }
         if (isMappingOverrideMode()) {
             val = attrs.getValue("mapped-by");
             if (val != null)
@@ -1350,8 +1388,8 @@ public class XMLPersistenceMetaDataParser
 
         String name = attrs.getValue("name");
         Log log = getLog();
-        if (log.isInfoEnabled())
-            log.info(_loc.get("parse-query", name));
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-query", name));
 
         QueryMetaData meta = getRepository().getCachedQueryMetaData(null, name);
         if (meta != null && log.isWarnEnabled())
@@ -1416,8 +1454,8 @@ public class XMLPersistenceMetaDataParser
 
         String name = attrs.getValue("name");
         Log log = getLog();
-        if (log.isInfoEnabled())
-            log.info(_loc.get("parse-native-query", name));
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-native-query", name));
 
         QueryMetaData meta = getRepository().getCachedQueryMetaData(null, name);
         if (meta != null && log.isWarnEnabled())
@@ -1435,6 +1473,10 @@ public class XMLPersistenceMetaDataParser
             else
                 meta.setResultType(type);
         }
+
+        val = attrs.getValue("result-set-mapping");
+        if (val != null)
+            meta.setResultSetMappingName(val);
 
         Object cur = currentElement();
         Object scope = (cur instanceof ClassMetaData)
@@ -1505,7 +1547,7 @@ public class XMLPersistenceMetaDataParser
         throws SAXException {
         _listener = classForName(attrs.getValue("class"));
         boolean system = currentElement() == null;
-        Collection<LifecycleCallbacks>[] parsed = 
+        Collection<LifecycleCallbacks>[] parsed =
             AnnotationPersistenceMetaDataParser.parseCallbackMethods(_listener,
                 null, true, true, _repos);
         if (parsed == null)
@@ -1575,9 +1617,14 @@ public class XMLPersistenceMetaDataParser
         for (int i = 0; i < events.length; i++) {
             int event = events[i];
             if (_listener != null) {
-                MetaDataParsers.validateMethodsForSameCallback(_listener, 
+                MetaDataParsers.validateMethodsForSameCallback(_listener,
                     _callbacks[event], ((BeanLifecycleCallbacks) adapter).
                     getCallbackMethod(), callback, def, getLog());
+            } else {
+                MetaDataParsers.validateMethodsForSameCallback(_cls,
+                    _callbacks[event], ((MethodLifecycleCallbacks) adapter).
+                    getCallbackMethod(), callback, def, getLog());
+
             }
             if (_callbacks[event] == null)
                 _callbacks[event] = new ArrayList<LifecycleCallbacks>(3);

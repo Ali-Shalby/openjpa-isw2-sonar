@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.util;
 
@@ -21,6 +24,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.io.ObjectStreamClass;
 import java.io.OutputStream;
 import java.io.Serializable;
 
@@ -28,6 +32,7 @@ import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.MultiClassLoader;
 
 /**
  * Helper class to serialize and deserialize persistent objects,
@@ -74,7 +79,7 @@ public class Serialization {
     public static Object deserialize(InputStream in, StoreContext ctx) {
         try {
             if (ctx == null)
-                return new ObjectInputStream(in).readObject();
+                return new ClassResolvingObjectInputStream(in).readObject();
             return new PersistentObjectInputStream(in, ctx).readObject();
         } catch (Exception e) {
             throw new StoreException(e);
@@ -84,7 +89,7 @@ public class Serialization {
     /**
      * Object output stream that replaces persistent objects with their oids.
      */
-    private static class PersistentObjectOutputStream
+    public static class PersistentObjectOutputStream
         extends ObjectOutputStream {
 
         private StoreContext _ctx;
@@ -106,11 +111,34 @@ public class Serialization {
         }
     }
 
+    public static class ClassResolvingObjectInputStream
+        extends ObjectInputStream {
+
+        public ClassResolvingObjectInputStream(InputStream delegate)
+            throws IOException {
+            super(delegate);
+        }
+
+        protected Class resolveClass(ObjectStreamClass desc) 
+            throws IOException, ClassNotFoundException {
+            MultiClassLoader loader = new MultiClassLoader();
+            addContextClassLoaders(loader);
+            loader.addClassLoader(getClass().getClassLoader());
+            loader.addClassLoader(MultiClassLoader.SYSTEM_LOADER);
+            return Class.forName(desc.getName(), true, loader);
+        }
+
+        protected void addContextClassLoaders(MultiClassLoader loader) {
+            loader.addClassLoader(Thread.currentThread().
+                getContextClassLoader());
+        }
+    }
+
     /**
      * Object input stream that replaces oids with their objects.
      */
-    private static class PersistentObjectInputStream
-        extends ObjectInputStream {
+    public static class PersistentObjectInputStream
+        extends ClassResolvingObjectInputStream {
 
         private final StoreContext _ctx;
 
@@ -124,6 +152,11 @@ public class Serialization {
             super(delegate);
             _ctx = ctx;
             enableResolveObject(true);
+        }
+
+        protected void addContextClassLoaders(MultiClassLoader loader) {
+            super.addContextClassLoaders(loader);
+            loader.addClassLoader(_ctx.getClassLoader());
         }
 
         protected Object resolveObject(Object obj) {

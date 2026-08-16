@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -21,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
@@ -39,7 +43,6 @@ import org.apache.openjpa.lib.util.Localizer.Message;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataContext;
 import org.apache.openjpa.util.MetaDataException;
-
 import serp.util.Strings;
 
 /**
@@ -422,55 +425,56 @@ public abstract class MappingInfo
      *
      * @param context the mapping that uses the table
      * @param def default table name provider
-     * @param schema default schema if known, or null
+     * @param schemaName default schema if known, or null
      * @param given given table name
      * @param adapt whether we can alter the schema or mappings
      */
     public Table createTable(MetaDataContext context, TableDefaults def,
-        Schema schema, String given, boolean adapt) {
+        String schemaName, String given, boolean adapt) {
         MappingRepository repos = (MappingRepository) context.getRepository();
         if (given == null && (def == null || (!adapt
             && !repos.getMappingDefaults().defaultMissingInfo())))
             throw new MetaDataException(_loc.get("no-table", context));
 
+        if (schemaName == null)
+            schemaName = Schemas.getNewTableSchema((JDBCConfiguration)
+                repos.getConfiguration());
+
         // if no given and adapting or defaulting missing info, use template
         SchemaGroup group = repos.getSchemaGroup();
-        String schemaName = null;
+        Schema schema = null;
         if (given == null) {
-            if (schema == null) {
-                schemaName = Schemas.getNewTableSchema((JDBCConfiguration)
-                    repos.getConfiguration());
-                schema = group.getSchema(schemaName);
-                if (schema == null)
-                    schema = group.addSchema(schemaName);
-            }
+            schema = group.getSchema(schemaName);
+            if (schema == null)
+                schema = group.addSchema(schemaName);
             given = def.get(schema);
         }
 
-        // look for named table
-        Table table = group.findTable(given);
+        String fullName;
+        int dotIdx = given.lastIndexOf('.');
+        if (dotIdx == -1)
+            fullName = (schemaName == null) ? given : schemaName + "." + given;
+        else {
+            fullName = given;
+            schema = null;
+            schemaName = given.substring(0, dotIdx);
+            given = given.substring(dotIdx + 1);
+        }
+
+        // look for named table using full name and findTable, which allows
+        // the dynamic schema factory to create the table if needed
+        Table table = group.findTable(fullName);
         if (table != null)
             return table;
         if (!adapt)
             throw new MetaDataException(_loc.get("bad-table", given, context));
 
-        // named table doesn't exist; figure out what schema to create new
-        // table in
-        int dotIdx = given.lastIndexOf('.');
-        if (dotIdx != -1) {
-            schema = null;
-            schemaName = given.substring(0, dotIdx);
-            given = given.substring(dotIdx + 1);
-        } else if (schema == null)
-            schemaName = Schemas.getNewTableSchema((JDBCConfiguration)
-                repos.getConfiguration());
-
+        // named table doesn't exist; create it
         if (schema == null) {
             schema = group.getSchema(schemaName);
             if (schema == null)
                 schema = group.addSchema(schemaName);
         }
-
         table = schema.getTable(given);
         if (table == null)
             table = schema.addTable(given);
@@ -609,7 +613,8 @@ public abstract class MappingInfo
             // the expected column type
             if (given.getType() != Types.OTHER) {
                 ttype = false;
-                if (compat && !given.isCompatible(type, size)) {
+                if (compat && !given.isCompatible(type, typeName, size, 
+                    decimals)) {
                     Log log = repos.getLog();
                     if (log.isWarnEnabled())
                         log.warn(_loc.get(prefix + "-incompat-col",
@@ -644,7 +649,8 @@ public abstract class MappingInfo
         if (col == null) {
             col = table.addColumn(colName);
             col.setType(type);
-        } else if ((compat || !ttype) && !col.isCompatible(type, size)) {
+        } else if ((compat || !ttype) && !col.isCompatible(type, typeName, 
+            size, decimals)) {
             // if existing column isn't compatible with desired type, die if
             // can't adapt, else warn and change the existing column type
             Message msg = _loc.get(prefix + "-bad-col", context,

@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -340,6 +343,24 @@ public interface Broker
     public void setRollbackOnly();
 
     /**
+     * Mark the current transaction for rollback with the specified cause
+     * of the rollback.
+     *
+     * @since 0.9.7
+     */
+    public void setRollbackOnly(Throwable cause);
+
+    /** 
+     * Returns the Throwable that caused the transaction to be
+     * marked for rollback. 
+     *  
+     * @return the Throwable, or null if none was given
+     *
+     * @since 0.9.7
+     */
+    public Throwable getRollbackCause();
+
+    /**
      * Set a transactional savepoint where operations after this savepoint
      * will be rolled back.
      */
@@ -473,9 +494,20 @@ public interface Broker
     public void evictAll(Extent extent, OpCallbacks call);
 
     /**
-     * Detach all objects in place.
+     * Detach all objects in place.  A flush will be performed before
+     * detaching the entities.
      */
     public void detachAll(OpCallbacks call);
+
+    /**
+     * Detach all objects in place, with the option of performing a
+     * flush before doing the detachment.
+     * @param call Persistence operation callbacks
+     * @param flush boolean value to indicate whether to perform a
+     * flush before detaching the entities (true, do the flush;
+     * false, don't do the flush)
+     */
+    public void detachAll(OpCallbacks call, boolean flush);
 
     /**
      * Detach the specified object from the broker.
@@ -649,6 +681,12 @@ public interface Broker
      * Whether the broker is closed.
      */
     public boolean isClosed();
+
+    /**
+     * Whether {@link #close} has been invoked, though the broker might 
+     * remain open until the current managed transaction completes.
+     */
+    public boolean isCloseInvoked();
 
     /**
      * Close the broker.

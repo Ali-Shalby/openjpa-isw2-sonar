@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.meta;
 
@@ -21,7 +24,6 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.WeakHashMap;
-
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.enhance.PCEnhancer;
@@ -34,7 +36,6 @@ import serp.bytecode.BCMethod;
 import serp.bytecode.Code;
 import serp.bytecode.Constants;
 import serp.bytecode.Project;
-
 
 /**
  * Creates implementations of managed interfaces.  Will throw exceptions
@@ -50,11 +51,9 @@ class InterfaceImplGenerator {
     private final MetaDataRepository _repos;
     private final Map _impls = new WeakHashMap();
     private final Project _project = new Project();
-    private final BCClassLoader _loader = new BCClassLoader(_project);
-
+ 
     // distinct project / loader for enhanced version of class
     private final Project _enhProject = new Project();
-    private final BCClassLoader _enhLoader = new BCClassLoader(_enhProject);
 
     /**
      * Constructor.  Supply repository.
@@ -75,11 +74,17 @@ class InterfaceImplGenerator {
         if (impl != null)
             return impl;
 
+        ClassLoader parentLoader = iface.getClassLoader();
+        BCClassLoader loader = new BCClassLoader(_project, parentLoader);
+        BCClassLoader enhLoader = new BCClassLoader(_enhProject, parentLoader);
         BCClass bc = _project.loadClass(getClassName(meta));
         bc.declareInterface(iface);
         ClassMetaData sup = meta.getPCSuperclassMetaData();
-        if (sup != null)
+        if (sup != null) {
             bc.setSuperclass(sup.getInterfaceImpl());
+            enhLoader = new BCClassLoader(_enhProject, 
+            		sup.getInterfaceImpl().getClassLoader());
+        }
 
         FieldMetaData[] fields = meta.getDeclaredFields();
         Set methods = new HashSet();
@@ -90,14 +95,14 @@ class InterfaceImplGenerator {
         // first load the base class as the enhancer requires the class
         // to be available
         try {
-            meta.setInterfaceImpl(Class.forName(bc.getName(), true, _loader));
+            meta.setInterfaceImpl(Class.forName(bc.getName(), true, loader));
         } catch (Throwable t) {
-            throw new InternalException(_loc.get("interface-load"), t).
-                setFatal(true);
+            throw new InternalException(_loc.get("interface-load", iface, 
+                loader), t).setFatal(true);
         }
         // copy the BCClass into the enhancer project.
         bc = _enhProject.loadClass(new ByteArrayInputStream(bc.toByteArray()), 
-            _loader);
+            loader);
         PCEnhancer enhancer = new PCEnhancer(_repos.getConfiguration(), bc, 
             meta);
 
@@ -107,10 +112,10 @@ class InterfaceImplGenerator {
                 iface)).setFatal(true);
         try{
             // load the class for real.
-            impl = Class.forName(bc.getName(), true, _enhLoader);
+            impl = Class.forName(bc.getName(), true, enhLoader);
         } catch (Throwable t) {
-            throw new InternalException(_loc.get("interface-load2"), t).
-                setFatal(true);
+            throw new InternalException(_loc.get("interface-load2", iface, 
+                enhLoader), t).setFatal(true);
         }
         // cache the generated impl.
         _impls.put(iface, impl);

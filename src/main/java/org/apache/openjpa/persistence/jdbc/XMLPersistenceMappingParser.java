@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence.jdbc;
 
@@ -50,6 +53,7 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataParser;
 import static org.apache.openjpa.persistence.jdbc.MappingTag.*;
 
@@ -69,6 +73,7 @@ public class XMLPersistenceMappingParser
         _elems.put("association-override", ASSOC_OVERRIDE);
         _elems.put("attribute-override", ATTR_OVERRIDE);
         _elems.put("column", COL);
+        _elems.put("column-name", COLUMN_NAME);
         _elems.put("column-result", COLUMN_RESULT);
         _elems.put("discriminator-column", DISCRIM_COL);
         _elems.put("discriminator-value", DISCRIM_VAL);
@@ -85,6 +90,7 @@ public class XMLPersistenceMappingParser
         _elems.put("table", TABLE);
         _elems.put("table-generator", TABLE_GEN);
         _elems.put("temporal", TEMPORAL);
+        _elems.put("unique-constraint", UNIQUE);
     }
 
     private static final Localizer _loc = Localizer.forPackage
@@ -220,8 +226,7 @@ public class XMLPersistenceMappingParser
                 ret = startTableGenerator(attrs);
                 break;
             case UNIQUE:
-                getLog().warn(_loc.get("unique-constraints", currentElement()));
-                ret = false;
+                ret = startUniqueConstraint(attrs);
                 break;
             case TEMPORAL:
             case ENUMERATED:
@@ -238,6 +243,9 @@ public class XMLPersistenceMappingParser
                 break;
             case COLUMN_RESULT:
                 ret = startColumnResult(attrs);
+                break;
+            case COLUMN_NAME:
+                ret = true;
                 break;
             default:
                 ret = false;
@@ -277,6 +285,12 @@ public class XMLPersistenceMappingParser
             case ENTITY_RESULT:
                 endEntityResult();
                 break;
+            case UNIQUE:
+                endUniqueConstraint();
+                break;
+            case COLUMN_NAME:
+                endColumnName();
+                break;
         }
     }
 
@@ -293,6 +307,9 @@ public class XMLPersistenceMappingParser
     protected void endClassMapping(ClassMetaData meta)
         throws SAXException {
         ClassMapping cm = (ClassMapping) meta;
+        if (_schema != null)
+            cm.getMappingInfo().setSchemaName(_schema);
+
         if (_supJoinCols != null)
             cm.getMappingInfo().setColumns(_supJoinCols);
 
@@ -360,8 +377,8 @@ public class XMLPersistenceMappingParser
     private boolean startTableGenerator(Attributes attrs) {
         String name = attrs.getValue("name");
         Log log = getLog();
-        if (log.isInfoEnabled())
-            log.info(_loc.get("parse-gen", name));
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-gen", name));
         if (getRepository().getCachedSequenceMetaData(name) != null
             && log.isWarnEnabled())
             log.warn(_loc.get("override-gen", name));
@@ -758,10 +775,9 @@ public class XMLPersistenceMappingParser
     private String toTableName(String schema, String table) {
         if (StringUtils.isEmpty(table))
             return null;
-        schema = StringUtils.isEmpty(schema) ? _schema : schema;
         if (StringUtils.isEmpty(schema))
-            return table;
-        return schema + "." + table;
+            schema = _schema;
+        return (StringUtils.isEmpty(schema)) ? table : schema + "." + table;
     }
 
     /**
@@ -771,8 +787,8 @@ public class XMLPersistenceMappingParser
     private boolean startSQLResultSetMapping(Attributes attrs) {
         String name = attrs.getValue("name");
         Log log = getLog();
-        if (log.isInfoEnabled())
-            log.info(_loc.get("parse-sqlrsmapping", name));
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-sqlrsmapping", name));
 
         MappingRepository repos = (MappingRepository) getRepository();
         QueryResultMapping result = repos.getCachedQueryResultMapping
@@ -846,6 +862,52 @@ public class XMLPersistenceMappingParser
         return true;
     }
 
+    /** 
+     * Starts processing &lt;unique-constraint&gt; provided the tag occurs
+     * within a ClassMapping element and <em>not</em> within a secondary
+     * table. 
+     * Pushes the Unique element in the stack.
+     */
+    private boolean startUniqueConstraint(Attributes attrs) 
+        throws SAXException {
+        Object current = currentElement();
+        if (current instanceof ClassMapping && _secondaryTable == null) {
+            Unique unique = new Unique();
+            pushElement(unique);
+            return true;
+        } 
+        return false;
+    }
+    
+    /**
+     * Ends processing &lt;unique-constraint&gt; provided the tag occurs
+     * within a ClassMapping element and <em>not</em> within a secondary
+     * table. The stack is popped and the Unique element is added to the
+     * ClassMappingInfo. 
+     */
+    private void endUniqueConstraint() {
+        Unique unique = (Unique)popElement();
+        Object current = currentElement();
+        if (current instanceof ClassMapping && _secondaryTable == null)
+            ((ClassMapping)current).getMappingInfo().addUnique(unique);
+    }
+    
+    /**
+     * Ends processing &lt;column-name&gt; tag by adding the column name in
+     * the current Unique element that resides in the top of the stack.
+     */
+    private boolean endColumnName() {
+        Object current = currentElement();
+        if (current instanceof Unique) {
+            Unique unique = (Unique)current;
+            Column column = new Column();
+            column.setName(this.currentText());
+            unique.addColumn(column);
+            return true;
+        }
+        return false;
+    }
+    
     /**
      * Track unique column settings.
 	 */

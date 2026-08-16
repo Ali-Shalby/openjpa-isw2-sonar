@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.conf;
 
@@ -178,11 +181,8 @@ public class OpenJPAConfigurationImpl
         brokerFactoryPlugin = new BrokerFactoryValue();
         addValue(brokerFactoryPlugin);
 
-        brokerPlugin = addPlugin("BrokerImpl", false);
-        aliases = new String[] { "default", BrokerImpl.class.getName() };
-        brokerPlugin.setAliases(aliases);
-        brokerPlugin.setDefault(aliases[0]);
-        brokerPlugin.setString(aliases[0]);
+        brokerPlugin = new BrokerValue();
+        addValue(brokerPlugin);
 
         dataCacheManagerPlugin = addPlugin("DataCacheManager", true);
         aliases =
@@ -193,10 +193,11 @@ public class OpenJPAConfigurationImpl
         dataCacheManagerPlugin.setInstantiatingGetter("getDataCacheManager");
 
         dataCachePlugin = addPlugin("DataCache", false);
-        aliases =
-            new String[] { "false", null, "true",
-                ConcurrentDataCache.class.getName(), "concurrent",
-                ConcurrentDataCache.class.getName(), };
+        aliases = new String[] { 
+            "false", null, 
+            "true", ConcurrentDataCache.class.getName(), 
+            "concurrent", ConcurrentDataCache.class.getName(), 
+        };
         dataCachePlugin.setAliases(aliases);
         dataCachePlugin.setDefault(aliases[0]);
         dataCachePlugin.setString(aliases[0]);
@@ -206,10 +207,11 @@ public class OpenJPAConfigurationImpl
         dataCacheTimeout.set(-1);
 
         queryCachePlugin = addPlugin("QueryCache", true);
-        aliases =
-            new String[] { "true", ConcurrentQueryCache.class.getName(),
-                "concurrent", ConcurrentQueryCache.class.getName(), "false",
-                null, };
+        aliases = new String[] { 
+            "true", ConcurrentQueryCache.class.getName(),
+            "concurrent", ConcurrentQueryCache.class.getName(), 
+            "false", null, 
+        };
         queryCachePlugin.setAliases(aliases);
         queryCachePlugin.setDefault(aliases[0]);
         queryCachePlugin.setString(aliases[0]);
@@ -358,10 +360,12 @@ public class OpenJPAConfigurationImpl
         addValue(autoDetach);
 
         detachStatePlugin = addPlugin("DetachState", true);
-        aliases =
-            new String[] { "loaded", DetachOptions.Loaded.class.getName(),
-                "fgs", DetachOptions.FetchGroups.class.getName(), "all",
-                DetachOptions.All.class.getName(), };
+        aliases = new String[] {
+            "loaded", DetachOptions.Loaded.class.getName(),
+            "fgs", DetachOptions.FetchGroups.class.getName(),
+            "fetch-groups", DetachOptions.FetchGroups.class.getName(), 
+            "all", DetachOptions.All.class.getName(),
+        };
         detachStatePlugin.setAliases(aliases);
         detachStatePlugin.setDefault(aliases[0]);
         detachStatePlugin.setString(aliases[0]);

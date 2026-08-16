@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -330,7 +333,8 @@ public class TableJDBCSeq
         try {
             // possible that we might get errors when inserting if
             // another thread/process is inserting same pk at same time
-            SQLException err = null;
+            SQLException err = null; 
+            // ### why does this not call getConnection() / closeConnection()?
             conn = _conf.getDataSource2(store.getContext()).getConnection();
             try {
                 insertSequence(mapping, conn);
@@ -377,7 +381,7 @@ public class TableJDBCSeq
             appendValue(Numbers.valueOf(1), _seqColumn).append(")");
 
         boolean wasAuto = conn.getAutoCommit();
-        if (!wasAuto)
+        if (!wasAuto && !suspendInJTA())
             conn.setAutoCommit(true);
 
         PreparedStatement stmnt = null;
@@ -387,7 +391,7 @@ public class TableJDBCSeq
         } finally {
             if (stmnt != null)
                 try { stmnt.close(); } catch (SQLException se) {}
-            if (!wasAuto)
+            if (!wasAuto && !suspendInJTA())
                 conn.setAutoCommit(false);
         }
     }

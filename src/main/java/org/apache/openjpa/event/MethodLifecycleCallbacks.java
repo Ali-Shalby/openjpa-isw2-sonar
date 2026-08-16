@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.event;
 
@@ -96,8 +99,9 @@ public class MethodLifecycleCallbacks
      * the proper exception on error.
      */
     protected static Method getMethod(Class cls, String method, Class[] args) {
-        try {
-            Method[] methods = cls.getMethods();
+        Class currentClass = cls;
+        do {
+            Method[] methods = currentClass.getDeclaredMethods();
             for (int i = 0; i < methods.length; i++) {
                 if (!method.equals(methods[i].getName()))
                     continue;
@@ -105,23 +109,11 @@ public class MethodLifecycleCallbacks
                 if (isAssignable(methods[i].getParameterTypes(), args))
                     return methods[i];
             }
+        } while ((currentClass = currentClass.getSuperclass()) != null);
 
-            return cls.getMethod(method, args);
-
-        } catch (Throwable t) {
-            try {
-                // try again with the declared methods, which will
-                // check private and protected methods
-                Method m = cls.getDeclaredMethod(method, args);
-                if (!m.isAccessible())
-                    m.setAccessible(true);
-                return m;
-            } catch (Throwable t2) {
-                throw new UserException(_loc.get("method-notfound",
-                    cls.getName(), method,
-                        args == null ? null : Arrays.asList(args)), t);
-            }
-		}
+        // if we get here, no suitable method was found
+        throw new UserException(_loc.get("method-notfound", cls.getName(),
+                method, args == null ? null : Arrays.asList(args)));
 	}
 
     /** 
@@ -130,7 +122,9 @@ public class MethodLifecycleCallbacks
      */
     private static boolean isAssignable(Class[] from, Class[] to) {
         if (from == null)
-            return to == null;
+            return to == null || to.length == 0;
+        if (to == null)
+            return from == null || from.length == 0;
 
         if (from.length != to.length)
             return false;

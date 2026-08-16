@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -26,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.lang.reflect.Method;
 import javax.persistence.FlushModeType;
 import javax.persistence.Query;
 import javax.persistence.TemporalType;
@@ -38,6 +42,7 @@ import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.lib.rop.ResultList;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.enhance.Reflection;
 
 /**
  * Implementation of {@link Query} interface.
@@ -91,6 +96,7 @@ public class QueryImpl
     }
 
     public FetchPlan getFetchPlan() {
+        _em.assertNotCloseInvoked();
         _query.assertNotSerialized();
         _query.lock();
         try {
@@ -113,26 +119,31 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setIgnoreChanges(boolean ignore) {
+        _em.assertNotCloseInvoked();
         _query.setIgnoreChanges(ignore);
         return this;
     }
 
     public OpenJPAQuery addFilterListener(FilterListener listener) {
+        _em.assertNotCloseInvoked();
         _query.addFilterListener(listener);
         return this;
     }
 
     public OpenJPAQuery removeFilterListener(FilterListener listener) {
+        _em.assertNotCloseInvoked();
         _query.removeFilterListener(listener);
         return this;
     }
 
     public OpenJPAQuery addAggregateListener(AggregateListener listener) {
+        _em.assertNotCloseInvoked();
         _query.addAggregateListener(listener);
         return this;
     }
 
     public OpenJPAQuery removeAggregateListener(AggregateListener listener) {
+        _em.assertNotCloseInvoked();
         _query.removeAggregateListener(listener);
         return this;
     }
@@ -142,6 +153,7 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setCandidateCollection(Collection coll) {
+        _em.assertNotCloseInvoked();
         _query.setCandidateCollection(coll);
         return this;
     }
@@ -154,6 +166,7 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setResultClass(Class cls) {
+        _em.assertNotCloseInvoked();
         if (OpenJPAPersistence.isManagedType(_em, cls))
             _query.setCandidateType(cls, true);
         else
@@ -166,6 +179,7 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setSubclasses(boolean subs) {
+        _em.assertNotCloseInvoked();
         Class cls = _query.getCandidateType();
         _query.setCandidateExtent(_query.getBroker().newExtent(cls, subs));
         return this;
@@ -176,6 +190,7 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setFirstResult(int startPosition) {
+        _em.assertNotCloseInvoked();
         _query.setRange(startPosition, _query.getEndRange());
         return this;
     }
@@ -185,6 +200,7 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setMaxResults(int max) {
+        _em.assertNotCloseInvoked();
         long start = _query.getStartRange();
         if (max == Integer.MAX_VALUE)
             _query.setRange(start, Long.MAX_VALUE);
@@ -194,6 +210,7 @@ public class QueryImpl
     }
 
     public OpenJPAQuery compile() {
+        _em.assertNotCloseInvoked();
         _query.compile();
         return this;
     }
@@ -248,6 +265,7 @@ public class QueryImpl
     }
 
     public List getResultList() {
+        _em.assertNotCloseInvoked();
         Object ob = execute();
         if (ob instanceof List) {
             List ret = (List) ob;
@@ -265,28 +283,20 @@ public class QueryImpl
      * Execute a query that returns a single result.
      */
     public Object getSingleResult() {
-        Object ob = execute();
-        if (!(ob instanceof List))
-            return ob;
-
-        List res = (List) ob;
+        _em.assertNotCloseInvoked();
+        // temporarily set query to unique so that a single result is validated
+        // and returned; unset again in case the user executes query again
+        // via getResultList
+        _query.setUnique(true);
         try {
-            // don't use size() b/c can be inefficient under some LRS settings
-            Iterator itr = res.iterator();
-            if (!itr.hasNext())
-                throw new NoResultException(_loc.get("no-results",
-                    _query.getQueryString()).getMessage(), null, null, false);
-            Object ret = itr.next();
-            if (itr.hasNext())
-                throw new NonUniqueResultException(_loc.get("mult-results",
-                    _query.getQueryString()).getMessage(), null, null, false);
-            return ret;
+            return execute();
         } finally {
-            OpenJPAPersistence.close(res);
+            _query.setUnique(false);
         }
     }
 
     public int executeUpdate() {
+        _em.assertNotCloseInvoked();
         if (_query.getOperation() == OP_DELETE) {
             // handle which types of parameters we are using, if any
             if (_positional != null)
@@ -324,12 +334,14 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setFlushMode(FlushModeType flushMode) {
+        _em.assertNotCloseInvoked();
         _query.getFetchConfiguration().setFlushBeforeQueries
             (EntityManagerImpl.toFlushBeforeQueries(flushMode));
         return this;
     }
 
     public OpenJPAQuery setHint(String key, Object value) {
+        _em.assertNotCloseInvoked();
         if (key == null || !key.startsWith("openjpa."))
             return this;
         String k = key.substring("openjpa.".length());
@@ -357,9 +369,23 @@ public class QueryImpl
                     addAggregateListener(arr[i]);
             } else if (k.startsWith("FetchPlan.")) {
                 k = k.substring("FetchPlan.".length());
-                Filters.hintToSetter(getFetchPlan(), k, value);
-            } else if (k.startsWith("hint."))
+                hintToSetter(getFetchPlan(), k, value);
+            } else if (k.startsWith("hint.")) {
+                if ("hint.OptimizeResultCount".equals(k)) {
+                    if (value instanceof String) {
+                        try {
+                            value = new Integer((String) value);
+                        } catch (NumberFormatException nfe) {
+                        }
+                    }
+                    if (!(value instanceof Number) 
+                        || ((Number) value).intValue() < 0)
+                        throw new ArgumentException(_loc.get
+                            ("bad-query-hint-value", key, value), null, null, 
+                            false);
+                }
                 _query.getFetchConfiguration().setHint(key, value);
+            }
             else
                 throw new ArgumentException(_loc.get("bad-query-hint", key),
                     null, null, false);
@@ -367,6 +393,18 @@ public class QueryImpl
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
         }
+    }
+
+    private void hintToSetter(FetchPlan fetchPlan, String k, Object value) {
+        if (fetchPlan == null || k == null)
+            return;
+
+        Method setter = Reflection.findSetter(fetchPlan.getClass(), k, true);
+        Class paramType = setter.getParameterTypes()[0];
+        if (Enum.class.isAssignableFrom(paramType) && value instanceof String)
+            value = Enum.valueOf(paramType, (String) value);
+        
+        Filters.hintToSetter(fetchPlan, k, value);
     }
 
     public OpenJPAQuery setParameter(int position, Calendar value,
@@ -380,6 +418,8 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setParameter(int position, Object value) {
+        _query.assertOpen();
+        _em.assertNotCloseInvoked();
         _query.lock();
         try {
             // not allowed to mix positional and named parameters (EDR2 3.6.4)
@@ -419,6 +459,8 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setParameter(String name, Object value) {
+        _query.assertOpen();
+        _em.assertNotCloseInvoked();
         _query.lock();
         try {
             // not allowed to mix positional and named parameters (EDR2 3.6.4)
@@ -450,6 +492,8 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setParameters(Object... params) {
+        _query.assertOpen();
+        _em.assertNotCloseInvoked();
         _query.lock();
         try {
             _positional = null;
@@ -474,6 +518,8 @@ public class QueryImpl
     }
 
     public OpenJPAQuery setParameters(Map params) {
+        _query.assertOpen();
+        _em.assertNotCloseInvoked();
         _query.lock();
         try {
             _positional = null;

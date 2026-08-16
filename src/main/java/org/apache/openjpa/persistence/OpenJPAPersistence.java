@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -35,7 +38,18 @@ import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
-import org.apache.openjpa.util.*;
+import org.apache.openjpa.util.ByteId;
+import org.apache.openjpa.util.CharId;
+import org.apache.openjpa.util.DoubleId;
+import org.apache.openjpa.util.FloatId;
+import org.apache.openjpa.util.Id;
+import org.apache.openjpa.util.ImplHelper;
+import org.apache.openjpa.util.IntId;
+import org.apache.openjpa.util.LongId;
+import org.apache.openjpa.util.ObjectId;
+import org.apache.openjpa.util.OpenJPAId;
+import org.apache.openjpa.util.ShortId;
+import org.apache.openjpa.util.StringId;
 
 /**
  * Static helper method for JPA users, including switching
@@ -373,6 +387,10 @@ public class OpenJPAPersistence
             return new ByteId(cls, (Byte) oid);
         if (oid instanceof Character)
             return new CharId(cls, (Character) oid);
+        if (oid instanceof Double)
+            return new DoubleId(cls, (Double) oid);
+        if (oid instanceof Float)
+            return new FloatId(cls, (Float) oid);
         if (oid instanceof Integer)
             return new IntId(cls, (Integer) oid);
         if (oid instanceof Long)
@@ -440,6 +458,10 @@ public class OpenJPAPersistence
             return Byte.class;
         if (oidClass == CharId.class)
             return Character.class;
+        if (oidClass == DoubleId.class)
+            return Double.class;
+        if (oidClass == FloatId.class)
+            return Float.class;
         if (oidClass == IntId.class)
             return Integer.class;
         if (oidClass == LongId.class)

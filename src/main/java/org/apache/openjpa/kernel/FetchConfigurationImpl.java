@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -39,6 +42,8 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FetchGroup;
 import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.NoTransactionException;
 import org.apache.openjpa.util.UserException;
@@ -83,6 +88,8 @@ public class FetchConfigurationImpl
     private FetchConfigurationImpl _parent;
     private String _fromField;
     private Class _fromType;
+    private String _directRelationOwner;
+    private boolean _load = true;
     private int _availableRecursion;
     private int _availableDepth;
 
@@ -125,6 +132,8 @@ public class FetchConfigurationImpl
         clone._parent = _parent;
         clone._fromField = _fromField;
         clone._fromType = _fromType;
+        clone._directRelationOwner = _directRelationOwner;
+        clone._load = _load;
         clone._availableRecursion = _availableRecursion;
         clone._availableDepth = _availableDepth;
         clone.copy(this);
@@ -497,23 +506,32 @@ public class FetchConfigurationImpl
     // Traversal
     /////////////
     
-    public boolean requiresFetch(FieldMetaData fm) {
+    public int requiresFetch(FieldMetaData fm) {
         if (!includes(fm))
-            return false;
+            return FETCH_NONE;
         
         Class type = getRelationType(fm);
         if (type == null)
-            return true;
+            return FETCH_LOAD;
         if (_availableDepth == 0)
-            return false;
+            return FETCH_NONE;
 
         // we can skip calculating recursion depth if this is a top-level conf:
         // the field is in our fetch groups, so can't possibly not select
         if (_parent == null) 
-            return true;
+            return FETCH_LOAD;
 
         int rdepth = getAvailableRecursionDepth(fm, type, false);
-        return rdepth == FetchGroup.DEPTH_INFINITE || rdepth > 0;
+        if (rdepth != FetchGroup.DEPTH_INFINITE && rdepth <= 0)
+            return FETCH_NONE;
+
+        if (StringUtils.equals(_directRelationOwner, fm.getFullName()))
+            return FETCH_REF;
+        return FETCH_LOAD;
+    }
+
+    public boolean requiresLoad() {
+        return _load;
     }
 
     public FetchConfiguration traverse(FieldMetaData fm) {
@@ -527,6 +545,15 @@ public class FetchConfigurationImpl
         clone._fromField = fm.getFullName(false);
         clone._fromType = type;
         clone._availableRecursion = getAvailableRecursionDepth(fm, type, true);
+        if (StringUtils.equals(_directRelationOwner, fm.getFullName()))
+            clone._load = false;
+        else
+            clone._load = _load;
+
+        FieldMetaData owner = fm.getMappedByMetaData();
+        if (owner != null && owner.getTypeCode() == JavaTypes.PC)
+            clone._directRelationOwner = owner.getFullName();
+        
         return clone;
     }
 
@@ -557,7 +584,7 @@ public class FetchConfigurationImpl
         // see if there's a previous limit
         int avail = Integer.MIN_VALUE;
         for (FetchConfigurationImpl f = this; f != null; f = f._parent) {
-            if (isAssignable(type, f._fromType)) {
+            if (ImplHelper.isAssignable(f._fromType, type)) {
                 avail = f._availableRecursion;
                 if (traverse)
                     avail = reduce(avail);
@@ -582,15 +609,15 @@ public class FetchConfigurationImpl
                 max = cur;
         }
         // reduce max if we're traversing a self-type relation
-        if (traverse && max != Integer.MIN_VALUE 
-            && isAssignable(meta.getDescribedType(), type))
+        if (traverse && max != Integer.MIN_VALUE
+            && ImplHelper.isAssignable(meta.getDescribedType(), type))
             max = reduce(max);
 
         // take min/defined of previous avail and fetch group max
         if (avail == Integer.MIN_VALUE && max == Integer.MIN_VALUE) {
             int def = FetchGroup.RECURSION_DEPTH_DEFAULT;
-            return (traverse && isAssignable(meta.getDescribedType(), type))
-                ? def - 1 : def;
+            return (traverse && ImplHelper.isAssignable(
+                    meta.getDescribedType(), type)) ? def - 1 : def;
         }
         if (avail == Integer.MIN_VALUE || avail == FetchGroup.DEPTH_INFINITE)
             return max;
@@ -610,14 +637,6 @@ public class FetchConfigurationImpl
         if (fm.getKey().isDeclaredTypePC())
             return fm.getKey().getDeclaredType();
         return null;
-    }
-
-    /**
-     * Whether either of the two types is assignable from the other.
-     */
-    private static boolean isAssignable(Class c1, Class c2) {
-        return c1 != null && c2 != null 
-            && (c1.isAssignableFrom(c2) || c2.isAssignableFrom(c1));
     }
 
     /**

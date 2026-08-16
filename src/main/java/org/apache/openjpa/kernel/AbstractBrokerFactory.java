@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -37,6 +40,8 @@ import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentHashMap;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashSet;
 import org.apache.openjpa.lib.util.concurrent.ReentrantLock;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.GeneralException;
@@ -57,24 +62,25 @@ public abstract class AbstractBrokerFactory
         (AbstractBrokerFactory.class);
 
     // static mapping of configurations to pooled broker factories
-    private static final Map _pool = Collections.synchronizedMap
-        (new HashMap());
+    private static final Map _pool = Collections.synchronizedMap(new HashMap());
 
     // configuration
     private final OpenJPAConfiguration _conf;
     private transient boolean _readOnly = false;
-    private transient RuntimeException _closed = null;
+    private transient boolean _closed = false;
+    private transient RuntimeException _closedException = null;
     private Map _userObjects = null;
 
     // internal lock: spec forbids synchronization on this object
     private final ReentrantLock _lock = new ReentrantLock();
 
     // maps global transactions to associated brokers
-    private transient Map _transactional = new HashMap();
+    private transient ConcurrentHashMap _transactional
+        = new ConcurrentHashMap();
 
     // weak-ref tracking of open brokers
-    private transient Collection _brokers = new ReferenceHashSet
-        (ReferenceHashSet.WEAK);
+    private transient Collection _brokers = new ConcurrentReferenceHashSet
+        (ConcurrentReferenceHashSet.WEAK);
 
     // cache the class names loaded from the persistent classes property so
     // that we can re-load them for each new broker
@@ -93,6 +99,11 @@ public abstract class AbstractBrokerFactory
         return (AbstractBrokerFactory) _pool.get(toPoolKey(conf));
     }
 
+    /**
+     * Return an internal factory pool key for the given configuration.
+     * We use the conf properties as given by the user because that is what's
+     * passed to {@link #getPooledFactory} when looking for an existing factory.
+     */
     private static Map toPoolKey(OpenJPAConfiguration conf) {
         return conf.toProperties(false);
     }
@@ -141,7 +152,6 @@ public abstract class AbstractBrokerFactory
 
     public Broker newBroker(String user, String pass, boolean managed,
         int connRetainMode, boolean findExisting) {
-        lock();
         try {
             assertOpen();
             makeReadOnly();
@@ -181,8 +191,6 @@ public abstract class AbstractBrokerFactory
             throw ke;
         } catch (RuntimeException re) {
             throw new GeneralException(re);
-        } finally {
-            unlock();
         }
     }
 
@@ -269,7 +277,7 @@ public abstract class AbstractBrokerFactory
      * Returns true if this broker factory is closed.
      */
     public boolean isClosed() {
-        return _closed != null;
+        return _closed;
     }
 
     public void close() {
@@ -289,7 +297,8 @@ public abstract class AbstractBrokerFactory
             Broker broker;
             for (Iterator itr = _brokers.iterator(); itr.hasNext();) {
                 broker = (Broker) itr.next();
-                if (!broker.isClosed())
+                // Check for null because _brokers contains weak references
+                if ((broker != null) && (!broker.isClosed()))
                     broker.close();
             }
 
@@ -298,7 +307,10 @@ public abstract class AbstractBrokerFactory
                 (_conf.getMetaDataRepositoryInstance());
 
             _conf.close();
-            _closed = new IllegalStateException();
+            _closed = true;
+            Log log = _conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
+            if (log.isTraceEnabled())
+                _closedException = new IllegalStateException();
         } finally {
             unlock();
         }
@@ -362,8 +374,9 @@ public abstract class AbstractBrokerFactory
             return factory;
 
         // reset these transient fields to empty values
-        _transactional = new HashMap();
-        _brokers = new ReferenceHashSet(ReferenceHashSet.WEAK);
+        _transactional = new ConcurrentHashMap();
+        _brokers = new ConcurrentReferenceHashSet(
+                ConcurrentReferenceHashSet.WEAK);
 
         makeReadOnly();
         return this;
@@ -442,20 +455,20 @@ public abstract class AbstractBrokerFactory
             throw new GeneralException(e);
         }
 
-        synchronized (_transactional) {
-            Collection brokers = (Collection) _transactional.get(trans);
-            if (brokers != null) {
-                BrokerImpl broker;
-                for (Iterator itr = brokers.iterator(); itr.hasNext();) {
-                    broker = (BrokerImpl) itr.next();
-                    if (StringUtils.equals(broker.getConnectionUserName(),
-                        user) && StringUtils.equals
-                        (broker.getConnectionPassword(), pass))
-                        return broker;
-                }
+        Collection brokers = (Collection) _transactional.get(trans);
+        if (brokers != null) {
+            // we don't need to synchronize on brokers since one JTA transaction
+            // can never be active on multiple concurrent threads.
+            BrokerImpl broker;
+            for (Iterator itr = brokers.iterator(); itr.hasNext();) {
+                broker = (BrokerImpl) itr.next();
+                if (StringUtils.equals(broker.getConnectionUserName(),
+                    user) && StringUtils.equals
+                    (broker.getConnectionPassword(), pass))
+                    return broker;
             }
-            return null;
         }
+        return null;
     }
 
     /**
@@ -546,12 +559,18 @@ public abstract class AbstractBrokerFactory
     }
 
     /**
-     * Throw an exception if the factory is closed.
+     * Throw an exception if the factory is closed.  The exact message and
+     * content of the exception varies whether TRACE is enabled or not.
      */
     private void assertOpen() {
-        if (_closed != null)
-            throw new InvalidStateException(_loc.get("closed-factory")).
-                setCause(_closed);
+        if (_closed) {
+            if (_closedException == null)  // TRACE not enabled
+                throw new InvalidStateException(_loc
+                        .get("closed-factory-notrace"));
+            else
+                throw new InvalidStateException(_loc.get("closed-factory"))
+                        .setCause(_closedException);
+        }
     }
 
     ////////////////////
@@ -565,18 +584,16 @@ public abstract class AbstractBrokerFactory
      */
     private void assertNoActiveTransaction() {
         Collection excs = null;
-        synchronized (_transactional) {
-            if (_transactional.isEmpty())
-                return;
+        if (_transactional.isEmpty())
+            return;
 
-            excs = new ArrayList(_transactional.size());
-            for (Iterator trans = _transactional.values().iterator();
-                trans.hasNext();) {
-                Collection brokers = (Collection) trans.next();
-                for (Iterator itr = brokers.iterator(); itr.hasNext();) {
-                    excs.add(new InvalidStateException(_loc.get("active")).
-                        setFailedObject(itr.next()));
-                }
+        excs = new ArrayList(_transactional.size());
+        for (Iterator trans = _transactional.values().iterator();
+            trans.hasNext();) {
+            Collection brokers = (Collection) trans.next();
+            for (Iterator itr = brokers.iterator(); itr.hasNext();) {
+                excs.add(new InvalidStateException(_loc.get("active")).
+                    setFailedObject(itr.next()));
             }
         }
 
@@ -612,26 +629,31 @@ public abstract class AbstractBrokerFactory
             // synch broker and trans
             trans.registerSynchronization(broker);
 
-            synchronized (_transactional) {
-                Collection brokers = (Collection) _transactional.get(trans);
-                if (brokers == null) {
-                    brokers = new ArrayList(2);
-                    _transactional.put(trans, brokers);
-
-                    // register a callback to remove the trans from the
-                    // cache when it ends
-                    trans.registerSynchronization
-                        (new RemoveTransactionSync(trans));
-                }
-                brokers.add(broker);
+            // we don't need to synchronize on brokers or guard against multiple
+            // threads using the same trans since one JTA transaction can never
+            // be active on multiple concurrent threads.
+            Collection brokers = (Collection) _transactional.get(trans);
+            if (brokers == null) {
+                brokers = new ArrayList(2);
+                _transactional.put(trans, brokers);
+                trans.registerSynchronization(new RemoveTransactionSync(trans));
             }
-
+            brokers.add(broker);
+            
             return true;
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
             throw new GeneralException(e);
         }
+    }
+
+    /**
+     * Returns a set of all the open brokers associated with this factory. The
+     * returned set is unmodifiable, and may contain null references.
+     */
+    public Collection getOpenBrokers() {
+        return Collections.unmodifiableCollection(_brokers);
     }
 
     /**
@@ -651,10 +673,7 @@ public abstract class AbstractBrokerFactory
         }
 
         public void afterCompletion(int status) {
-            synchronized (_transactional)
-			{
-				_transactional.remove (_trans);
-			}
+            _transactional.remove (_trans);
 		}
 	}
 }

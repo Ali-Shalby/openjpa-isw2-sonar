@@ -1,28 +1,30 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.util;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.Map;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.LockManager;
@@ -31,8 +33,10 @@ import org.apache.openjpa.kernel.PCState;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.kernel.StoreManager;
 import org.apache.openjpa.lib.util.Closeable;
-import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.ReferenceMap;
 import org.apache.openjpa.lib.util.UUIDGenerator;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentHashMap;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -48,40 +52,9 @@ import org.apache.openjpa.meta.ValueStrategies;
  */
 public class ImplHelper {
 
-    private static final Localizer _loc = Localizer.forPackage
-        (ImplHelper.class);
-
-    /**
-     * Return the getter method matching the given property name.
-     */
-    public static Method getGetter(Class cls, String prop) {
-        prop = StringUtils.capitalize(prop);
-        try {
-            return cls.getMethod("get" + prop, (Class[]) null);
-        } catch (Exception e) {
-            try {
-                return cls.getMethod("is" + prop, (Class[]) null);
-            } catch (Exception e2) {
-                throw new UserException(_loc.get("bad-getter", cls,
-                    prop)).setCause(e);
-            }
-        }
-    }
-
-    /**
-     * Return the setter method matching the given property name.
-     */
-    public static Method getSetter(Class cls, String prop) {
-        Method getter = getGetter(cls, prop);
-        prop = StringUtils.capitalize(prop);
-        try {
-            return cls.getMethod("set" + prop,
-                new Class[]{ getter.getReturnType() });
-        } catch (Exception e) {
-            throw new UserException(_loc.get("bad-setter", cls, prop)).
-                setCause(e);
-        }
-    }
+    // Cache for from/to type assignments
+    private static ConcurrentReferenceHashMap _assignableTypes =
+        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
 
     /**
      * Helper for store manager implementations. This method simply delegates
@@ -223,5 +196,35 @@ public class ImplHelper {
      */
     public static boolean isManageable(Object instance) {
         return instance instanceof PersistenceCapable;
+    }
+
+    /**
+     * Returns true if the referenced "to" class is assignable to the "from"
+     * class.  This helper method utilizes a cache to help avoid the overhead
+     * of the Class.isAssignableFrom() method.
+     *
+     * @param from target class instance to be checked for assignability
+     * @param to second class instance to be checked for assignability
+     * @return true if the "to" class is assignable to the "from" class
+     */
+    public static boolean isAssignable(Class from, Class to) {
+        if (from == null || to == null)
+            return false;
+
+        Boolean isAssignable = null;
+        Map assignableTo = (Map) _assignableTypes.get(from);
+        if (assignableTo == null) { // "to" cache doesn't exist, so create it...
+            assignableTo = new ConcurrentHashMap();
+            _assignableTypes.put(from, assignableTo);
+        } else { // "to" cache exists...
+            isAssignable = (Boolean) assignableTo.get(to);
+        }
+
+        if (isAssignable == null) {// we don't have a record of this pair...
+            isAssignable = Boolean.valueOf(from.isAssignableFrom(to));
+            assignableTo.put(to, isAssignable);
+        }
+
+        return isAssignable.booleanValue();
     }
 }

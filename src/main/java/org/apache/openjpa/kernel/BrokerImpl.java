@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -74,6 +77,7 @@ import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.CallbackException;
 import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.GeneralException;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.NoTransactionException;
@@ -95,7 +99,7 @@ import org.apache.openjpa.util.UserException;
  * @author Abe White
  */
 public class BrokerImpl
-    implements Broker, FindCallbacks {
+    implements Broker, FindCallbacks, Cloneable {
 
     /**
      * Incremental flush.
@@ -154,14 +158,13 @@ public class BrokerImpl
     private ManagedRuntime _runtime = null;
     private LockManager _lm = null;
     private InverseManager _im = null;
-    private final JCAHelper _jca = new JCAHelper();
+    private JCAHelper _jca = null;
     private ReentrantLock _lock = null;
     private OpCallbacks _call = null;
     private RuntimeExceptionTranslator _extrans = null;
 
     // cache class loader associated with the broker
-    private ClassLoader _loader = Thread.currentThread().
-        getContextClassLoader();
+    private ClassLoader _loader = null;
 
     // user state
     private Synchronization _sync = null;
@@ -215,7 +218,8 @@ public class BrokerImpl
 
     // status
     private int _flags = 0;
-    private RuntimeException _closed = null;
+    private boolean _closed = false;
+    private RuntimeException _closedException = null;
 
     // event managers
     private TransactionEventManager _transEventManager = null;
@@ -223,6 +227,8 @@ public class BrokerImpl
     private LifecycleEventManager _lifeEventManager = null;
     private int _lifeCallbackMode = 0;
 
+    private boolean _initializeWasInvoked = false;
+    
     /**
      * Set the persistence manager's authentication. This is the first
      * method called after construction.
@@ -249,6 +255,9 @@ public class BrokerImpl
      */
     public void initialize(AbstractBrokerFactory factory,
         DelegatingStoreManager sm, boolean managed, int connMode) {
+        _initializeWasInvoked = true;
+        _loader = Thread.currentThread().getContextClassLoader();
+        _jca = new JCAHelper();
         _conf = factory.getConfiguration();
         _compat = _conf.getCompatibilityInstance();
         _factory = factory;
@@ -293,14 +302,13 @@ public class BrokerImpl
             beginInternal();
     }
 
-    /**
-     * Close on finalize.
-     */
-    protected void finalize()
-        throws Throwable {
-        super.finalize();
-        if (!isClosed())
-            free();
+    public Object clone()
+        throws CloneNotSupportedException {
+        if (_initializeWasInvoked)
+            throw new CloneNotSupportedException();
+        else {
+            return super.clone();
+        }
     }
 
     /**
@@ -677,7 +685,7 @@ public class BrokerImpl
                 setNestedThrowables(exceps);
         if ((mode & CALLBACK_ROLLBACK) != 0 && (_flags & FLAG_ACTIVE) != 0) {
             ce.setFatal(true);
-            setRollbackOnlyInternal();
+            setRollbackOnlyInternal(ce);
         }
         if ((mode & CALLBACK_LOG) != 0 && _log.isWarnEnabled())
             _log.warn(ce);
@@ -772,7 +780,7 @@ public class BrokerImpl
             StateManagerImpl sm = getStateManagerImplById(oid,
                 (flags & OID_ALLOW_NEW) != 0 || (_flags & FLAG_FLUSHED) != 0);
             if (sm != null) {
-                if (!requiresLoad(sm, true, edata, flags))
+                if (!requiresLoad(sm, true, fetch, edata, flags))
                     return call.processReturn(oid, sm);
 
                 if (!sm.isLoading()) {
@@ -780,17 +788,15 @@ public class BrokerImpl
                     // after making instance transactional for locking
                     if (!sm.isTransactional() && useTransactionalState(fetch))
                         sm.transactional();
-                    boolean loaded = sm.isLoading();
-                    if (!loaded) {
-                        try {
-                            loaded = sm.load(fetch, StateManagerImpl.LOAD_FGS, 
-                                exclude, edata, false);
-                        } catch (ObjectNotFoundException onfe) {
-                            if ((flags & OID_NODELETED) != 0
-                                || (flags & OID_NOVALIDATE) != 0)
-                                throw onfe;
-                            return call.processReturn(oid, null);
-                        }
+                    boolean loaded = false;
+                    try {
+                        loaded = sm.load(fetch, StateManagerImpl.LOAD_FGS, 
+                            exclude, edata, false);
+                    } catch (ObjectNotFoundException onfe) {
+                        if ((flags & OID_NODELETED) != 0
+                            || (flags & OID_NOVALIDATE) != 0)
+                            throw onfe;
+                        return call.processReturn(oid, null);
                     }
 
                     // if no data needed to be loaded and the user wants to
@@ -824,7 +830,7 @@ public class BrokerImpl
 
             // initialize a new state manager for the datastore instance
             sm = newStateManagerImpl(oid, (flags & OID_COPY) != 0);
-            boolean load = requiresLoad(sm, false, edata, flags);
+            boolean load = requiresLoad(sm, false, fetch, edata, flags);
             sm = initialize(sm, load, fetch, edata);
             if (sm == null) {
                 if ((flags & OID_NOVALIDATE) != 0)
@@ -936,7 +942,7 @@ public class BrokerImpl
                     sm = newStateManagerImpl(oid, (flags & OID_COPY) != 0);
 
                 _loading.put(obj, sm);
-                if (requiresLoad(sm, initialized, edata, flags)) {
+                if (requiresLoad(sm, initialized, fetch, edata, flags)) {
                     transState = transState || useTransactionalState(fetch);
                     if (initialized && !sm.isTransactional() && transState)
                         sm.transactional();
@@ -974,7 +980,7 @@ public class BrokerImpl
             for (Iterator itr = oids.iterator(); itr.hasNext(); idx++) {
                 oid = itr.next();
                 sm = (StateManagerImpl) _loading.get(oid);
-                if (sm != null && requiresLoad(sm, true, edata, flags)) {
+                if (sm != null && requiresLoad(sm, true, fetch, edata, flags)) {
                     try {
                         sm.load(fetch, StateManagerImpl.LOAD_FGS,
                         	exclude, edata, false);
@@ -1008,7 +1014,9 @@ public class BrokerImpl
      * to the user.
      */
     private boolean requiresLoad(OpenJPAStateManager sm, boolean initialized,
-        Object edata, int flags) {
+        FetchConfiguration fetch, Object edata, int flags) {
+        if (!fetch.requiresLoad())
+            return false;
         if ((flags & OID_NOVALIDATE) == 0)
             return true;
         if (edata != null) // take advantage of existing result
@@ -1077,37 +1085,35 @@ public class BrokerImpl
         try {
             ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
                 getMetaData(cls, _loader, true);
-
-            // delegate to store manager for datastore ids
-            if (meta.getIdentityType() == ClassMetaData.ID_DATASTORE) {
+            switch (meta.getIdentityType()) {
+            case ClassMetaData.ID_DATASTORE:
+                // delegate to store manager for datastore ids
                 if (val instanceof String
                     && ((String) val).startsWith(StateManagerId.STRING_PREFIX))
                     return new StateManagerId((String) val);
                 return _store.newDataStoreId(val, meta);
-            } else if (meta.getIdentityType() == ClassMetaData.ID_UNKNOWN)
+            case ClassMetaData.ID_APPLICATION:
+                if (ImplHelper.isAssignable(meta.getObjectIdType(), 
+                    val.getClass())) {
+                    if (!meta.isOpenJPAIdentity() 
+                        && meta.isObjectIdTypeShared())
+                        return new ObjectId(cls, val);
+                    return val;
+                }
+
+                // stringified app id?
+                if (val instanceof String 
+                    && !_conf.getCompatibilityInstance().
+                        getStrictIdentityValues()
+                    && !Modifier.isAbstract(cls.getModifiers()))
+                    return PCRegistry.newObjectId(cls, (String) val);
+
+                Object[] arr = (val instanceof Object[]) ? (Object[]) val
+                    : new Object[]{ val };
+                return ApplicationIds.fromPKValues(arr, meta);
+            default:
                 throw new UserException(_loc.get("meta-unknownid", cls));
-
-            if (val instanceof String
-                && !_conf.getCompatibilityInstance().getStrictIdentityValues())
-            {
-                // bug #958: section 9.6 of the JDO 1.0.1 specification states
-                // that a fatal internal exception should be thrown when
-                // invoking this method on an abstract class
-                if (Modifier.isAbstract(cls.getModifiers()))
-                    throw new InternalException(_loc.get("objectid-abstract",
-                        cls));
-                return PCRegistry.newObjectId(cls, (String) val);
             }
-
-            if (meta.getObjectIdType().isAssignableFrom(val.getClass())) {
-                if (!meta.isOpenJPAIdentity() && meta.isObjectIdTypeShared())
-                    return new ObjectId(cls, val);
-                return val;
-            }
-
-            Object[] arr = (val instanceof Object[]) ? (Object[]) val
-                : new Object[]{ val };
-            return ApplicationIds.fromPKValues(arr, meta);
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (ClassCastException cce) {
@@ -1202,12 +1208,12 @@ public class BrokerImpl
         } catch (OpenJPAException ke) {
             // if we already started the transaction, don't let it commit
             if ((_flags & FLAG_ACTIVE) != 0)
-                setRollbackOnlyInternal();
+                setRollbackOnlyInternal(ke);
             throw ke.setFatal(true);
         } catch (RuntimeException re) {
             // if we already started the transaction, don't let it commit
             if ((_flags & FLAG_ACTIVE) != 0)
-                setRollbackOnlyInternal();
+                setRollbackOnlyInternal(re);
             throw new StoreException(re).setFatal(true);
         }
 
@@ -1405,11 +1411,38 @@ public class BrokerImpl
         }
     }
 
+    public Throwable getRollbackCause() {
+        beginOperation(true);
+        try {
+            if ((_flags & FLAG_ACTIVE) == 0)
+                return null;
+
+            javax.transaction.Transaction trans =
+                _runtime.getTransactionManager().getTransaction();
+            if (trans == null)
+                return null;
+            if (trans.getStatus() == Status.STATUS_MARKED_ROLLBACK)
+                return _runtime.getRollbackCause();
+
+            return null;
+        } catch (OpenJPAException ke) {
+            throw ke;
+        } catch (Exception e) {
+            throw new GeneralException(e);
+        } finally {
+            endOperation();
+        }
+    }
+
     public void setRollbackOnly() {
+        setRollbackOnly(new UserException());
+    }
+
+    public void setRollbackOnly(Throwable cause) {
         beginOperation(true);
         try {
             assertTransactionOperation();
-            setRollbackOnlyInternal();
+            setRollbackOnlyInternal(cause);
         } finally {
             endOperation();
         }
@@ -1418,13 +1451,13 @@ public class BrokerImpl
     /**
      * Mark the current transaction as rollback-only.
      */
-    private void setRollbackOnlyInternal() {
+    private void setRollbackOnlyInternal(Throwable cause) {
         try {
             javax.transaction.Transaction trans =
                 _runtime.getTransactionManager().getTransaction();
             if (trans == null)
                 throw new InvalidStateException(_loc.get("null-trans"));
-            trans.setRollbackOnly();
+            _runtime.setRollbackOnly(cause);
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
@@ -1610,11 +1643,11 @@ public class BrokerImpl
                 _flags |= FLAG_FLUSHED;
             } catch (OpenJPAException ke) {
                 // rollback on flush error; objects may be in inconsistent state
-                setRollbackOnly();
+                setRollbackOnly(ke);
                 throw ke.setFatal(true);
             } catch (RuntimeException re) {
                 // rollback on flush error; objects may be in inconsistent state
-                setRollbackOnly();
+                setRollbackOnly(re);
                 throw new StoreException(re).setFatal(true);
             }
         }
@@ -1710,7 +1743,7 @@ public class BrokerImpl
 
     /**
      * Mark the operation over. If outermost caller of stack, returns true
-     * and will detach manageed instances if necessary.
+     * and will detach managed instances if necessary.
      */
     public boolean endOperation() {
         try {
@@ -1757,11 +1790,11 @@ public class BrokerImpl
         } catch (OpenJPAException ke) {
             if (_log.isTraceEnabled())
                 _log.trace(_loc.get("end-trans-error"), ke);
-            throw ke;
+            throw translateManagedCompletionException(ke);
         } catch (RuntimeException re) {
             if (_log.isTraceEnabled())
                 _log.trace(_loc.get("end-trans-error"), re);
-            throw new StoreException(re);
+            throw translateManagedCompletionException(new StoreException(re));
         } finally {
             endOperation();
         }
@@ -1779,6 +1812,10 @@ public class BrokerImpl
 
             if ((_autoDetach & DETACH_COMMIT) != 0)
                 detachAllInternal(null);
+            else if (status == Status.STATUS_ROLLEDBACK 
+                && (_autoDetach & DETACH_ROLLBACK) != 0) {
+                detachAllInternal(null);
+            }
 
             // in an ee context, it's possible that the user tried to close
             // us but we didn't actually close because we were waiting on this
@@ -1789,11 +1826,11 @@ public class BrokerImpl
         } catch (OpenJPAException ke) {
             if (_log.isTraceEnabled())
                 _log.trace(_loc.get("end-trans-error"), ke);
-            throw ke;
+            throw translateManagedCompletionException(ke);
         } catch (RuntimeException re) {
             if (_log.isTraceEnabled())
                 _log.trace(_loc.get("end-trans-error"), re);
-            throw new StoreException(re);
+            throw translateManagedCompletionException(new StoreException(re));
         } finally {
             _flags &= ~FLAG_ACTIVE;
             _flags &= ~FLAG_FLUSHED;
@@ -1811,6 +1848,15 @@ public class BrokerImpl
 
             endOperation();
         }
+    }
+
+    /**
+     * If we're in a managed transaction, use our implicit behavior exception
+     * translator to translate before/afterCompletion callback errors.
+     */
+    private RuntimeException translateManagedCompletionException
+        (RuntimeException re) {
+        return (!_managed || _extrans == null) ? re : _extrans.translate(re);
     }
 
     /**
@@ -3077,9 +3123,15 @@ public class BrokerImpl
     }
 
     public void detachAll(OpCallbacks call) {
+        detachAll(call, true);
+    }
+
+    public void detachAll(OpCallbacks call, boolean flush) {
         beginOperation(true);
         try {
-            if ((_flags & FLAG_FLUSH_REQUIRED) != 0)
+            // If a flush is desired (based on input parm), then check if the
+            //   "dirty" flag is set before calling flush().
+            if ((flush) && ((_flags & FLAG_FLUSH_REQUIRED) != 0))
                 flush();
             detachAllInternal(call);
         } catch (OpenJPAException ke) {
@@ -3123,7 +3175,7 @@ public class BrokerImpl
             try {
                 return new AttachManager(this, copyNew, call).attach(obj);
             } catch (OptimisticException oe) {
-                setRollbackOnly();
+                setRollbackOnly(oe);
                 throw oe.setFatal(true);
             } catch (OpenJPAException ke) {
                 throw ke;
@@ -3150,7 +3202,7 @@ public class BrokerImpl
             try {
                 return new AttachManager(this, copyNew, call).attachAll(objs);
             } catch (OptimisticException oe) {
-                setRollbackOnly();
+                setRollbackOnly(oe);
                 throw oe.setFatal(true);
             } catch (OpenJPAException ke) {
                 throw ke;
@@ -3468,7 +3520,7 @@ public class BrokerImpl
             default:
                 // use store manager for native sequence
                 if (fmd == null) {
-                    // this will return a sequence even for app id classes, 
+                    // this will return a sequence even for app id classes,
                     // which is what we want for backwards-compatibility
                     return _store.getDataStoreIdSequence(meta);
                 }
@@ -3587,7 +3639,7 @@ public class BrokerImpl
             // transaction to complete before we have a chance to set the
             // rollback only flag
             if ((_flags & FLAG_STORE_FLUSHING) != 0)
-                setRollbackOnlyInternal();
+                setRollbackOnlyInternal(new UserException());
             return _store.cancelAll();
         } catch (OpenJPAException ke) {
             throw ke;
@@ -3952,7 +4004,11 @@ public class BrokerImpl
     ///////////
 
     public boolean isClosed() {
-        return _closed != null;
+        return _closed;
+    }
+
+    public boolean isCloseInvoked() {
+        return _closed || (_flags & FLAG_CLOSE_INVOKED) != 0;
     }
 
     public void close() {
@@ -4034,8 +4090,10 @@ public class BrokerImpl
 
         _lm.close();
         _store.close();
-        _closed = new IllegalStateException();
         _flags = 0;
+        _closed = true;
+        if (_log.isTraceEnabled())
+            _closedException = new IllegalStateException();
 
         if (err != null)
             throw err;
@@ -4225,11 +4283,19 @@ public class BrokerImpl
     /////////
     // Utils
     /////////
-
+    /**
+     * Throw an exception if the context is closed.  The exact message and
+     * content of the exception varies whether TRACE is enabled or not.
+     */
     public void assertOpen() {
-        if (_closed != null)
-            throw new InvalidStateException(_loc.get("closed"), _closed).
-                setFatal(true);
+        if (_closed) {
+            if (_closedException == null)  // TRACE not enabled
+                throw new InvalidStateException(_loc.get("closed-notrace"))
+                        .setFatal(true);
+            else
+                throw new InvalidStateException(_loc.get("closed"),
+                        _closedException).setFatal(true);
+        }
     }
 
     public void assertActiveTransaction() {

@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -30,6 +33,7 @@ import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueMetaData;
+import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.Proxy;
 import org.apache.openjpa.util.UnsupportedException;
 
@@ -91,6 +95,8 @@ public class DetachedStateManager
         BrokerImpl broker = manager.getBroker();
         StateManagerImpl sm = null;
         if (_embedded) {
+            if (_dirty.length () > 0)
+                owner.dirty(ownerMeta.getFieldMetaData().getIndex());
             sm = (StateManagerImpl) broker.embed(_pc, _oid, owner, ownerMeta);
             ((PersistenceCapable) toAttach).pcReplaceStateManager(this);
         } else {
@@ -108,9 +114,9 @@ public class DetachedStateManager
         FieldMetaData[] fields = meta.getFields();
         int restore = broker.getRestoreState();
         if (_dirty.length() > 0) {
-            BitSet load = (BitSet) _dirty.clone();
+            BitSet load = new BitSet(fields.length);
             for (int i = 0; i < fields.length; i++) {
-                if (!load.get(i))
+                if (!_dirty.get(i))
                     continue;
 
                 switch (fields[i].getDeclaredTypeCode()) {
@@ -138,7 +144,8 @@ public class DetachedStateManager
             }
             FetchConfiguration fc = broker.getFetchConfiguration();
             sm.loadFields(load, fc, fc.getWriteLockLevel(), null, true);
-        }
+        }        
+        Object origVersion = sm.getVersion();
         sm.setVersion(_version);
 
         BitSet loaded = sm.getLoaded();
@@ -267,6 +274,17 @@ public class DetachedStateManager
             }
         }
         pc.pcReplaceStateManager(sm);
+
+        // if we were clean at least make sure a version check is done to
+        // prevent using old state
+        if (!sm.isVersionCheckRequired() && broker.isActive()
+            && _version != origVersion && (origVersion == null 
+            || broker.getStoreManager().compareVersion(sm, _version, 
+            origVersion) != StoreManager.VERSION_SAME)) {
+            broker.transactional(sm.getManagedInstance(), false, 
+                manager.getBehavior());
+        }
+
         return sm.getManagedInstance();
     }
 
@@ -317,10 +335,6 @@ public class DetachedStateManager
 
     public Object getGenericContext() {
         return null;
-    }
-
-    public byte replaceFlags() {
-        return PersistenceCapable.MEDIATE_WRITE;
     }
 
     public Object getPCPrimaryKey(Object oid, int field) {
@@ -382,8 +396,10 @@ public class DetachedStateManager
 
     public void accessingField(int idx) {
         if (!_access && !_loaded.get(idx))
+        	// do not access the pc fields by implictly invoking _pc.toString()
+        	// may cause infinite loop if again tries to access unloaded field 
             throw new IllegalStateException(_loc.get("unloaded-detached",
-                _pc).getMessage());
+               Exceptions.toString(_pc)).getMessage());
     }
 
     public boolean serializing() {
@@ -922,5 +938,5 @@ public class DetachedStateManager
     public void unlock() {
         if (_lock != null)
             _lock.unlock();
-	}
+    }
 }

@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.datacache;
 
@@ -19,7 +22,6 @@ import java.io.ObjectStreamException;
 import java.io.Serializable;
 import java.util.AbstractList;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collections;
 import java.util.Date;
@@ -112,7 +114,7 @@ public class QueryCacheStoreQuery
         if (fetch.getReadLockLevel() > LockLevels.LOCK_NONE)
             return null;
 
-        // get the cached oids
+        // get the cached data
         QueryResult res = _cache.get(qk);
         if (res == null)
             return null;
@@ -123,7 +125,7 @@ public class QueryCacheStoreQuery
         if (projs == 0) {
             // make sure the data cache contains the oids for the query result;
             // if it doesn't, then using the result could be slower than not
-            // using it becauseo of the individual by-oid lookups
+            // using it because of the individual by-oid lookups
             ClassMetaData meta = _repos.getMetaData(getContext().
                 getCandidateType(), _sctx.getClassLoader(), true);
             BitSet idxs = meta.getDataCache().containsAll(res);
@@ -313,7 +315,7 @@ public class QueryCacheStoreQuery
          * (such as deletes or updates) are performed so that the
          * cache remains up-to-date.
          */
-        private void clearAccesssPath(StoreQuery q) {
+        private void clearAccessPath(StoreQuery q) {
             if (q == null)
                 return;
 
@@ -321,20 +323,26 @@ public class QueryCacheStoreQuery
             if (cmd == null || cmd.length == 0)
                 return;
 
-            Class[] classes = new Class[cmd.length];
+            List classes = new ArrayList(cmd.length);
             for (int i = 0; i < cmd.length; i++)
-                classes[i] = cmd[i].getDescribedType();
+                classes.add(cmd[i].getDescribedType());
 
+            // evict from the query cache
             QueryCacheStoreQuery cq = (QueryCacheStoreQuery) q;
             cq.getCache().onTypesChanged(new TypesChangedEvent
-                (q.getContext(), Arrays.asList(classes)));
+                (q.getContext(), classes));
+
+            // evict from the data cache
+            for (int i = 0; i < cmd.length; i++)
+                cmd[i].getDataCache().removeAll(
+                    cmd[i].getDescribedType(), true);
         }
 
         public Number executeDelete(StoreQuery q, Object[] params) {
             try {
                 return _ex.executeDelete(unwrap(q), params);
             } finally {
-                clearAccesssPath(q);
+                clearAccessPath(q);
             }
         }
 
@@ -342,7 +350,7 @@ public class QueryCacheStoreQuery
             try {
                 return _ex.executeUpdate(unwrap(q), params);
             } finally {
-                clearAccesssPath(q);
+                clearAccessPath(q);
             }
         }
 

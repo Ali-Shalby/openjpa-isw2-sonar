@@ -6,10 +6,10 @@
 
   <groupId>isw2.analysis</groupId>
   <artifactId>openjpa-sonar-pilot</artifactId>
-  <version>0.9.6</version>
+  <version>0.9.7</version>
   <packaging>jar</packaging>
 
-  <name>OpenJPA 0.9.6 - ISW2 Sonar analysis snapshot</name>
+  <name>OpenJPA 0.9.7 - ISW2 Sonar analysis snapshot</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

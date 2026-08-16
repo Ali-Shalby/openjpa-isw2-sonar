@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel.jpql;
 
@@ -822,9 +825,10 @@ public class JPQLExpressionBuilder
                 while (inIterator.hasNext()) {
                     val2 = getValue((JPQLNode) inIterator.next());
 
-                    // special case for <value> IN (<subquery>)
-                    if (val2 instanceof Subquery && node.getChildCount() == 2)
-                        return factory.contains(val2, val1); 
+                    // special case for <value> IN (<subquery>) or
+                    // <value> IN (<single value>)
+                    if (!(val2 instanceof Literal) && node.getChildCount() == 2)
+                        return evalNot(not, factory.contains(val2, val1)); 
 
                     // this is currently a sequence of OR expressions, since we
                     // do not have support for IN expressions

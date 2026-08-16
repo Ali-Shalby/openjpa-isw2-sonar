@@ -1,22 +1,27 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.lib.conf;
 
 import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.ReferenceMap;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 
 /**
  * An object {@link Value}.
@@ -27,6 +32,10 @@ public class ObjectValue extends Value {
 
     private static final Localizer _loc = Localizer.forPackage
         (ObjectValue.class);
+
+    // cache the types' classloader
+    private static ConcurrentReferenceHashMap _classloaderCache =
+        new ConcurrentReferenceHashMap(ReferenceMap.HARD, ReferenceMap.WEAK);
 
     private Object _value = null;
 
@@ -81,10 +90,17 @@ public class ObjectValue extends Value {
      * Allow subclasses to instantiate additional plugins. This method does
      * not perform configuration.
      */
-    public Object newInstance(String clsName, Class type,
-        Configuration conf, boolean fatal) {
-        return Configurations.newInstance(clsName, this, conf,
-            type.getClassLoader(), fatal);
+    public Object newInstance(String clsName, Class type, Configuration conf,
+            boolean fatal) {
+        ClassLoader cl = (ClassLoader) _classloaderCache.get(type);
+        if (cl == null) {
+            cl = type.getClassLoader();
+            if (cl == null) {  // System classloader is returned as null
+                cl = ClassLoader.getSystemClassLoader();
+            }
+            _classloaderCache.put(type, cl);
+        }
+        return Configurations.newInstance(clsName, this, conf, cl, fatal);
     }
 
     public Class getValueType() {

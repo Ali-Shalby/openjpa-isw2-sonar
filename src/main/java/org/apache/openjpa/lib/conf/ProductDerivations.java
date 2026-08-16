@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.lib.conf;
 
@@ -20,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.MissingResourceException;
 
 import org.apache.commons.lang.StringUtils;
@@ -40,7 +44,7 @@ public class ProductDerivations {
     private static final ProductDerivation[] _derivations;
     private static final String[] _derivationNames;
     private static final Throwable[] _derivationErrors;
-    private static final String[] _prefixes;
+    private static String[] _prefixes;
     static {
         ClassLoader l = ProductDerivation.class.getClassLoader();
         _derivationNames = Services.getImplementors(ProductDerivation.class, l);
@@ -85,10 +89,11 @@ public class ProductDerivations {
                 && !"openjpa".equals(_derivations[i].getConfigurationPrefix()))
                 prefixes.add(_derivations[i].getConfigurationPrefix());
         }
-        _prefixes = new String[1 + prefixes.size()];
-        _prefixes[0] = "openjpa";
+        String[] prefixArray = new String[1 + prefixes.size()];
+        prefixArray[0] = "openjpa";
         for (int i = 0; i < prefixes.size(); i++)
-            _prefixes[i + 1] = (String) prefixes.get(i);
+            prefixArray[i + 1] = (String) prefixes.get(i);
+        setConfigurationPrefixes(prefixArray);
     }
 
     /**
@@ -103,6 +108,50 @@ public class ProductDerivations {
      */
     public static String[] getConfigurationPrefixes() {
         return _prefixes;
+    }
+
+    /**
+     * Set the configuration prefix array. This is package-visible for 
+     * testing purposes.
+     * 
+     * @since 0.9.7
+     */
+    static void setConfigurationPrefixes(String[] prefixes) {
+        _prefixes = prefixes;
+    }
+    
+    /**
+     * Determine the full key name for <code>key</code>, given the registered
+     * prefixes and the entries in <code>map</code>. This method
+     * computes the appropriate configuration prefix to use by looking 
+     * through <code>map</code> for a key starting with any of the known
+     * configuration prefixes and ending with <code>key</code> and, if a
+     * value is found, using the prefix of that key. Otherwise, it uses
+     * the first registered prefix. 
+     * 
+     * @since 0.9.7
+     */
+    public static String getConfigurationKey(String partialKey, Map map) {
+        String firstKey = null;
+        for (int i = 0; map != null && i < _prefixes.length; i++) {
+            String fullKey = _prefixes[i] + "." + partialKey;
+            if (map.containsKey(fullKey)) {
+                if (firstKey == null) 
+                    firstKey = fullKey;
+                else {
+                    // if we've already found a property with a previous 
+                    // prefix, then this is a collision.
+                    throw new IllegalStateException(_loc.get(
+                        "dup-with-different-prefixes", firstKey, fullKey)
+                        .getMessage());
+                }
+            }
+        }
+        
+        if (firstKey == null)
+            return _prefixes[0] + "." + partialKey;
+        else
+            return firstKey;
     }
 
     /**

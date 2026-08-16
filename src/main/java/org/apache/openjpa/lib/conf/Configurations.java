@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.lib.conf;
 
@@ -23,6 +26,7 @@ import java.util.Map;
 import java.util.MissingResourceException;
 import java.util.Properties;
 import java.util.TreeSet;
+
 import javax.naming.Context;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
@@ -34,6 +38,9 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.lib.util.ParseException;
 import org.apache.openjpa.lib.util.StringDistance;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentHashMap;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
+
 import serp.util.Strings;
 
 /**
@@ -46,6 +53,12 @@ public class Configurations {
 
     private static final Localizer _loc = Localizer.forPackage
         (Configurations.class);
+    
+    private static ConcurrentReferenceHashMap _loaders = new 
+        ConcurrentReferenceHashMap(ConcurrentReferenceHashMap.WEAK, 
+                ConcurrentReferenceHashMap.HARD);
+
+    private static final Object NULL_LOADER = "null-loader";
 
     /**
      * Return the class name from the given plugin string, or null if none.
@@ -100,6 +113,41 @@ public class Configurations {
     }
 
     /**
+     * Return a plugin string that combines the properties of the given plugin
+     * strings, where properties of <code>override</code> will override the
+     * same properties of <code>orig</code>.
+     */
+    public static String combinePlugins(String orig, String override) {
+        if (StringUtils.isEmpty(orig))
+            return override;
+        if (StringUtils.isEmpty(override))
+            return orig;
+
+        String origCls = getClassName(orig);
+        String overrideCls = getClassName(override);
+        String cls;
+        if (StringUtils.isEmpty(origCls))
+            cls = overrideCls;
+        else if (StringUtils.isEmpty(overrideCls))
+            cls = origCls;
+        else if (!origCls.equals(overrideCls))
+            return override; // completely different plugin
+        else
+            cls = origCls;
+
+        String origProps = getProperties(orig);
+        String overrideProps = getProperties(override);
+        if (StringUtils.isEmpty(origProps))
+            return getPlugin(cls, overrideProps);
+        if (StringUtils.isEmpty(overrideProps))
+            return getPlugin(cls, origProps);
+
+        Properties props = parseProperties(origProps);
+        props.putAll(parseProperties(overrideProps));
+        return getPlugin(cls, serializeProperties(props)); 
+    }
+
+    /**
      * Create the instance with the given class name, using the given
      * class loader. No configuration of the instance is performed by
      * this method.
@@ -127,21 +175,34 @@ public class Configurations {
         ClassLoader loader, boolean fatal) {
         if (StringUtils.isEmpty(clsName))
             return null;
-        if (loader == null && conf != null)
-            loader = conf.getClass().getClassLoader();
 
-        Class cls = null;
-        try {
-            cls = Strings.toClass(clsName, loader);
-        } catch (RuntimeException re) {
-            if (val != null)
-                re = getCreateException(clsName, val, re);
-            if (fatal)
-                throw re;
-            Log log = (conf == null) ? null : conf.getConfigurationLog();
-            if (log != null && log.isErrorEnabled())
-                log.error(_loc.get("plugin-creation-exception", val), re);
-            return null;
+        Class cls = null; 
+
+        // can't have a null reference in the map, so use symbolic 
+        // constant as key
+        Object key = loader == null ? NULL_LOADER : loader;
+        Map loaderCache = (Map) _loaders.get(key);
+        if (loaderCache == null) { // We don't have a cache for this loader.
+            loaderCache = new ConcurrentHashMap();
+            _loaders.put(key, loaderCache);
+        } else {  // We have a cache for this loader.
+            cls = (Class) loaderCache.get(clsName);
+        }
+
+        if (cls == null) { // we haven't cached this.
+            try {
+                cls = Strings.toClass(clsName, findDerivedLoader(conf, loader));
+                loaderCache.put(clsName, cls);
+            } catch (RuntimeException re) {
+                if (val != null)
+                    re = getCreateException(clsName, val, re);
+                if (fatal)
+                    throw re;
+                Log log = (conf == null) ? null : conf.getConfigurationLog();
+                if (log != null && log.isErrorEnabled())
+                    log.error(_loc.get("plugin-creation-exception", val), re);
+                return null;
+            }
         }
 
         try {
@@ -156,6 +217,40 @@ public class Configurations {
                 log.error(_loc.get("plugin-creation-exception", val), re);
             return null;
         }
+    }
+
+    /**
+     * Attempt to find a derived loader that delegates to our target loader.
+     * This allows application loaders that delegate appropriately for known
+     * classes first crack at class names.
+     */
+    private static ClassLoader findDerivedLoader(Configuration conf,
+        ClassLoader loader) {
+        // we always prefer the thread loader, because it's the only thing we
+        // can access that isn't bound to the OpenJPA classloader, unless
+        // the conf object is of a custom class
+        ClassLoader ctxLoader = Thread.currentThread().getContextClassLoader();
+        if (loader == null) {
+            if (ctxLoader != null)
+                return ctxLoader;
+            if (conf != null)
+                return conf.getClass().getClassLoader();
+            return Configurations.class.getClassLoader();
+        }
+
+        for (ClassLoader parent = ctxLoader; parent != null; 
+            parent = parent.getParent()) {
+            if (parent == loader)
+                return ctxLoader;
+        }
+        if (conf != null) {
+            for (ClassLoader parent = conf.getClass().getClassLoader(); 
+                parent != null; parent = parent.getParent()) {
+                if (parent == loader)
+                    return conf.getClass().getClassLoader();
+            }
+        }
+        return loader;
     }
 
     /**
@@ -477,51 +572,36 @@ public class Configurations {
     }
 
     /**
-     * Test whether the map contains the given key, prefixed with any possible
-     * configuration prefix.
+     * Test whether the map contains the given partial key, prefixed with any
+     * possible configuration prefix.
      */
-    public static boolean containsProperty(String key, Map props) {
-        if (key == null || props == null)
+    public static boolean containsProperty(String partialKey, Map props) {
+        if (partialKey == null || props == null || props.isEmpty())
             return false;
-        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
-        for (int i = 0; i < prefixes.length; i++)
-            if (props.containsKey(prefixes[i] + "." + key))
-                return true;
-        return false;
+        else
+            return props.containsKey(
+                ProductDerivations.getConfigurationKey(partialKey, props));
     }
 
     /**
-     * Get the property under the given key, prefixed with any possible
+     * Get the property under the given partial key, prefixed with any possible
      * configuration prefix.
      */
-    public static Object getProperty(String key, Map props) {
-        if (key == null || props == null)
+    public static Object getProperty(String partialKey, Map m) {
+        if (partialKey == null || m == null || m.isEmpty())
             return null;
-        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
-        Object val;
-        for (int i = 0; i < prefixes.length; i++) {
-            val = props.get(prefixes[i] + "." + key);
-            if (val != null)
-                return val;
-        }
-        return null;
+        else 
+            return m.get(ProductDerivations.getConfigurationKey(partialKey, m));
     }
 
     /**
-     * Remove the property under the given key, prefixed with any possible
-     * configuration prefix.
+     * Remove the property under the given partial key, prefixed with any
+     * possible configuration prefix.
      */
-    public static Object removeProperty(String key, Map props) {
-        if (key == null || props == null)
+    public static Object removeProperty(String partialKey, Map props) {
+        if (partialKey == null || props == null || props.isEmpty())
             return null;
-        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
-        Object val = null;
-        Object cur;
-        for (int i = 0; i < prefixes.length; i++) {
-            cur = props.remove(prefixes[i] + "." + key);
-            if (cur != null && val == null)
-                val = cur;
-        }
-        return val;
+        return props.remove(ProductDerivations.getConfigurationKey(partialKey,
+            props));
     }
 }

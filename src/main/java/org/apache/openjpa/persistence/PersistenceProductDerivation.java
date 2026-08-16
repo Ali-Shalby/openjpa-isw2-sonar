@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -32,10 +35,11 @@ import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
 import org.apache.openjpa.conf.OpenJPAProductDerivation;
 import org.apache.openjpa.lib.conf.AbstractProductDerivation;
-import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
+import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.conf.MapConfigurationProvider;
+import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.XMLMetaDataParser;
 import org.apache.openjpa.lib.util.Localizer;
@@ -382,10 +386,27 @@ public class PersistenceProductDerivation
 
         @Override
         public void setInto(Configuration conf) {
-            if (conf instanceof OpenJPAConfiguration)
-                ((OpenJPAConfiguration) conf).setSpecification(SPEC_JPA);
-            super.setInto(conf, null);
+            if (conf instanceof OpenJPAConfiguration) {
+                OpenJPAConfiguration oconf = (OpenJPAConfiguration) conf;
+                oconf.setSpecification(SPEC_JPA);
 
+                // we merge several persistence.xml elements into the 
+                // MetaDataFactory property implicitly.  if the user has a
+                // global openjpa.xml with this property set, its value will
+                // get overwritten by our implicit setting.  so instead, combine
+                // the global value with our settings
+                String orig = oconf.getMetaDataFactory();
+                if (!StringUtils.isEmpty(orig)) {
+                    String key = ProductDerivations.getConfigurationKey
+                        ("MetaDataFactory", getProperties());
+                    Object override = getProperties().get(key);
+                    if (override instanceof String)
+                        addProperty(key, Configurations.combinePlugins(orig, 
+                            (String) override));
+                }
+            }
+
+            super.setInto(conf, null);
             Log log = conf.getConfigurationLog();
             if (log.isTraceEnabled()) {
                 String src = (_source == null) ? "?" : _source;

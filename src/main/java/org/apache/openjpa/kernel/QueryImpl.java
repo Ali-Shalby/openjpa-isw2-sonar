@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -32,8 +35,10 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.kernel.exps.AggregateListener;
-import org.apache.openjpa.kernel.exps.Constant;
 import org.apache.openjpa.kernel.exps.FilterListener;
+import org.apache.openjpa.kernel.exps.Constant;
+import org.apache.openjpa.kernel.exps.Literal;
+import org.apache.openjpa.kernel.exps.Val;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.rop.EagerResultList;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
@@ -49,6 +54,8 @@ import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.InvalidStateException;
+import org.apache.openjpa.util.NonUniqueResultException;
+import org.apache.openjpa.util.NoResultException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
@@ -556,7 +563,7 @@ public class QueryImpl
         try {
             assertOpen();
             StoreQuery.Executor ex = compileForExecutor();
-            getResultPacker(ex);
+            getResultPacker(_storeQuery, ex);
             ex.validate(_storeQuery);
         } finally {
             unlock();
@@ -780,17 +787,17 @@ public class QueryImpl
                 StoreQuery.Executor ex = (isInMemory(operation))
                     ? compileForInMemory(comp) : compileForDataStore(comp);
 
-                assertParameters(ex, params);
+                assertParameters(_storeQuery, ex, params);
                 if (_log.isTraceEnabled())
                     logExecution(operation, ex.getParameterTypes(_storeQuery),
                         params);
 
                 if (operation == OP_SELECT)
-                    return execute(ex, params);
+                    return execute(_storeQuery, ex, params);
                 if (operation == OP_DELETE)
-                    return delete(ex, params);
+                    return delete(_storeQuery, ex, params);
                 if (operation == OP_UPDATE)
-                    return update(ex, params);
+                    return update(_storeQuery, ex, params);
                 throw new UnsupportedException();
             } catch (OpenJPAException ke) {
                 throw ke;
@@ -824,16 +831,16 @@ public class QueryImpl
 
                 Object[] arr = (params.isEmpty()) ? StoreQuery.EMPTY_OBJECTS :
                     toParameterArray(ex.getParameterTypes(_storeQuery), params);
-                assertParameters(ex, arr);
+                assertParameters(_storeQuery, ex, arr);
                 if (_log.isTraceEnabled())
                     logExecution(operation, params);
 
                 if (operation == OP_SELECT)
-                    return execute(ex, arr);
+                    return execute(_storeQuery, ex, arr);
                 if (operation == OP_DELETE)
-                    return delete(ex, arr);
+                    return delete(_storeQuery, ex, arr);
                 if (operation == OP_UPDATE)
-                    return update(ex, arr);
+                    return update(_storeQuery, ex, arr);
                 throw new UnsupportedException();
             } catch (OpenJPAException ke) {
                 throw ke;
@@ -962,21 +969,22 @@ public class QueryImpl
      * values. All other execute methods delegate to this one or to
      * {@link #execute(StoreQuery.Executor,Map)} after validation and locking.
      */
-    private Object execute(StoreQuery.Executor ex, Object[] params)
+    private Object execute(StoreQuery q, StoreQuery.Executor ex, 
+        Object[] params)
         throws Exception {
         // if this is an impossible result range, return null / empty list
         StoreQuery.Range range = new StoreQuery.Range(_startIdx, _endIdx);
         if (!_rangeSet)
-            ex.getRange(_storeQuery, params, range);
+            ex.getRange(q, params, range);
         if (range.start >= range.end)
-            return emptyResult(ex);
+            return emptyResult(q, ex);
 
         // execute; if we have a result class or we have only one result
         // and so need to remove it from its array, wrap in a packing rop
         range.lrs = isLRS(range.start, range.end);
-        ResultObjectProvider rop = ex.executeQuery(_storeQuery, params, range);
+        ResultObjectProvider rop = ex.executeQuery(q, params, range);
         try {
-            return toResult(ex, rop, range);
+            return toResult(q, ex, rop, range);
         } catch (Exception e) {
             if (rop != null)
                 try { rop.close(); } catch (Exception e2) {}
@@ -991,16 +999,16 @@ public class QueryImpl
      * The return value will be a Number indicating the number of
      * instances deleted.
      */
-    private Number delete(StoreQuery.Executor ex, Object[] params)
+    private Number delete(StoreQuery q, StoreQuery.Executor ex, Object[] params)
         throws Exception {
-        assertBulkModify(ex, params);
-        return ex.executeDelete(_storeQuery, params);
+        assertBulkModify(q, ex, params);
+        return ex.executeDelete(q, params);
     }
 
-    public Number deleteInMemory(StoreQuery.Executor executor,
+    public Number deleteInMemory(StoreQuery q, StoreQuery.Executor executor,
         Object[] params) {
         try {
-            Object o = execute(executor, params);
+            Object o = execute(q, executor, params);
             if (!(o instanceof Collection))
                 o = Collections.singleton(o);
 
@@ -1022,16 +1030,16 @@ public class QueryImpl
      * The return value will be a Number indicating the number of
      * instances updated.
      */
-    private Number update(StoreQuery.Executor ex, Object[] params)
+    private Number update(StoreQuery q, StoreQuery.Executor ex, Object[] params)
         throws Exception {
-        assertBulkModify(ex, params);
-        return ex.executeUpdate(_storeQuery, params);
+        assertBulkModify(q, ex, params);
+        return ex.executeUpdate(q, params);
     }
 
-    public Number updateInMemory(StoreQuery.Executor executor,
+    public Number updateInMemory(StoreQuery q, StoreQuery.Executor executor,
         Object[] params) {
         try {
-            Object o = execute(executor, params);
+            Object o = execute(q, executor, params);
             if (!(o instanceof Collection))
                 o = Collections.singleton(o);
 
@@ -1057,10 +1065,19 @@ public class QueryImpl
             it.hasNext();) {
             Map.Entry e = (Map.Entry) it.next();
             FieldMetaData fmd = (FieldMetaData) e.getKey();
-            if (!(e.getValue() instanceof Constant))
-                throw new UserException(_loc.get("only-update-constants"));
-            Constant value = (Constant) e.getValue();
-            Object val = value.getValue(params);
+
+            Object val;
+            Object value = e.getValue();
+            if (value instanceof Val) {
+                val = ((Val) value).
+                    evaluate(ob, null, getStoreContext(), params);
+            } else if (value instanceof Literal) {
+                val = ((Literal) value).getValue();
+            } else if (value instanceof Constant) {
+                val = ((Constant) value).getValue(params);
+            } else {
+                throw new UserException(_loc.get("only-update-primitives"));
+            }
 
             OpenJPAStateManager sm = _broker.getStateManager(ob);
             int i = fmd.getIndex();
@@ -1177,13 +1194,13 @@ public class QueryImpl
     /**
      * Return the query result for the given result object provider.
      */
-    protected Object toResult(StoreQuery.Executor ex, ResultObjectProvider rop,
-        StoreQuery.Range range)
+    protected Object toResult(StoreQuery q, StoreQuery.Executor ex, 
+        ResultObjectProvider rop, StoreQuery.Range range)
         throws Exception {
         // pack projections if necessary
-        String[] aliases = ex.getProjectionAliases(_storeQuery);
-        if (!ex.isPacking(_storeQuery)) {
-            ResultPacker packer = getResultPacker(ex);
+        String[] aliases = ex.getProjectionAliases(q);
+        if (!ex.isPacking(q)) {
+            ResultPacker packer = getResultPacker(q, ex);
             if (packer != null || aliases.length == 1)
                 rop = new PackingResultObjectProvider(rop, packer,
                     aliases.length);
@@ -1191,15 +1208,14 @@ public class QueryImpl
 
         // if single result, extract it
         if (_unique == Boolean.TRUE || (aliases.length > 0
-            && !ex.hasGrouping(_storeQuery) && ex.isAggregate(_storeQuery)))
+            && !ex.hasGrouping(q) && ex.isAggregate(q)))
             return singleResult(rop, range);
 
         // now that we've executed the query, we can call isAggregate and
         // hasGrouping efficiently
         boolean detach = (_broker.getAutoDetach() &
             AutoDetach.DETACH_NONTXREAD) > 0 && !_broker.isActive();
-        boolean lrs = range.lrs && !ex.isAggregate(_storeQuery)
-            && !ex.hasGrouping(_storeQuery);
+        boolean lrs = range.lrs && !ex.isAggregate(q) && !ex.hasGrouping(q);
         ResultList res = (!detach && lrs) ? _fc.newResultList(rop)
             : new EagerResultList(rop);
 
@@ -1217,23 +1233,23 @@ public class QueryImpl
     /**
      * Return a result packer for this projection, or null.
      */
-    private ResultPacker getResultPacker(StoreQuery.Executor ex) {
+    private ResultPacker getResultPacker(StoreQuery q, StoreQuery.Executor ex) {
         if (_packer != null)
             return _packer;
 
         Class resultClass = (_resultClass != null) ? _resultClass
-            : ex.getResultClass(_storeQuery);
+            : ex.getResultClass(q);
         if (resultClass == null)
             return null;
 
-        String[] aliases = ex.getProjectionAliases(_storeQuery);
+        String[] aliases = ex.getProjectionAliases(q);
         if (aliases.length == 0) {
             // result class but no result; means candidate is being set
             // into some result class
             _packer = new ResultPacker(_class, getAlias(), resultClass);
         } else if (resultClass != null) {
             // projection
-            Class[] types = ex.getProjectionTypes(_storeQuery);
+            Class[] types = ex.getProjectionTypes(q);
             _packer = new ResultPacker(types, aliases, resultClass);
         }
         return _packer;
@@ -1242,9 +1258,9 @@ public class QueryImpl
     /**
      * Create an empty result for this query.
      */
-    private Object emptyResult(StoreQuery.Executor ex) {
+    private Object emptyResult(StoreQuery q, StoreQuery.Executor ex) {
         if (_unique == Boolean.TRUE || (_unique == null
-            && !ex.hasGrouping(_storeQuery) && ex.isAggregate(_storeQuery)))
+            && !ex.hasGrouping(q) && ex.isAggregate(q)))
             return null;
         return Collections.EMPTY_LIST;
     }
@@ -1262,14 +1278,17 @@ public class QueryImpl
             boolean next = rop.next();
 
             // extract single result; throw an exception if multiple results
-            // match and not constrainted by range, as per spec
+            // match and not constrainted by range, or if a unique query with
+            // no results
             Object single = null;
             if (next) {
                 single = rop.getResultObject();
                 if (range.end != range.start + 1 && rop.next())
-                    throw new InvalidStateException(_loc.get("not-unique",
+                    throw new NonUniqueResultException(_loc.get("not-unique",
                         _class, _query));
-            }
+            } else if (_unique == Boolean.TRUE)
+                throw new NoResultException(_loc.get("no-result", 
+                    _class, _query));
 
             // if unique set to false, use collection
             if (_unique == Boolean.FALSE) {
@@ -1278,7 +1297,7 @@ public class QueryImpl
                 // Collections.singletonList is JDK 1.3, so...
                 return Arrays.asList(new Object[]{ single });
             }
-
+            
             // return single result
             return single;
         } finally {
@@ -1372,7 +1391,7 @@ public class QueryImpl
             StoreQuery.Executor ex = compileForExecutor();
             Object[] arr = toParameterArray(ex.getParameterTypes(_storeQuery),
                 params);
-            assertParameters(ex, arr);
+            assertParameters(_storeQuery, ex, arr);
             StoreQuery.Range range = new StoreQuery.Range(_startIdx, _endIdx);
             if (!_rangeSet)
                 ex.getRange(_storeQuery, arr, range);
@@ -1621,14 +1640,15 @@ public class QueryImpl
      * Check that we are in a state to be able to perform a bulk operation;
      * also flush the current modfications if any elements are currently dirty.
      */
-    private void assertBulkModify(StoreQuery.Executor ex, Object[] params) {
+    private void assertBulkModify(StoreQuery q, StoreQuery.Executor ex, 
+        Object[] params) {
         _broker.assertActiveTransaction();
         if (_startIdx != 0 || _endIdx != Long.MAX_VALUE)
             throw new UserException(_loc.get("no-modify-range"));
         if (_resultClass != null)
             throw new UserException(_loc.get("no-modify-resultclass"));
         StoreQuery.Range range = new StoreQuery.Range();
-        ex.getRange(_storeQuery, params, range);
+        ex.getRange(q, params, range);
         if (range.start != 0 || range.end != Long.MAX_VALUE)
             throw new UserException(_loc.get("no-modify-range"));
     }
@@ -1636,18 +1656,16 @@ public class QueryImpl
     /**
      * Checks that the passed parameters match the declarations.
      */
-    protected void assertParameters(StoreQuery.Executor ex, Object[] params) {
-        if (!_storeQuery.requiresParameterDeclarations())
+    protected void assertParameters(StoreQuery q, StoreQuery.Executor ex, 
+        Object[] params) {
+        if (!q.requiresParameterDeclarations())
             return;
 
-        LinkedMap paramTypes = ex.getParameterTypes(_storeQuery);
+        LinkedMap paramTypes = ex.getParameterTypes(q);
         int typeCount = paramTypes.size();
         if (typeCount > params.length)
             throw new UserException(_loc.get("unbound-params",
                 paramTypes.keySet()));
-        if (typeCount < params.length)
-            throw new UserException(_loc.get("extra-params", new Object[]
-                { String.valueOf(typeCount), String.valueOf(params.length) }));
 
         Iterator itr = paramTypes.entrySet().iterator();
         Map.Entry entry;

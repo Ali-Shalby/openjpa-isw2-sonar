@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -335,8 +338,8 @@ public class AnnotationPersistenceMetaDataParser
      * Parse persistence metadata for the given class.
      */
     public void parse(Class cls) {
-        if (_log.isInfoEnabled())
-            _log.info(_loc.get("parse-class", cls.getName()));
+        if (_log.isTraceEnabled())
+            _log.trace(_loc.get("parse-class", cls.getName()));
 
         _cls = cls;
         try {
@@ -369,8 +372,8 @@ public class AnnotationPersistenceMetaDataParser
             return;
 
         int pkgMode = getSourceMode(pkg);
-        if (pkgMode == 0 && _log.isInfoEnabled())
-            _log.info(_loc.get("parse-package", _cls.getName()));
+        if (pkgMode == 0 && _log.isTraceEnabled())
+            _log.trace(_loc.get("parse-package", _cls.getName()));
         if ((pkgMode & _mode) == _mode) // already visited
             return;
 
@@ -656,9 +659,14 @@ public class AnnotationPersistenceMetaDataParser
             cls = cls.getEnclosingClass();
 
         String rsrc = StringUtils.replace(cls.getName(), ".", "/");
-        URL url = cls.getClassLoader().getResource(rsrc + ".java");
+        ClassLoader loader = cls.getClassLoader();
+        if (loader == null)
+            loader = ClassLoader.getSystemClassLoader();
+        if (loader == null)
+            return null;
+        URL url = loader.getResource(rsrc + ".java");
         if (url == null) {
-            url = cls.getClassLoader().getResource(rsrc + ".class");
+            url = loader.getResource(rsrc + ".class");
             if (url == null)
                 return null;
         }
@@ -815,9 +823,9 @@ public class AnnotationPersistenceMetaDataParser
                     int e = events[i];
                     if (callbacks[e] == null)
                         callbacks[e] = new ArrayList(3);
+                    MetaDataParsers.validateMethodsForSameCallback(cls, 
+                        callbacks[e], m, tag, def, repos.getLog());
                     if (listener) {
-                        MetaDataParsers.validateMethodsForSameCallback(cls, 
-                            callbacks[e], m, tag, def, repos.getLog());
                         callbacks[e].add(new BeanLifecycleCallbacks(cls, m,
                             false));
                     } else {
@@ -1435,8 +1443,8 @@ public class AnnotationPersistenceMetaDataParser
         if (StringUtils.isEmpty(name))
             throw new MetaDataException(_loc.get("no-seq-name", el));
 
-        if (_log.isInfoEnabled())
-            _log.info(_loc.get("parse-sequence", name));
+        if (_log.isTraceEnabled())
+            _log.trace(_loc.get("parse-sequence", name));
 
         SequenceMetaData meta = getRepository().getCachedSequenceMetaData
             (name);
@@ -1490,8 +1498,8 @@ public class AnnotationPersistenceMetaDataParser
                 throw new MetaDataException(_loc.get("no-query-string",
                     query.name(), el));
 
-            if (_log.isInfoEnabled())
-                _log.info(_loc.get("parse-query", query.name()));
+            if (_log.isTraceEnabled())
+                _log.trace(_loc.get("parse-query", query.name()));
 
             meta = getRepository().getCachedQueryMetaData(null, query.name());
             if (meta != null) {
@@ -1531,8 +1539,8 @@ public class AnnotationPersistenceMetaDataParser
                 throw new MetaDataException(_loc.get("no-native-query-string",
                     query.name(), el));
 
-            if (_log.isInfoEnabled())
-                _log.info(_loc.get("parse-native-query", query.name()));
+            if (_log.isTraceEnabled())
+                _log.trace(_loc.get("parse-native-query", query.name()));
 
             meta = getRepository().getCachedQueryMetaData(null, query.name());
             if (meta != null) {
@@ -1549,6 +1557,9 @@ public class AnnotationPersistenceMetaDataParser
                 meta.setCandidateType(res);
             else if (!void.class.equals(res))
                 meta.setResultType(res);
+
+            if (!StringUtils.isEmpty(query.resultSetMapping()))
+                meta.setResultSetMappingName(query.resultSetMapping());
 
             meta.setSource(getSourceFile(), (el instanceof Class) ? el : null,
                 meta.SRC_ANNOTATIONS);

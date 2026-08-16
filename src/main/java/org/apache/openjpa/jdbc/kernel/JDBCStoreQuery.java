@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -48,6 +51,7 @@ import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.jdbc.sql.Union;
 import org.apache.openjpa.kernel.ExpressionStoreQuery;
 import org.apache.openjpa.kernel.OrderingMergedResultObjectProvider;
+import org.apache.openjpa.kernel.QueryHints;
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.kernel.exps.FilterListener;
@@ -309,6 +313,8 @@ public class JDBCStoreQuery
         List selMappings, boolean subclasses, BitSet subclassBits,
         BitSet nextBits, ExpressionFactory[] facts, QueryExpressions[] exps,
         QueryExpressionsState[] states, ExpContext ctx, int subclassMode) {
+        Number optHint = (Number) ctx.fetch.getHint
+            (QueryHints.HINT_RESULT_COUNT);
         ClassMapping[] verts;
         boolean unionable = true;
         Select sel;
@@ -322,6 +328,10 @@ public class JDBCStoreQuery
             // create criteria select and clone for each vert mapping
             sel = ((JDBCExpressionFactory) facts[i]).getSelectConstructor().
                 evaluate(ctx, null, null, exps[i], states[i]);
+            if (optHint != null)
+               sel.setExpectedResultCount(optHint.intValue(), true);
+            else if (this.ctx.isUnique())
+                sel.setExpectedResultCount(1, false);
             for (int j = 0; j < verts.length; j++) {
                 selMappings.add(verts[j]);
                 if (j == verts.length - 1) {
@@ -468,7 +478,7 @@ public class JDBCStoreQuery
             // this case, we need to perform the query in-memory and
             // manually delete the instances
             if (updates == null)
-                sql[i] = dict.toDelete(mappings[i], sel, _store, params);
+                sql[i] = dict.toDelete(mappings[i], sel, params);
             else
                 sql[i] = dict.toUpdate(mappings[i], sel, _store, params,
                     updates);

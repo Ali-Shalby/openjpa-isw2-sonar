@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.kernel;
 
@@ -69,17 +72,15 @@ public class VersionLockManager
             return;
         while (sm.getOwner() != null)
             sm = sm.getOwner();
-        int oldlevel = getLockLevel(sm);
-        if (!sm.isPersistent() || sm.isNew() || level <= oldlevel)
+        int oldLevel = getLockLevel(sm);
+        if (!sm.isPersistent() || sm.isNew() || level <= oldLevel)
             return;
 
-        // set the lock level first to avoid infinite recursion
-        setLockLevel(sm, level);
         try {
             lockInternal(sm, level, timeout, sdata);
         } catch (RuntimeException re) {
             // revert lock
-            setLockLevel(sm, oldlevel);
+            setLockLevel(sm, oldLevel);
             throw re;
         }
     }
@@ -92,8 +93,11 @@ public class VersionLockManager
      *
      * @see StoreContext#transactional
      */
-    protected void lockInternal(OpenJPAStateManager sm, int level, long timeout,
+    protected void lockInternal(OpenJPAStateManager sm, int level, int timeout,
         Object sdata) {
+        // Set lock level first to prevent infinite recursion with
+        // transactional(..) call
+        setLockLevel(sm, level);
         if (level >= LockLevels.LOCK_WRITE && _versionUpdateOnWriteLock)
             getContext().transactional(sm.getManagedInstance(), true, null);
         else if (level >= LockLevels.LOCK_READ && _versionCheckOnReadLock)
@@ -132,6 +136,5 @@ public class VersionLockManager
      */
     public boolean getVersionUpdateOnWriteLock() {
         return _versionUpdateOnWriteLock;
-	}
+    }
 }
-

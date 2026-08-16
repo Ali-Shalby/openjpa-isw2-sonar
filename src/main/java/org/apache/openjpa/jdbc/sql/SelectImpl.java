@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -82,6 +85,7 @@ public class SelectImpl
     private static final int EAGER_TO_MANY = 2 << 10;
     private static final int RECORD_ORDERED = 2 << 11;
     private static final int GROUPING = 2 << 12;
+    private static final int FORCE_COUNT = 2 << 13;
 
     private static final String[] TABLE_ALIASES = new String[16];
     private static final String[] ORDER_ALIASES = new String[16];
@@ -128,6 +132,7 @@ public class SelectImpl
     private int _nullIds = 0;
     private int _orders = 0;
     private int _placeholders = 0;
+    private int _expectedResultCount = 0;
 
     // query clauses
     private SQLBuffer _ordering = null;
@@ -153,7 +158,7 @@ public class SelectImpl
     // from select if this select selects from a tmp table created by another
     private SelectImpl _from = null;
     private SelectImpl _outer = null;
-
+     
     /**
      * Helper method to return the proper table alias for the given alias index.
      */
@@ -242,6 +247,22 @@ public class SelectImpl
             _flags &= ~LRS;
     }
 
+    public int getExpectedResultCount() {
+        // if the count isn't forced and we have to-many eager joins that could
+        // throw the count off, don't pay attention to it
+        if ((_flags & FORCE_COUNT) == 0 && hasEagerJoin(true))
+            return 0;
+        return _expectedResultCount;
+    }
+
+    public void setExpectedResultCount(int expectedResultCount, boolean force) {
+        _expectedResultCount = expectedResultCount;
+        if (force)
+            _flags |= FORCE_COUNT;
+        else 
+            _flags &= ~FORCE_COUNT;
+    }
+
     public int getJoinSyntax() {
         return _joinSyntax;
     }
@@ -321,6 +342,20 @@ public class SelectImpl
                 stmnt = sql.prepareStatement(conn, fetch, rsType, -1);
             else
                 stmnt = sql.prepareStatement(conn, rsType, -1);
+
+            // if this is a locking select and the lock timeout is greater than
+            // the configured query timeout, use the lock timeout
+            if (forUpdate && _dict.supportsQueryTimeout && fetch != null 
+                && fetch.getLockTimeout() > stmnt.getQueryTimeout() * 1000) {
+                int timeout = fetch.getLockTimeout();
+                if (timeout < 1000) {
+                    timeout = 1000; 
+                    Log log = _conf.getLog(JDBCConfiguration.LOG_JDBC);
+                    if (log.isWarnEnabled())
+                        log.warn(_loc.get("millis-query-timeout"));
+                }
+                stmnt.setQueryTimeout(fetch.getLockTimeout() / 1000);
+            }
             rs = stmnt.executeQuery();
         } catch (SQLException se) {
             // clean up statement
@@ -1486,6 +1521,7 @@ public class SelectImpl
             sel._flags &= ~LRS;
             sel._flags &= ~EAGER_TO_ONE;
             sel._flags &= ~EAGER_TO_MANY;
+            sel._flags &= ~FORCE_COUNT;
             sel._joinSyntax = _joinSyntax;
             if (_aliases != null)
                 sel._aliases = new HashMap(_aliases);
@@ -1531,6 +1567,7 @@ public class SelectImpl
         for (int i = 0; i < sels; i++) {
             sel = (SelectImpl) whereClone(1);
             sel._flags = _flags;
+            sel._expectedResultCount = _expectedResultCount;
             sel._selects.addAll(_selects);
             if (_ordering != null)
                 sel._ordering = new SQLBuffer(_ordering);

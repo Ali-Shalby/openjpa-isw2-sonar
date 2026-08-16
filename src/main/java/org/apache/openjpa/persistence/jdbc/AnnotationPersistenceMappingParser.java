@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence.jdbc;
 
@@ -47,6 +50,7 @@ import javax.persistence.SqlResultSetMappings;
 import javax.persistence.Table;
 import javax.persistence.TableGenerator;
 import javax.persistence.Temporal;
+import javax.persistence.UniqueConstraint;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
@@ -65,6 +69,7 @@ import org.apache.openjpa.jdbc.meta.strats.FlatClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
@@ -75,6 +80,7 @@ import static org.apache.openjpa.persistence.jdbc.MappingTag.*;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.UnsupportedException;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Persistence annotation mapping parser.
@@ -194,8 +200,8 @@ public class AnnotationPersistenceMappingParser
             throw new MetaDataException(_loc.get("no-gen-name", el));
 
         Log log = getLog();
-        if (log.isInfoEnabled())
-            log.info(_loc.get("parse-gen", name));
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-gen", name));
 
         SequenceMapping meta = (SequenceMapping) getRepository().
             getCachedSequenceMetaData(name);
@@ -375,8 +381,6 @@ public class AnnotationPersistenceMappingParser
     private void parseAttributeOverrides(ClassMapping cm,
         AttributeOverride... attrs) {
         FieldMapping sup;
-        javax.persistence.Column scol;
-        int unique;
         for (AttributeOverride attr : attrs) {
             if (StringUtils.isEmpty(attr.name()))
                 throw new MetaDataException(_loc.get("no-override-name", cm));
@@ -384,13 +388,8 @@ public class AnnotationPersistenceMappingParser
             if (sup == null)
                 sup = (FieldMapping) cm.addDefinedSuperclassField(attr.name(),
                     Object.class, Object.class);
-            scol = attr.column();
-            if (scol == null)
-                continue;
-
-            unique = (scol.unique()) ? TRUE : FALSE;
-            setColumns(sup, sup.getValueInfo(), Arrays.asList
-                (new Column[]{ newColumn(scol) }), unique);
+            if (attr.column() != null)
+                parseColumns(sup, attr.column());
         }
     }
 
@@ -459,10 +458,10 @@ public class AnnotationPersistenceMappingParser
         if (tableName != null)
             cm.getMappingInfo().setTableName(tableName);
 
-        //### EJB3
-        Log log = getLog();
-        if (table.uniqueConstraints().length > 0 && log.isWarnEnabled())
-            log.warn(_loc.get("unique-constraints", cm));
+        for (UniqueConstraint uniqueConstraint:table.uniqueConstraints()) {
+            Unique unique = newUnique(cm, null, uniqueConstraint.columnNames());
+            cm.getMappingInfo().addUnique(unique);
+        }
     }
 
     /**
@@ -485,8 +484,8 @@ public class AnnotationPersistenceMappingParser
         MappingRepository repos = (MappingRepository) getRepository();
         Log log = getLog();
         for (SqlResultSetMapping anno : annos) {
-            if (log.isInfoEnabled())
-                log.info(_loc.get("parse-sqlrsmapping", anno.name()));
+            if (log.isTraceEnabled())
+                log.trace(_loc.get("parse-sqlrsmapping", anno.name()));
 
             QueryResultMapping result = repos.getCachedQueryResultMapping
                 (null, anno.name());
@@ -681,14 +680,15 @@ public class AnnotationPersistenceMappingParser
     /**
      * Set unique data on the given mapping info.
      */
-    private void parseUnique(FieldMapping fm, Unique anno) {
+    private void parseUnique(FieldMapping fm, 
+        org.apache.openjpa.persistence.jdbc.Unique anno) {
         ValueMappingInfo info = fm.getValueInfo();
         if (!anno.enabled()) {
             info.setCanUnique(false);
             return;
         }
 
-        org.apache.openjpa.jdbc.schema.Unique unq =
+        org.apache.openjpa.jdbc.schema.Unique unq = 
             new org.apache.openjpa.jdbc.schema.Unique();
         if (!StringUtils.isEmpty(anno.name()))
             unq.setName(anno.name());
@@ -878,7 +878,8 @@ public class AnnotationPersistenceMappingParser
                     fm.getValueInfo().setStrategy(((Strategy) anno).value());
                     break;
                 case UNIQUE:
-                    parseUnique(fm, (Unique) anno);
+                    parseUnique(fm, 
+                        (org.apache.openjpa.persistence.jdbc.Unique) anno);
                     break;
                 case X_JOIN_COL:
                     parseXJoinColumns(fm, fm.getValueInfo(), true,
@@ -962,20 +963,13 @@ public class AnnotationPersistenceMappingParser
             throw new MetaDataException(_loc.get("not-embedded", fm));
 
         FieldMapping efm;
-        javax.persistence.Column ecol;
-        int unique;
         for (AttributeOverride attr : attrs) {
             efm = embed.getFieldMapping(attr.name());
             if (efm == null)
                 throw new MetaDataException(_loc.get("embed-override-name",
                     fm, attr.name()));
-            ecol = attr.column();
-            if (ecol == null)
-                continue;
-
-            unique = (ecol.unique()) ? TRUE : FALSE;
-            setColumns(efm, efm.getValueInfo(), Arrays.asList
-                (new Column[]{ newColumn(ecol) }), unique);
+            if (attr.column() != null)
+                parseColumns(efm, attr.column());
         }
     }
 
@@ -1324,4 +1318,21 @@ public class AnnotationPersistenceMappingParser
 		col.setFlag (Column.FLAG_UNUPDATABLE, !join.updatable ());
 		return col;
 	}
+    
+    private static Unique newUnique(ClassMapping cm, String name, 
+        String[] columnNames) {
+        if (columnNames == null || columnNames.length == 0)
+            return null;
+        Unique uniqueConstraint = new Unique();
+        uniqueConstraint.setName(name);
+        for (int i=0; i<columnNames.length; i++) {
+            if (StringUtils.isEmpty(columnNames[i]))
+                throw new UserException(_loc.get("empty-unique-column", 
+                    Arrays.toString(columnNames), cm));
+            Column column = new Column();
+            column.setName(columnNames[i]);
+            uniqueConstraint.addColumn(column);
+        }
+        return uniqueConstraint;
+    }
 }

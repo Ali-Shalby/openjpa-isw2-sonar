@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.lib.meta;
 
@@ -326,15 +329,15 @@ public abstract class XMLMetaDataParser extends DefaultHandler
      */
     protected void parseNewResource(Reader xml, String sourceName)
         throws IOException {
-        if (_log != null && _log.isInfoEnabled())
-            _log.info(_loc.get("start-parse", sourceName));
+        if (_log != null && _log.isTraceEnabled())
+            _log.trace(_loc.get("start-parse", sourceName));
 
         // even if we want to validate, specify that it won't happen
         // if we have neither a DocType not a Schema
         Object schemaSource = getSchemaSource();
         if (schemaSource != null && _schemaBug) {
-            if (_log != null && _log.isInfoEnabled())
-                _log.info(_loc.get("parser-schema-bug"));
+            if (_log != null && _log.isTraceEnabled())
+                _log.trace(_loc.get("parser-schema-bug"));
             schemaSource = null;
         }
         boolean validating = _validating && (getDocType() != null 

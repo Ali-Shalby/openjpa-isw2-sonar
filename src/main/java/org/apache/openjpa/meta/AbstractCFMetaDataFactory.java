@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.meta;
 
@@ -578,12 +581,12 @@ public abstract class AbstractCFMetaDataFactory
             Set names = parsePersistentTypeNames(loader);
             if (names.isEmpty() && devpath)
                 scan(new ClasspathMetaDataIterator(null, newMetaDataFilter()),
-                    newClassArgParser(), names, false);
+                    newClassArgParser(), names, false, null);
             else // we don't cache a full dev cp scan
                 _typeNames = names;
 
-            if (log.isInfoEnabled())
-                log.info(_loc.get("found-pcs", String.valueOf(names.size()),
+            if (log.isTraceEnabled())
+                log.trace(_loc.get("found-pcs", String.valueOf(names.size()),
                     String.valueOf(System.currentTimeMillis() - start)));
             return (names.isEmpty()) ? null : names;
         } catch (IOException ioe) {
@@ -604,14 +607,22 @@ public abstract class AbstractCFMetaDataFactory
             for (Iterator itr = files.iterator(); itr.hasNext();) {
                 file = (File) itr.next();
                 if (file.isDirectory()) {
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scanning-directory", file));
                     scan(new FileMetaDataIterator(dir, newMetaDataFilter()),
-                        cparser, names, true);
+                        cparser, names, true, file);
                 } else if (file.getName().endsWith(".jar")) {
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scanning-jar", file));
                     scan(new ZipFileMetaDataIterator(new ZipFile(file),
-                        newMetaDataFilter()), cparser, names, true);
+                        newMetaDataFilter()), cparser, names, true, file);
                 } else {
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scanning-file", file));
                     clss = cparser.parseTypeNames(new FileMetaDataIterator
                         (file));
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scan-found-names", clss, file));
                     names.addAll(Arrays.asList(clss));
                     mapPersistentTypeNames(file.getAbsoluteFile().toURL(),
                         clss);
@@ -624,11 +635,22 @@ public abstract class AbstractCFMetaDataFactory
                 url = (URL) itr.next();
                 if ("jar".equals(url.getProtocol())
                     && url.getPath().endsWith("!/")) {
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scanning-jar-url", url));
                     scan(new ZipFileMetaDataIterator(url,
-                        newMetaDataFilter()), cparser, names, true);
+                        newMetaDataFilter()), cparser, names, true, url);
+                } else if (url.getPath().endsWith(".jar")) {
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scanning-jar-at-url", url));
+                    scan(new ZipStreamMetaDataIterator(
+                        new ZipInputStream(url.openStream()),
+                        newMetaDataFilter()), cparser, names, true, url);
                 } else {
-                    clss = cparser.parseTypeNames(new URLMetaDataIterator
-                        (url));
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scanning-url", url));
+                    clss = cparser.parseTypeNames(new URLMetaDataIterator(url));
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scan-found-names", clss, url));
                     names.addAll(Arrays.asList(clss));
                     mapPersistentTypeNames(url, clss);
                 }
@@ -642,16 +664,23 @@ public abstract class AbstractCFMetaDataFactory
                 if (rsrc.endsWith(".jar")) {
                     url = loader.getResource(rsrc);
                     if (url != null) {
+                        if (log.isTraceEnabled())
+                            log.trace(_loc.get("scanning-jar-stream-url", url));
                         scan(new ZipStreamMetaDataIterator
                             (new ZipInputStream(url.openStream()),
-                                newMetaDataFilter()), cparser, names, true);
+                                newMetaDataFilter()), cparser, names, true, 
+                                url);
                     }
                 } else {
+                    if (log.isTraceEnabled())
+                        log.trace(_loc.get("scanning-resource", rsrc));
                     mitr = new ResourceMetaDataIterator(rsrc, loader);
                     while (mitr.hasNext()) {
                         url = (URL) mitr.next();
                         clss = cparser.parseTypeNames(new URLMetaDataIterator
                             (url));
+                        if (log.isTraceEnabled())
+                            log.trace(_loc.get("scan-found-names", clss, rsrc));
                         names.addAll(Arrays.asList(clss));
                         mapPersistentTypeNames(url, clss);
                     }
@@ -662,10 +691,14 @@ public abstract class AbstractCFMetaDataFactory
         if (cpath != null) {
             String[] dirs = (String[]) cpath.toArray(new String[cpath.size()]);
             scan(new ClasspathMetaDataIterator(dirs, newMetaDataFilter()),
-                cparser, names, true);
+                cparser, names, true, dirs);
         }
         if (types != null)
             names.addAll(types);
+        
+        if (log.isTraceEnabled())
+            log.trace(_loc.get("parse-found-names", names));
+        
         return names;
     }
 
@@ -673,7 +706,7 @@ public abstract class AbstractCFMetaDataFactory
      * Scan for persistent type names using the given metadata iterator.
      */
     private void scan(MetaDataIterator mitr, ClassArgParser cparser, Set names,
-        boolean mapNames)
+        boolean mapNames, Object debugContext)
         throws IOException {
         Map map;
         try {
@@ -688,7 +721,10 @@ public abstract class AbstractCFMetaDataFactory
             if (mapNames)
                 mapPersistentTypeNames(entry.getKey(), (String[])
                     entry.getValue());
-            names.addAll(Arrays.asList((String[]) entry.getValue()));
+            List newNames = Arrays.asList((String[]) entry.getValue());
+            if (log.isTraceEnabled())
+                log.trace(_loc.get("scan-found-names", newNames, debugContext));
+            names.addAll(newNames);
         }
     }
 

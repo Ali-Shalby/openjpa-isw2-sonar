@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -21,15 +24,21 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Collection;
+import java.util.ArrayList;
 
+import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Schema;
 import org.apache.openjpa.jdbc.schema.SchemaGroup;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.meta.SourceTracker;
+import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.xml.Commentable;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Information about the mapping from a class to the schema, in raw form.
@@ -43,14 +52,19 @@ public class ClassMappingInfo
     extends MappingInfo
     implements SourceTracker, Commentable {
 
+    private static final Localizer _loc = Localizer.forPackage
+        (ClassMappingInfo.class);
+
     private String _className = Object.class.getName();
     private String _tableName = null;
+    private String _schemaName = null;
     private boolean _joined = false;
     private Map _seconds = null;
     private String _subStrat = null;
     private File _file = null;
     private int _srcType = SRC_OTHER;
     private String[] _comments = null;
+    private Collection _uniques = null;//Unique
 
     /**
      * The described class name.
@@ -92,6 +106,20 @@ public class ClassMappingInfo
      */
     public void setTableName(String table) {
         _tableName = table;
+    }
+
+    /**
+     * The default schema name for unqualified tables.
+     */
+    public String getSchemaName() {
+        return _schemaName;
+    }
+
+    /**
+     * The default schema name for unqualified tables.
+     */
+    public void setSchemaName(String schema) {
+        _schemaName = schema;
     }
 
     /**
@@ -150,7 +178,7 @@ public class ClassMappingInfo
             // immediately return an exact match with schema
             join = fullJoin.substring(idx + 1);
             if (join.equals(tableName))
-                return join;
+                return fullJoin;
 
             // caseless match with schema worth 1 point
             if (pts < 1 && join.equalsIgnoreCase(tableName)) {
@@ -205,7 +233,7 @@ public class ClassMappingInfo
                 return cls.getMappingRepository().getMappingDefaults().
                     getTableName(cls, schema);
             }
-        }, null, _tableName, adapt);
+        }, _schemaName, _tableName, adapt);
     }
 
     /**
@@ -275,7 +303,7 @@ public class ClassMappingInfo
             : cls.getStrategy().getAlias();
         if (strat != null && (cls.getPCSuperclass() != null
             || !FullClassStrategy.ALIAS.equals(strat)))
-            setStrategy(strat);
+            setStrategy(strat);        
     }
 
     public boolean hasSchemaComponents() {
@@ -308,8 +336,53 @@ public class ClassMappingInfo
                     _seconds.put(key, cinfo._seconds.get(key));
             }
         }
+        if (cinfo._uniques != null) 
+           _uniques = new ArrayList(cinfo._uniques);
     }
 
+    public void addUnique(Unique unique) {
+        if (unique == null)
+            return;
+        if (_uniques == null)
+            _uniques = new ArrayList();
+        _uniques.add(unique);
+    }
+    
+    public Unique[] getUniques() {
+        return (_uniques == null) ? new Unique[0] :
+            (Unique[])_uniques.toArray(new Unique[_uniques.size()]);
+    }
+    
+    public Unique[] getUniques(ClassMapping cm, boolean adapt) {
+        if (_uniques == null || _uniques.isEmpty())
+            return new Unique[0];
+        
+        Iterator uniqueConstraints = _uniques.iterator();
+        Table table = cm.getTable();
+        Collection result = new ArrayList();
+        while (uniqueConstraints.hasNext()) {
+            Unique template = (Unique)uniqueConstraints.next();
+            Column[] templateColumns = template.getColumns();
+            Column[] uniqueColumns = new Column[templateColumns.length];
+            boolean missingColumn = true;
+            for (int i=0; i<uniqueColumns.length; i++) {
+                String columnName = templateColumns[i].getName();
+                Column uniqueColumn = table.getColumn(columnName);
+                missingColumn = (uniqueColumn == null);
+                if (missingColumn) {
+                    throw new UserException(_loc.get("missing-unique-column", 
+                        cm, table, columnName));
+                }
+                uniqueColumns[i] = uniqueColumn;
+            }
+            Unique unique = super.createUnique(cm, "unique", template, 
+                uniqueColumns, adapt);
+            if (unique != null)
+                result.add(unique);
+        }
+        return (Unique[])result.toArray(new Unique[result.size()]);
+    }   
+    
     public File getSourceFile() {
         return _file;
     }

@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -32,6 +35,8 @@ import javax.persistence.NamedQueries;
 import javax.persistence.NamedQuery;
 import javax.persistence.NamedNativeQueries;
 import javax.persistence.NamedNativeQuery;
+import javax.persistence.SqlResultSetMapping;
+import javax.persistence.SqlResultSetMappings;
 
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
@@ -245,9 +250,22 @@ public class PersistenceMetaDataFactory
 
     @Override
     protected void mapPersistentTypeNames(Object rsrc, String[] names) {
-        if (!(rsrc instanceof URL) || rsrc.toString().endsWith(".class"))
+        if (rsrc.toString().endsWith(".class")) {
+            if (log.isTraceEnabled())
+                log.trace(
+                    _loc.get("map-persistent-types-skipping-class", rsrc));
             return;
+        } else if (!(rsrc instanceof URL)) {
+            if (log.isTraceEnabled())
+                log.trace(
+                    _loc.get("map-persistent-types-skipping-non-url", rsrc));
+            return;
+        }
 
+        if (log.isTraceEnabled())
+            log.trace(_loc.get(
+                "map-persistent-type-names", rsrc, Arrays.asList(names)));
+        
         if (_xml == null)
             _xml = new HashMap<URL, Set>();
         _xml.put((URL) rsrc, new HashSet(Arrays.asList(names)));
@@ -281,9 +299,40 @@ public class PersistenceMetaDataFactory
         return null;
     }
 
+    @Override
+    public Class getResultSetMappingScope(String rsMappingName,
+        ClassLoader loader) {
+        if (rsMappingName == null)
+            return null;
+        
+        Collection classes = repos.loadPersistentTypes(false, loader);
+        for (Class cls : (Collection<Class>) classes) {
+            
+            if (cls.isAnnotationPresent(SqlResultSetMapping.class) && 
+                hasRSMapping(rsMappingName, (SqlResultSetMapping) cls.
+                getAnnotation(SqlResultSetMapping.class)))
+                return cls;
+            
+            if (cls.isAnnotationPresent(SqlResultSetMappings.class) && 
+                hasRSMapping(rsMappingName, ((SqlResultSetMappings) cls.
+                getAnnotation(SqlResultSetMappings.class)).value()))
+                return cls;
+        }
+        return null;
+    }
+
     private boolean hasNamedQuery(String query, NamedQuery... queries) {
         for (NamedQuery q : queries) {
             if (query.equals(q.name()))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean hasRSMapping(String rsMapping,
+        SqlResultSetMapping... mappings) {
+        for (SqlResultSetMapping m : mappings) {
+            if (rsMapping.equals(m.name()))
                 return true;
         }
         return false;
@@ -399,7 +448,7 @@ public class PersistenceMetaDataFactory
         if (rsrcs == null)
             rsrcs = Collections.singleton("META-INF/orm.xml");
         else
-			rsrcs.add ("META-INF/orm.xml");
+			rsrcs.add("META-INF/orm.xml");
 	}
 
     public void setInto(Options opts) {

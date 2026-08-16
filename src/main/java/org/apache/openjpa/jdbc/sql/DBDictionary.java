@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -50,6 +53,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -95,6 +99,7 @@ import org.apache.openjpa.util.Serialization;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
+import org.apache.openjpa.util.InvalidStateException;
 import serp.util.Numbers;
 import serp.util.Strings;
 
@@ -214,9 +219,9 @@ public class DBDictionary
     public String toUpperCaseFunction = "UPPER({0})";
     public String stringLengthFunction = "CHAR_LENGTH({0})";
     public String bitLengthFunction = "(OCTET_LENGTH({0}) * 8)";
-    public String trimLeadingFunction = "TRIM(LEADING '{1}' FROM {0})";
-    public String trimTrailingFunction = "TRIM(TRAILING '{1}' FROM {0})";
-    public String trimBothFunction = "TRIM(BOTH '{1}' FROM {0})";
+    public String trimLeadingFunction = "TRIM(LEADING {1} FROM {0})";
+    public String trimTrailingFunction = "TRIM(TRAILING {1} FROM {0})";
+    public String trimBothFunction = "TRIM(BOTH {1} FROM {0})";
     public String concatenateFunction = "({0}||{1})";
     public String concatenateDelimiter = "'OPENJPATOKEN'";
     public String substringFunctionName = "SUBSTRING";
@@ -236,6 +241,7 @@ public class DBDictionary
     public boolean useSetStringForClobs = false;
     public int maxEmbeddedBlobSize = -1;
     public int maxEmbeddedClobSize = -1;
+    public int inClauseLimit = -1;
     public int datePrecision = MILLI;
     public int characterColumnSize = 255;
     public String arrayTypeName = "ARRAY";
@@ -287,6 +293,9 @@ public class DBDictionary
     public boolean supportsAutoAssign = false;
     public String lastGeneratedKeyQuery = null;
     public String nextSequenceQuery = null;
+    public String sequenceSQL = null;
+    public String sequenceSchemaSQL = null;
+    public String sequenceNameSQL = null;
 
     protected JDBCConfiguration conf = null;
     protected Log log = null;
@@ -747,7 +756,7 @@ public class DBDictionary
     public void setBigDecimal(PreparedStatement stmnt, int idx, BigDecimal val,
         Column col)
         throws SQLException {
-        if ((col != null && col.isCompatible(Types.VARCHAR, 0))
+        if ((col != null && col.isCompatible(Types.VARCHAR, null, 0, 0))
             || (col == null && storeLargeNumbersAsStrings))
             setString(stmnt, idx, val.toString(), col);
         else
@@ -760,7 +769,7 @@ public class DBDictionary
     public void setBigInteger(PreparedStatement stmnt, int idx, BigInteger val,
         Column col)
         throws SQLException {
-        if ((col != null && col.isCompatible(Types.VARCHAR, 0))
+        if ((col != null && col.isCompatible(Types.VARCHAR, null, 0, 0))
             || (col == null && storeLargeNumbersAsStrings))
             setString(stmnt, idx, val.toString(), col);
         else
@@ -829,7 +838,7 @@ public class DBDictionary
      */
     public void setChar(PreparedStatement stmnt, int idx, char val, Column col)
         throws SQLException {
-        if ((col != null && col.isCompatible(Types.INTEGER, 0))
+        if ((col != null && col.isCompatible(Types.INTEGER, null, 0, 0))
             || (col == null && storeCharsAsNumbers))
             setInt(stmnt, idx, (int) val, col);
         else
@@ -1739,9 +1748,9 @@ public class DBDictionary
      * cases where a subselect is required and the database doesn't support
      * subselects), this method should return null.
      */
-    public SQLBuffer toDelete(ClassMapping mapping, Select sel,
-        JDBCStore store, Object[] params) {
-        return toBulkOperation(mapping, sel, store, params, null);
+    public SQLBuffer toDelete(ClassMapping mapping, Select sel, 
+        Object[] params) {
+        return toBulkOperation(mapping, sel, null, params, null);
     }
 
     public SQLBuffer toUpdate(ClassMapping mapping, Select sel,
@@ -1890,6 +1899,47 @@ public class DBDictionary
             if (i.hasNext())
                 sql.append(", ");
         }
+    }
+    
+    /**
+     * Create SQL to delete the contents of the specified tables. 
+     * The default implementation drops all non-deferred RESTRICT foreign key 
+     * constraints involving the specified tables, issues DELETE statements 
+     * against the tables, and then adds the dropped constraints back in. 
+     * Databases with more optimal ways of deleting the contents of several 
+     * tables should override this method.
+     */
+    public String[] getDeleteTableContentsSQL(Table[] tables) {
+        Collection sql = new ArrayList();
+        
+        // collect and drop non-deferred physical restrict constraints, and
+        // collect the DELETE FROM statements
+        Collection deleteSQL = new ArrayList(tables.length);
+        Collection restrictConstraints = new LinkedHashSet();
+        for (int i = 0; i < tables.length; i++) {
+            ForeignKey[] fks = tables[i].getForeignKeys();
+            for (int j = 0; j < fks.length; j++) {
+                if (!fks[j].isLogical() && !fks[j].isDeferred() 
+                    && fks[j].getDeleteAction() == ForeignKey.ACTION_RESTRICT)
+                restrictConstraints.add(fks[j]);
+                String[] constraintSQL = getDropForeignKeySQL(fks[j]);
+                sql.addAll(Arrays.asList(constraintSQL));
+            }
+            
+            deleteSQL.add("DELETE FROM " + tables[i].getFullName());
+        }
+        
+        // add the delete statements after all the constraint mutations
+        sql.addAll(deleteSQL);
+        
+        // add the deleted constraints back to the schema
+        for (Iterator iter = restrictConstraints.iterator(); iter.hasNext(); ) {
+            String[] constraintSQL = 
+                getAddForeignKeySQL((ForeignKey) iter.next());
+            sql.addAll(Arrays.asList(constraintSQL));
+        }
+        
+        return (String[]) sql.toArray(new String[sql.size()]);
     }
 
     /**
@@ -2099,7 +2149,25 @@ public class DBDictionary
         SQLBuffer having, SQLBuffer order,
         boolean distinct, boolean forUpdate, long start, long end) {
         return toOperation(getSelectOperation(fetch), selects, from, where,
-            group, having, order, distinct, forUpdate, start, end);
+            group, having, order, distinct, start, end,
+            getForUpdateClause(fetch, forUpdate));
+    }
+
+    /**
+     * Get the update clause for the query based on the
+     * updateClause and isolationLevel hints
+     */
+    protected String getForUpdateClause(JDBCFetchConfiguration fetch,
+        boolean forUpdate) {
+        if (fetch != null && fetch.getIsolation() != -1) {
+            throw new InvalidStateException(_loc.get(
+                "isolation-level-config-not-supported", getClass().getName()));
+        } else if (forUpdate && !simulateLocking) {
+            assertSupport(supportsSelectForUpdate, "SupportsSelectForUpdate");
+            return forUpdateClause;
+        } else {
+            return null;
+        }
     }
 
     /**
@@ -2112,10 +2180,10 @@ public class DBDictionary
     /**
      * Return the SQL for the given selecting operation.
      */
-    protected SQLBuffer toOperation(String op, SQLBuffer selects, 
-        SQLBuffer from, SQLBuffer where, SQLBuffer group, SQLBuffer having, 
-        SQLBuffer order, boolean distinct, boolean forUpdate, long start, 
-        long end) {
+    protected SQLBuffer toOperation(String op, SQLBuffer selects,
+        SQLBuffer from, SQLBuffer where, SQLBuffer group, SQLBuffer having,
+        SQLBuffer order, boolean distinct, long start, long end,
+        String forUpdateClause) {
         SQLBuffer buf = new SQLBuffer(this);
         buf.append(op);
 
@@ -2141,12 +2209,8 @@ public class DBDictionary
             buf.append(" ORDER BY ").append(order);
         if (range && rangePosition == RANGE_POST_SELECT)
             appendSelectRange(buf, start, end);
-
-        if (forUpdate && !simulateLocking) {
-            assertSupport(supportsSelectForUpdate, "SupportsSelectForUpdate");
-            if (forUpdateClause != null)
-                buf.append(" ").append(forUpdateClause);
-        }
+        if (forUpdateClause != null)
+            buf.append(" ").append(forUpdateClause);
         if (range && rangePosition == RANGE_POST_LOCK)
             appendSelectRange(buf, start, end);
         return buf;
@@ -2337,7 +2401,7 @@ public class DBDictionary
         else
             lhs.appendTo(buf);
 
-        if (mod)
+        if (mod && !supportsModOperator)
             buf.append(", ");
         else
             buf.append(" ").append(op).append(" ");
@@ -2424,7 +2488,7 @@ public class DBDictionary
         buf.append(getTypeName(type));
         buf.append(post);
     }
-
+    
     ///////////
     // DDL SQL
     ///////////
@@ -2920,8 +2984,8 @@ public class DBDictionary
 
         int delActionId = fk.getDeleteAction();
         if (delActionId == ForeignKey.ACTION_NULL) {
-            for (int i = 0; i < foreigns.length; i++) {
-                if (foreigns[i].isNotNull())
+            for (int i = 0; i < locals.length; i++) {
+                if (locals[i].isNotNull())
                     delActionId = ForeignKey.ACTION_NONE;
             }
         }

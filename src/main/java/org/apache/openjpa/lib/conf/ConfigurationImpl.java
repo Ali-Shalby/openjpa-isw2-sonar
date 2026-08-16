@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.lib.conf;
 
@@ -55,6 +58,7 @@ import org.apache.openjpa.lib.log.LogFactoryImpl;
 import org.apache.openjpa.lib.log.NoneLogFactory;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.MultiClassLoader;
 import org.apache.openjpa.lib.util.ParseException;
 import org.apache.openjpa.lib.util.Services;
 import org.apache.openjpa.lib.util.StringDistance;
@@ -158,8 +162,10 @@ public class ConfigurationImpl
      * {@link ProductDerivation}s, and from System properties.
      */
     public boolean loadGlobals() {
-        ConfigurationProvider provider = ProductDerivations.loadGlobals
-            (getClass().getClassLoader());
+        MultiClassLoader loader = new MultiClassLoader();
+        loader.addClassLoader(Thread.currentThread().getContextClassLoader());
+        loader.addClassLoader(getClass().getClassLoader());
+        ConfigurationProvider provider = ProductDerivations.loadGlobals(loader);
         if (provider != null)
             provider.setInto(this);
 
@@ -633,7 +639,7 @@ public class ConfigurationImpl
         // <prefix>.properties System property; remove that property so we
         // we don't warn about it
         Configurations.removeProperty("properties", remaining);
-
+        
         // now warn if there are any remaining properties that there
         // is an unhandled prop
         Map.Entry entry;
@@ -665,27 +671,11 @@ public class ConfigurationImpl
      * Look up the given value, testing all available prefixes.
      */
     private Object get(Map map, Value val, boolean setLoadKey) {
-        String[] prefixes = ProductDerivations.getConfigurationPrefixes();
-        String firstKey = null;
-        String key;
-        Object o = null;
-        for (int i = 0; i < prefixes.length; i++) {
-            key = prefixes[i] + "." + val.getProperty();
-            if (firstKey == null) {
-                o = map.get(key);
-                if (o != null)
-                    firstKey = key;
-            } else if (map.containsKey(key)) {
-                // if we've already found a property with a previous prefix,
-                // then this is a collision.
-                throw new IllegalStateException(
-                    _loc.get("dup-with-different-prefixes", firstKey, key)
-                        .getMessage());
-            }
-        }
-        if (firstKey != null && setLoadKey)
-            val.setLoadKey(firstKey);
-        return o;
+        String key = ProductDerivations.getConfigurationKey(
+            val.getProperty(), map);
+        if (map.containsKey(key) && setLoadKey)
+            val.setLoadKey(key);
+        return map.get(key);
     }
 
     /**
@@ -863,6 +853,7 @@ public class ConfigurationImpl
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
         fromProperties((Map) in.readObject());
+        _props = (Map) in.readObject();
         _globals = in.readBoolean();
     }
 
@@ -871,10 +862,8 @@ public class ConfigurationImpl
      * the properties returned by {@link #toProperties}.
      */
     public void writeExternal(ObjectOutput out) throws IOException {
-        if (_props != null)
-            out.writeObject(_props);
-        else
-            out.writeObject(toProperties(false));
+        out.writeObject(toProperties(true));
+        out.writeObject(_props);
         out.writeBoolean(_globals);
     }
 
@@ -888,8 +877,9 @@ public class ConfigurationImpl
                 (new Class[]{ boolean.class });
             ConfigurationImpl clone = (ConfigurationImpl) cons.newInstance
                 (new Object[]{ Boolean.FALSE });
-            clone._globals = _globals;
             clone.fromProperties(toProperties(true));
+            clone._props = (_props == null) ? null : new HashMap(_props);
+            clone._globals = _globals;
             return clone;
         } catch (RuntimeException re) {
             throw re;

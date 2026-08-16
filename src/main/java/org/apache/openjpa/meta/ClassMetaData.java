@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.meta;
 
@@ -36,6 +39,7 @@ import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.util.Localizer;
@@ -43,13 +47,14 @@ import org.apache.openjpa.lib.xml.Commentable;
 import org.apache.openjpa.util.ByteId;
 import org.apache.openjpa.util.CharId;
 import org.apache.openjpa.util.DateId;
+import org.apache.openjpa.util.DoubleId;
+import org.apache.openjpa.util.FloatId;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.IntId;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.LongId;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.ObjectId;
-import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.ShortId;
 import org.apache.openjpa.util.StringId;
@@ -110,6 +115,10 @@ public class ClassMetaData
 
     private static final Localizer _loc = Localizer.forPackage
         (ClassMetaData.class);
+
+    private static final FetchGroup[] EMPTY_FETCH_GROUP_ARRAY
+        = new FetchGroup[0];
+    private static final String[] EMPTY_STRING_ARRAY = new String[0];
 
     private MetaDataRepository _repos;
     private transient ClassLoader _loader = null;
@@ -309,7 +318,7 @@ public class ClassMetaData
         if (_owner != null)
             return _repos.EMPTY_CLASSES;
 
-        _repos.processRegisteredClasses();
+        _repos.processRegisteredClasses(_loader);
         if (_subs == null) {
             Collection subs = _repos.getPCSubclasses(_type);
             _subs = (Class[]) subs.toArray(new Class[subs.size()]);
@@ -436,6 +445,14 @@ public class ClassMetaData
             case JavaTypes.CHAR:
             case JavaTypes.CHAR_OBJ:
                 _objectId = CharId.class;
+                break;
+            case JavaTypes.DOUBLE:
+            case JavaTypes.DOUBLE_OBJ:
+                _objectId = DoubleId.class;
+                break;
+            case JavaTypes.FLOAT:
+            case JavaTypes.FLOAT_OBJ:
+                _objectId = FloatId.class;
                 break;
             case JavaTypes.INT:
             case JavaTypes.INT_OBJ:
@@ -576,7 +593,8 @@ public class ClassMetaData
     /**
      * Returns the alias for the described type, or <code>null</code> if none
      * has been set.
-     *  #see	setTypeAlias
+     * 
+     * @see #setTypeAlias
      */
     public String getTypeAlias() {
         if (_alias == null)
@@ -587,7 +605,8 @@ public class ClassMetaData
     /**
      * Sets the alias for the described type. The alias can be
      * any arbitrary string that the implementation can later use to
-     * refer to the class.
+     * refer to the class. Note that at runtime, only the alias
+     * computed when the persistent type was enhanced is used.
      *
      * @param alias the alias name to apply to the described type
      */
@@ -768,8 +787,9 @@ public class ClassMetaData
         synchronized (_ifaceMap) {
             Map fields = (Map) _ifaceMap.get(iface);
             if (fields == null)
-                return new String[0];
-            return (String[]) fields.keySet().toArray(new String[0]);
+                return EMPTY_STRING_ARRAY;
+            return (String[]) fields.keySet().toArray(
+                new String[fields.size()]);
         }
     }
     
@@ -1381,15 +1401,12 @@ public class ClassMetaData
         if (fieldName == null || SYNTHETIC.equals(fieldName))
             return null;
 
-        for (Class type = _type; type != null && type != Object.class;
-            type = type.getSuperclass()) {
-            try {
-                return type.getDeclaredField(fieldName);
-            } catch (Exception e) {
-            }
-        }
-        throw new MetaDataException(_loc.get("no-detach-state", fieldName,
-            _type));
+        Field f = Reflection.findField(_type, fieldName, false);
+        if (f != null)
+            return f;
+        else
+            throw new MetaDataException(
+                _loc.get("no-detach-state", fieldName, _type));
     }
 
     /**
@@ -1807,7 +1824,7 @@ public class ClassMetaData
                 ClassMetaData embed = pks[0].getEmbeddedMetaData();
                 validateAppIdClassMethods(embed.getDescribedType());
                 validateAppIdClassPKs(embed, embed.getFields(),
-                    embed.getDescribedType(), runtime);
+                    embed.getDescribedType());
             }
             return;
         }
@@ -1834,7 +1851,7 @@ public class ClassMetaData
                 validateAppIdClassMethods(_objectId);
 
             // make sure the app id class has all pk fields
-            validateAppIdClassPKs(this, pks, _objectId, runtime);
+            validateAppIdClassPKs(this, pks, _objectId);
         }
     }
 
@@ -1888,101 +1905,51 @@ public class ClassMetaData
      * Validate that the primary key class has all pk fields.
      */
     private void validateAppIdClassPKs(ClassMetaData meta,
-        FieldMetaData[] fmds, Class oid, boolean runtime) {
+        FieldMetaData[] fmds, Class oid) {
         if (fmds.length == 0 && !Modifier.isAbstract(meta.getDescribedType().
             getModifiers()))
             throw new MetaDataException(_loc.get("no-pk", _type));
 
         // check that the oid type contains all pk fields
-        try {
-            Field f;
-            Method m;
-            String cap;
-            int type;
-            Class c;
-            int access = meta.getAccessType();
-            for (int i = 0; i < fmds.length; i++) {
-                switch (fmds[i].getDeclaredTypeCode()) {
-                    case JavaTypes.ARRAY:
-                        c = fmds[i].getDeclaredType().getComponentType();
-                        if (c == byte.class || c == Byte.class
-                            || c == char.class || c == Character.class) {
-                            c = fmds[i].getDeclaredType();
-                            break;
-                        }
-                        // else no break
-                    case JavaTypes.PC_UNTYPED:
-                    case JavaTypes.COLLECTION:
-                    case JavaTypes.MAP:
-                    case JavaTypes.OID: // we're validating embedded fields
-                        throw new MetaDataException(_loc.get("bad-pk-type",
-                            fmds[i]));
-                    default:
-                        c = fmds[i].getObjectIdFieldType();
-                }
-
-                if (access == ACCESS_FIELD) {
-                    f = findField(oid, fmds[i].getName(), runtime);
-                    if (f == null || !f.getType().isAssignableFrom(c))
-                        throw new MetaDataException(_loc.get("invalid-id",
-                            _type)).setFailedObject(fmds[i].getName());
-                } else if (access == ACCESS_PROPERTY) {
-                    cap = StringUtils.capitalize(fmds[i].getName());
-                    type = fmds[i].getDeclaredTypeCode();
-
-                    m = findMethod(oid, "get" + cap, null, runtime);
-                    if (m == null && (type == JavaTypes.BOOLEAN
-                        || type == JavaTypes.BOOLEAN_OBJ))
-                        m = findMethod(oid, "is" + cap, null, runtime);
-                    if (m == null || !m.getReturnType().isAssignableFrom(c))
-                        throw new MetaDataException(_loc.get("invalid-id",
-                            _type)).setFailedObject("get" + cap);
-
-                    m = findMethod(oid, "set" + cap,
-                        new Class[]{ fmds[i].getDeclaredType() }, runtime);
-                    if (m == null || m.getReturnType() != void.class)
-                        throw new MetaDataException(_loc.get("invalid-id",
-                            _type)).setFailedObject("set" + cap);
-                }
+        Field f;
+        Method m;
+        Class c;
+        for (int i = 0; i < fmds.length; i++) {
+            switch (fmds[i].getDeclaredTypeCode()) {
+                case JavaTypes.ARRAY:
+                    c = fmds[i].getDeclaredType().getComponentType();
+                    if (c == byte.class || c == Byte.class
+                        || c == char.class || c == Character.class) {
+                        c = fmds[i].getDeclaredType();
+                        break;
+                    }
+                    // else no break
+                case JavaTypes.PC_UNTYPED:
+                case JavaTypes.COLLECTION:
+                case JavaTypes.MAP:
+                case JavaTypes.OID: // we're validating embedded fields
+                    throw new MetaDataException(_loc.get("bad-pk-type",
+                        fmds[i]));
+                default:
+                    c = fmds[i].getObjectIdFieldType();
             }
-        } catch (OpenJPAException ke) {
-            throw ke;
-        } catch (Throwable t) {
-            throw new MetaDataException(_loc.get("invalid-id", _type)).
-                setCause(t);
-        }
-    }
 
-    /**
-     * Find the named field, recursing to superclasses if necessary.
-     */
-    private static Field findField(Class c, String name, boolean pub)
-        throws Exception {
-        if (c == null || c == Object.class)
-            return null;
-
-        try {
-            return (pub) ? c.getField(name) : c.getDeclaredField(name);
-        } catch (NoSuchFieldException nsfe) {
-            return (pub) ? null : findField(c.getSuperclass(), name, false);
-        }
-    }
-
-    /**
-     * Find the named method, recursing to superclasses if necessary.
-     */
-    private static Method findMethod(Class c, String name, Class[] params,
-        boolean pub)
-        throws Exception {
-        if (c == null || c == Object.class)
-            return null;
-
-        try {
-            return (pub) ? c.getMethod(name, params)
-                : c.getDeclaredMethod(name, params);
-        } catch (NoSuchMethodException nsfe) {
-            return (pub) ? null : findMethod(c.getSuperclass(), name, params,
-                false);
+            if (meta.getAccessType() == ACCESS_FIELD) {
+                f = Reflection.findField(oid, fmds[i].getName(), false);
+                if (f == null || !f.getType().isAssignableFrom(c))
+                    throw new MetaDataException(_loc.get("invalid-id",
+                        _type, fmds[i].getName()));
+            } else if (meta.getAccessType() == ACCESS_PROPERTY) {
+                m = Reflection.findGetter(oid, fmds[i].getName(), false);
+                if (m == null || !m.getReturnType().isAssignableFrom(c))
+                    throw new MetaDataException(_loc.get("invalid-id",
+                        _type, fmds[i].getName()));
+                m = Reflection.findSetter(oid, fmds[i].getName(),
+                    fmds[i].getDeclaredType(), false);
+                if (m == null || m.getReturnType() != void.class)
+                    throw new MetaDataException(_loc.get("invalid-id",
+                        _type, fmds[i].getName()));
+            }
         }
     }
 
@@ -2046,7 +2013,7 @@ public class ClassMetaData
      */
     public FetchGroup[] getDeclaredFetchGroups() {
         if (_fgs == null)
-            _fgs = (_fgMap == null) ? new FetchGroup[0] : (FetchGroup[])
+            _fgs = (_fgMap == null) ? EMPTY_FETCH_GROUP_ARRAY : (FetchGroup[])
                 _fgMap.values().toArray(new FetchGroup[_fgMap.size()]); 
         return _fgs;
     }

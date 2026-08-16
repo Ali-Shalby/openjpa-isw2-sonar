@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -368,8 +371,8 @@ public class JDBCStoreManager
         if (!select(sel, mapping, subs, sm, null, fetch,
             JDBCFetchConfiguration.EAGER_JOIN, true, false))
             return null;
-
         sel.wherePrimaryKey(sm.getObjectId(), mapping, this);
+        sel.setExpectedResultCount(1, false);
         return sel.execute(this, fetch);
     }
 
@@ -385,7 +388,7 @@ public class JDBCStoreManager
             JDBCFetchConfiguration.EAGER_JOIN);
 
         Union union = _sql.newUnion(mappings.length);
-        union.setSingleResult(true);
+        union.setExpectedResultCount(1, false);
         if (fetch.getSubclassFetchMode(mapping) != fetch.EAGER_JOIN)
             union.abortUnion();
         union.select(new Union.Selector() {
@@ -756,8 +759,8 @@ public class JDBCStoreManager
     public Object load(ClassMapping mapping, JDBCFetchConfiguration fetch,
         BitSet exclude, Result result) throws SQLException {
         if (!mapping.isMapped())
-            throw new InvalidStateException(_loc
-                .get("virtual-mapping", mapping));
+            throw new InvalidStateException(_loc.get("virtual-mapping", 
+                mapping));
 
         // get the object id for the row; base class selects pk columns
         ClassMapping base = mapping;
@@ -972,7 +975,7 @@ public class JDBCStoreManager
         if (sm != null && sm.getPCState() != PCState.TRANSIENT
             && sm.getLoaded().get(fm.getIndex()))
             return false;
-        return fetch.requiresFetch(fm);
+        return fetch.requiresFetch(fm) == FetchConfiguration.FETCH_LOAD;
     }
 
     /**
@@ -1127,7 +1130,7 @@ public class JDBCStoreManager
             fms = subMappings[i].getDefinedFieldMappings();
             for (int j = 0; j < fms.length; j++) {
                 // make sure in one of configured fetch groups
-            	if (!fetch.requiresFetch(fms[j]) 
+            	if (fetch.requiresFetch(fms[j]) != FetchConfiguration.FETCH_LOAD
                     && ((!fms[j].isInDefaultFetchGroup() 
                     && fms[j].isDefaultFetchGroupExplicit())
                     || fms[j].supportsSelect(sel, sel.TYPE_TWO_PART, sm, this, 

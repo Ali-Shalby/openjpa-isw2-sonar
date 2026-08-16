@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -102,7 +105,7 @@ public class MappingTool
     private MappingRepository _repos = null;
     private SchemaGroup _schema = null;
     private SchemaTool _schemaTool = null;
-    private String _schemaAction = SchemaTool.ACTION_ADD;
+    private String _schemaActions = SchemaTool.ACTION_ADD;
     private boolean _readSchema = false;
     private boolean _pks = false;
     private boolean _fks = false;
@@ -159,20 +162,20 @@ public class MappingTool
 
     /**
      * The schema modification policy, or <code>none</code>. See the
-     * ACTION constants in {@link SchemaTool}. Defaults to
-     * {@link SchemaTool#ACTION_ADD}.
+     * ACTION constants in {@link SchemaTool}. May be a comma-separated
+     * list of values. Defaults to {@link SchemaTool#ACTION_ADD}.
      */
     public String getSchemaAction() {
-        return _schemaAction;
+        return _schemaActions;
     }
 
     /**
      * The schema modification policy, or <code>none</code>. See the
-     * ACTION constants in {@link SchemaTool}. Defaults to
-     * {@link SchemaTool#ACTION_ADD}.
+     * ACTION constants in {@link SchemaTool}. May be a comma-separated
+     * list of values. Defaults to {@link SchemaTool#ACTION_ADD}.
      */
     public void setSchemaAction(String schemaAction) {
-        _schemaAction = schemaAction;
+        _schemaActions = schemaAction;
     }
 
     /**
@@ -294,15 +297,6 @@ public class MappingTool
     /**
      * Return the schema tool to use for schema modification.
      */
-    public SchemaTool getSchemaTool() {
-        if (_schemaTool == null)
-            _schemaTool = newSchemaTool(_schemaAction);
-        return _schemaTool;
-    }
-
-    /**
-     * Return the schema tool to use for schema modification.
-     */
     private SchemaTool newSchemaTool(String action) {
         if (SCHEMA_ACTION_NONE.equals(action))
             action = null;
@@ -394,14 +388,14 @@ public class MappingTool
      */
     public SchemaGroup getSchemaGroup() {
         if (_schema == null) {
-            if (ACTION_BUILD_SCHEMA.equals(_action)) {
+            if (_action.indexOf(ACTION_BUILD_SCHEMA) != -1) {
                 DynamicSchemaFactory factory = new DynamicSchemaFactory();
                 factory.setConfiguration(_conf);
                 _schema = factory;
-            } else if (_readSchema
-                || SchemaTool.ACTION_RETAIN.equals(_schemaAction)
-                || SchemaTool.ACTION_REFRESH.equals(_schemaAction)) {
-                _schema = (SchemaGroup) getSchemaTool().getDBSchemaGroup().
+            } else if (_readSchema 
+                || _schemaActions.contains(SchemaTool.ACTION_RETAIN)
+                || _schemaActions.contains(SchemaTool.ACTION_REFRESH)) {
+                _schema = (SchemaGroup) newSchemaTool(null).getDBSchemaGroup().
                     clone();
             } else {
                 // with this we'll just read tables as different mappings
@@ -449,6 +443,10 @@ public class MappingTool
      * involves clearing the internal mapping repository.
      */
     public void record() {
+        record(null);
+    }
+    
+    private void record(MappingTool.Flags flags) {
         MappingRepository repos = getRepository();
         MetaDataFactory io = repos.getMetaDataFactory();
         ClassMapping[] mappings;
@@ -477,13 +475,25 @@ public class MappingTool
 
                 // now run the schematool as long as we're doing some schema
                 // action and the user doesn't just want an xml output
-                if (!SCHEMA_ACTION_NONE.equals(_schemaAction)
-                    && (_schemaWriter == null || (_schemaTool != null
-                    && _schemaTool.getWriter() != null))) {
-                    SchemaTool tool = getSchemaTool();
-                    tool.setSchemaGroup(getSchemaGroup());
-                    tool.run();
-                    tool.record();
+                String[] schemaActions = _schemaActions.split(",");
+                for (int i = 0; i < schemaActions.length; i++) {
+                    if (!SCHEMA_ACTION_NONE.equals(schemaActions[i])
+                        && (_schemaWriter == null || (_schemaTool != null
+                            && _schemaTool.getWriter() != null))) {
+                        SchemaTool tool = newSchemaTool(schemaActions[i]);
+
+                        // configure the tool with additional settings
+                        if (flags != null) {
+                            tool.setDropTables(flags.dropTables);
+                            tool.setDropSequences(flags.dropSequences);
+                            tool.setWriter(flags.sqlWriter);
+                            tool.setOpenJPATables(flags.openjpaTables);
+                        }
+
+                        tool.setSchemaGroup(getSchemaGroup());
+                        tool.run();
+                        tool.record();
+                    }
                 }
 
                 // xml output of schema?
@@ -716,8 +726,8 @@ public class MappingTool
         MappingRepository repos = getRepository();
         repos.setStrategyInstaller(new RuntimeStrategyInstaller(repos));
         if (getMapping(repos, cls, true) != null)
-            _flushSchema = !SCHEMA_ACTION_NONE.equals(_schemaAction)
-                && !SchemaTool.ACTION_ADD.equals(_schemaAction);
+            _flushSchema = !_schemaActions.contains(SCHEMA_ACTION_NONE)
+                && !_schemaActions.contains(SchemaTool.ACTION_ADD);
     }
 
     /**
@@ -761,7 +771,7 @@ public class MappingTool
         if (_dropCls == null)
             _dropCls = new HashSet();
         _dropCls.add(cls);
-        if (!SchemaTool.ACTION_DROP.equals(_schemaAction))
+        if (!_schemaActions.contains(SchemaTool.ACTION_DROP))
             return;
 
         MappingRepository repos = getRepository();
@@ -816,7 +826,7 @@ public class MappingTool
      * this option to write the planned schema to an XML document rather
      * than modify the data store.</li>
      * <li><i>-sqlFile/-sql &lt;stdout | output file or resource&gt;</i>: Use
-     * this option rather to write the planned schema changes as a SQL
+     * this option to write the planned schema changes as a SQL
      * script rather than modifying the data store.</li>
      * <li><i>-dropTables/-dt &lt;true/t | false/f&gt;</i>: Corresponds to the
      * same-named option in the {@link SchemaTool}.</li>
@@ -881,7 +891,8 @@ public class MappingTool
      * <ul>
      * <li>Refresh the mappings for given package, without dropping any
      * schema components:<br />
-     * <code>java org.apache.openjpa.jdbc.meta.MappingTool mypackage.jdo</code></li>
+     * <code>java org.apache.openjpa.jdbc.meta.MappingTool 
+     *      mypackage.jdo</code></li>
      * <li>Refresh the mappings for all persistent classes in the classpath,
      * dropping any unused columns and even tables:<br />
      * <code>java org.apache.openjpa.jdbc.meta.MappingTool -sa refresh
@@ -1044,13 +1055,6 @@ public class MappingTool
         tool.setIndexes(flags.indexes);
         tool.setSequences(flags.sequences || flags.dropSequences);
 
-        // make sure to do this after other settings so that other settings
-        // are passed on to schema tool
-        tool.getSchemaTool().setDropTables(flags.dropTables);
-        tool.getSchemaTool().setDropSequences(flags.dropSequences);
-        tool.getSchemaTool().setWriter(flags.sqlWriter);
-        tool.getSchemaTool().setOpenJPATables(flags.openjpaTables);
-
         // and run the action
         for (int i = 0; i < act.length; i++) {
             log.info(_loc.get("tool-running", act[i], flags.action));
@@ -1059,7 +1063,7 @@ public class MappingTool
             tool.run(act[i]);
         }
         log.info(_loc.get("tool-record"));
-        tool.record();
+        tool.record(flags);
         return true;
     }
 

@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -33,6 +36,7 @@ import javax.sql.DataSource;
 
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.Configurations;
+import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.MultiClassLoader;
@@ -291,8 +295,8 @@ public class PersistenceUnitInfoImpl
                     setNonJtaDataSourceName((String) val);
                 else
                     setNonJtaDataSource((DataSource) val);
-            } else if (key instanceof String && val instanceof String)
-                setProperty((String) key, (String) val);
+            } else
+                _props.put(key, val);
         }
     }
 
@@ -404,20 +408,14 @@ public class PersistenceUnitInfoImpl
             }
             metaFactoryProps.put("Resources", rsrcs.toString());
         }
+
+        // set persistent class locations as properties of metadata factory,
+        // combining them with any existing metadata factory props
         if (!metaFactoryProps.isEmpty()) {
-            // set persistent class locations as properties of metadata factory
-            String factory = (String) Configurations.getProperty
+            String key = ProductDerivations.getConfigurationKey
                 ("MetaDataFactory", map);
-            if (factory == null)
-                factory = Configurations.serializeProperties(metaFactoryProps);
-            else {
-                String clsName = Configurations.getClassName(factory);
-                metaFactoryProps.putAll(Configurations.parseProperties
-                    (Configurations.getProperties(factory)));
-                factory = Configurations.getPlugin(clsName,
-                    Configurations.serializeProperties(metaFactoryProps));
-            }
-            map.put("openjpa.MetaDataFactory", factory);
+            map.put(key, Configurations.combinePlugins((String) map.get(key),
+                Configurations.serializeProperties(metaFactoryProps)));
         }
         
         // always record provider name for product derivations to access

@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -28,6 +31,7 @@ import java.util.Set;
 import javax.persistence.EntityManagerFactory;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
+import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.kernel.AutoDetach;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.BrokerFactory;
@@ -38,7 +42,6 @@ import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.Value;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.OpenJPAException;
 import serp.util.Strings;
 
@@ -186,9 +189,11 @@ public class EntityManagerFactoryImpl
 
         Broker broker = _factory.newBroker(user, pass, managed, retainMode,
             false);
-        // we should allow the user to specify these settings in conf
-        // regardless of PersistenceContextType
-        broker.setAutoDetach(AutoDetach.DETACH_CLOSE);
+            
+        // add autodetach for close and rollback conditions to the configuration
+        broker.setAutoDetach(AutoDetach.DETACH_CLOSE, true);
+        broker.setAutoDetach(AutoDetach.DETACH_ROLLBACK, true);
+        
         broker.setDetachedNew(false);
         OpenJPAEntityManager em = newEntityManagerImpl(broker);
 
@@ -211,7 +216,7 @@ public class EntityManagerFactoryImpl
                 continue; 
             prop = prop.substring(prefix.length());
             try {
-                setter = ImplHelper.getSetter(em.getClass(), prop);
+                setter = Reflection.findSetter(em.getClass(), prop, true);
             } catch (OpenJPAException ke) {
                 if (errs == null)
                     errs = new LinkedList<RuntimeException>();
@@ -228,11 +233,13 @@ public class EntityManagerFactoryImpl
                         val = Strings.parse((String) val,
                             setter.getParameterTypes()[0]);
                 }
-                setter.invoke(em, new Object[]{ val });
-            } catch (Exception e) {
+                Reflection.set(em, setter, val);
+            } catch (Throwable t) {
+                while (t.getCause() != null)
+                    t = t.getCause();
                 ArgumentException err = new ArgumentException(_loc.get
                     ("bad-em-prop", prop, entry.getValue()),
-                    new Throwable[]{ e }, null, true);
+                    new Throwable[]{ t }, null, true);
                 if (errs == null)
                     errs = new LinkedList<RuntimeException>();
                 errs.add(err);

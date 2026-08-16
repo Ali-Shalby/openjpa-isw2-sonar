@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -49,6 +52,15 @@ public class MySQLDictionary
      * Whether the driver automatically deserializes blobs.
      */
     public boolean driverDeserializesBlobs = true;
+
+    /**
+     * Whether to inline multi-table bulk-delete operations into MySQL's 
+     * combined <code>DELETE FROM foo, bar, baz</code> syntax. 
+     * Defaults to false, since this may fail in the presence of InnoDB tables
+     * with foreign keys.
+     * @see http://dev.mysql.com/doc/refman/5.0/en/delete.html
+     */
+    public boolean optimizeMultiTableDeletes = false;
 
     public MySQLDictionary() {
         platform = "MySQL";
@@ -92,6 +104,9 @@ public class MySQLDictionary
             "LOAD", "MEDIUMINT", "OPTION", "OUTFILE", "REPLACE",
             "SET", "STARTING", "TEXT", "UNSIGNED", "ZEROFILL",
         }));
+
+        // MySQL requires double-escape for strings
+        searchStringEscape = "\\\\";
     }
 
     public String[] getCreateTableSQL(Table table) {
@@ -129,6 +144,22 @@ public class MySQLDictionary
         if (fk.getColumns().length > 1)
             return null;
         return super.getForeignKeyConstraintSQL(fk);
+    }
+    
+    public String[] getDeleteTableContentsSQL(Table[] tables) {
+        // mysql >= 4 supports more-optimal delete syntax
+        if (!optimizeMultiTableDeletes)
+            return super.getDeleteTableContentsSQL(tables);
+        else {
+            StringBuffer buf = new StringBuffer(tables.length * 8);
+            buf.append("DELETE FROM ");
+            for (int i = 0; i < tables.length; i++) {
+                buf.append(tables[i].getFullName());
+                if (i < tables.length - 1)
+                    buf.append(", ");
+            }
+            return new String[] { buf.toString() };
+        }
     }
 
     protected void appendSelectRange(SQLBuffer buf, long start, long end) {

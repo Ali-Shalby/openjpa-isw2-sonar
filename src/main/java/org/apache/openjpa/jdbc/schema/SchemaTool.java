@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -27,6 +30,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Set;
 import javax.sql.DataSource;
@@ -65,6 +69,8 @@ public class SchemaTool {
     public static final String ACTION_DROPDB = "dropDB";
     public static final String ACTION_IMPORT = "import";
     public static final String ACTION_EXPORT = "export";
+    public static final String ACTION_DELETE_TABLE_CONTENTS = 
+        "deleteTableContents";
 
     public static final String[] ACTIONS = new String[]{
         ACTION_ADD,
@@ -77,6 +83,7 @@ public class SchemaTool {
         ACTION_DROPDB,
         ACTION_IMPORT,
         ACTION_EXPORT,
+        ACTION_DELETE_TABLE_CONTENTS,
     };
 
     private static final Localizer _loc = Localizer.forPackage
@@ -324,6 +331,8 @@ public class SchemaTool {
             createDB();
         else if (ACTION_DROPDB.equals(_action))
             dropDB();
+        else if (ACTION_DELETE_TABLE_CONTENTS.equals(_action))
+            deleteTableContents();
     }
 
     /**
@@ -397,6 +406,26 @@ public class SchemaTool {
     void dropDB()
         throws SQLException {
         retain(getDBSchemaGroup(true), new SchemaGroup(), true, true);
+    }
+
+    /**
+     * Issue DELETE statement against all known tables.
+     */
+    private void deleteTableContents() 
+        throws SQLException {
+        SchemaGroup group = getSchemaGroup();
+        Schema[] schemas = group.getSchemas();
+        Collection tables = new LinkedHashSet();
+        for (int i = 0; i < schemas.length; i++) {
+            Table[] ts = schemas[i].getTables();
+            for (int j = 0; j < ts.length; j++)
+                tables.add(ts[j]);
+        }
+        Table[] tableArray = (Table[]) tables.toArray(new Table[tables.size()]);
+        String[] sql = _conf.getDBDictionaryInstance()
+            .getDeleteTableContentsSQL(tableArray);
+        if (!executeSQL(sql))
+            _log.warn(_loc.get("delete-table-contents"));
     }
 
     /**
@@ -534,6 +563,27 @@ public class SchemaTool {
             }
         }
 
+        // Unique Constraints on group of columns
+        Unique[] uniques;
+        for (int i = 0; i < schemas.length; i++) {
+            tabs = schemas[i].getTables();
+            for (int j = 0; j < tabs.length; j++) {
+                // create unique constraints only on new tables 
+                if (!newTables.contains(tabs[j]))
+                    continue;
+
+                uniques = tabs[j].getUniques();
+                if (uniques == null || uniques.length == 0)
+                    continue;
+                dbTable = db.findTable(tabs[j]);
+                if (dbTable == null)
+                    continue;
+                for (int k = 0; k < uniques.length; k++) {
+                    dbTable.importUnique(uniques[k]);
+                }
+            }
+        }
+        
         // foreign keys
         ForeignKey[] fks;
         ForeignKey fk;
@@ -1233,7 +1283,8 @@ public class SchemaTool {
      * <code>false</code> to prevent writing the schema changes to the
      * current {@link SchemaFactory}.</li>
      * </ul>
-     *  The various actions are as follows.
+     *  Actions can be composed in a comma-separated list. The various actions 
+     *  are as follows.
      * <ul>
      * <li><i>add</i>: Bring the schema up-to-date with the latest
      * changes to the schema XML data by adding tables, columns,
@@ -1255,6 +1306,8 @@ public class SchemaTool {
      * <code>file</code> option, or to stdout if no file is given.</li>
      * <li><i>dropDB</i>: Execute SQL to drop the current database. This
      * action implies <code>dropTables</code>.</li>
+     * <li><i>deleteTableContents</i>: Execute SQL to delete all rows from 
+     * all tables that OpenJPA knows about.</li>
      * <li><i>import</i>: Import the given XML schema definition into the
      * current {@link SchemaFactory}.</li>
      * <li><i>export</i>: Export the current {@link SchemaFactory}'s recorded
@@ -1269,6 +1322,9 @@ public class SchemaTool {
      * <li>Drop the current database schema:<br />
      * <code>java org.apache.openjpa.jdbc.schema.SchemaTool 
      * -a dropDB</code></li>
+     * <li>Refresh the schema and delete all records in all tables:<br />
+     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool 
+     * -a refresh,deleteTableContents</code></li>
      * <li>Create a schema based on an XML schema definition file:<br />
      * <code>java org.apache.openjpa.jdbc.schema.SchemaTool 
      * myschema.xml</code></li>
@@ -1316,12 +1372,14 @@ public class SchemaTool {
         flags.sequences = opts.removeBooleanProperty
             ("sequences", "sq", flags.sequences);
         flags.record = opts.removeBooleanProperty("record", "r", flags.record);
-        flags.action = opts.removeProperty("action", "a", flags.action);
         String fileName = opts.removeProperty("file", "f", null);
         String schemas = opts.removeProperty("s");
         if (schemas != null)
             opts.setProperty("schemas", schemas);
 
+        String[] actions = opts.removeProperty("action", "a", flags.action)
+            .split(",");
+        
         // setup a configuration instance with cmd-line info
         Configurations.populateConfiguration(conf, opts);
 
@@ -1330,7 +1388,13 @@ public class SchemaTool {
             getClassLoader(SchemaTool.class, null);
         flags.writer = Files.getWriter(fileName, loader);
 
-        return run(conf, args, flags, loader);
+        boolean returnValue = true;
+        for (int i = 0; i < actions.length; i++) {
+            flags.action = actions[i];
+            returnValue &= run(conf, args, flags, loader);
+        }
+        
+        return returnValue;
     }
 
     /**
@@ -1370,7 +1434,8 @@ public class SchemaTool {
         if (args.length == 0
             && !ACTION_CREATEDB.equals(flags.action)
             && !ACTION_DROPDB.equals(flags.action)
-            && !ACTION_EXPORT.equals(flags.action))
+            && !ACTION_EXPORT.equals(flags.action)
+            && !ACTION_DELETE_TABLE_CONTENTS.equals(flags.action))
             return false;
 
         // parse in the arguments

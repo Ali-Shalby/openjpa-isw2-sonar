@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.persistence;
 
@@ -95,6 +98,7 @@ public class EntityManagerImpl
 
     public Interaction createInteraction()
         throws ResourceException {
+        assertNotCloseInvoked();
         return _broker.createInteraction();
     }
 
@@ -117,10 +121,11 @@ public class EntityManagerImpl
     }
 
     public FetchPlan getFetchPlan() {
+        assertNotCloseInvoked();
         _broker.lock();
         try {
             if (_fetch == null)
-                _fetch = _emf.toFetchPlan(_broker, 
+                _fetch = _emf.toFetchPlan(_broker,
                     _broker.getFetchConfiguration());
             return _fetch;
         } finally {
@@ -145,6 +150,7 @@ public class EntityManagerImpl
     }
 
     public void setSyncWithManagedTransactions(boolean sync) {
+        assertNotCloseInvoked();
         _broker.setSyncWithManagedTransactions(sync);
     }
 
@@ -165,6 +171,7 @@ public class EntityManagerImpl
     }
 
     public void setMultithreaded(boolean multithreaded) {
+        assertNotCloseInvoked();
         _broker.setMultithreaded(multithreaded);
     }
 
@@ -173,6 +180,7 @@ public class EntityManagerImpl
     }
 
     public void setIgnoreChanges(boolean val) {
+        assertNotCloseInvoked();
         _broker.setIgnoreChanges(val);
     }
 
@@ -181,6 +189,7 @@ public class EntityManagerImpl
     }
 
     public void setNontransactionalRead(boolean val) {
+        assertNotCloseInvoked();
         _broker.setNontransactionalRead(val);
     }
 
@@ -189,6 +198,7 @@ public class EntityManagerImpl
     }
 
     public void setNontransactionalWrite(boolean val) {
+        assertNotCloseInvoked();
         _broker.setNontransactionalWrite(val);
     }
 
@@ -197,6 +207,7 @@ public class EntityManagerImpl
     }
 
     public void setOptimistic(boolean val) {
+        assertNotCloseInvoked();
         _broker.setOptimistic(val);
     }
 
@@ -205,6 +216,7 @@ public class EntityManagerImpl
     }
 
     public void setRestoreState(int val) {
+        assertNotCloseInvoked();
         _broker.setRestoreState(val);
     }
 
@@ -213,6 +225,7 @@ public class EntityManagerImpl
     }
 
     public void setRetainState(boolean val) {
+        assertNotCloseInvoked();
         _broker.setRetainState(val);
     }
 
@@ -221,6 +234,7 @@ public class EntityManagerImpl
     }
 
     public void setAutoClear(int val) {
+        assertNotCloseInvoked();
         _broker.setAutoClear(val);
     }
 
@@ -229,6 +243,7 @@ public class EntityManagerImpl
     }
 
     public void setDetachState(int mode) {
+        assertNotCloseInvoked();
         _broker.setDetachState(mode);
     }
 
@@ -237,10 +252,12 @@ public class EntityManagerImpl
     }
 
     public void setAutoDetach(int flags) {
+        assertNotCloseInvoked();
         _broker.setAutoDetach(flags);
     }
 
     public void setAutoDetach(int flag, boolean on) {
+        assertNotCloseInvoked();
         _broker.setAutoDetach(flag, on);
     }
 
@@ -249,6 +266,7 @@ public class EntityManagerImpl
     }
 
     public void setEvictFromStoreCache(boolean evict) {
+        assertNotCloseInvoked();
         _broker.setEvictFromDataCache(evict);
     }
 
@@ -257,6 +275,7 @@ public class EntityManagerImpl
     }
 
     public void setPopulateStoreCache(boolean cache) {
+        assertNotCloseInvoked();
         _broker.setPopulateDataCache(cache);
     }
 
@@ -265,6 +284,7 @@ public class EntityManagerImpl
     }
 
     public void setLargeTransaction(boolean largeTransaction) {
+        assertNotCloseInvoked();
         _broker.setLargeTransaction(largeTransaction);
     }
 
@@ -273,14 +293,17 @@ public class EntityManagerImpl
     }
 
     public Object putUserObject(Object key, Object val) {
+        assertNotCloseInvoked();
         return _broker.putUserObject(key, val);
     }
 
     public void addTransactionListener(Object listener) {
+        assertNotCloseInvoked();
         _broker.addTransactionListener(listener);
     }
 
     public void removeTransactionListener(Object listener) {
+        assertNotCloseInvoked();
         _broker.removeTransactionListener(listener);
     }
 
@@ -289,14 +312,17 @@ public class EntityManagerImpl
     }
 
     public void setTransactionListenerCallbackMode(int mode) {
+        assertNotCloseInvoked();
         _broker.setTransactionListenerCallbackMode(mode);
     }
 
     public void addLifecycleListener(Object listener, Class... classes) {
+        assertNotCloseInvoked();
         _broker.addLifecycleListener(listener, classes);
     }
 
     public void removeLifecycleListener(Object listener) {
+        assertNotCloseInvoked();
         _broker.removeLifecycleListener(listener);
     }
 
@@ -305,17 +331,20 @@ public class EntityManagerImpl
     }
 
     public void setLifecycleListenerCallbackMode(int mode) {
+        assertNotCloseInvoked();
         _broker.setLifecycleListenerCallbackMode(mode);
     }
 
     @SuppressWarnings("unchecked")
     public <T> T getReference(Class<T> cls, Object oid) {
+        assertNotCloseInvoked();
         oid = _broker.newObjectId(cls, oid);
         return (T) _broker.find(oid, false, this);
     }
 
     @SuppressWarnings("unchecked")
     public <T> T find(Class<T> cls, Object oid) {
+        assertNotCloseInvoked();
         oid = _broker.newObjectId(cls, oid);
         return (T) _broker.find(oid, true, this);
     }
@@ -330,6 +359,7 @@ public class EntityManagerImpl
 
     @SuppressWarnings("unchecked")
     public <T> Collection<T> findAll(final Class<T> cls, Collection oids) {
+        assertNotCloseInvoked();
         Object[] objs = _broker.findAll(oids, true, new FindCallbacks() {
             public Object processArgument(Object oid) {
                 return _broker.newObjectId(cls, oid);
@@ -344,15 +374,16 @@ public class EntityManagerImpl
 
     @SuppressWarnings("unchecked")
     public <T> T findCached(Class<T> cls, Object oid) {
+        assertNotCloseInvoked();
         return (T) _broker.findCached(_broker.newObjectId(cls, oid), this);
     }
 
     public Class getObjectIdClass(Class cls) {
+        assertNotCloseInvoked();
         if (cls == null)
             return null;
-        return OpenJPAPersistence
-            .fromOpenJPAObjectIdClass(_broker.getObjectIdType
-                (cls));
+        return OpenJPAPersistence.fromOpenJPAObjectIdClass
+                (_broker.getObjectIdType(cls));
     }
 
     public EntityTransaction getTransaction() {
@@ -363,6 +394,7 @@ public class EntityManagerImpl
     }
 
     public void joinTransaction() {
+        assertNotCloseInvoked();
         if (!_broker.syncWithManagedTransaction())
             throw new TransactionRequiredException(_loc.get
                 ("no-managed-trans"), null, null, false);
@@ -401,6 +433,14 @@ public class EntityManagerImpl
         _broker.rollbackAndResume();
     }
 
+    public Throwable getRollbackCause() {
+        if (!isActive())
+            throw new IllegalStateException(_loc.get("no-transaction")
+                .getMessage());
+
+        return _broker.getRollbackCause();
+    }
+
     public boolean getRollbackOnly() {
         if (!isActive())
             throw new IllegalStateException(_loc.get("no-transaction")
@@ -413,36 +453,49 @@ public class EntityManagerImpl
         _broker.setRollbackOnly();
     }
 
+    public void setRollbackOnly(Throwable cause) {
+        _broker.setRollbackOnly(cause);
+    }
+
     public void setSavepoint(String name) {
+        assertNotCloseInvoked();
         _broker.setSavepoint(name);
     }
 
     public void rollbackToSavepoint() {
+        assertNotCloseInvoked();
         _broker.rollbackToSavepoint();
     }
 
     public void rollbackToSavepoint(String name) {
+        assertNotCloseInvoked();
         _broker.rollbackToSavepoint(name);
     }
 
     public void releaseSavepoint() {
+        assertNotCloseInvoked();
         _broker.releaseSavepoint();
     }
 
     public void releaseSavepoint(String name) {
+        assertNotCloseInvoked();
         _broker.releaseSavepoint(name);
     }
 
     public void flush() {
+        assertNotCloseInvoked();
+        _broker.assertOpen();
         _broker.assertActiveTransaction();
         _broker.flush();
     }
 
     public void preFlush() {
+        assertNotCloseInvoked();
         _broker.preFlush();
     }
 
     public void validateChanges() {
+        assertNotCloseInvoked();
         _broker.validateChanges();
     }
 
@@ -459,6 +512,7 @@ public class EntityManagerImpl
     }
 
     public boolean contains(Object entity) {
+        assertNotCloseInvoked();
         if (entity == null)
             return false;
         OpenJPAStateManager sm = _broker.getStateManager(entity);
@@ -483,6 +537,7 @@ public class EntityManagerImpl
     }
 
     public void persist(Object entity) {
+        assertNotCloseInvoked();
         _broker.persist(entity, this);
     }
 
@@ -491,10 +546,12 @@ public class EntityManagerImpl
     }
 
     public void persistAll(Collection entities) {
+        assertNotCloseInvoked();
         _broker.persistAll(entities, this);
     }
 
     public void remove(Object entity) {
+        assertNotCloseInvoked();
         _broker.delete(entity, this);
     }
 
@@ -503,14 +560,17 @@ public class EntityManagerImpl
     }
 
     public void removeAll(Collection entities) {
+        assertNotCloseInvoked();
         _broker.deleteAll(entities, this);
     }
 
     public void release(Object entity) {
+        assertNotCloseInvoked();
         _broker.release(entity, this);
     }
 
     public void releaseAll(Collection entities) {
+        assertNotCloseInvoked();
         _broker.releaseAll(entities, this);
     }
 
@@ -519,16 +579,19 @@ public class EntityManagerImpl
     }
 
     public void refresh(Object entity) {
+        assertNotCloseInvoked();
         _broker.assertWriteOperation();
         _broker.refresh(entity, this);
     }
 
     public void refreshAll() {
+        assertNotCloseInvoked();
         _broker.assertWriteOperation();
         _broker.refreshAll(_broker.getTransactionalObjects(), this);
     }
 
     public void refreshAll(Collection entities) {
+        assertNotCloseInvoked();
         _broker.assertWriteOperation();
         _broker.refreshAll(entities, this);
     }
@@ -538,10 +601,12 @@ public class EntityManagerImpl
     }
 
     public void retrieve(Object entity) {
+        assertNotCloseInvoked();
         _broker.retrieve(entity, true, this);
     }
 
     public void retrieveAll(Collection entities) {
+        assertNotCloseInvoked();
         _broker.retrieveAll(entities, true, this);
     }
 
@@ -550,10 +615,12 @@ public class EntityManagerImpl
     }
 
     public void evict(Object entity) {
+        assertNotCloseInvoked();
         _broker.evict(entity, this);
     }
 
     public void evictAll(Collection entities) {
+        assertNotCloseInvoked();
         _broker.evictAll(entities, this);
     }
 
@@ -562,32 +629,39 @@ public class EntityManagerImpl
     }
 
     public void evictAll() {
+        assertNotCloseInvoked();
         _broker.evictAll(this);
     }
 
     public void evictAll(Class cls) {
+        assertNotCloseInvoked();
         _broker.evictAll(_broker.newExtent(cls, true), this);
     }
 
     public void evictAll(Extent extent) {
+        assertNotCloseInvoked();
         _broker.evictAll(extent.getDelegate(), this);
     }
 
     @SuppressWarnings("unchecked")
     public <T> T detach(T entity) {
+        assertNotCloseInvoked();
         return (T) _broker.detach(entity, this);
     }
 
     public Object[] detachAll(Object... entities) {
+        assertNotCloseInvoked();
         return _broker.detachAll(Arrays.asList(entities), this);
     }
 
     public Collection detachAll(Collection entities) {
+        assertNotCloseInvoked();
         return Arrays.asList(_broker.detachAll(entities, this));
     }
 
     @SuppressWarnings("unchecked")
     public <T> T merge(T entity) {
+        assertNotCloseInvoked();
         return (T) _broker.attach(entity, true, this);
     }
 
@@ -598,34 +672,42 @@ public class EntityManagerImpl
     }
 
     public Collection mergeAll(Collection entities) {
+        assertNotCloseInvoked();
         return Arrays.asList(_broker.attachAll(entities, true, this));
     }
 
     public void transactional(Object entity, boolean updateVersion) {
+        assertNotCloseInvoked();
         _broker.transactional(entity, updateVersion, this);
     }
 
     public void transactionalAll(Collection objs, boolean updateVersion) {
+        assertNotCloseInvoked();
         _broker.transactionalAll(objs, updateVersion, this);
     }
 
     public void transactionalAll(Object[] objs, boolean updateVersion) {
+        assertNotCloseInvoked();
         _broker.transactionalAll(Arrays.asList(objs), updateVersion, this);
     }
 
     public void nontransactional(Object entity) {
+        assertNotCloseInvoked();
         _broker.nontransactional(entity, this);
     }
 
     public void nontransactionalAll(Collection objs) {
+        assertNotCloseInvoked();
         _broker.nontransactionalAll(objs, this);
     }
 
     public void nontransactionalAll(Object[] objs) {
+        assertNotCloseInvoked();
         _broker.nontransactionalAll(Arrays.asList(objs), this);
     }
 
     public Generator getNamedGenerator(String name) {
+        assertNotCloseInvoked();
         try {
             SequenceMetaData meta = _broker.getConfiguration().
                 getMetaDataRepositoryInstance().getSequenceMetaData(name,
@@ -638,6 +720,7 @@ public class EntityManagerImpl
     }
 
     public Generator getIdGenerator(Class forClass) {
+        assertNotCloseInvoked();
         try {
             ClassMetaData meta = _broker.getConfiguration().
                 getMetaDataRepositoryInstance().getMetaData(forClass,
@@ -651,6 +734,7 @@ public class EntityManagerImpl
     }
 
     public Generator getFieldGenerator(Class forClass, String fieldName) {
+        assertNotCloseInvoked();
         try {
             ClassMetaData meta = _broker.getConfiguration().
                 getMetaDataRepositoryInstance().getMetaData(forClass,
@@ -669,6 +753,7 @@ public class EntityManagerImpl
     }
 
     public <T> Extent<T> createExtent(Class<T> cls, boolean subclasses) {
+        assertNotCloseInvoked();
         return new ExtentImpl<T>(this, _broker.newExtent(cls, subclasses));
     }
 
@@ -677,18 +762,22 @@ public class EntityManagerImpl
     }
 
     public OpenJPAQuery createQuery(String language, String query) {
+        assertNotCloseInvoked();
         return new QueryImpl(this, _broker.newQuery(language, query));
     }
 
     public OpenJPAQuery createQuery(Query query) {
         if (query == null)
             return createQuery((String) null);
+        assertNotCloseInvoked();
         org.apache.openjpa.kernel.Query q = ((QueryImpl) query).getDelegate();
         return new QueryImpl(this, _broker.newQuery(q.getLanguage(),
             q));
     }
 
     public OpenJPAQuery createNamedQuery(String name) {
+        assertNotCloseInvoked();
+        _broker.assertOpen();
         try {
             QueryMetaData meta = _broker.getConfiguration().
                 getMetaDataRepositoryInstance().getQueryMetaData(null, name,
@@ -719,6 +808,7 @@ public class EntityManagerImpl
     }
 
     public OpenJPAQuery createNativeQuery(String query, String mappingName) {
+        assertNotCloseInvoked();
         validateSQL(query);
         org.apache.openjpa.kernel.Query kernelQuery = _broker.newQuery(
             QueryLanguages.LANG_SQL, query);
@@ -735,11 +825,15 @@ public class EntityManagerImpl
     }
 
     public void setFlushMode(FlushModeType flushMode) {
+        assertNotCloseInvoked();
+        _broker.assertOpen();
         _broker.getFetchConfiguration().setFlushBeforeQueries
             (toFlushBeforeQueries(flushMode));
     }
 
     public FlushModeType getFlushMode() {
+        assertNotCloseInvoked();
+        _broker.assertOpen();
         return fromFlushBeforeQueries(_broker.getFetchConfiguration().
             getFlushBeforeQueries());
     }
@@ -773,34 +867,43 @@ public class EntityManagerImpl
     }
 
     public void clear() {
-        _broker.detachAll(this);
+        assertNotCloseInvoked();
+        _broker.detachAll(this, false);
     }
 
     public Object getDelegate() {
+        _broker.assertOpen();
+        assertNotCloseInvoked();
         return this;
     }
 
     public LockModeType getLockMode(Object entity) {
+        assertNotCloseInvoked();
         return fromLockLevel(_broker.getLockLevel(entity));
     }
 
     public void lock(Object entity, LockModeType mode) {
+        assertNotCloseInvoked();
         _broker.lock(entity, toLockLevel(mode), -1, this);
     }
 
     public void lock(Object entity) {
+        assertNotCloseInvoked();
         _broker.lock(entity, this);
     }
 
     public void lock(Object entity, LockModeType mode, int timeout) {
+        assertNotCloseInvoked();
         _broker.lock(entity, toLockLevel(mode), timeout, this);
     }
 
     public void lockAll(Collection entities) {
+        assertNotCloseInvoked();
         _broker.lockAll(entities, this);
     }
 
     public void lockAll(Collection entities, LockModeType mode, int timeout) {
+        assertNotCloseInvoked();
         _broker.lockAll(entities, toLockLevel(mode), timeout, this);
     }
 
@@ -865,10 +968,12 @@ public class EntityManagerImpl
     }
 
     public void setOrderDirtyObjects(boolean order) {
+        assertNotCloseInvoked();
         _broker.setOrderDirtyObjects(order);
     }
 
     public void dirtyClass(Class cls) {
+        assertNotCloseInvoked();
         _broker.dirtyType(cls);
     }
 
@@ -888,18 +993,21 @@ public class EntityManagerImpl
     }
 
     public <T> T createInstance(Class<T> cls) {
+        assertNotCloseInvoked();
         return (T) _broker.newInstance(cls);
     }
 
     public void close() {
+        assertNotCloseInvoked();
         _broker.close();
     }
 
     public boolean isOpen() {
-        return !_broker.isClosed();
+        return !_broker.isCloseInvoked();
     }
 
     public void dirty(Object o, String field) {
+        assertNotCloseInvoked();
         OpenJPAStateManager sm = _broker.getStateManager(o);
         try {
             if (sm != null)
@@ -910,35 +1018,55 @@ public class EntityManagerImpl
     }
 
     public Object getObjectId(Object o) {
+        assertNotCloseInvoked();
         return OpenJPAPersistence.fromOpenJPAObjectId(_broker.getObjectId(o));
     }
 
     public boolean isDirty(Object o) {
+        assertNotCloseInvoked();
         return _broker.isDirty(o);
     }
 
     public boolean isTransactional(Object o) {
+        assertNotCloseInvoked();
         return _broker.isTransactional(o);
     }
 
     public boolean isPersistent(Object o) {
+        assertNotCloseInvoked();
         return _broker.isPersistent(o);
     }
 
     public boolean isNewlyPersistent(Object o) {
+        assertNotCloseInvoked();
         return _broker.isNew(o);
     }
 
     public boolean isRemoved(Object o) {
+        assertNotCloseInvoked();
         return _broker.isDeleted(o);
     }
 
     public boolean isDetached(Object entity) {
+        assertNotCloseInvoked();
         return _broker.isDetached(entity);
     }
 
     public Object getVersion(Object o) {
+        assertNotCloseInvoked();
         return _broker.getVersion(o);
+    }
+
+    /**
+     * Throw appropriate exception if close has been invoked but the broker
+     * is still open.  We test only for this because if the broker is already
+     * closed, it will throw its own more informative exception when we 
+     * delegate the pending operation to it.
+     */
+    void assertNotCloseInvoked() {
+        if (!_broker.isClosed() && _broker.isCloseInvoked())
+            throw new InvalidStateException(_loc.get("close-invoked"), null,
+                null, true);
     }
 
     ////////////////////////////////
@@ -998,5 +1126,5 @@ public class EntityManagerImpl
         if (!(other instanceof EntityManagerImpl))
             return false;
         return _broker.equals(((EntityManagerImpl) other)._broker);
-	}
+    }
 }

@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.util;
 
@@ -26,7 +29,6 @@ import java.util.Set;
 import org.apache.commons.collections.Predicate;
 import org.apache.commons.collections.iterators.FilterIterator;
 import org.apache.commons.collections.iterators.IteratorChain;
-import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.lib.util.Localizer;
@@ -65,10 +67,9 @@ public abstract class AbstractLRSProxyCollection
      * restrictions
      * @param ordered true if this collection is ordered
      */
-    public AbstractLRSProxyCollection(Class elementType, boolean ordered,
-        OpenJPAConfiguration conf) {
+    public AbstractLRSProxyCollection(Class elementType, boolean ordered) {
         _elementType = elementType;
-        _ct = new CollectionChangeTrackerImpl(this, false, ordered, conf);
+        _ct = new CollectionChangeTrackerImpl(this, false, ordered);
         _ct.setAutoOff(false);
     }
 
@@ -109,13 +110,13 @@ public abstract class AbstractLRSProxyCollection
 
     public boolean add(Object o) {
         Proxies.assertAllowedType(o, _elementType);
-        Proxies.dirty(this);
+        Proxies.dirty(this, false);
         _ct.added(o);
         return true;
     }
 
     public boolean addAll(Collection all) {
-        Proxies.dirty(this);
+        Proxies.dirty(this, false);
         boolean added = false;
         Object add;
         for (Iterator itr = all.iterator(); itr.hasNext();) {
@@ -130,14 +131,14 @@ public abstract class AbstractLRSProxyCollection
     public boolean remove(Object o) {
         if (!contains(o))
             return false;
-        Proxies.dirty(this);
+        Proxies.dirty(this, false);
         Proxies.removed(this, o, false);
         _ct.removed(o);
         return true;
     }
 
     public boolean removeAll(Collection all) {
-        Proxies.dirty(this);
+        Proxies.dirty(this, false);
         boolean removed = false;
         Object rem;
         for (Iterator itr = all.iterator(); itr.hasNext();) {
@@ -157,7 +158,7 @@ public abstract class AbstractLRSProxyCollection
             return true;
         }
 
-        Proxies.dirty(this);
+        Proxies.dirty(this, false);
         Itr itr = (Itr) iterator();
         try {
             boolean removed = false;
@@ -177,7 +178,7 @@ public abstract class AbstractLRSProxyCollection
     }
 
     public void clear() {
-        Proxies.dirty(this);
+        Proxies.dirty(this, false);
         Itr itr = (Itr) iterator();
         try {
             Object rem;
@@ -394,7 +395,7 @@ public abstract class AbstractLRSProxyCollection
         public void remove() {
             if (_state == CLOSED || _last == null)
                 throw new NoSuchElementException();
-            Proxies.dirty(AbstractLRSProxyCollection.this);
+            Proxies.dirty(AbstractLRSProxyCollection.this, false);
             _ct.removed(_last);
             Proxies.removed(AbstractLRSProxyCollection.this, _last, false);
             _last = null;

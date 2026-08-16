@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.meta;
 
@@ -304,12 +307,12 @@ public class MetaDataRepository
             return null;
 
         // check cache
-        processRegisteredClasses();
+        processRegisteredClasses(envLoader);
         List classList = (List) _aliases.get(alias);
 
         // multiple classes may have been defined with the same alias: we
         // will filter by checking against the current list of the
-        // persistent types and filted based on which classes are loadable
+        // persistent types and filter based on which classes are loadable
         // via the current environment's ClassLoader
         Set pcNames = getPersistentTypeNames(false, envLoader);
         Class cls = null;
@@ -322,8 +325,8 @@ public class MetaDataRepository
 
                 // if we have specified a list of persistent clases,
                 // also check to ensure that the class is in that list
-                if (pcNames == null || pcNames.size() == 0 ||
-                    pcNames.contains(nc.getName())) {
+                if (pcNames == null || pcNames.size() == 0 
+                    || pcNames.contains(nc.getName())) {
                     cls = nc;
                     if (!classList.contains(cls))
                         classList.add(cls);
@@ -343,7 +346,7 @@ public class MetaDataRepository
         if (_aliases.containsKey(alias)) {
             if (mustExist)
                 throw new MetaDataException(_loc.get("no-alias-meta", alias,
-                    _aliases));
+                    _aliases.toString()));
             return null;
         }
 
@@ -375,7 +378,7 @@ public class MetaDataRepository
         // dev time so that user can manipulate persistent classes he's writing
         // before adding them to the list
         if ((_validate & VALIDATE_RUNTIME) != 0) {
-            Set pcNames = _factory.getPersistentTypeNames(false, envLoader);
+            Set pcNames = getPersistentTypeNames(false, envLoader);
             if (pcNames != null && !pcNames.contains(cls.getName()))
                 return meta;
         }
@@ -920,7 +923,7 @@ public class MetaDataRepository
         boolean mustExist) {
         if (oid == null && mustExist)
             throw new MetaDataException(_loc.get("no-oid-meta", oid, "?",
-                _oids));
+                _oids.toString()));
         if (oid == null)
             return null;
 
@@ -930,7 +933,7 @@ public class MetaDataRepository
         }
 
         // check cache
-        processRegisteredClasses();
+        processRegisteredClasses(envLoader);
         Class cls = (Class) _oids.get(oid.getClass());
         if (cls != null)
             return getMetaData(cls, envLoader, mustExist);
@@ -946,7 +949,7 @@ public class MetaDataRepository
         // if still not match, register any classes that look similar to the
         // oid class and check again
         resolveIdentityClass(oid);
-        if (processRegisteredClasses().length > 0) {
+        if (processRegisteredClasses(envLoader).length > 0) {
             cls = (Class) _oids.get(oid.getClass());
             if (cls != null)
                 return getMetaData(cls, envLoader, mustExist);
@@ -958,7 +961,7 @@ public class MetaDataRepository
         if (!mustExist)
             return null;
         throw new MetaDataException(_loc.get("no-oid-meta", oid,
-            oid.getClass(), _oids), oid);
+            oid.getClass(), _oids)).setFailedObject(oid);
     }
 
     /**
@@ -1201,7 +1204,7 @@ public class MetaDataRepository
      */
     public synchronized Collection loadPersistentTypes(boolean devpath,
         ClassLoader envLoader) {
-        Set names = _factory.getPersistentTypeNames(devpath, envLoader);
+        Set names = getPersistentTypeNames(devpath, envLoader);
         if (names == null || names.isEmpty())
             return Collections.EMPTY_LIST;
 
@@ -1232,6 +1235,20 @@ public class MetaDataRepository
                 _log.info(_loc.get("bad-discover-class", name));
             if (_log.isTraceEnabled())
                 _log.trace(e);
+        } catch (NoSuchMethodError nsme) {
+            if (nsme.getMessage().indexOf(".pc") == -1)
+                throw nsme;
+
+            // if the error is about a method that uses the PersistenceCapable
+            // 'pc' method prefix, perform some logging and continue. This
+            // probably just means that the class is not yet enhanced.
+            if ((_validate & VALIDATE_RUNTIME) != 0) {
+                if (_log.isWarnEnabled())
+                    _log.warn(_loc.get("bad-discover-class", name));
+            } else if (_log.isInfoEnabled())
+                _log.info(_loc.get("bad-discover-class", name));
+            if (_log.isTraceEnabled())
+                _log.trace(nsme);
         }
         return null;
     }
@@ -1264,7 +1281,7 @@ public class MetaDataRepository
      * Parses the metadata for all registered classes.
      */
     private void loadRegisteredClassMetaData(ClassLoader envLoader) {
-        Class[] reg = processRegisteredClasses();
+        Class[] reg = processRegisteredClasses(envLoader);
         for (int i = 0; i < reg.length; i++) {
             try {
                 getMetaData(reg[i], envLoader, false);
@@ -1278,7 +1295,7 @@ public class MetaDataRepository
     /**
      * Updates our datastructures with the latest registered classes.
      */
-    Class[] processRegisteredClasses() {
+    Class[] processRegisteredClasses(ClassLoader envLoader) {
         if (_registered.isEmpty())
             return EMPTY_CLASSES;
 
@@ -1290,8 +1307,15 @@ public class MetaDataRepository
             _registered.clear();
         }
 
+        Collection pcNames = getPersistentTypeNames(false, envLoader);
         Collection failed = null;
         for (int i = 0; i < reg.length; i++) {
+            // don't process types that aren't listed by the user; may belong
+            // to a different persistence unit
+            if (pcNames != null && !pcNames.isEmpty()
+                && !pcNames.contains(reg[i].getName()))
+                continue;
+
             try {
                 processRegisteredClass(reg[i]);
             } catch (Throwable t) {
@@ -1372,14 +1396,16 @@ public class MetaDataRepository
 
         // set alias for class
         String alias = PCRegistry.getTypeAlias(cls);
-        synchronized (_aliases) {
-            List classList = (List) _aliases.get(alias);
-            if (classList == null) {
-                classList = new ArrayList(3);
-                _aliases.put(alias, classList);
+        if (alias != null) {
+            synchronized (_aliases) {
+                List classList = (List) _aliases.get(alias);
+                if (classList == null) {
+                    classList = new ArrayList(3);
+                    _aliases.put(alias, classList);
+                }
+                if (!classList.contains(cls))
+                    classList.add(cls);
             }
-            if (!classList.contains(cls))
-                classList.add(cls);
         }
     }
 
@@ -1492,7 +1518,7 @@ public class MetaDataRepository
         if (meta == null && mustExist) {
             if (cls == null) {
                 throw new MetaDataException(_loc.get
-                    ("no-named-query-null-class",
+                    ("no-named-query-null-class", 
                         getPersistentTypeNames(false, envLoader), name));
             } else {
                 throw new MetaDataException(_loc.get("no-named-query",

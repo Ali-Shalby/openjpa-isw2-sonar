@@ -1,17 +1,20 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.util;
 
@@ -41,32 +44,6 @@ import java.util.TimeZone;
 public interface ProxyManager {
 
     /**
-     * Return a copy of the given date with the same information.
-     */
-    public Date copyDate(Date orig);
-
-    /**
-     * Return a copy of the given Calendar with the same information.
-     */
-    public Calendar copyCalendar(Calendar orig);
-
-    /**
-     * Return a new collection of the same type as the given one
-     * with a copy of all contained elements.
-     * If the given owner is non-null, the returned value should be a proxy
-     * for the given owner, otherwise it should not be a proxy.
-     */
-    public Collection copyCollection(Collection orig);
-
-    /**
-     * Return a new map of the same type as the given one
-     * with a copy of all contained key/value pairs.
-     * If the given owner is non-null, the returned value should be a proxy
-     * for the given owner, otherwise it should not be a proxy.
-     */
-    public Map copyMap(Map orig);
-
-    /**
      * Return a new array of the same component type as the given array
      * and containing the same elements. Works for both primitive and
      * object array types.
@@ -74,14 +51,9 @@ public interface ProxyManager {
     public Object copyArray(Object orig);
 
     /**
-     * Return a copy of the given object with the same
-     * information. If this manager cannot proxy the given type, return null.
-     * If the given owner is non-null, the returned value should be a proxy
-     * for the given owner, otherwise it should not be a proxy.
-     *
-     * @since 0.2.5
+     * Return a copy of the given date with the same information.
      */
-    public Object copyCustom(Object orig);
+    public Date copyDate(Date orig);
 
     /**
      * Return a new date proxy.
@@ -89,9 +61,20 @@ public interface ProxyManager {
     public Proxy newDateProxy(Class type);
 
     /**
+     * Return a copy of the given calendar with the same information.
+     */
+    public Calendar copyCalendar(Calendar orig);
+
+    /**
      * Return a new calendar proxy.
      */
     public Proxy newCalendarProxy(Class type, TimeZone timeZone);
+
+    /**
+     * Return a new collection of the same type as the given one
+     * with a copy of all contained elements.
+     */
+    public Collection copyCollection(Collection orig);
 
     /**
      * Return a proxy for the given collection type. The returned collection
@@ -102,12 +85,26 @@ public interface ProxyManager {
         Comparator compare);
 
     /**
+     * Return a new map of the same type as the given one
+     * with a copy of all contained key/value pairs.
+     */
+    public Map copyMap(Map orig);
+
+    /**
      * Return a proxy for the given map type. The returned map will
      * allow only addition of keys/values assignable from the given
      * keyType/valueType, and will use the given comparator, if it is not null.
      */
     public Proxy newMapProxy(Class type, Class keyType, Class valueType,
         Comparator compare);
+
+    /**
+     * Return a copy of the given object with the same information, or null if
+     * this manager cannot copy the object.
+     *
+     * @since 0.2.5
+     */
+    public Object copyCustom(Object orig);
 
     /**
      * Return a proxy for the given object, or null if this manager cannot

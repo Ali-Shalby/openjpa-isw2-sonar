@@ -1,23 +1,28 @@
 /*
- * Copyright 2006 The Apache Software Foundation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.    
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.openjpa.jdbc.schema.Column;
@@ -89,13 +94,13 @@ class InExpression
         _const.calculateValue(sel, ctx, istate.constantState, null, null);
         _val.calculateValue(sel, ctx, istate.valueState, null, null);
 
+        List list = null;
         Collection coll = getCollection(ctx, istate.constantState);
         if (coll != null) {
-            Collection ds = new ArrayList(coll.size());
+            list = new ArrayList(coll.size());
             for (Iterator itr = coll.iterator(); itr.hasNext();)
-                ds.add(_val.toDataStoreValue(sel, ctx, istate.valueState, 
+                list.add(_val.toDataStoreValue(sel, ctx, istate.valueState, 
                     itr.next()));
-            coll = ds;
         }
 
         Column[] cols = null;
@@ -104,13 +109,35 @@ class InExpression
         else if (_val instanceof GetObjectId)
             cols = ((GetObjectId) _val).getColumns(istate.valueState);
 
-        if (coll == null || coll.isEmpty())
+        if (list == null || list.isEmpty())
             buf.append("1 <> 1");
         else if (_val.length(sel, ctx, istate.valueState) == 1)
-            inContains(sel, ctx, istate.valueState, buf, coll, cols);
+            createInContains(sel, ctx, istate.valueState, buf, list, cols);
         else
-            orContains(sel, ctx, istate.valueState, buf, coll, cols);
+            orContains(sel, ctx, istate.valueState, buf, list, cols);
         sel.append(buf, state.joins);
+    }
+
+    /**
+     * Based on the inClauseLimit of the DBDictionary, create the needed IN 
+     * clauses
+     */
+    private void createInContains(Select sel, ExpContext ctx, ExpState state, 
+        SQLBuffer buf, List list, Column[] cols) {
+
+        int inClauseLimit = ctx.store.getDBDictionary().inClauseLimit;
+        if (inClauseLimit <= 0 || list.size() <= inClauseLimit)
+            inContains(sel, ctx, state, buf, list, cols);
+        else {
+            buf.append("(");
+            for (int low = 0, high; low < list.size(); low = high) {
+                if (low > 0)
+                    buf.append(" OR ");
+                high = java.lang.Math.min(low + inClauseLimit, list.size());
+                inContains(sel, ctx, state, buf, list.subList(low, high), cols);
+            }
+            buf.append(")");
+        }
     }
 
     /**
@@ -178,7 +205,14 @@ class InExpression
      * Return the collection to test for containment with.
      */
     protected Collection getCollection(ExpContext ctx, ExpState state) {
-        return (Collection) _const.getValue(ctx, state);
+        Object val = _const.getValue(ctx, state);
+
+        // wrap non-Collection parameters in a Collections so the query
+        // lanuage can permit varargs "in" clauses
+        if (!(val instanceof Collection))
+            val = Collections.singleton(val);
+
+        return (Collection) val;
     }
 
     public void acceptVisit(ExpressionVisitor visitor) {
