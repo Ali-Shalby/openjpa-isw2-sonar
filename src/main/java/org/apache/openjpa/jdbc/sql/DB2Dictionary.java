@@ -31,12 +31,17 @@ import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.kernel.exps.Lit;
 import org.apache.openjpa.jdbc.kernel.exps.Param;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
+import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.Index;
+import org.apache.openjpa.jdbc.schema.Schema;
 import org.apache.openjpa.jdbc.schema.Sequence;
+import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
+
 import serp.util.Strings;
 
 /**
@@ -50,12 +55,12 @@ public class DB2Dictionary
     public String optimizeClause = "optimize for";
     public String rowClause = "row";
     protected int db2ServerType = 0;
-    protected static final int db2ISeriesV5R3OrEarlier = 1;
-    protected static final int db2UDBV81OrEarlier = 2;
-    protected static final int db2ZOSV8xOrLater = 3;
-    protected static final int db2UDBV82OrLater = 4;
-    protected static final int db2ISeriesV5R4OrLater = 5;
-	private static final String forUpdateOfClause = "FOR UPDATE OF";
+    public static final int db2ISeriesV5R3OrEarlier = 1;
+    public static final int db2UDBV81OrEarlier = 2;
+    public static final int db2ZOSV8xOrLater = 3;
+    public static final int db2UDBV82OrLater = 4;
+    public static final int db2ISeriesV5R4OrLater = 5;
+	private static final String forUpdate = "FOR UPDATE";
     private static final String withRSClause = "WITH RS";
     private static final String withRRClause = "WITH RR";
     private static final String useKeepUpdateLockClause
@@ -94,7 +99,7 @@ public class DB2Dictionary
             "LONG VARCHAR FOR BIT DATA", "LONG VARCHAR", "LONG VARGRAPHIC",
         }));
         systemSchemas = new String(
-                "SYSCAT, SYSIBM, SYSSTAT, SYSIBMADM, SYSTOOLS");
+                "SYSCAT,SYSIBM,SYSSTAT,SYSIBMADM,SYSTOOLS");
         maxConstraintNameLength = 18;
         maxIndexNameLength = 18;
         maxColumnNameLength = 30;
@@ -147,11 +152,41 @@ public class DB2Dictionary
             && super.supportsRandomAccessResultSet(sel, forUpdate);
     }
 
-    protected void appendSelectRange(SQLBuffer buf, long start, long end) {
+    protected void appendSelectRange(SQLBuffer buf, long start, long end,
+        boolean subselect) {
         // appends the literal range string, since DB2 is unable to handle
         // a bound parameter for it
-        buf.append(" FETCH FIRST ").append(Long.toString(end)).
-            append(" ROWS ONLY");
+        // do not generate FETCH FIRST clause for subselect
+        if (!subselect)
+            buf.append(" FETCH FIRST ").append(Long.toString(end)).
+                append(" ROWS ONLY");
+    }
+
+    protected void appendSelect(SQLBuffer selectSQL, Object alias, Select sel,
+        int idx) {
+        // if this is a literal value, add a cast...
+        Object val = sel.getSelects().get(idx);
+        if (val instanceof Lit)
+            selectSQL.append("CAST(");
+
+        // ... and add the select per super's behavior...
+        super.appendSelect(selectSQL, alias, sel, idx);
+
+        // ... and finish the cast
+        if (val instanceof Lit) {
+            Class c = ((Lit) val).getType();
+            int javaTypeCode = JavaTypes.getTypeCode(c);
+            int jdbcTypeCode = getJDBCType(javaTypeCode, false);
+            String typeName = getTypeName(jdbcTypeCode);
+            selectSQL.append(" AS " + typeName);
+
+            // if the literal is a string, use the default char col size
+            // in the cast statement.
+            if (String.class.equals(c))
+                selectSQL.append("(" + characterColumnSize + ")");
+
+            selectSQL.append(")");
+        }
     }
 
     public String[] getCreateSequenceSQL(Sequence seq) {
@@ -286,9 +321,12 @@ public class DB2Dictionary
      * updateClause and isolationLevel hints
      */
     protected String getForUpdateClause(JDBCFetchConfiguration fetch,
-        boolean forUpdate) {
+        boolean isForUpdate, Select sel) {
         int isolationLevel;
-        StringBuffer forUpdateString = new StringBuffer();
+        // For db2UDBV81OrEarlier and db2ISeriesV5R3OrEarlier:
+        // "optimize for" clause appears before "for update" clause.
+        StringBuffer forUpdateString = new StringBuffer(
+            getOptimizeClause(sel));
         try {
             // Determine the isolationLevel; the fetch
             // configuration data overrides the persistence.xml value
@@ -297,16 +335,15 @@ public class DB2Dictionary
             else
                 isolationLevel = conf.getTransactionIsolationConstant();
 
-            if (forUpdate) {
+            if (isForUpdate) {
                 switch(db2ServerType) {
                 case db2ISeriesV5R3OrEarlier:
                 case db2UDBV81OrEarlier:
-                    if (isolationLevel ==
-                        Connection.TRANSACTION_READ_UNCOMMITTED) {
-                        forUpdateString.append(" ").append(withRSClause)
-                            .append(" ").append(forUpdateOfClause);
-                    } else
-                        forUpdateString.append(" ").append(forUpdateOfClause);
+                    if (isolationLevel == Connection.TRANSACTION_SERIALIZABLE)
+                        forUpdateString.append(" ").append(forUpdateClause);
+                    else 
+                        forUpdateString.append(" ").append(forUpdate)
+                            .append(" ").append(withRSClause);
                     break;
                 case db2ZOSV8xOrLater:
                 case db2UDBV82OrLater:
@@ -341,7 +378,7 @@ public class DB2Dictionary
         return forUpdateString.toString();
     }
 
-    public boolean isDB2UDBV82OrLater() throws SQLException {
+    public boolean isDB2UDBV82OrLater() {
         boolean match = false;
         if ((databaseProductVersion.indexOf("SQL") != -1
             || databaseProductName.indexOf("DB2/") != -1)
@@ -350,8 +387,7 @@ public class DB2Dictionary
         return match;
     }
 
-    public boolean isDB2ZOSV8xOrLater()
-       throws SQLException {
+    public boolean isDB2ZOSV8xOrLater() {
        boolean match = false;
        if ((databaseProductVersion.indexOf("DSN") != -1
            || databaseProductName.indexOf("DB2/") == -1)
@@ -360,8 +396,7 @@ public class DB2Dictionary
         return match;
     }
 
-    public boolean isDB2ISeriesV5R3OrEarlier()
-       throws SQLException {
+    public boolean isDB2ISeriesV5R3OrEarlier() {
        boolean match = false;
        if (databaseProductName.indexOf("AS") != -1
            && ((maj == 5 && min <=3) || maj < 5))
@@ -369,8 +404,7 @@ public class DB2Dictionary
        return match;
     }
 
-    public boolean isDB2ISeriesV5R4OrLater()
-       throws SQLException {
+    public boolean isDB2ISeriesV5R4OrLater() {
        boolean match = false;
        if (databaseProductName.indexOf("AS") != -1
            && (maj >=6 || (maj == 5 && min >=4)))
@@ -378,7 +412,7 @@ public class DB2Dictionary
       return match;
     }
 
-    public boolean isDB2UDBV81OrEarlier() throws SQLException {
+    public boolean isDB2UDBV81OrEarlier() {
         boolean match = false;
         if ((databaseProductVersion.indexOf("SQL") != -1 
            || databaseProductName.indexOf("DB2/") != -1) &&
@@ -438,17 +472,16 @@ public class DB2Dictionary
         }
     }
 
-    public SQLBuffer toSelect(Select sel, boolean forUpdate,
-        JDBCFetchConfiguration fetch) {
-        SQLBuffer buf = super.toSelect(sel, forUpdate, fetch);
-
-        if (sel.getExpectedResultCount() > 0) {
+    protected String getOptimizeClause(Select sel) {
+        if (sel != null && sel.getExpectedResultCount() > 0) {
+            StringBuffer buf = new StringBuffer();
             buf.append(" ").append(optimizeClause).append(" ")
                 .append(String.valueOf(sel.getExpectedResultCount()))
                 .append(" ").append(rowClause);
+            return buf.toString();
         }
 
-        return buf;
+        return "";
     }
 
     public OpenJPAException newStoreException(String msg, SQLException[] causes,
@@ -646,7 +679,9 @@ public class DB2Dictionary
     public String addCastAsType(String func, Val val) {
         String fstring = null;
         String type = getTypeName(getJDBCType(JavaTypes.getTypeCode(val
-                .getType()), false));
+            .getType()), false));
+        if (String.class.equals(val.getType()))
+            type = type + "(" + characterColumnSize + ")";
         fstring = "CAST(? AS " + type + ")";
         return fstring;
     }
@@ -731,10 +766,28 @@ public class DB2Dictionary
             String sqlString = buf.getSQL(false);
             if (sqlString.endsWith("?")) {
                 // case "(?" - convert to "CAST(? AS type"
-                String str = "CAST(? AS " + getTypeName(type) + ")";
+                String typeName = getTypeName(type);
+                if (String.class.equals(val.getType()))
+                    typeName = typeName + "(" + characterColumnSize + ")";
+                String str = "CAST(? AS " + typeName + ")";
                 buf.replaceSqlString(sqlString.length() - 1,
                         sqlString.length(), str);
             }
+        }
+    }
+
+    /**
+     * Create an index if necessary for some database tables
+     */
+    public void createIndexIfNecessary(Schema schema, String table,
+            Column pkColumn) {
+        if (isDB2ZOSV8xOrLater()) {
+            // build the index for the sequence tables
+            // the index name will the fully qualified table name + _IDX
+            Table tab = schema.getTable(table);
+            Index idx = tab.addIndex(tab.getFullName() + "_IDX");
+            idx.setUnique(true);
+            idx.addColumn(pkColumn);
         }
     }
 }

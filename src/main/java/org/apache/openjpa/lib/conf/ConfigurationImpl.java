@@ -111,7 +111,7 @@ public class ConfigurationImpl
     public StringValue id;
 
     private String _product = null;
-    private boolean _readOnly = false;
+    private int _readOnlyState = INIT_STATE_LIQUID;
     private Map _props = null;
     private boolean _globals = false;
     private String _auto = null;
@@ -208,7 +208,6 @@ public class ConfigurationImpl
     }
 
     public void setLogFactory(LogFactory logFactory) {
-        assertNotReadOnly();
         logFactoryPlugin.set(logFactory);
     }
 
@@ -217,7 +216,6 @@ public class ConfigurationImpl
     }
 
     public void setLog(String log) {
-        assertNotReadOnly();
         logFactoryPlugin.setString(log);
     }
 
@@ -230,7 +228,6 @@ public class ConfigurationImpl
     }
     
     public void setId(String id) {
-        assertNotReadOnly();
         this.id.set(id);
     }
 
@@ -260,8 +257,10 @@ public class ConfigurationImpl
         return null;
     }
 
-    public void setReadOnly(boolean readOnly) {
-        _readOnly = readOnly;
+    public void setReadOnly(int newState) {
+        if (newState >= _readOnlyState) {
+        	_readOnlyState = newState;
+        }
     }
 
     public void instantiateAll() {
@@ -305,7 +304,7 @@ public class ConfigurationImpl
     }
 
     public boolean isReadOnly() {
-        return _readOnly;
+        return _readOnlyState==INIT_STATE_FROZEN;
     }
 
     public void addPropertyChangeListener(PropertyChangeListener listener) {
@@ -611,7 +610,8 @@ public class ConfigurationImpl
     public void fromProperties(Map map) {
         if (map == null || map.isEmpty())
             return;
-        assertNotReadOnly();
+        if (isReadOnly())
+            throw new IllegalStateException(_loc.get("read-only").getMessage());
 
         // if the only previous call was to load defaults, forget them.
         // this way we preserve the original formatting of the user's props
@@ -778,18 +778,9 @@ public class ConfigurationImpl
     /////////////
 
     /**
-     * Checks if the configuration is read only and if so throws an
-     * exception, otherwise returns silently.
-     * Implementations should call this method before setting any state.
-     */
-    public void assertNotReadOnly() {
-        if (isReadOnly())
-            throw new IllegalStateException(_loc.get("read-only").getMessage());
-    }
-
-    /**
-     * Performs an equality check based on the properties returned from
-     * {@link #toProperties}.
+     * Performs an equality check based on equality of values.
+     * {@link Value#equals(Object) Equality} of Values varies if the Value is
+     * {@link Value#isDynamic() dynamic}.  
      */
     public boolean equals(Object other) {
         if (other == this)
@@ -801,18 +792,32 @@ public class ConfigurationImpl
 
         // compare properties
         ConfigurationImpl conf = (ConfigurationImpl) other;
-        Map p1 = (_props == null) ? toProperties(false) : _props;
-        Map p2 = (conf._props == null) ? conf.toProperties(false) : conf._props;
-        return excludeDynamic(p1).equals(excludeDynamic(p2));
+        if (_vals.size() != conf.getValues().length)
+        	return false;
+        Iterator values = _vals.iterator();
+        while (values.hasNext()) {
+        	Value v = (Value)values.next();
+        	Value thatV = conf.getValue(v.getProperty());
+        	if (!v.equals(thatV)) {
+        		return false;
+        	}
+        }
+        return true;
     }
 
     /**
-     * Computes hash code based on the properties returned from
-     * {@link #toProperties}.
+     * Computes hash code based on the hashCodes of the values.
+     * {@link Value#hashCode() HashCode} of a Value varies if the Value is
+     * {@link Value#isDynamic() dynamic}.  
      */
     public int hashCode() {
-    	Map copy = (_props == null) ? toProperties(false) : _props;
-    	return excludeDynamic(copy).hashCode();
+        Iterator values = _vals.iterator();
+        int hash = 0;
+        while (values.hasNext()) {
+        	Value v = (Value)values.next();
+        	hash += v.hashCode();
+        }
+        return hash;
     }
 
     /**
@@ -987,36 +992,5 @@ public class ConfigurationImpl
         PluginListValue val = new PluginListValue(property);
         addValue(val);
         return val;
-    }
-    
-    public void modifyDynamic(String property, Object newValue) {
-    	if (!isDynamic(property)) 
-    		throw new RuntimeException(_loc.get("not-dynamic", property)
-    			.toString());
-    	Value value = getValue(property);
-    	value.setObject(newValue);
-    }
-    
-    public boolean isDynamic(String property) {
-    	Value[] dynamicValues = getDynamicValues();
-    	for (int i=0; i<dynamicValues.length; i++) 
-    		if (dynamicValues[i].getProperty().equals(property))
-    			return true;
-    	return false;
-    }
-    
-    public Value[] getDynamicValues() {
-    	return new Value[0];
-    }
-    
-    Map excludeDynamic(Map map) {
-    	if (map == null)
-    		return null;
-    	Map copy = new HashMap(map);
-    	Value[] dynamicValues = getDynamicValues();
-    	for (int i=0; i<dynamicValues.length; i++) {
-    		Configurations.removeProperty(dynamicValues[i].getProperty(), copy);
-    	}
-    	return copy;
     }
 }

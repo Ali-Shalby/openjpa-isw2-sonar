@@ -29,12 +29,13 @@ import org.apache.openjpa.lib.util.ParseException;
  * A configuration value.
  *
  * @author Marc Prud'hommeaux
+ * @author Pinaki Poddar (added dynamic Value support)
  */
 public abstract class Value implements Cloneable {
 
     private static final String[] EMPTY_ALIASES = new String[0];
     private static final Localizer s_loc = Localizer.forPackage(Value.class);
-
+    
     private String prop = null;
     private String loadKey = null;
     private String def = null;
@@ -43,6 +44,8 @@ public abstract class Value implements Cloneable {
     private ValueListener listen = null;
     private boolean aliasListComprehensive = false;
     private Class scope = null;
+    private boolean isDynamic = false;
+    private String originalValue = null;
 
     /**
      * Default constructor.
@@ -277,11 +280,22 @@ public abstract class Value implements Cloneable {
      * empty and a default is defined, the default is used. If the given
      * string(or default) is an alias key, it will be converted to the
      * corresponding value internally.
+     * <br>
+     * If this Value is being set to a non-default value for the first time
+     * (as designated by <code>originalString</code> being null), then the
+     * value is remembered as <em>original</em>. This original value is used
+     * for equality and hashCode computation if this Value is
+     * {@link #isDynamic() dynamic}. 
+     *
      */
     public void setString(String val) {
+    	assertChangeable();
         String str = unalias(val);
         try {
             setInternalString(str);
+            if (originalValue == null && val != null && !isDefault(val)) {
+            	originalValue = getString();
+            }
         } catch (ParseException pe) {
             throw pe;
         } catch (RuntimeException re) {
@@ -291,6 +305,13 @@ public abstract class Value implements Cloneable {
 
     /**
      * Set this value as an object.
+     * <br>
+     * If this Value is being set to a non-default value for the first time
+     * (as designated by <code>originalString</code> being null), then the
+     * value is remembered as <em>original</em>. This original value is used
+     * for equality and hashCode computation if this Value is
+     * {@link #isDynamic() dynamic}. 
+     * 
      */
     public void setObject(Object obj) {
         // if setting to null set as string to get defaults into play
@@ -299,12 +320,31 @@ public abstract class Value implements Cloneable {
         else {
             try {
                 setInternalObject(obj);
+                if (originalValue == null && obj != null && !isDefault(obj)) {
+                	originalValue = getString();
+                }
             } catch (ParseException pe) {
                 throw pe;
             } catch (RuntimeException re) {
                 throw new ParseException(prop + ": " + obj, re);
             }
         }
+    }
+    
+    /**
+     * Gets the original value. Original value denotes the Stringified form of 
+     * this Value, from which it has been set, if ever. If this Value has never 
+     * been set to a non-default value, then returns the default value, which 
+     * itself can be null. 
+     * 
+     * @since 1.1.0
+     */
+    public String getOriginalValue() {
+    	return (originalValue == null) ? getDefault() : originalValue;
+    }
+    
+    boolean isDefault(Object val) {
+    	return val != null && val.toString().equals(getDefault());
     }
 
     /**
@@ -345,17 +385,68 @@ public abstract class Value implements Cloneable {
      * Subclasses should call this method when their internal value changes.
      */
     public void valueChanged() {
-        if (listen != null)
-            listen.valueChanged(this);
+        if (listen != null) {
+        	listen.valueChanged(this);
+        }
+    }
+    
+    /**
+     * Asserts if this receiver can be changed.
+     * Subclasses <em>must</em> invoke this method before changing its
+     * internal state.
+     * 
+     * This receiver can not be changed if all of the following is true
+     * <LI>this receiver is not dynamic
+     * <LI>ValueListener attached to this receiver is a Configuration
+     * <LI>Configuration is read-only
+     */
+    protected void assertChangeable() {
+    	if (!isDynamic() && listen instanceof Configuration && 
+        	((Configuration)listen).isReadOnly()) {
+        	throw new RuntimeException(s_loc.get("veto-change",
+        		this.getProperty()).toString());
+       	}
+    }
+    
+    /**
+     * Sets if this receiver can be mutated even when the configuration it 
+     * belongs to has been {@link Configuration#isReadOnly() frozen}.
+     *  
+     * @since 1.1.0
+     */
+    public void setDynamic(boolean flag) {
+    	isDynamic = flag;
+    }
+    
+    /**
+     * Affirms if this receiver can be mutated even when the configuration it 
+     * belongs to has been {@link Configuration#isReadOnly() frozen}.
+     *  
+     * @since 1.1.0
+     */
+    public boolean isDynamic() {
+    	return isDynamic; 
     }
 
+    /**
+     * Use {@link #getOriginalValue() original value} instead of 
+     * {@link #getString() current value} because they are one and the same 
+     * for non-dynamic Values and ensures that modifying dynamic Values do not
+     * impact equality or hashCode contract.   
+     */
     public int hashCode() {
-        String str = getString();
+        String str = (isDynamic()) ? getOriginalValue() : getString();
         int strHash = (str == null) ? 0 : str.hashCode();
         int propHash = (prop == null) ? 0 : prop.hashCode();
         return strHash ^ propHash;
     }
 
+    /**
+     * Use {@link #getOriginalValue() original value} instead of 
+     * {@link #getString() current value} because they are one and the same 
+     * for non-dynamic Values and ensures that modifying dynamic Values do not
+     * impact equality or hashCode contract.   
+     */
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -363,8 +454,11 @@ public abstract class Value implements Cloneable {
             return false;
 
         Value o = (Value) other;
-        return StringUtils.equals(prop, o.getProperty())
-            && StringUtils.equals(getString(), o.getString());
+        String thisStr = (isDynamic()) ? getOriginalValue() : getString();
+        String thatStr = (isDynamic()) ? o.getOriginalValue() : o.getString();
+        return (isDynamic() == o.isDynamic())
+            && StringUtils.equals(prop, o.getProperty())
+            && StringUtils.equals(thisStr, thatStr);
     }
 
     public Object clone() {

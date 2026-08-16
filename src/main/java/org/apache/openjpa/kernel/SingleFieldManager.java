@@ -92,10 +92,7 @@ class SingleFieldManager
                 proxy = checkProxy();
                 if (proxy == null) {
                     proxy = (Proxy) _sm.newFieldProxy(field);
-                    Calendar pcal = (Calendar) proxy;
-                    Calendar ocal = (Calendar) objval;
-                    pcal.setTime (ocal.getTime ());
-                    pcal.setTimeZone (ocal.getTimeZone ());
+                    ((Calendar) proxy).setTime(((Calendar) objval).getTime());
                     ret = true;
                 }
                 break;
@@ -750,10 +747,9 @@ class SingleFieldManager
 
             sm = _broker.getStateManager(obj);
             if (sm == null || !sm.isPersistent())
-                throw new InvalidStateException(_loc.get("cant-cascade-persist",
-                    Exceptions.toString(obj), vmd,
-                    Exceptions.toString(_sm.getManagedInstance()))).
-                    setFailedObject(obj);
+                throw new InvalidStateException(
+                    _loc.get("cant-cascade-persist", vmd))
+                    .setFailedObject(obj);
         } else {
             sm = _broker.getStateManager(obj);
             if (sm == null || !sm.isProvisional())

@@ -65,12 +65,22 @@ public class JDBCFetchPlanImpl
         return this;
     }
 
+    public JDBCFetchPlan setEagerFetchMode(int mode) {
+        _fetch.setEagerFetchMode(mode);
+        return this;
+    }
+
     public FetchMode getSubclassFetchMode() {
         return FetchMode.fromKernelConstant(_fetch.getSubclassFetchMode());
     }
 
     public JDBCFetchPlanImpl setSubclassFetchMode(FetchMode mode) {
         _fetch.setSubclassFetchMode(mode.toKernelConstant());
+        return this;
+    }
+
+    public JDBCFetchPlan setSubclassFetchMode(int mode) {
+        _fetch.setSubclassFetchMode(mode);
         return this;
     }
 
@@ -83,12 +93,22 @@ public class JDBCFetchPlanImpl
         return this;
     }
 
+    public JDBCFetchPlan setResultSetType(int mode) {
+        _fetch.setResultSetType(mode);
+        return this;
+    }
+
     public FetchDirection getFetchDirection() {
         return FetchDirection.fromKernelConstant(_fetch.getFetchDirection());
     }
 
     public JDBCFetchPlanImpl setFetchDirection(FetchDirection direction) {
         _fetch.setFetchDirection(direction.toKernelConstant());
+        return this;
+    }
+
+    public JDBCFetchPlan setFetchDirection(int direction) {
+        _fetch.setFetchDirection(direction);
         return this;
     }
 
@@ -101,12 +121,26 @@ public class JDBCFetchPlanImpl
         return this;
     }
 
+    public int getLRSSize() {
+        return _fetch.getLRSSize();
+    }
+
+    public JDBCFetchPlan setLRSSize(int lrsSizeMode) {
+        _fetch.setLRSSize(lrsSizeMode);
+        return this;
+    }
+
     public JoinSyntax getJoinSyntax() {
         return JoinSyntax.fromKernelConstant(_fetch.getJoinSyntax());
     }
 
     public JDBCFetchPlanImpl setJoinSyntax(JoinSyntax syntax) {
         _fetch.setJoinSyntax(syntax.toKernelConstant());
+        return this;
+    }
+
+    public JDBCFetchPlan setJoinSyntax(int syntax) {
+        _fetch.setJoinSyntax(syntax);
         return this;
     }
 
@@ -225,8 +259,8 @@ public class JDBCFetchPlanImpl
     }
 
     @Override
-    public JDBCFetchPlan setEnlistInQueryResultCache(boolean cache) {
-        return (JDBCFetchPlan) super.setEnlistInQueryResultCache(cache);
+    public JDBCFetchPlan setQueryResultCacheEnabled(boolean cache) {
+        return (JDBCFetchPlan) super.setQueryResultCacheEnabled(cache);
     }
 
     @Override

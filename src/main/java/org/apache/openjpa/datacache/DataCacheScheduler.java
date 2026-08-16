@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.datacache;
 
+import java.security.AccessController;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -28,6 +29,7 @@ import java.util.StringTokenizer;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentHashMap;
 import org.apache.openjpa.util.InvalidStateException;
@@ -97,8 +99,9 @@ public class DataCacheScheduler
         _caches.put(cache, schedule);
         _stop = false;
         if (_thread == null) {
-            _thread = new Thread(this, _loc.get("scheduler-name").getMessage());
-            _thread.setDaemon(true);
+            _thread = (Thread) AccessController.doPrivileged(J2DoPrivHelper
+                .newDaemonThreadAction(this, _loc.get("scheduler-name")
+                    .getMessage()));
             _thread.start();
             if (_log.isTraceEnabled())
                 _log.trace(_loc.get("scheduler-start", _thread.getName()));

@@ -26,6 +26,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.security.PrivilegedActionException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -438,7 +439,7 @@ public class ProxyManagerImpl
      * Return the cached factory proxy for the given bean type.
      */
     private ProxyBean getFactoryProxyBean(Object orig) {
-        Class type = orig.getClass();
+        final Class type = orig.getClass();
         if (isUnproxyable(type))
             return null;
 
@@ -449,7 +450,12 @@ public class ProxyManagerImpl
                 ProxyBean.class);
             Class pcls = loadBuildTimeProxy(type, l);
             if (pcls == null) {
-                BCClass bc = generateProxyBeanBytecode(type, true);
+                BCClass bc = (BCClass) AccessController
+                    .doPrivileged(new PrivilegedAction() {
+                        public Object run() {
+                            return generateProxyBeanBytecode(type, true);
+                        }
+                    });
                 if (bc != null)
                     pcls = GeneratedClasses.loadBCClass(bc, l);
             }
@@ -713,6 +719,32 @@ public class ProxyManagerImpl
         code.calculateMaxStack();
         code.calculateMaxLocals();
 
+        /* 
+         * clone (return detached proxy object)
+         * Note:  This method is only being provided to satisfy a quirk with
+         * the IBM JDK -- while comparing Calendar objects, the clone() method
+         * was invoked.  So, we are now overriding the clone() method so as to
+         * provide a detached proxy object (null out the StateManager).
+         */
+        m = bc.declareMethod("clone", Object.class, null);
+        m.makePublic();
+        code = m.getCode(true);
+        code.aload().setThis();
+        code.invokespecial().setMethod(bc.getSuperclassType(), "clone",
+                Object.class, null);  
+        code.checkcast().setType(Proxy.class);  
+        int other = code.getNextLocalsIndex();
+        code.astore().setLocal(other);
+        code.aload().setLocal(other);
+        code.constant().setNull();
+        code.constant().setValue(0);
+        code.invokeinterface().setMethod(Proxy.class, "setOwner", void.class,
+                new Class[] { OpenJPAStateManager.class, int.class });
+        code.aload().setLocal(other);
+        code.areturn();
+        code.calculateMaxStack();
+        code.calculateMaxLocals();
+        
         if (changeTracker) {
             m = bc.declareMethod("getChangeTracker", ChangeTracker.class, null);
             m.makePublic();
@@ -1601,7 +1633,7 @@ public class ProxyManagerImpl
             })); 
         }
 
-        ProxyManagerImpl mgr = new ProxyManagerImpl();
+        final ProxyManagerImpl mgr = new ProxyManagerImpl();
         Class cls;
         BCClass bc;
         for (int i = 0; i < types.size(); i++) {
@@ -1623,8 +1655,15 @@ public class ProxyManagerImpl
                 bc = mgr.generateProxyDateBytecode(cls, false);
             else if (Calendar.class.isAssignableFrom(cls))
                 bc = mgr.generateProxyCalendarBytecode(cls, false);
-            else
-                bc = mgr.generateProxyBeanBytecode(cls, false);
+            else {
+                final Class fCls = cls;
+                bc = (BCClass) AccessController
+                    .doPrivileged(new PrivilegedAction() {
+                        public Object run() {
+                            return mgr.generateProxyBeanBytecode(fCls, false);
+                        }
+                    });
+            }
 
             System.out.println(bc.getName());
             bc.write(new File(dir, bc.getClassName() + ".class"));

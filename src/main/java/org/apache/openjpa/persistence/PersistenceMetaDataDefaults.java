@@ -48,7 +48,7 @@ import javax.persistence.PreUpdate;
 import javax.persistence.Transient;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.openjpa.lib.util.J2DoPrivHelper;
+import org.apache.openjpa.lib.util.J2DoPriv5Helper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.meta.AbstractMetaDataDefaults;
@@ -116,7 +116,8 @@ public class PersistenceMetaDataDefaults
         if (member == null)
             return null;
         AnnotatedElement el = (AnnotatedElement) member;
-        if (el.isAnnotationPresent(Transient.class))
+        if (((Boolean) AccessController.doPrivileged(J2DoPriv5Helper
+            .isAnnotationPresentAction(el, Transient.class))).booleanValue())
             return TRANSIENT;
         if (fmd != null
             && fmd.getManagement() != FieldMetaData.MANAGE_PERSISTENT)
@@ -182,7 +183,8 @@ public class PersistenceMetaDataDefaults
         }
 
         //### EJB3: what if defined in XML?
-        if (type.isAnnotationPresent(Embeddable.class))
+        if (((Boolean) AccessController.doPrivileged(J2DoPriv5Helper
+            .isAnnotationPresentAction(type, Embeddable.class))).booleanValue())
             return EMBEDDED;
         if (Serializable.class.isAssignableFrom(type))
             return BASIC;
@@ -256,10 +258,10 @@ public class PersistenceMetaDataDefaults
 
         int access = 0;
         if (usesAccess((Field[]) AccessController.doPrivileged(
-            J2DoPrivHelper.getDeclaredFieldsAction(cls))))
+            J2DoPriv5Helper.getDeclaredFieldsAction(cls))))
             access |= ClassMetaData.ACCESS_FIELD;
         if (usesAccess((Method[]) AccessController.doPrivileged(
-            J2DoPrivHelper.getDeclaredMethodsAction(cls))))
+            J2DoPriv5Helper.getDeclaredMethodsAction(cls))))
             access |= ClassMetaData.ACCESS_PROPERTY;
         return (access == 0) ? getAccessType(cls.getSuperclass()) : access;
     }
@@ -271,7 +273,8 @@ public class PersistenceMetaDataDefaults
         Annotation[] annos;
         String name;
         for (int i = 0; i < members.length; i++) {
-            annos = members[i].getAnnotations();
+            annos = (Annotation[]) AccessController.doPrivileged(J2DoPriv5Helper
+                .getAnnotationsAction(members[i]));
             for (int j = 0; j < annos.length; j++) {
                 name = annos[j].annotationType().getName();
                 if ((name.startsWith("javax.persistence.")
@@ -293,7 +296,7 @@ public class PersistenceMetaDataDefaults
             try {
                 // check for setters for methods
                 Method setter = (Method) AccessController.doPrivileged(
-                    J2DoPrivHelper.getDeclaredMethodAction(
+                    J2DoPriv5Helper.getDeclaredMethodAction(
                         meta.getDescribedType(), "set" +
                         StringUtils.capitalize(name), new Class[] { 
                             ((Method) member).getReturnType() }));
@@ -317,7 +320,9 @@ public class PersistenceMetaDataDefaults
 
     private boolean isAnnotatedTransient(Member member) {
         return member instanceof AnnotatedElement
-            && ((AnnotatedElement) member).isAnnotationPresent(Transient.class);
+            && ((Boolean) AccessController.doPrivileged(J2DoPriv5Helper
+                .isAnnotationPresentAction(((AnnotatedElement) member),
+                    Transient.class))).booleanValue();
     }
 
     private void logNoSetter(ClassMetaData meta, String name, Exception e) {

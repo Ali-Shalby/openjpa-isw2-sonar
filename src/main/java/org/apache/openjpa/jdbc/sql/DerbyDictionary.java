@@ -42,9 +42,9 @@ public class DerbyDictionary
         substringFunctionName = "SUBSTR";
 
         maxConstraintNameLength = 18;
-        maxIndexNameLength = 18;
+        maxIndexNameLength = 128;
         maxColumnNameLength = 30;
-        maxTableNameLength = 18;
+        maxTableNameLength = 128;
 
         useGetBytesForBlobs = true;
         useSetBytesForBlobs = true;
@@ -63,7 +63,7 @@ public class DerbyDictionary
             "ALIAS", "BIGINT", "BOOLEAN", "CALL", "CLASS",
             "COPY", "DB2J_DEBUG", "EXECUTE", "EXPLAIN",
             "FILE", "FILTER", "GETCURRENTCONNECTION", "INDEX",
-            "INSTANCEOF", "METHOD", "NEW", "OFF", "OUT", "PROPERTIES",
+            "INSTANCEOF", "KEY", "METHOD", "NEW", "OFF", "OUT", "PROPERTIES",
             "PUBLICATION", "RECOMPILE", "REFRESH", "RENAME",
             "RUNTIMESTATISTICS", "STATEMENT", "STATISTICS",
             "TIMING", "WAIT", "XML",

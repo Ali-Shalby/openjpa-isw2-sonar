@@ -23,10 +23,10 @@ import java.security.AccessController;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
+import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Options;
-import org.apache.openjpa.lib.util.TemporaryClassLoader;
 import org.apache.openjpa.util.ClassResolver;
 
 /**
@@ -45,13 +45,13 @@ import org.apache.openjpa.util.ClassResolver;
  * <p>By default, if specified, the agent runs the OpenJPA enhancer on
  * all classes listed in the first persistence unit as they are loaded,
  * and redefines all other persistent classes when they are encountered.
- * To disable enhancement and rely solely on the redefinition logic, set
- * the RuntimeEnhancement flag to false. To disable redefinition and rely
- * solely on pre-deployment or runtime enhancement, set the
- * RuntimeRedefinition flag to false.
+ * To disable enhancement at class-load time and rely solely on the
+ * redefinition logic, set the ClassLoadEnhancement flag to false. To
+ * disable redefinition and rely solely on pre-deployment or class-load
+ * enhancement, set the RuntimeRedefinition flag to false.
  * </p>
  *
- * <p><code>java -javaagent:openjpa.jar=RuntimeEnhancement=false</code></p>
+ * <p><code>java -javaagent:openjpa.jar=ClassLoadEnhancement=false</code></p>
  *
  * @author Abe White
  * @author Patrick Linskey
@@ -61,19 +61,34 @@ public class PCEnhancerAgent {
     public static void premain(String args, Instrumentation inst) {
         Options opts = Configurations.parseProperties(args);
 
-        if (opts.getBooleanProperty(
-            "RuntimeEnhancement", "runtimeEnhancement", true))
-            registerRuntimeEnhancer(inst, opts);
+        if (opts.containsKey("ClassLoadEnhancement") ||
+            opts.containsKey("classLoadEnhancement")) {
+            if (opts.getBooleanProperty(
+                "ClassLoadEnhancement", "classLoadEnhancement", true))
+                registerClassLoadEnhancer(inst, opts);
+        }
+        else if (opts.containsKey("RuntimeEnhancement") ||
+            opts.containsKey("runtimeEnhancement")) {
+            // Deprecated property setting
+            if (opts.getBooleanProperty(
+                "RuntimeEnhancement", "runtimeEnhancement", true))
+                registerClassLoadEnhancer(inst, opts);
+        } else {
+            // if neither is set, then we should be turning it on. We need this
+            // logic instead of just a getBooleanProperty() because of the
+            // backwards-compat logic flow.
+            registerClassLoadEnhancer(inst, opts);
+        }
 
-        if (opts.getBooleanProperty("RuntimeRedefinition",
-            "runtimeRedefinition", true)) {
+        if (opts.getBooleanProperty(
+            "RuntimeRedefinition", "runtimeRedefinition", true)) {
             InstrumentationFactory.setInstrumentation(inst);
         } else {
             InstrumentationFactory.setDynamicallyInstallAgent(false);
         }
     }
 
-    private static void registerRuntimeEnhancer(Instrumentation inst,
+    private static void registerClassLoadEnhancer(Instrumentation inst,
         Options opts) {
         OpenJPAConfiguration conf = new OpenJPAConfigurationImpl();
         Configurations.populateConfiguration(conf, opts);
@@ -94,7 +109,7 @@ public class PCEnhancerAgent {
                 return tmpLoader;
             }
         });
-        conf.setReadOnly(true);
+        conf.setReadOnly(Configuration.INIT_STATE_FREEZING);
         conf.instantiateAll(); // avoid threading issues
 
         PCClassFileTransformer transformer = new PCClassFileTransformer

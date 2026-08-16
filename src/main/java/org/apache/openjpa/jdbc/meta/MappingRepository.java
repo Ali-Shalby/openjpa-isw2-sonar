@@ -34,12 +34,17 @@ import org.apache.openjpa.jdbc.meta.strats.CharArrayStreamValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.CharArrayValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.ClassNameDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.ClobValueHandler;
+import org.apache.openjpa.jdbc.meta.strats.ElementEmbedValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.EmbedFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.EmbeddedClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.FlatClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
+import org.apache.openjpa.jdbc.meta.strats.HandlerCollectionTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.HandlerFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.HandlerHandlerMapTableFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.HandlerRelationMapTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.ImmutableValueHandler;
+import org.apache.openjpa.jdbc.meta.strats.LobFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedBlobFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedByteArrayFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedCharArrayFieldStrategy;
@@ -55,8 +60,10 @@ import org.apache.openjpa.jdbc.meta.strats.PrimitiveFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationCollectionInverseKeyFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationCollectionTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.RelationHandlerMapTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationMapInverseKeyFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationMapTableFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.RelationRelationMapTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.StateComparisonVersionStrategy;
 import org.apache.openjpa.jdbc.meta.strats.StringFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.SubclassJoinDiscriminatorStrategy;
@@ -866,6 +873,9 @@ public class MappingRepository
                     break;
                 return handlerMapStrategy(field, khandler, vhandler, krel,
                     vrel, installHandlers);
+            case JavaTypes.INPUT_STREAM:
+            case JavaTypes.INPUT_READER:
+                return new LobFieldStrategy();
         }
         return null;
     }
@@ -876,7 +886,9 @@ public class MappingRepository
      */
     protected FieldStrategy handlerCollectionStrategy(FieldMapping field, 
         ValueHandler ehandler, boolean installHandlers) {
-        return null;
+        if (installHandlers)
+            field.getElementMapping().setHandler(ehandler);
+        return new HandlerCollectionTableFieldStrategy();
     }
 
     /**
@@ -886,7 +898,17 @@ public class MappingRepository
     protected FieldStrategy handlerMapStrategy(FieldMapping field, 
         ValueHandler khandler, ValueHandler vhandler, boolean krel, 
         boolean vrel,  boolean installHandlers) {
-        return null;
+        if (installHandlers) {
+            field.getKeyMapping().setHandler(khandler);
+            field.getElementMapping().setHandler(vhandler);
+        }
+        if (!krel && !vrel)
+            return new HandlerHandlerMapTableFieldStrategy();
+        if (!krel && vrel)
+            return new HandlerRelationMapTableFieldStrategy();
+        if (krel && !vrel)
+            return new RelationHandlerMapTableFieldStrategy();
+        return new RelationRelationMapTableFieldStrategy();
     }
 
     /**
@@ -1060,6 +1082,8 @@ public class MappingRepository
             case JavaTypes.OID:
                 return new ObjectIdValueHandler();
         }
+        if (val.isEmbeddedPC())
+            return new ElementEmbedValueHandler();
         return null;
     }
 

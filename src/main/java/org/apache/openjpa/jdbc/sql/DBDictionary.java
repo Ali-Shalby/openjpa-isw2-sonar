@@ -20,9 +20,11 @@ package org.apache.openjpa.jdbc.sql;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.CharArrayReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.Reader;
 import java.io.StringReader;
 import java.io.Writer;
@@ -58,7 +60,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.HashMap;
 import javax.sql.DataSource;
 
 import org.apache.commons.lang.StringUtils;
@@ -68,8 +69,6 @@ import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.exps.ExpContext;
 import org.apache.openjpa.jdbc.kernel.exps.ExpState;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
-import org.apache.openjpa.jdbc.kernel.exps.Lit;
-import org.apache.openjpa.jdbc.kernel.exps.Param;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
@@ -86,7 +85,6 @@ import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.kernel.Filters;
-import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.jdbc.ConnectionDecorator;
@@ -96,6 +94,7 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Localizer.Message;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.GeneralException;
+import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.ReferentialIntegrityException;
 import org.apache.openjpa.util.Serialization;
@@ -124,6 +123,9 @@ public class DBDictionary
     public static final String CONS_NAME_BEFORE = "before";
     public static final String CONS_NAME_MID = "mid";
     public static final String CONS_NAME_AFTER = "after";
+    
+    public int blobBufferSize = 50;
+    public int clobBufferSize = 50;
 
     protected static final int RANGE_POST_SELECT = 0;
     protected static final int RANGE_PRE_DISTINCT = 1;
@@ -1532,7 +1534,7 @@ public class DBDictionary
                 return bitTypeName;
             case Types.BLOB:
                 return blobTypeName;
-            case 16: // JDK 1.4 introduces Types.BOOLEAN, whose value is 16
+            case Types.BOOLEAN:
                 return booleanTypeName;
             case Types.CHAR:
                 return charTypeName;
@@ -1740,7 +1742,7 @@ public class DBDictionary
         from.append("(");
         from.append(toSelect(subSelect, null, subFrom, where,
             sel.getGrouping(), sel.getHaving(), null, sel.isDistinct(),
-            false, sel.getStartIndex(), sel.getEndIndex()));
+            false, sel.getStartIndex(), sel.getEndIndex(), true));
         from.append(")");
         if (requiresAliasForSubselect)
             from.append(" ").append(Select.FROM_SELECT_ALIAS);
@@ -1996,7 +1998,7 @@ public class DBDictionary
         SQLBuffer where = getWhere(sel, update);
         return toSelect(select, fetch, from, where, sel.getGrouping(),
             sel.getHaving(), ordering, sel.isDistinct(), forUpdate,
-            sel.getStartIndex(), sel.getEndIndex());
+            sel.getStartIndex(), sel.getEndIndex(), sel);
     }
 
     /**
@@ -2184,7 +2186,43 @@ public class DBDictionary
         boolean distinct, boolean forUpdate, long start, long end) {
         return toOperation(getSelectOperation(fetch), selects, from, where,
             group, having, order, distinct, start, end,
-            getForUpdateClause(fetch, forUpdate));
+            getForUpdateClause(fetch, forUpdate, null));
+    }
+
+    /**
+     * Combine the given components into a SELECT statement.
+     */
+    public SQLBuffer toSelect(SQLBuffer selects, JDBCFetchConfiguration fetch,
+        SQLBuffer from, SQLBuffer where, SQLBuffer group,
+        SQLBuffer having, SQLBuffer order,
+        boolean distinct, boolean forUpdate, long start, long end,
+        boolean subselect) {
+        return toOperation(getSelectOperation(fetch), selects, from, where,
+            group, having, order, distinct, start, end,
+            getForUpdateClause(fetch, forUpdate, null), subselect);
+    }
+    
+    public SQLBuffer toSelect(SQLBuffer selects, JDBCFetchConfiguration fetch,
+            SQLBuffer from, SQLBuffer where, SQLBuffer group,
+            SQLBuffer having, SQLBuffer order,
+            boolean distinct, boolean forUpdate, long start, long end,
+            boolean subselect, boolean checkTableForUpdate) {
+            return toOperation(getSelectOperation(fetch), selects, from, where,
+                group, having, order, distinct, start, end,
+                getForUpdateClause(fetch, forUpdate, null), subselect, checkTableForUpdate);
+        }
+
+    /**
+     * Combine the given components into a SELECT statement.
+     */
+    public SQLBuffer toSelect(SQLBuffer selects, JDBCFetchConfiguration fetch,
+        SQLBuffer from, SQLBuffer where, SQLBuffer group,
+        SQLBuffer having, SQLBuffer order,
+        boolean distinct, boolean forUpdate, long start, long end,
+        Select sel) {
+        return toOperation(getSelectOperation(fetch), selects, from, where,
+            group, having, order, distinct, start, end,
+            getForUpdateClause(fetch, forUpdate, sel));
     }
 
     /**
@@ -2192,11 +2230,11 @@ public class DBDictionary
      * updateClause and isolationLevel hints
      */
     protected String getForUpdateClause(JDBCFetchConfiguration fetch,
-        boolean forUpdate) {
+        boolean isForUpdate, Select sel) {
         if (fetch != null && fetch.getIsolation() != -1) {
             throw new InvalidStateException(_loc.get(
                 "isolation-level-config-not-supported", getClass().getName()));
-        } else if (forUpdate && !simulateLocking) {
+        } else if (isForUpdate && !simulateLocking) {
             assertSupport(supportsSelectForUpdate, "SupportsSelectForUpdate");
             return forUpdateClause;
         } else {
@@ -2214,22 +2252,50 @@ public class DBDictionary
     /**
      * Return the SQL for the given selecting operation.
      */
-    protected SQLBuffer toOperation(String op, SQLBuffer selects,
+    public SQLBuffer toOperation(String op, SQLBuffer selects,
         SQLBuffer from, SQLBuffer where, SQLBuffer group, SQLBuffer having,
         SQLBuffer order, boolean distinct, long start, long end,
         String forUpdateClause) {
+        return toOperation(op, selects, from, where, group, having, order,
+            distinct, start, end, forUpdateClause, false);
+    }
+    
+    /**
+     * Return the SQL for the given selecting operation.
+     */
+    public SQLBuffer toOperation(String op, SQLBuffer selects,
+        SQLBuffer from, SQLBuffer where, SQLBuffer group, SQLBuffer having,
+        SQLBuffer order, boolean distinct, long start, long end,
+        String forUpdateClause, boolean subselect) {
+        return toOperation(op, selects, from, where, group, having, order,
+                distinct, start, end, forUpdateClause, subselect, false);
+    }
+
+    /**
+     * Return the SQL for the given selecting operation.
+     */
+    private SQLBuffer toOperation(String op, SQLBuffer selects,
+        SQLBuffer from, SQLBuffer where, SQLBuffer group, SQLBuffer having,
+        SQLBuffer order, boolean distinct, long start, long end,
+        String forUpdateClause, boolean subselect, boolean checkTableForUpdate) {
         SQLBuffer buf = new SQLBuffer(this);
         buf.append(op);
 
         boolean range = start != 0 || end != Long.MAX_VALUE;
         if (range && rangePosition == RANGE_PRE_DISTINCT)
-            appendSelectRange(buf, start, end);
+            appendSelectRange(buf, start, end, subselect);
         if (distinct)
             buf.append(" DISTINCT");
         if (range && rangePosition == RANGE_POST_DISTINCT)
-            appendSelectRange(buf, start, end);
+            appendSelectRange(buf, start, end, subselect);
 
         buf.append(" ").append(selects).append(" FROM ").append(from);
+
+        if (checkTableForUpdate
+                && (StringUtils.isEmpty(forUpdateClause) && !StringUtils
+                        .isEmpty(tableForUpdateClause))) {
+            buf.append(" ").append(tableForUpdateClause);
+        }
 
         if (where != null && !where.isEmpty())
             buf.append(" WHERE ").append(where);
@@ -2242,11 +2308,11 @@ public class DBDictionary
         if (order != null && !order.isEmpty())
             buf.append(" ORDER BY ").append(order);
         if (range && rangePosition == RANGE_POST_SELECT)
-            appendSelectRange(buf, start, end);
+            appendSelectRange(buf, start, end, subselect);
         if (forUpdateClause != null)
             buf.append(" ").append(forUpdateClause);
         if (range && rangePosition == RANGE_POST_LOCK)
-            appendSelectRange(buf, start, end);
+            appendSelectRange(buf, start, end, subselect);
         return buf;
     }
 
@@ -2254,7 +2320,8 @@ public class DBDictionary
      * If this dictionary can select ranges,
      * use this method to append the range SQL.
      */
-    protected void appendSelectRange(SQLBuffer buf, long start, long end) {
+    protected void appendSelectRange(SQLBuffer buf, long start, long end
+        , boolean subselect) {
     }
 
     /**
@@ -2272,16 +2339,28 @@ public class DBDictionary
             aliases = sel.getSelectAliases();
 
         Object alias;
-        for (Iterator itr = aliases.iterator(); itr.hasNext();) {
-            alias = itr.next();
-            if (alias instanceof SQLBuffer)
-                selectSQL.append((SQLBuffer) alias);
-            else
-                selectSQL.append(alias.toString());
-            if (itr.hasNext())
+        for (int i = 0; i < aliases.size(); i++) {
+            alias = aliases.get(i);
+            appendSelect(selectSQL, alias, sel, i);
+            if (i < aliases.size() - 1)
                 selectSQL.append(", ");
         }
         return selectSQL;
+    }
+
+    /**
+     * Append <code>elem</code> to <code>selectSQL</code>.
+     * @param selectSQL The SQLBuffer to append to.
+     * @param alias A {@link SQLBuffer} or a {@link String} to append.
+     *
+     * @since 1.1.0
+     */
+    protected void appendSelect(SQLBuffer selectSQL, Object elem, Select sel,
+        int idx) {
+        if (elem instanceof SQLBuffer)
+            selectSQL.append((SQLBuffer) elem);
+        else
+            selectSQL.append(elem.toString());
     }
 
     /**
@@ -2518,7 +2597,7 @@ public class DBDictionary
      * @param val the value to cast
      * @param type the type of the case, e.g. {@link Types#NUMERIC}
      */
-    public void appendCast(SQLBuffer buf, FilterValue val, int type) {
+    public void appendCast(SQLBuffer buf, Object val, int type) {
         // Convert the cast function: "CAST({0} AS {1})"
         int firstParam = castFunction.indexOf("{0}");
         String pre = castFunction.substring(0, firstParam); // "CAST("
@@ -2532,7 +2611,12 @@ public class DBDictionary
             post = "";
 
         buf.append(pre);
-        val.appendTo(buf);
+        if (val instanceof FilterValue)
+            ((FilterValue) val).appendTo(buf);
+        else if (val instanceof SQLBuffer)
+            buf.append(((SQLBuffer) val));
+        else
+            buf.append(val.toString());
         buf.append(mid);
         buf.append(getTypeName(type));
         appendLength(buf, type);
@@ -3190,7 +3274,7 @@ public class DBDictionary
      * @since 1.1.0
      */
     protected boolean supportsDeferredUniqueConstraints() {
-        return supportsUniqueConstraints;
+        return supportsDeferredConstraints;
     }
 
     /////////////////////
@@ -3307,7 +3391,7 @@ public class DBDictionary
         try {
             int idx = 1;
             if (schemaName != null)
-                stmnt.setString(idx++, schemaName);
+                stmnt.setString(idx++, schemaName.toUpperCase());
             if (sequenceName != null)
                 stmnt.setString(idx++, sequenceName);
 
@@ -3587,11 +3671,11 @@ public class DBDictionary
         fk.setPrimaryKeySchemaName(fkMeta.getString("PKTABLE_SCHEM"));
         fk.setPrimaryKeyTableName(fkMeta.getString("PKTABLE_NAME"));
         fk.setPrimaryKeyColumnName(fkMeta.getString("PKCOLUMN_NAME"));
-        fk.setKeySequence(fkMeta.getInt("KEY_SEQ"));
-        fk.setDeferred(fkMeta.getInt("DEFERRABILITY")
+        fk.setKeySequence(fkMeta.getShort("KEY_SEQ"));
+        fk.setDeferred(fkMeta.getShort("DEFERRABILITY")
             == DatabaseMetaData.importedKeyInitiallyDeferred);
 
-        int del = fkMeta.getInt("DELETE_RULE");
+        int del = fkMeta.getShort("DELETE_RULE");
         switch (del) {
             case DatabaseMetaData.importedKeySetNull:
                 fk.setDeleteAction(ForeignKey.ACTION_NULL);
@@ -3651,13 +3735,21 @@ public class DBDictionary
         if (objectName == null)
             return null;
 
-        if (SCHEMA_CASE_LOWER.equals(schemaCase))
+        String scase = getSchemaCase();
+        if (SCHEMA_CASE_LOWER.equals(scase))
             return objectName.toLowerCase();
-        if (SCHEMA_CASE_PRESERVE.equals(schemaCase))
+        if (SCHEMA_CASE_PRESERVE.equals(scase))
             return objectName;
         return objectName.toUpperCase();
     }
-
+    
+    /**
+     * Return DB specific schemaCase 
+     */
+    public String getSchemaCase(){
+        return schemaCase;
+    }
+        
     /**
      * Prepared the connection for metadata operations.
      */
@@ -3903,6 +3995,109 @@ public class DBDictionary
         return column.toString();
     }
     
+    public void insertBlobForStreamingLoad(Row row, Column col)
+    throws SQLException {
+        row.setBinaryStream(col, 
+                new ByteArrayInputStream(new byte[0]), 0);
+    }
+    
+    public void insertClobForStreamingLoad(Row row, Column col)
+    throws SQLException {
+        row.setCharacterStream(col,
+                new CharArrayReader(new char[0]), 0);
+    }
+    
+    public void updateBlob(Select sel, JDBCStore store, InputStream is)
+        throws SQLException {
+        SQLBuffer sql = sel.toSelect(true, store.getFetchConfiguration());
+        ResultSet res = null;
+        Connection conn = store.getConnection();
+        PreparedStatement stmnt = null;
+        try {
+            stmnt = sql.prepareStatement(conn, store.getFetchConfiguration(),
+                ResultSet.TYPE_SCROLL_SENSITIVE,
+                ResultSet.CONCUR_UPDATABLE);
+            res = stmnt.executeQuery();
+            if (!res.next()) {
+                throw new InternalException(_loc.get("stream-exception"));
+            }
+            Blob blob = res.getBlob(1);
+            OutputStream os = blob.setBinaryStream(1);
+            copy(is, os);
+            os.close();
+            res.updateBlob(1, blob);
+            res.updateRow();
+
+        } catch (IOException ioe) {
+            throw new StoreException(ioe);
+        } finally {
+            if (res != null)
+                try { res.close (); } catch (SQLException e) {}
+            if (stmnt != null)
+                try { stmnt.close (); } catch (SQLException e) {}
+            if (conn != null)
+                try { conn.close (); } catch (SQLException e) {}
+        }
+    }
+    
+    public void updateClob(Select sel, JDBCStore store, Reader reader)
+        throws SQLException {
+        SQLBuffer sql = sel.toSelect(true, store.getFetchConfiguration());
+        ResultSet res = null;
+        Connection conn = store.getConnection();
+        PreparedStatement stmnt = null;
+        try {
+            stmnt = sql.prepareStatement(conn, store.getFetchConfiguration(),
+                ResultSet.TYPE_SCROLL_SENSITIVE,
+                ResultSet.CONCUR_UPDATABLE);
+            res = stmnt.executeQuery();
+            if (!res.next()) {
+                throw new InternalException(_loc.get("stream-exception"));
+            }
+            Clob clob = res.getClob(1);
+            Writer writer = clob.setCharacterStream(1);
+            copy(reader, writer);
+            writer.close();
+            res.updateClob(1, clob);
+            res.updateRow();
+
+        } catch (IOException ioe) {
+            throw new StoreException(ioe);
+        } finally {
+            if (res != null) 
+                try { res.close (); } catch (SQLException e) {}
+            if (stmnt != null) 
+                try { stmnt.close (); } catch (SQLException e) {}
+            if (conn != null) 
+                try { conn.close (); } catch (SQLException e) {}
+        }    
+    }
+    
+    protected long copy(InputStream in, OutputStream out) throws IOException {
+        byte[] copyBuffer = new byte[blobBufferSize];
+        long bytesCopied = 0;
+        int read = -1;
+
+        while ((read = in.read(copyBuffer, 0, copyBuffer.length)) != -1) {
+            out.write(copyBuffer, 0, read);
+            bytesCopied += read;
+        }
+        return bytesCopied;
+    }
+    
+    protected long copy(Reader reader, Writer writer) throws IOException {
+        char[] copyBuffer = new char[clobBufferSize];
+        long bytesCopied = 0;
+        int read = -1;
+
+        while ((read = reader.read(copyBuffer, 0, copyBuffer.length)) != -1) {
+            writer.write(copyBuffer, 0, read);
+            bytesCopied += read;
+        }
+
+        return bytesCopied;
+    }
+    
     /**
      * Attach CAST to the current function if necessary
      * 
@@ -3913,5 +4108,11 @@ public class DBDictionary
     public String getCastFunction(Val val, String func) {
         return func;
     }
-   
+    
+    /**
+     * Create an index if necessary for some database tables
+     */
+    public void createIndexIfNecessary(Schema schema, String table,
+            Column pkColumn) {
+    }
 }

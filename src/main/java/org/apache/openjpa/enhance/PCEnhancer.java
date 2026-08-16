@@ -467,7 +467,8 @@ public class PCEnhancer {
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
-            throw new GeneralException(e);
+            throw new GeneralException(_loc.get("enhance-error",
+                _managedType.getType().getName(), e.getMessage()), e);
         }
     }
 
@@ -695,8 +696,8 @@ public class PCEnhancer {
 
         BCField field = null, cur;
         Instruction templateIns, prevIns, earlierIns;
-        int backupCount = 3;
         while (code.searchForward(template)) {
+            int backupCount = 3;
             templateIns = code.previous();
             if (!code.hasPrevious())
                 return null;
@@ -2736,7 +2737,10 @@ public class PCEnhancer {
             } catch (Throwable t) {
                 // last-chance catch for bug #283 (which can happen
                 // in a variety of ClassLoading environments)
-                _log.warn(_loc.get("enhance-uid-access", _meta), t);
+                if (_log.isTraceEnabled())
+                    _log.warn(_loc.get("enhance-uid-access", _meta), t);
+                else
+                    _log.warn(_loc.get("enhance-uid-access", _meta));
             }
 
             // if we couldn't access the serialVersionUID, we will have to
@@ -3662,7 +3666,7 @@ public class PCEnhancer {
      */
     private String toBackingFieldName(String name) {
         if (_meta.getAccessType() == ClassMetaData.ACCESS_PROPERTY
-            && _attrsToFields.containsKey(name))
+            && _attrsToFields != null && _attrsToFields.containsKey(name))
             name = (String) _attrsToFields.get(name);
         return name;
     }
@@ -3672,10 +3676,13 @@ public class PCEnhancer {
      * attribute name for the backing field <code>name</code>.
      */
     private String fromBackingFieldName(String name) {
-        if (_meta.getAccessType() == ClassMetaData.ACCESS_PROPERTY
-            && _fieldsToAttrs.containsKey(name))
-            name = (String) _fieldsToAttrs.get(name);
-        return name;
+        // meta is null when doing persistence-aware enhancement
+        if (_meta != null
+            && _meta.getAccessType() == ClassMetaData.ACCESS_PROPERTY
+            && _fieldsToAttrs != null && _fieldsToAttrs.containsKey(name))
+            return (String) _fieldsToAttrs.get(name);
+        else
+            return name;
     }
 
     /**
@@ -4331,7 +4338,7 @@ public class PCEnhancer {
                 log.trace(_loc.get("enhance-running", o));
 
             if (o instanceof String)
-                bc = project.loadClass((String) o);
+                bc = project.loadClass((String) o, loader);
             else
                 bc = project.loadClass((Class) o);
             enhancer = new PCEnhancer(conf, bc, repos, loader);

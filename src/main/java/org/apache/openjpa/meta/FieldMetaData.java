@@ -63,6 +63,8 @@ import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.ImplHelper;
+import org.apache.openjpa.util.UserException;
+
 import serp.util.Strings;
 
 /**
@@ -166,6 +168,7 @@ public class FieldMetaData
     private String[] _fgs = null;
     private String   _lfg = null;
     private Boolean _lrs = null;
+    private Boolean _stream = null;
     private String _extName = null;
     private String _factName = null;
     private String _extString = null;
@@ -178,9 +181,8 @@ public class FieldMetaData
 
     // Members aren't serializable. Use a proxy that can provide a Member
     // to avoid writing the full Externalizable implementation.
-    private transient MemberProvider _backingMember = null;
-    private String _backingFieldName = null;
-    
+    private MemberProvider _backingMember = null;
+
     // Members aren't serializable. Initializing _extMethod and _factMethod to
     // DEFAULT_METHOD is sufficient to trigger lazy population of these fields.
     private transient Method _extMethod = DEFAULT_METHOD;
@@ -594,7 +596,6 @@ public class FieldMetaData
                 // field left as default; dfg setting depends on type
                 switch (getTypeCode()) {
                     case JavaTypes.OBJECT:
-                    case JavaTypes.PC:
                         if (isSerializable() || isEnum())
                             _dfg = DFG_TRUE;
                         else
@@ -608,6 +609,7 @@ public class FieldMetaData
                         break;
                     case JavaTypes.COLLECTION:
                     case JavaTypes.MAP:
+                    case JavaTypes.PC:
                     case JavaTypes.PC_UNTYPED:
                         _dfg = DFG_FALSE;
                         break;
@@ -1029,6 +1031,24 @@ public class FieldMetaData
     }
 
     /**
+     * Whether this field is backed by a stream.
+     *
+     * @since 1.1.0
+     */
+    public boolean isStream() {
+        return _stream == Boolean.TRUE && _manage == MANAGE_PERSISTENT;
+    }
+    
+    /**
+     * Whether this field is backed by a stream.
+     *
+     * @since 1.1.0
+     */
+    public void setStream(boolean stream) {
+        _stream = (stream) ? Boolean.TRUE : Boolean.FALSE;
+    }
+    
+    /**
      * Whether this field uses intermediate data when loading/storing
      * information through a {@link OpenJPAStateManager}. Defaults to true.
      *
@@ -1214,8 +1234,16 @@ public class FieldMetaData
      */
     public Object getExternalValue(Object val, StoreContext ctx) {
         Map extValues = getExternalValueMap();
-        if (extValues != null)
-            return extValues.get(val);
+        if (extValues != null) {
+            Object foundVal = extValues.get(val);
+            if (foundVal == null) {
+                throw new UserException(_loc.get("bad-externalized-value",
+                        new Object[] { val, extValues.keySet(), this }))
+                        .setFatal(true).setFailedObject(val);
+            } else {
+                return foundVal;
+            }
+        }
 
         Method externalizer = getExternalizerMethod();
         if (externalizer == null)
@@ -1996,18 +2024,22 @@ public class FieldMetaData
      * Serializable wrapper around a {@link Method} or {@link Field}. For 
      * space considerations, this does not support {@link Constructor}s.
      */
-	private static class MemberProvider 
+	public static class MemberProvider
         implements Externalizable {
 
         private transient Member _member;
-        
-        private MemberProvider(Member member) {
+
+        public MemberProvider() {
+            // for externalization
+        }
+
+        MemberProvider(Member member) {
             if (member instanceof Constructor)
                 throw new IllegalArgumentException();
 
             _member = member;
         }
-        
+
         public Member getMember() {
             return _member;
         }
@@ -2015,13 +2047,13 @@ public class FieldMetaData
         public void readExternal(ObjectInput in)
             throws IOException, ClassNotFoundException {
             boolean isField = in.readBoolean();
-            Class cls = _member.getDeclaringClass();
+            Class cls = (Class) in.readObject();
             String memberName = (String) in.readObject();
             try {
                 if (isField)
                     _member = (Field) AccessController.doPrivileged(
                         J2DoPrivHelper.getDeclaredFieldAction(
-                            cls,memberName)); 
+                            cls, memberName)); 
                 else {
                     Class[] parameterTypes = (Class[]) in.readObject();
                     _member = (Method) AccessController.doPrivileged(
@@ -2051,11 +2083,11 @@ public class FieldMetaData
         }
     }
 
-    public boolean is_generated() {
+    public boolean isValueGenerated() {
         return _generated;
     }
 
-    public void set_generated(boolean _generated) {
-        this._generated = _generated;
+    public void setValueGenerated(boolean generated) {
+        this._generated = generated;
     }
 }

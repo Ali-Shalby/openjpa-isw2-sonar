@@ -118,6 +118,7 @@ public class FetchConfigurationImpl
         OpenJPAConfiguration conf = ctx.getConfiguration();
         setFetchBatchSize(conf.getFetchBatchSize());
         setFlushBeforeQueries(conf.getFlushBeforeQueriesConstant());
+        setLockTimeout(conf.getLockTimeout());
         clearFetchGroups();
         addFetchGroups(Arrays.asList(conf.getFetchGroupsList()));
         setMaxFetchDepth(conf.getMaxFetchDepth());
@@ -150,7 +151,7 @@ public class FetchConfigurationImpl
     public void copy(FetchConfiguration fetch) {
         setFetchBatchSize(fetch.getFetchBatchSize());
         setMaxFetchDepth(fetch.getMaxFetchDepth());
-        setEnlistInQueryCache(fetch.getEnlistInQueryCache());
+        setQueryCacheEnabled(fetch.getQueryCacheEnabled());
         setFlushBeforeQueries(fetch.getFlushBeforeQueries());
         setLockTimeout(fetch.getLockTimeout());
         clearFetchGroups();
@@ -191,11 +192,11 @@ public class FetchConfigurationImpl
         return this;
     }
 
-    public boolean getEnlistInQueryCache() {
+    public boolean getQueryCacheEnabled() {
         return _state.queryCache;
     }
 
-    public FetchConfiguration setEnlistInQueryCache(boolean cache) {
+    public FetchConfiguration setQueryCacheEnabled(boolean cache) {
         _state.queryCache = cache;
         return this;
     }
@@ -604,6 +605,8 @@ public class FetchConfigurationImpl
         int cur;
         for (int i = 0; max != FetchGroup.DEPTH_INFINITE 
             && i < groups.length; i++) {
+            // ignore custom groups that are inactive in this configuration
+            if (!this.hasFetchGroup(groups[i])) continue;
             cur = meta.getFetchGroup(groups[i]).getRecursionDepth(fm);
             if (cur == FetchGroup.DEPTH_INFINITE || cur > max) 
                 max = cur;
@@ -625,7 +628,7 @@ public class FetchConfigurationImpl
             return avail;
         return Math.min(max, avail);
     }
- 
+
     /**
      * Return the relation type of the given field.
      */

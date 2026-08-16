@@ -82,13 +82,21 @@ public class FetchPlanImpl
         return this;
     }
 
-    public boolean isEnlistInQueryResultCache() {
-        return _fetch.getEnlistInQueryCache();
+    public boolean getQueryResultCacheEnabled() {
+        return _fetch.getQueryCacheEnabled();
     }
 
-    public FetchPlan setEnlistInQueryResultCache(boolean cache) {
-        _fetch.setEnlistInQueryCache(cache);
+    public FetchPlan setQueryResultCacheEnabled(boolean cache) {
+        _fetch.setQueryCacheEnabled(cache);
         return this;
+    }
+
+    public boolean getQueryResultCache() {
+        return getQueryResultCacheEnabled();
+    }
+
+    public FetchPlan setQueryResultCache(boolean cache) {
+        return setQueryResultCacheEnabled(cache);
     }
 
     public Collection<String> getFetchGroups() {

@@ -53,6 +53,7 @@ import org.apache.openjpa.util.ClassResolver;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.StoreFacadeTypeRegistry;
+import org.apache.openjpa.enhance.RuntimeUnenhancedClasssesModes;
 
 /**
  * Implementation of the {@link OpenJPAConfiguration} interface.
@@ -131,7 +132,8 @@ public class OpenJPAConfigurationImpl
     public ObjectValue orphanedKeyPlugin;
     public ObjectValue compatibilityPlugin;
     public QueryCompilationCacheValue queryCompilationCachePlugin;
-    public BooleanValue runtimeClassOptimization;
+    public IntValue runtimeUnenhancedClasses;
+    public CacheMarshallersValue cacheMarshallerPlugins;
 
     // custom values
     public BrokerFactoryValue brokerFactoryPlugin;
@@ -209,6 +211,7 @@ public class OpenJPAConfigurationImpl
         dataCacheTimeout = addInt("DataCacheTimeout");
         dataCacheTimeout.setDefault("-1");
         dataCacheTimeout.set(-1);
+        dataCacheTimeout.setDynamic(true);
 
         queryCachePlugin = addPlugin("QueryCache", true);
         aliases = new String[] { 
@@ -294,19 +297,20 @@ public class OpenJPAConfigurationImpl
         mapping = addString("Mapping");
         metaFactoryPlugin = addPlugin("MetaDataFactory", false);
 
-        metaRepositoryPlugin = addPlugin("MetaDataRepository", false);
-        aliases =
-            new String[] { "default",
-                "org.apache.openjpa.meta.MetaDataRepository" };
-        metaRepositoryPlugin.setAliases(aliases);
-        metaRepositoryPlugin.setDefault(aliases[0]);
-        metaRepositoryPlugin.setString(aliases[0]);
+        metaRepositoryPlugin = (ObjectValue)
+            addValue(new MetaDataRepositoryValue());
 
         connectionFactory = addObject("ConnectionFactory");
         connectionFactory.setInstantiatingGetter("getConnectionFactory");
 
         connectionFactory2 = addObject("ConnectionFactory2");
         connectionFactory2.setInstantiatingGetter("getConnectionFactory2");
+        // This is done because this plug-in may get initialized very lazily
+        // when the runtime needs it for flush or a sequence. To keep it
+        // dynamic allows it to be set even when the configuration is frozen
+        connectionFactory.setDynamic(true);
+        connectionFactory2.setDynamic(true);
+
 
         connectionUserName = addString("ConnectionUserName");
         connectionPassword = addString("ConnectionPassword");
@@ -387,6 +391,7 @@ public class OpenJPAConfigurationImpl
         fetchBatchSize = addInt("FetchBatchSize");
         fetchBatchSize.setDefault("-1");
         fetchBatchSize.set(-1);
+        fetchBatchSize.setDynamic(true);
 
         maxFetchDepth = addInt("MaxFetchDepth");
         maxFetchDepth.setDefault("-1");
@@ -410,7 +415,8 @@ public class OpenJPAConfigurationImpl
         lockTimeout = addInt("LockTimeout");
         lockTimeout.setDefault("-1");
         lockTimeout.set(-1);
-
+        lockTimeout.setDynamic(true);
+        
         readLockLevel = addInt("ReadLockLevel");
         aliases =
             new String[] {
@@ -480,9 +486,21 @@ public class OpenJPAConfigurationImpl
             "getQueryCompilationCacheInstance");
         addValue(queryCompilationCachePlugin);
         
-        runtimeClassOptimization = addBoolean("RuntimeClassOptimization");
-        runtimeClassOptimization.setDefault("true");
-        runtimeClassOptimization.set(true);
+        runtimeUnenhancedClasses = addInt("RuntimeUnenhancedClasses");
+        runtimeUnenhancedClasses.setAliases(new String[] {
+            "supported", String.valueOf(
+                RuntimeUnenhancedClasssesModes.SUPPORTED),
+            "unsupported", String.valueOf(
+                RuntimeUnenhancedClasssesModes.UNSUPPORTED),
+            "warn", String.valueOf(
+                RuntimeUnenhancedClasssesModes.WARN),
+        });
+        runtimeUnenhancedClasses.setDefault("supported");
+        runtimeUnenhancedClasses.setString("supported");
+        runtimeUnenhancedClasses.setAliasListComprehensive(true);
+
+        cacheMarshallerPlugins = (CacheMarshallersValue)
+            addValue(new CacheMarshallersValue(this));
 
         // initialize supported options that some runtimes may not support
         supportedOptions.add(OPTION_NONTRANS_READ);
@@ -532,7 +550,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setClassResolver(String classResolver) {
-        assertNotReadOnly();
         classResolverPlugin.setString(classResolver);
     }
 
@@ -541,7 +558,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setClassResolver(ClassResolver classResolver) {
-        assertNotReadOnly();
         classResolverPlugin.set(classResolver);
     }
 
@@ -552,7 +568,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setBrokerFactory(String factory) {
-        assertNotReadOnly();
         brokerFactoryPlugin.setString(factory);
     }
 
@@ -561,7 +576,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setBrokerImpl(String broker) {
-        assertNotReadOnly();
         brokerPlugin.setString(broker);
     }
 
@@ -578,7 +592,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setDataCacheManager(String mgr) {
-        assertNotReadOnly();
         dataCacheManagerPlugin.setString(mgr);
     }
 
@@ -587,7 +600,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setDataCacheManager(DataCacheManager dcm) {
-        assertNotReadOnly();
         if (dcm != null)
             dcm.initialize(this, dataCachePlugin, queryCachePlugin);
         dataCacheManagerPlugin.set(dcm);
@@ -605,7 +617,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setDataCache(String dataCache) {
-        assertNotReadOnly();
         dataCachePlugin.setString(dataCache);
     }
 
@@ -614,7 +625,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setDataCacheTimeout(int dataCacheTimeout) {
-        assertNotReadOnly();
         this.dataCacheTimeout.set(dataCacheTimeout);
     }
 
@@ -628,7 +638,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setQueryCache(String queryCache) {
-        assertNotReadOnly();
         queryCachePlugin.setString(queryCache);
     }
 
@@ -649,7 +658,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setLockManager(String lockManager) {
-        assertNotReadOnly();
         lockManagerPlugin.setString(lockManager);
     }
 
@@ -666,7 +674,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setInverseManager(String inverseManager) {
-        assertNotReadOnly();
         inverseManagerPlugin.setString(inverseManager);
     }
 
@@ -680,7 +687,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setSavepointManager(String savepointManager) {
-        assertNotReadOnly();
         savepointManagerPlugin.setString(savepointManager);
     }
 
@@ -695,7 +701,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setOrphanedKeyAction(String action) {
-        assertNotReadOnly();
         orphanedKeyPlugin.setString(action);
     }
 
@@ -710,12 +715,10 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setOrphanedKeyAction(OrphanedKeyAction action) {
-        assertNotReadOnly();
         orphanedKeyPlugin.set(action);
     }
 
     public void setRemoteCommitProvider(String remoteCommitProvider) {
-        assertNotReadOnly();
         remoteProviderPlugin.setString(remoteCommitProvider);
     }
 
@@ -729,7 +732,6 @@ public class OpenJPAConfigurationImpl
 
     public void setRemoteCommitEventManager(
         RemoteCommitEventManager remoteEventManager) {
-        assertNotReadOnly();
         this.remoteEventManager = remoteEventManager;
         remoteProviderPlugin.configureEventManager(remoteEventManager);
     }
@@ -743,7 +745,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setTransactionMode(String transactionMode) {
-        assertNotReadOnly();
         this.transactionMode.setString(transactionMode);
     }
 
@@ -752,7 +753,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setTransactionModeManaged(boolean managed) {
-        assertNotReadOnly();
         transactionMode.set(managed);
     }
 
@@ -761,7 +761,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setManagedRuntime(String managedRuntime) {
-        assertNotReadOnly();
         managedRuntimePlugin.setString(managedRuntime);
     }
 
@@ -770,7 +769,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setManagedRuntime(ManagedRuntime managedRuntime) {
-        assertNotReadOnly();
         managedRuntimePlugin.set(managedRuntime);
     }
 
@@ -781,7 +779,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setProxyManager(String proxyManager) {
-        assertNotReadOnly();
         proxyManagerPlugin.setString(proxyManager);
     }
 
@@ -790,7 +787,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setProxyManager(ProxyManager proxyManager) {
-        assertNotReadOnly();
         proxyManagerPlugin.set(proxyManager);
     }
 
@@ -801,7 +797,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setMapping(String mapping) {
-        assertNotReadOnly();
         this.mapping.setString(mapping);
     }
 
@@ -810,7 +805,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setMetaDataFactory(String meta) {
-        assertNotReadOnly();
         this.metaFactoryPlugin.setString(meta);
     }
 
@@ -824,7 +818,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setMetaDataRepository(String meta) {
-        assertNotReadOnly();
         this.metaRepositoryPlugin.setString(meta);
     }
 
@@ -833,7 +826,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setMetaDataRepository(MetaDataRepository meta) {
-        assertNotReadOnly();
         metaRepository = meta;
     }
 
@@ -842,6 +834,10 @@ public class OpenJPAConfigurationImpl
             metaRepository = newMetaDataRepositoryInstance();
         return metaRepository;
     }
+    
+    public boolean metaDataRepositoryAvailable(){ 
+        return metaRepository != null; 
+    }
 
     public MetaDataRepository newMetaDataRepositoryInstance() {
         return (MetaDataRepository) metaRepositoryPlugin.instantiate(
@@ -849,7 +845,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionUserName(String connectionUserName) {
-        assertNotReadOnly();
         this.connectionUserName.setString(connectionUserName);
     }
 
@@ -858,7 +853,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionPassword(String connectionPassword) {
-        assertNotReadOnly();
         this.connectionPassword.setString(connectionPassword);
     }
 
@@ -867,7 +861,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionURL(String connectionURL) {
-        assertNotReadOnly();
         this.connectionURL.setString(connectionURL);
     }
 
@@ -876,7 +869,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionDriverName(String driverName) {
-        assertNotReadOnly();
         this.connectionDriverName.setString(driverName);
     }
 
@@ -885,7 +877,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionProperties(String connectionProperties) {
-        assertNotReadOnly();
         this.connectionProperties.setString(connectionProperties);
     }
 
@@ -895,7 +886,6 @@ public class OpenJPAConfigurationImpl
 
     public void setConnectionFactoryProperties(
         String connectionFactoryProperties) {
-        assertNotReadOnly();
         this.connectionFactoryProperties.setString(connectionFactoryProperties);
     }
 
@@ -908,7 +898,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionFactoryMode(String mode) {
-        assertNotReadOnly();
         connectionFactoryMode.setString(mode);
     }
 
@@ -917,12 +906,10 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionFactoryModeManaged(boolean managed) {
-        assertNotReadOnly();
         connectionFactoryMode.set(managed);
     }
 
     public void setConnectionFactoryName(String connectionFactoryName) {
-        assertNotReadOnly();
         this.connectionFactoryName.setString(connectionFactoryName);
     }
 
@@ -931,7 +918,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionFactory(Object factory) {
-        assertNotReadOnly();
         connectionFactory.set(factory);
     }
 
@@ -953,7 +939,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnection2UserName(String connection2UserName) {
-        assertNotReadOnly();
         this.connection2UserName.setString(connection2UserName);
     }
 
@@ -962,7 +947,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnection2Password(String connection2Password) {
-        assertNotReadOnly();
         this.connection2Password.setString(connection2Password);
     }
 
@@ -971,7 +955,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnection2URL(String connection2URL) {
-        assertNotReadOnly();
         this.connection2URL.setString(connection2URL);
     }
 
@@ -980,7 +963,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnection2DriverName(String driverName) {
-        assertNotReadOnly();
         this.connection2DriverName.setString(driverName);
     }
 
@@ -989,7 +971,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnection2Properties(String connection2Properties) {
-        assertNotReadOnly();
         this.connection2Properties.setString(connection2Properties);
     }
 
@@ -999,7 +980,6 @@ public class OpenJPAConfigurationImpl
 
     public void setConnectionFactory2Properties(
         String connectionFactory2Properties) {
-        assertNotReadOnly();
         this.connectionFactory2Properties
             .setString(connectionFactory2Properties);
     }
@@ -1009,7 +989,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionFactory2Name(String connectionFactory2Name) {
-        assertNotReadOnly();
         this.connectionFactory2Name.setString(connectionFactory2Name);
     }
 
@@ -1018,7 +997,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionFactory2(Object factory) {
-        assertNotReadOnly();
         connectionFactory2.set(factory);
     }
 
@@ -1030,7 +1008,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setOptimistic(boolean optimistic) {
-        assertNotReadOnly();
         this.optimistic.set(optimistic);
     }
 
@@ -1044,7 +1021,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setAutoClear(String clear) {
-        assertNotReadOnly();
         autoClear.setString(clear);
     }
 
@@ -1053,7 +1029,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setAutoClear(int clear) {
-        assertNotReadOnly();
         autoClear.set(clear);
     }
 
@@ -1062,7 +1037,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setRetainState(boolean retainState) {
-        assertNotReadOnly();
         this.retainState.set(retainState);
     }
 
@@ -1076,7 +1050,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setRestoreState(String restoreState) {
-        assertNotReadOnly();
         this.restoreState.setString(restoreState);
     }
 
@@ -1085,7 +1058,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setRestoreState(int restoreState) {
-        assertNotReadOnly();
         this.restoreState.set(restoreState);
     }
 
@@ -1094,7 +1066,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setAutoDetach(String autoDetach) {
-        assertNotReadOnly();
         this.autoDetach.setString(autoDetach);
     }
 
@@ -1111,7 +1082,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setDetachState(String detachState) {
-        assertNotReadOnly();
         detachStatePlugin.setString(detachState);
     }
 
@@ -1120,7 +1090,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setDetachState(DetachOptions detachState) {
-        assertNotReadOnly();
         detachStatePlugin.set(detachState);
     }
 
@@ -1131,7 +1100,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setIgnoreChanges(boolean ignoreChanges) {
-        assertNotReadOnly();
         this.ignoreChanges.set(ignoreChanges);
     }
 
@@ -1145,7 +1113,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setNontransactionalRead(boolean nontransactionalRead) {
-        assertNotReadOnly();
         this.nontransactionalRead.set(nontransactionalRead);
     }
 
@@ -1159,7 +1126,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setNontransactionalWrite(boolean nontransactionalWrite) {
-        assertNotReadOnly();
         this.nontransactionalWrite.set(nontransactionalWrite);
     }
 
@@ -1173,7 +1139,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setMultithreaded(boolean multithreaded) {
-        assertNotReadOnly();
         this.multithreaded.set(multithreaded);
     }
 
@@ -1187,7 +1152,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setFetchBatchSize(int fetchBatchSize) {
-        assertNotReadOnly();
         this.fetchBatchSize.set(fetchBatchSize);
     }
 
@@ -1201,7 +1165,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setMaxFetchDepth(int maxFetchDepth) {
-        assertNotReadOnly();
         this.maxFetchDepth.set(maxFetchDepth);
     }
 
@@ -1215,7 +1178,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setFetchGroups(String fetchGroups) {
-        assertNotReadOnly();
         this.fetchGroups.setString(fetchGroups);
     }
 
@@ -1232,7 +1194,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setFlushBeforeQueries(String flush) {
-        assertNotReadOnly();
         flushBeforeQueries.setString(flush);
     }
 
@@ -1241,7 +1202,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setFlushBeforeQueries(int flush) {
-        assertNotReadOnly();
         flushBeforeQueries.set(flush);
     }
 
@@ -1250,7 +1210,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setLockTimeout(int timeout) {
-        assertNotReadOnly();
         lockTimeout.set(timeout);
     }
 
@@ -1264,7 +1223,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setReadLockLevel(String level) {
-        assertNotReadOnly();
         readLockLevel.setString(level);
     }
 
@@ -1273,7 +1231,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setReadLockLevel(int level) {
-        assertNotReadOnly();
         readLockLevel.set(level);
     }
 
@@ -1282,7 +1239,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setWriteLockLevel(String level) {
-        assertNotReadOnly();
         writeLockLevel.setString(level);
     }
 
@@ -1291,7 +1247,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setWriteLockLevel(int level) {
-        assertNotReadOnly();
         writeLockLevel.set(level);
     }
 
@@ -1300,7 +1255,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setSequence(String sequence) {
-        assertNotReadOnly();
         seqPlugin.setString(sequence);
     }
 
@@ -1309,7 +1263,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setSequence(Seq seq) {
-        assertNotReadOnly();
         seqPlugin.set(seq);
     }
 
@@ -1320,7 +1273,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionRetainMode(String connectionRetainMode) {
-        assertNotReadOnly();
         this.connectionRetainMode.setString(connectionRetainMode);
     }
 
@@ -1329,7 +1281,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setConnectionRetainMode(int connectionRetainMode) {
-        assertNotReadOnly();
         this.connectionRetainMode.set(connectionRetainMode);
     }
 
@@ -1338,7 +1289,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setFilterListeners(String filterListeners) {
-        assertNotReadOnly();
         filterListenerPlugins.setString(filterListeners);
     }
 
@@ -1347,7 +1297,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setFilterListeners(FilterListener[] listeners) {
-        assertNotReadOnly();
         filterListenerPlugins.set(listeners);
     }
 
@@ -1358,7 +1307,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setAggregateListeners(String aggregateListeners) {
-        assertNotReadOnly();
         aggregateListenerPlugins.setString(aggregateListeners);
     }
 
@@ -1367,7 +1315,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setAggregateListeners(AggregateListener[] listeners) {
-        assertNotReadOnly();
         aggregateListenerPlugins.set(listeners);
     }
 
@@ -1378,7 +1325,6 @@ public class OpenJPAConfigurationImpl
     }
 
     public void setRetryClassRegistration(boolean retry) {
-        assertNotReadOnly();
         retryClassRegistration.set(retry);
     }
 
@@ -1427,23 +1373,39 @@ public class OpenJPAConfigurationImpl
         return _brokerFactoryEventManager;
     }
 
-    public boolean getRuntimeClassOptimization() {
-        return runtimeClassOptimization.get();
+    public String getRuntimeUnenhancedClasses() {
+        return runtimeUnenhancedClasses.getString();
     }
 
-    public void setRuntimeClassOptimization(Boolean enabled) {
-        setRuntimeClassOptimization(enabled.booleanValue());
+    public int getRuntimeUnenhancedClassesConstant() {
+        return runtimeUnenhancedClasses.get();
     }
 
-    public void setRuntimeClassOptimization(boolean enabled) {
-        assertNotReadOnly();
-        runtimeClassOptimization.set(enabled);
+    public void setRuntimeUnenhancedClasses(int mode) {
+        runtimeUnenhancedClasses.set(mode);
+    }
+
+    public String getCacheMarshallers() {
+        return cacheMarshallerPlugins.getString();
+    }
+
+    public void setCacheMarshallers(String marshallers) {
+        cacheMarshallerPlugins.setString(marshallers);
+    }
+
+    public Map getCacheMarshallerInstances() {
+        return cacheMarshallerPlugins.getInstancesAsMap();
+    }
+
+    public void setRuntimeUnenhancedClasses(String mode) {
+        runtimeUnenhancedClasses.setString(mode);
     }
 
     public void instantiateAll() {
         super.instantiateAll();
         getMetaDataRepositoryInstance();
         getRemoteCommitEventManager();
+        cacheMarshallerPlugins.initialize();
     }
 
     protected void preClose() {
@@ -1454,9 +1416,5 @@ public class OpenJPAConfigurationImpl
 
     public Log getConfigurationLog() {
         return getLog(LOG_RUNTIME);
-    }
-    
-    public Value[] getDynamicValues() {
-    	return new Value[] { dataCacheTimeout, fetchBatchSize, lockTimeout };
     }
 }

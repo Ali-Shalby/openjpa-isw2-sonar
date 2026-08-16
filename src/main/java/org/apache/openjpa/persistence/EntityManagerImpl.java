@@ -70,6 +70,9 @@ public class EntityManagerImpl
     private FetchPlan _fetch = null;
     private static final Object[] EMPTY_OBJECTS = new Object[0];
 
+    private RuntimeExceptionTranslator ret =
+        PersistenceExceptions.getRollbackTranslator(this);
+
     /**
      * Constructor; supply factory and delegate.
      */
@@ -198,6 +201,11 @@ public class EntityManagerImpl
         _broker.setRestoreState(val.toKernelConstant());
     }
 
+    public void setRestoreState(int restore) {
+        assertNotCloseInvoked();
+        _broker.setRestoreState(restore);
+    }
+
     public boolean getRetainState() {
         return _broker.getRetainState();
     }
@@ -216,6 +224,11 @@ public class EntityManagerImpl
         _broker.setAutoClear(val.toKernelConstant());
     }
 
+    public void setAutoClear(int autoClear) {
+        assertNotCloseInvoked();
+        _broker.setAutoClear(autoClear);
+    }
+
     public DetachStateType getDetachState() {
         return DetachStateType.fromKernelConstant(_broker.getDetachState());
     }
@@ -223,6 +236,11 @@ public class EntityManagerImpl
     public void setDetachState(DetachStateType type) {
         assertNotCloseInvoked();
         _broker.setDetachState(type.toKernelConstant());
+    }
+
+    public void setDetachState(int detach) {
+        assertNotCloseInvoked();
+        _broker.setDetachState(detach);
     }
 
     public EnumSet<AutoDetachType> getAutoDetach() {
@@ -237,6 +255,16 @@ public class EntityManagerImpl
     public void setAutoDetach(EnumSet<AutoDetachType> flags) {
         assertNotCloseInvoked();
         _broker.setAutoDetach(AutoDetachType.fromEnumSet(flags));
+    }
+
+    public void setAutoDetach(int autoDetachFlags) {
+        assertNotCloseInvoked();
+        _broker.setAutoDetach(autoDetachFlags);
+    }
+
+    public void setAutoDetach(AutoDetachType value, boolean on) {
+        assertNotCloseInvoked();
+        _broker.setAutoDetach(AutoDetachType.fromEnumSet(EnumSet.of(value)),on);
     }
 
     public void setAutoDetach(int flag, boolean on) {
@@ -271,6 +299,14 @@ public class EntityManagerImpl
         _broker.setTrackChangesByType(trackByType);
     }
 
+    public boolean isLargeTransaction() {
+        return isTrackChangesByType();
+    }
+
+    public void setLargeTransaction(boolean value) {
+        setTrackChangesByType(value);
+    }
+
     public Object getUserObject(Object key) {
         return _broker.getUserObject(key);
     }
@@ -290,7 +326,7 @@ public class EntityManagerImpl
         _broker.removeTransactionListener(listener);
     }
 
-    public EnumSet<CallbackMode> getTransactionListenerCallbackMode() {
+    public EnumSet<CallbackMode> getTransactionListenerCallbackModes() {
         return CallbackMode.toEnumSet(
             _broker.getTransactionListenerCallbackMode());
     }
@@ -307,6 +343,14 @@ public class EntityManagerImpl
             CallbackMode.fromEnumSet(modes));
     }
 
+    public int getTransactionListenerCallbackMode() {
+        return _broker.getTransactionListenerCallbackMode();
+    }
+
+    public void setTransactionListenerCallbackMode(int callbackMode) {
+        throw new UnsupportedOperationException();
+    }
+
     public void addLifecycleListener(Object listener, Class... classes) {
         assertNotCloseInvoked();
         _broker.addLifecycleListener(listener, classes);
@@ -317,7 +361,7 @@ public class EntityManagerImpl
         _broker.removeLifecycleListener(listener);
     }
 
-    public EnumSet<CallbackMode> getLifecycleListenerCallbackMode() {
+    public EnumSet<CallbackMode> getLifecycleListenerCallbackModes() {
         return CallbackMode.toEnumSet(
             _broker.getLifecycleListenerCallbackMode());
     }
@@ -332,6 +376,15 @@ public class EntityManagerImpl
         assertNotCloseInvoked();
         _broker.setLifecycleListenerCallbackMode(
             CallbackMode.fromEnumSet(modes));
+    }
+
+    public int getLifecycleListenerCallbackMode() {
+        return _broker.getLifecycleListenerCallbackMode();
+    }
+
+    public void setLifecycleListenerCallbackMode(int callbackMode) {
+        assertNotCloseInvoked();
+        _broker.setLifecycleListenerCallbackMode(callbackMode);
     }
 
     @SuppressWarnings("unchecked")
@@ -763,7 +816,7 @@ public class EntityManagerImpl
 
     public OpenJPAQuery createQuery(String language, String query) {
         assertNotCloseInvoked();
-        return new QueryImpl(this, _broker.newQuery(language, query));
+        return new QueryImpl(this, ret, _broker.newQuery(language, query));
     }
 
     public OpenJPAQuery createQuery(Query query) {
@@ -771,7 +824,7 @@ public class EntityManagerImpl
             return createQuery((String) null);
         assertNotCloseInvoked();
         org.apache.openjpa.kernel.Query q = ((QueryImpl) query).getDelegate();
-        return new QueryImpl(this, _broker.newQuery(q.getLanguage(),
+        return new QueryImpl(this, ret, _broker.newQuery(q.getLanguage(),
             q));
     }
 
@@ -787,7 +840,7 @@ public class EntityManagerImpl
             meta.setInto(del);
             del.compile();
 
-            OpenJPAQuery q = new QueryImpl(this, del);
+            OpenJPAQuery q = new QueryImpl(this, ret, del);
             String[] hints = meta.getHintKeys();
             Object[] values = meta.getHintValues();
             for (int i = 0; i < hints.length; i++)
@@ -813,7 +866,7 @@ public class EntityManagerImpl
         org.apache.openjpa.kernel.Query kernelQuery = _broker.newQuery(
             QueryLanguages.LANG_SQL, query);
         kernelQuery.setResultMapping(null, mappingName);
-        return new QueryImpl(this, kernelQuery);
+        return new QueryImpl(this, ret, kernelQuery);
     }
 
     /**

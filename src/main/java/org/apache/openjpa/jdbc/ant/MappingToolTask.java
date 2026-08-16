@@ -176,7 +176,10 @@ public class MappingToolTask
         if (MappingTool.ACTION_IMPORT.equals(flags.action))
             assertFiles(files);
 
-        ClassLoader loader = getClassLoader();
+        ClassLoader loader =
+            (ClassLoader) AccessController.doPrivileged(J2DoPrivHelper
+                    .newTemporaryClassLoaderAction(getClassLoader()));
+        
         if (flags.meta && MappingTool.ACTION_ADD.equals(flags.action))
             flags.metaDataFile = Files.getFile(file, loader);
         else
@@ -185,12 +188,12 @@ public class MappingToolTask
         flags.sqlWriter = Files.getWriter(sqlFile, loader);
 
         MultiLoaderClassResolver resolver = new MultiLoaderClassResolver();
-        resolver.addClassLoader(loader);
         resolver.addClassLoader((ClassLoader) AccessController.doPrivileged(
             J2DoPrivHelper.getClassLoaderAction(MappingTool.class)));
+        resolver.addClassLoader(loader);
         JDBCConfiguration conf = (JDBCConfiguration) getConfiguration();
         conf.setClassResolver(resolver);
-
+        
         if (!MappingTool.run(conf, files, flags, loader))
             throw new BuildException(_loc.get("bad-conf", "MappingToolTask")
                 .getMessage());
