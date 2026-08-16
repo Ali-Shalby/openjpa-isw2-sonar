@@ -20,8 +20,12 @@ package org.apache.openjpa.persistence;
 
 import java.io.Serializable;
 import java.util.Map;
-import java.util.Properties;
+import java.util.Set;
+
 import javax.persistence.EntityManagerFactory;
+
+import org.apache.openjpa.persistence.criteria.OpenJPACriteriaBuilder;
+import org.apache.openjpa.persistence.query.QueryBuilder;
 
 /**
  * Interface implemented by OpenJPA entity manager factories.
@@ -123,4 +127,23 @@ public interface OpenJPAEntityManagerFactory
      * method pierces the published-API boundary, as does the SPI cast.
      */
     public void removeTransactionListener(Object listener);
+    
+    /**
+     * Gets a builder for dynamic queries.
+     */
+    public QueryBuilder getDynamicQueryBuilder();
+    
+    /**
+     * Gets the QueryBuilder with OpenJPA-extended capabilities. 
+     * 
+     * @since 2.0.0
+     */
+    public OpenJPACriteriaBuilder getCriteriaBuilder();
+    
+    /**
+     * Get the properties supported by this runtime.
+     * 
+     * @since 2.0.0
+    */
+    public Set<String> getSupportedProperties();
 }

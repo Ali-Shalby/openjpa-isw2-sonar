@@ -30,6 +30,7 @@ import java.sql.Ref;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.sql.Types;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.HashMap;
@@ -46,6 +47,7 @@ import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.kernel.exps.Context;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.UnsupportedException;
@@ -659,8 +661,8 @@ public abstract class AbstractResult
     protected long getLongInternal(Object obj, Joins joins)
         throws SQLException {
         Number val = (Number) checkNull(getObjectInternal(obj,
-            JavaTypes.INT, null, joins));
-        return (val == null) ? 0 : val.intValue();
+            JavaTypes.LONG, null, joins));
+        return (val == null) ? 0 : val.longValue();
     }
 
     public Number getNumber(Object obj)
@@ -686,12 +688,12 @@ public abstract class AbstractResult
 
     public Object getObject(Object obj, int metaType, Object arg)
         throws SQLException {
-        return getObjectInternal(translate(obj, null), metaType, arg, null);
+        return getObjectInternal(obj, metaType, arg, null);
     }
 
     public Object getObject(Column col, Object arg, Joins joins)
         throws SQLException {
-        return getObjectInternal(translate(col, joins), col.getJavaType(),
+        return getObjectInternal(col, col.getJavaType(),
             arg, joins);
     }
 
@@ -756,15 +758,17 @@ public abstract class AbstractResult
 
     public String getString(Object obj)
         throws SQLException {
-        return getStringInternal(translate(obj, null), null);
+        return getStringInternal(translate(obj, null), null,
+            obj instanceof Column && ((Column) obj).getType() == Types.CLOB);
     }
 
     public String getString(Column col, Joins joins)
         throws SQLException {
-        return getStringInternal(translate(col, joins), joins);
+        return getStringInternal(translate(col, joins), joins,
+            col.getType() == Types.CLOB);
     }
 
-    protected String getStringInternal(Object obj, Joins joins)
+    protected String getStringInternal(Object obj, Joins joins, boolean isClobString)
         throws SQLException {
         Object val = checkNull(getObjectInternal(obj, JavaTypes.STRING,
             null, joins));
@@ -830,7 +834,8 @@ public abstract class AbstractResult
 
     /**
      * Translate the user-given id or column. This method is called before
-     * delegating to any <code>get*Internal</code> methods. Return the
+     * delegating to any <code>get*Internal</code> methods with the exception of
+     * <code>getObjectInternal</code>. Return the
      * original value by default.
      */
     protected Object translate(Object obj, Joins joins)
@@ -882,7 +887,22 @@ public abstract class AbstractResult
             return this;
         }
 
+        public Joins setJoinContext(Context context) {
+            return this;
+        }
+
         public void appendTo(SQLBuffer buf) {
+        }
+
+        public Joins setCorrelatedVariable(String var) {
+            return this;
+        }
+
+        public String getCorrelatedVariable() {
+            return null;
+        }
+        
+        public void moveJoinsToParent() {
         }
     }
 }

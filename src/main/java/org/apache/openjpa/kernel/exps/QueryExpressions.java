@@ -22,10 +22,14 @@ import java.io.Serializable;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Stack;
 
 import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.kernel.QueryOperations;
+import org.apache.openjpa.kernel.ResultShape;
 import org.apache.openjpa.kernel.StoreQuery;
+import org.apache.openjpa.kernel.exps.Context;
+import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 
@@ -36,6 +40,7 @@ import org.apache.openjpa.meta.FieldMetaData;
  * @since 0.3.2
  * @nojavadoc
  */
+@SuppressWarnings("serial")
 public class QueryExpressions
     implements Serializable {
 
@@ -47,13 +52,13 @@ public class QueryExpressions
     /**
      * Map of {@link FieldMetaData},{@link Value} for update statements.
      */
-    public Map<Path, Value> updates = Collections.EMPTY_MAP;
+    public Map<Path, Value> updates = Collections.emptyMap();
     public int distinct = DISTINCT_AUTO;
     public String alias = null;
     public Value[] projections = EMPTY_VALUES;
     public String[] projectionClauses = StoreQuery.EMPTY_STRINGS;
     public String[] projectionAliases = StoreQuery.EMPTY_STRINGS;
-    public Class resultClass = null;
+    public Class<?> resultClass = null;
     public Expression filter = null;
     public Value[] grouping = EMPTY_VALUES;
     public String[] groupingClauses = StoreQuery.EMPTY_STRINGS;
@@ -62,13 +67,32 @@ public class QueryExpressions
     public boolean[] ascending = StoreQuery.EMPTY_BOOLEANS;
     public String[] orderingClauses = StoreQuery.EMPTY_STRINGS;
     public String[] orderingAliases = StoreQuery.EMPTY_STRINGS;
-    public LinkedMap parameterTypes = StoreQuery.EMPTY_PARAMS;
+    public OrderedMap<Object,Class<?>> parameterTypes = StoreQuery.EMPTY_ORDERED_PARAMS;
     public int operation = QueryOperations.OP_SELECT;
     public ClassMetaData[] accessPath = StoreQuery.EMPTY_METAS;
     public String[] fetchPaths = StoreQuery.EMPTY_STRINGS;
     public String[] fetchInnerPaths = StoreQuery.EMPTY_STRINGS;
     public Value[] range = EMPTY_VALUES;
     private Boolean _aggregate = null;
+    private Stack<Context> _contexts = null;
+    public Object state;
+    public ResultShape<?> shape;
+    
+    /**
+     * Set reference to the JPQL query contexts.
+     * @param contexts
+     */
+    public void setContexts(Stack<Context> contexts) {
+        _contexts = contexts;
+    }
+
+    /**
+     * Returns the current JPQL query context.
+     * @return
+     */
+    public Context ctx() {
+        return _contexts.peek();
+    }
 
     /**
      * Whether this is an aggregate results.
@@ -80,6 +104,10 @@ public class QueryExpressions
             _aggregate = (AggregateExpressionVisitor.isAggregate(projections))
                 ? Boolean.TRUE : Boolean.FALSE;
         return _aggregate.booleanValue();    
+    }
+    
+    public boolean isDistinct() {
+        return distinct != DISTINCT_FALSE;
     }
 
     /**

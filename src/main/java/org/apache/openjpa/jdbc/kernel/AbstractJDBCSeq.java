@@ -57,8 +57,9 @@ public abstract class AbstractJDBCSeq
     public Object next(StoreContext ctx, ClassMetaData meta) {
         JDBCStore store = getStore(ctx);
         try {
-            current = nextInternal(store, (ClassMapping) meta);
-            return current;
+            Object currentLocal = nextInternal(store, (ClassMapping) meta);
+            current = currentLocal;
+            return currentLocal;
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (SQLException se) {
@@ -151,7 +152,7 @@ public abstract class AbstractJDBCSeq
      * <code>TYPE_CONTIGUOUS</code> the connection from the {@link StoreManager}
      * will be returned. 
      * 
-     * <P>Otherwise a new connection will be obtained using DataSource2 from the 
+     * <P>Otherwise a new connection will be obtained using DataSource2 from the
      * current configuration. In this case autocommit is set to false prior to 
      * returning the connection.</P>
      */

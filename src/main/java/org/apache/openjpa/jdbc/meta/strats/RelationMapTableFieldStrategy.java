@@ -22,7 +22,6 @@ import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Map;
 
-import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -81,13 +80,23 @@ public class RelationMapTableFieldStrategy
 
     public void selectKey(Select sel, ClassMapping key, OpenJPAStateManager sm,
         JDBCStore store, JDBCFetchConfiguration fetch, Joins joins) {
-        throw new InternalException();
+        ValueMapping vm = field.getKeyMapping();
+        if (vm.isEmbedded())
+            sel.select(key, field.getKeyMapping().getSelectSubclasses(),
+                store, fetch, JDBCFetchConfiguration.EAGER_NONE, joins);
+        else
+            throw new InternalException();
     }
 
     public Object loadKey(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res, Joins joins)
         throws SQLException {
-        throw new InternalException();
+        ValueMapping vm = field.getKeyMapping();
+        if (vm.isEmbedded())
+            return vm.getValueMappedByMapping().
+                loadProjection(store, fetch, res, joins);
+        else
+            throw new InternalException();
     }
 
     public Object deriveKey(JDBCStore store, Object value) {
@@ -137,6 +146,27 @@ public class RelationMapTableFieldStrategy
 
     public Joins joinKeyRelation(Joins joins, ClassMapping key) {
         return joins;
+    }
+
+    public Joins joinKeyRelation(Joins joins, boolean forceOuter,
+        boolean traverse) {
+        ValueMapping key = field.getKeyMapping();
+        if (key.isEmbedded())
+            return joins;
+
+        ClassMapping[] clss = key.getIndependentTypeMappings();
+        if (clss.length != 1) {
+            if (traverse)
+                throw RelationStrategies.unjoinable(key);
+            return joins;
+        }
+        if (forceOuter)
+            return joins.outerJoinRelation(field.getName(),
+                key.getForeignKey(clss[0]), clss[0], key.getSelectSubclasses(),
+                false, false);
+        return joins.joinRelation(field.getName(),
+            key.getForeignKey(clss[0]), clss[0], key.getSelectSubclasses(), 
+            false, false);
     }
 
     public Joins joinValueRelation(Joins joins, ClassMapping val) {

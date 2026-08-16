@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.slice.jdbc;
 
+import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -27,15 +28,28 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
+
 /**
  * A template for multiple Statements being executed by multiple connections.
  * 
  * @author Pinaki Poddar 
  *
  */
-class DistributedTemplate<T extends Statement> 
+public abstract class DistributedTemplate<T extends Statement> 
 	implements Statement, Iterable<T> {
-	protected List<T> stmts = new ArrayList<T>();
+    static final Constructor<DistributedTemplate> concreteImpl;
+
+    static {
+        try {
+            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DistributedTemplate.class, 
+                DistributedConnection.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    protected List<T> stmts = new ArrayList<T>();
 	protected final DistributedConnection con;
 	protected T master;
 	
@@ -43,6 +57,10 @@ class DistributedTemplate<T extends Statement>
 		con = c;
 	}
 	
+    public static DistributedTemplate newInstance(DistributedConnection conn) {
+        return ConcreteClassGenerator.newInstance(concreteImpl, conn);
+    }
+    
 	public Iterator<T> iterator() {
 		return stmts.iterator();
 	}
@@ -52,7 +70,8 @@ class DistributedTemplate<T extends Statement>
 			master = s;
 		try {
 			if (!con.contains(s.getConnection()))
-				throw new IllegalArgumentException(s + " has different connection");
+                throw new IllegalArgumentException(s +
+                        " has different connection");
 			stmts.add(s);
 		} catch (SQLException e) {
 			e.printStackTrace();
@@ -117,20 +136,20 @@ class DistributedTemplate<T extends Statement>
 		for (Statement s:this) {
 			int[] tmp = s.executeBatch();
 			ret = new int[ret.length + tmp.length];
-			System.arraycopy(tmp, 0, ret, ret.length-tmp.length, tmp.length);
+            System.arraycopy(tmp, 0, ret, ret.length-tmp.length, tmp.length);
 		}
 		return ret;
 	}
 
 	public ResultSet executeQuery() throws SQLException {
-		DistributedResultSet rs = new DistributedResultSet();
+		DistributedResultSet rs = DistributedResultSet.newInstance();
 		for (T s:this)
 			rs.add(s.executeQuery(null));
 		return rs;
 	}
 
 	public ResultSet executeQuery(String arg0) throws SQLException {
-		DistributedResultSet rs = new DistributedResultSet();
+		DistributedResultSet rs = DistributedResultSet.newInstance();
 		for (T s:this)
 			rs.add(s.executeQuery(arg0));
 		return rs;
@@ -157,7 +176,7 @@ class DistributedTemplate<T extends Statement>
 		return ret;
 	}
 
-	public int executeUpdate(String arg0, String[] arg1) throws SQLException {
+    public int executeUpdate(String arg0, String[] arg1) throws SQLException {
 		int ret = 0;
 		for (T s:this)
 			ret += s.executeUpdate(arg0, arg1);
@@ -177,7 +196,7 @@ class DistributedTemplate<T extends Statement>
 	}
 
 	public ResultSet getGeneratedKeys() throws SQLException {
-		DistributedResultSet mrs = new DistributedResultSet();
+		DistributedResultSet mrs = DistributedResultSet.newInstance();
 		for (T s:this)
 			mrs.add(s.getGeneratedKeys());
 		return mrs;
@@ -210,7 +229,7 @@ class DistributedTemplate<T extends Statement>
 	}
 
 	public ResultSet getResultSet() throws SQLException {
-		DistributedResultSet rs = new DistributedResultSet();
+		DistributedResultSet rs = DistributedResultSet.newInstance();
 		for (T s:this)
 			rs.add(s.getResultSet());
 		return rs;

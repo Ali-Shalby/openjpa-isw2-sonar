@@ -18,8 +18,6 @@
  */
 package org.apache.openjpa.persistence.query;
 
-import javax.persistence.Expression;
-
 /**
  * Denotes e1 LIKE e2 Expression.
  * 
@@ -47,8 +45,8 @@ public class LikeExpression extends BinaryExpressionPredicate {
 	
 	@Override
 	public String asExpression(AliasContext ctx) {
-		return super.asExpression(ctx) 
-		    + (_escaped ? "ESCAPE " + JPQLHelper.toJPQL(ctx, _echar) : EMPTY);
+		return super.asExpression(ctx) +
+            (_escaped ? "ESCAPE " + JPQLHelper.toJPQL(ctx, _echar) : EMPTY);
 	}
 
 }

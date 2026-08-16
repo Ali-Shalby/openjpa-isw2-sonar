@@ -19,8 +19,8 @@
 package org.apache.openjpa.jdbc.kernel;
 
 import java.io.Serializable;
-import java.sql.ResultSet;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -31,6 +31,7 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.FetchConfigurationImpl;
 import org.apache.openjpa.kernel.StoreContext;
@@ -51,12 +52,32 @@ import org.apache.openjpa.util.UserException;
  * @author Abe White
  * @nojavadoc
  */
+@SuppressWarnings("serial")
 public class JDBCFetchConfigurationImpl
     extends FetchConfigurationImpl
     implements JDBCFetchConfiguration {
 
-    private static final Localizer _loc = Localizer.forPackage
-        (JDBCFetchConfigurationImpl.class);
+    private static final Localizer _loc = Localizer.forPackage(JDBCFetchConfigurationImpl.class);
+    
+    /**
+     * Hint keys that correspond to a mutable bean-style setter in this receiver.
+     * These keys are registered with both <code>openjpa.FetchPlan</code> and <code>openjpa.jdbc</code> as prefix.
+     * <br>
+     * A hint without a setter method is also recognized by this receiver.
+     */
+    static {
+        String[] prefixes = {"openjpa.FetchPlan", "openjpa.jdbc"};
+        Class<?> target = JDBCFetchConfiguration.class;
+        populateHintSetter(target, "EagerFetchMode", int.class, prefixes);
+        populateHintSetter(target, "FetchDirection", int.class, prefixes);
+        populateHintSetter(target, "Isolation", int.class, prefixes);
+        populateHintSetter(target, "setIsolation", "TransactionIsolation", int.class, "openjpa.jdbc");
+        populateHintSetter(target, "JoinSyntax", int.class, prefixes);
+        populateHintSetter(target, "SubclassFetchMode", int.class, prefixes);
+        populateHintSetter(target, "LRSSize", int.class, prefixes);
+        populateHintSetter(target, "setLRSSize", "LRSSizeAlgorithm", int.class, prefixes);
+        populateHintSetter(target, "ResultSetType", int.class, prefixes);
+    }
 
     /**
      * Configurable JDBC state shared throughout a traversal chain.
@@ -68,8 +89,8 @@ public class JDBCFetchConfigurationImpl
         public int direction = 0;
         public int size = 0;
         public int syntax = 0;
-        public Set joins = null;
-        public Set fetchInnerJoins = null;
+        public Set<String> joins = null;
+        public Set<String> fetchInnerJoins = null;
         public int isolationLevel = -1;
     }
 
@@ -121,6 +142,13 @@ public class JDBCFetchConfigurationImpl
     }
 
     public JDBCFetchConfiguration setEagerFetchMode(int mode) {
+        if (mode != DEFAULT
+            && mode != EagerFetchModes.EAGER_NONE
+            && mode != EagerFetchModes.EAGER_JOIN
+            && mode != EagerFetchModes.EAGER_PARALLEL)
+            throw new IllegalArgumentException(
+                _loc.get("bad-fetch-mode", new Integer(mode)).getMessage());
+
         if (mode == DEFAULT) {
             JDBCConfiguration conf = getJDBCConfiguration();
             if (conf != null)
@@ -130,7 +158,7 @@ public class JDBCFetchConfigurationImpl
             _state.eagerMode = mode;
         return this;
     }
-
+    
     public int getSubclassFetchMode() {
         return _state.subclassMode;
     }
@@ -145,6 +173,13 @@ public class JDBCFetchConfigurationImpl
     }
 
     public JDBCFetchConfiguration setSubclassFetchMode(int mode) {
+        if (mode != DEFAULT
+            && mode != EagerFetchModes.EAGER_NONE
+            && mode != EagerFetchModes.EAGER_JOIN
+            && mode != EagerFetchModes.EAGER_PARALLEL)
+            throw new IllegalArgumentException(
+                _loc.get("bad-fetch-mode", new Integer(mode)).getMessage());
+
         if (mode == DEFAULT) {
             JDBCConfiguration conf = getJDBCConfiguration();
             if (conf != null)
@@ -160,6 +195,13 @@ public class JDBCFetchConfigurationImpl
     }
 
     public JDBCFetchConfiguration setResultSetType(int type) {
+        if (type != DEFAULT
+            && type != ResultSet.TYPE_FORWARD_ONLY
+            && type != ResultSet.TYPE_SCROLL_INSENSITIVE
+            && type != ResultSet.TYPE_SCROLL_SENSITIVE)
+            throw new IllegalArgumentException(_loc.get("bad-resultset-type",
+                new Integer(type)).getMessage());
+
         if (type == DEFAULT) {
             JDBCConfiguration conf = getJDBCConfiguration();
             if (conf != null)
@@ -174,6 +216,13 @@ public class JDBCFetchConfigurationImpl
     }
 
     public JDBCFetchConfiguration setFetchDirection(int direction) {
+        if (direction != DEFAULT
+            && direction != ResultSet.FETCH_FORWARD
+            && direction != ResultSet.FETCH_REVERSE
+            && direction != ResultSet.FETCH_UNKNOWN)
+            throw new IllegalArgumentException(_loc.get("bad-fetch-direction",
+                new Integer(direction)).getMessage());
+
         if (direction == DEFAULT) {
             JDBCConfiguration conf = getJDBCConfiguration();
             if (conf != null)
@@ -188,6 +237,13 @@ public class JDBCFetchConfigurationImpl
     }
 
     public JDBCFetchConfiguration setLRSSize(int size) {
+        if (size != DEFAULT
+            && size != LRSSizes.SIZE_QUERY
+            && size != LRSSizes.SIZE_LAST
+            && size != LRSSizes.SIZE_UNKNOWN)
+            throw new IllegalArgumentException(
+                _loc.get("bad-lrs-size", new Integer(size)).getMessage());
+
         if (size == DEFAULT) {
             JDBCConfiguration conf = getJDBCConfiguration();
             if (conf != null)
@@ -202,6 +258,13 @@ public class JDBCFetchConfigurationImpl
     }
 
     public JDBCFetchConfiguration setJoinSyntax(int syntax) {
+        if (syntax != DEFAULT
+            && syntax != JoinSyntaxes.SYNTAX_SQL92
+            && syntax != JoinSyntaxes.SYNTAX_TRADITIONAL
+            && syntax != JoinSyntaxes.SYNTAX_DATABASE)
+            throw new IllegalArgumentException(
+                _loc.get("bad-join-syntax", new Integer(syntax)).getMessage());
+
         if (syntax == DEFAULT) {
             JDBCConfiguration conf = getJDBCConfiguration();
             if (conf != null)
@@ -211,7 +274,7 @@ public class JDBCFetchConfigurationImpl
         return this;
     }
 
-    public ResultList newResultList(ResultObjectProvider rop) {
+    public ResultList<?> newResultList(ResultObjectProvider rop) {
         // if built around a list, just use a simple wrapper
         if (rop instanceof ListResultObjectProvider)
             return new SimpleResultList(rop);
@@ -243,8 +306,10 @@ public class JDBCFetchConfigurationImpl
         return new SimpleResultList(rop);
     }
 
-    public Set getJoins() {
-        return (_state.joins == null) ? Collections.EMPTY_SET : _state.joins;
+    public Set<String> getJoins() {
+        if (_state.joins == null) 
+            return Collections.emptySet();
+        return _state.joins;
     }
 
     public boolean hasJoin(String field) {
@@ -258,7 +323,7 @@ public class JDBCFetchConfigurationImpl
         lock();
         try {
             if (_state.joins == null)
-                _state.joins = new HashSet();
+                _state.joins = new HashSet<String>();
             _state.joins.add(join);
         } finally {
             unlock();
@@ -266,11 +331,11 @@ public class JDBCFetchConfigurationImpl
         return this;
     }
 
-    public JDBCFetchConfiguration addJoins(Collection joins) {
+    public JDBCFetchConfiguration addJoins(Collection<String> joins) {
         if (joins == null || joins.isEmpty())
             return this;
-        for (Iterator itr = joins.iterator(); itr.hasNext();)
-            addJoin((String) itr.next());
+        for (Iterator<String> itr = joins.iterator(); itr.hasNext();)
+            addJoin(itr.next());
         return this;
     }
 
@@ -285,7 +350,7 @@ public class JDBCFetchConfigurationImpl
         return this;
     }
 
-    public JDBCFetchConfiguration removeJoins(Collection joins) {
+    public JDBCFetchConfiguration removeJoins(Collection<String> joins) {
         lock();
         try {
             if (_state.joins != null)
@@ -347,9 +412,10 @@ public class JDBCFetchConfigurationImpl
         return (JDBCConfiguration) conf;
     }
 
-    public Set getFetchInnerJoins() {
-        return (_state.fetchInnerJoins == null) ? Collections.EMPTY_SET
-            : _state.fetchInnerJoins;
+    public Set<String> getFetchInnerJoins() {
+        if (_state.fetchInnerJoins == null) 
+            return Collections.emptySet();
+        return _state.fetchInnerJoins;
     }
 
     public boolean hasFetchInnerJoin(String field) {
@@ -364,7 +430,7 @@ public class JDBCFetchConfigurationImpl
         lock();
         try {
             if (_state.fetchInnerJoins == null)
-                _state.fetchInnerJoins = new HashSet();
+                _state.fetchInnerJoins = new HashSet<String>();
             _state.fetchInnerJoins.add(join);
         } finally {
             unlock();
@@ -372,10 +438,10 @@ public class JDBCFetchConfigurationImpl
         return this;
     }
 
-    public JDBCFetchConfiguration addFetchInnerJoins(Collection joins) {
+    public JDBCFetchConfiguration addFetchInnerJoins(Collection<String> joins) {
         if (joins == null || joins.isEmpty())
             return this;
-        for (Iterator itr = joins.iterator(); itr.hasNext();)
+        for (Iterator<String> itr = joins.iterator(); itr.hasNext();)
             addFetchInnerJoin((String) itr.next());
         return this;
     }

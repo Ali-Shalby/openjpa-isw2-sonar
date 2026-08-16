@@ -118,7 +118,7 @@ public class DetachedStateManager
 
         // pre-load for efficiency: current field values for restore, dependent
         // for delete
-        FieldMetaData[] fields = meta.getFields();
+        FieldMetaData[] fields = sm.getMetaData().getFields(); 
         int restore = broker.getRestoreState();
         if (_dirty.length() > 0) {
             BitSet load = new BitSet(fields.length);
@@ -405,8 +405,8 @@ public class DetachedStateManager
 
     public void accessingField(int idx) {
         if (!_access && !_loaded.get(idx))
-        	// do not access the pc fields by implictly invoking _pc.toString()
-        	// may cause infinite loop if again tries to access unloaded field 
+            // do not access the pc fields by implictly invoking _pc.toString()
+            // may cause infinite loop if again tries to access unloaded field 
             throw new IllegalStateException(_loc.get("unloaded-detached",
                Exceptions.toString(_pc)).getMessage());
     }

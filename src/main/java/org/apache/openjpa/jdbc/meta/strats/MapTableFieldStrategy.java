@@ -24,6 +24,7 @@ import java.util.Map;
 
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.enhance.ReflectingPersistenceCapable;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -31,6 +32,7 @@ import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.FieldStrategy;
 import org.apache.openjpa.jdbc.meta.Strategy;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
+import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.Result;
@@ -108,9 +110,15 @@ public abstract class MapTableFieldStrategy
             throw new MetaDataException(_loc.get("not-map", field));
         if (field.getKey().getValueMappedBy() != null)
             throw new MetaDataException(_loc.get("mapped-by-key", field));
+
+        // Non-default mapping Uni-/OneToMany/ForeignKey allows schema components
+        if (field.isUni1ToMFK())  
+            return;
+        if (field.isBiMTo1JT())
+            field.setBi1MJoinTableInfo();
         field.getValueInfo().assertNoSchemaComponents(field, !adapt);
     }
-
+    
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Row row = rm.getAllRows(field.getTable(), Row.ACTION_DELETE);
@@ -182,12 +190,11 @@ public abstract class MapTableFieldStrategy
         return ClassMapping.EMPTY_MAPPINGS;
     }
     
-    protected void handleMappedBy(boolean adapt){
+    protected void handleMappedByForeignKey(boolean adapt){
         boolean criteria = field.getValueInfo().getUseClassCriteria();
         // check for named inverse
         FieldMapping mapped = field.getMappedByMapping();
         if (mapped != null) {
-            field.getMappingInfo().assertNoSchemaComponents(field, !adapt);
             field.getValueInfo().assertNoSchemaComponents(field, !adapt);
             mapped.resolve(mapped.MODE_META | mapped.MODE_MAPPING);
 
@@ -204,7 +211,8 @@ public abstract class MapTableFieldStrategy
                     throw new MetaDataException(_loc.get
                         ("mapped-inverse-unjoined", field.getName(),
                             field.getDefiningMapping(), mapped));
-                ForeignKey fk = mapped.getForeignKey(field.getDefiningMapping());
+                ForeignKey fk = mapped.getForeignKey(
+                        field.getDefiningMapping());
                 field.setForeignKey(fk);
                 field.setJoinForeignKey(fk);
             } else if (mapped.getElement().getTypeCode() == JavaTypes.PC) {
@@ -220,12 +228,28 @@ public abstract class MapTableFieldStrategy
                 ValueMapping elem = mapped.getElementMapping();
                 ForeignKey fk = elem.getForeignKey();
                 field.setJoinForeignKey(fk);
-                field.getElementMapping().setForeignKey(mapped.getJoinForeignKey());
+                field.getElementMapping().setForeignKey(
+                        mapped.getJoinForeignKey());
             } else
                 throw new MetaDataException(_loc.get("not-inv-relation",
                     field, mapped));
 
             field.setUseClassCriteria(criteria);
+            return;
+        } else {
+            // Uni-/OneToMany/ForeingKey
+            ValueMapping val = field.getElementMapping();
+            val.getValueInfo().setColumns(field.getValueInfo().getColumns());
+            if (val.getTypeMapping().isMapped()) {
+                ValueMappingInfo vinfo = val.getValueInfo();
+                ForeignKey fk = vinfo.getTypeJoin(val, DBIdentifier.NULL, false, adapt);
+                val.setForeignKey(fk);
+                val.setColumnIO(vinfo.getColumnIO());
+            } else
+                RelationStrategies.mapRelationToUnmappedPC(val, "value", adapt);
+
+            val.mapConstraints("value", adapt);
+            
             return;
         }
 /*
@@ -256,8 +280,9 @@ public abstract class MapTableFieldStrategy
         return true;
     }
 
-    protected boolean populateKey(Row row, OpenJPAStateManager valsm, Object obj,
-            StoreContext ctx, RowManager rm, JDBCStore store) throws SQLException {
+    protected boolean populateKey(Row row, OpenJPAStateManager valsm,
+            Object obj, StoreContext ctx, RowManager rm, JDBCStore store)
+            throws SQLException {
         ClassMapping meta = (ClassMapping)valsm.getMetaData();
         FieldMapping fm = getFieldMapping(meta);
         if (fm == null) 

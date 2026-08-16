@@ -18,21 +18,26 @@
  */
 package org.apache.openjpa.jdbc.sql;
 
+import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Arrays;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
+import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.jdbc.DelegatingConnection;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.JavaTypes;
 
@@ -59,6 +64,17 @@ public class SybaseDictionary
 
     private static Localizer _loc = Localizer.forPackage
         (SybaseDictionary.class);
+
+    private static Constructor<SybaseConnection> sybaseConnectionImpl;
+
+    static {
+        try {
+            sybaseConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(SybaseConnection.class, 
+                    Connection.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     /**
      * If true, then whenever the <code>schematool</code> creates a
@@ -139,8 +155,8 @@ public class SybaseDictionary
             "USER_OPTION", "WAITFOR", "WHILE", "WRITETEXT",
         }));
 
-        // Sybase does not support foreign key delete/update action NULL, DEFAULT,
-        // CASCADE
+        // Sybase does not support foreign key delete/update action NULL,
+        // DEFAULT, CASCADE
         supportsNullDeleteAction = false;
         supportsDefaultDeleteAction = false;
         supportsCascadeDeleteAction = false;
@@ -149,6 +165,7 @@ public class SybaseDictionary
         supportsCascadeUpdateAction = false;
     }
 
+    @Override
     public int getJDBCType(int metaTypeCode, boolean lob) {
         switch (metaTypeCode) {
             // the default mapping for BYTE is a TINYINT, but Sybase's TINYINT
@@ -161,6 +178,7 @@ public class SybaseDictionary
         }
     }
 
+    @Override
     public void setBigInteger(PreparedStatement stmnt, int idx, BigInteger val,
         Column col)
         throws SQLException {
@@ -170,16 +188,18 @@ public class SybaseDictionary
         setObject(stmnt, idx, new BigDecimal(val), Types.BIGINT, col);
     }
 
+    @Override
     public String[] getAddForeignKeySQL(ForeignKey fk) {
         // Sybase has problems with adding foriegn keys via ALTER TABLE command
         return new String[0];
     }
 
+    @Override
     public String[] getCreateTableSQL(Table table) {
         if (!createIdentityColumn)
             return super.getCreateTableSQL(table);
 
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append("CREATE TABLE ").append(getFullName(table, false)).
             append(" (");
 
@@ -215,9 +235,10 @@ public class SybaseDictionary
         return new String[]{ buf.toString() };
     }
 
+    @Override
     protected String getDeclareColumnSQL(Column col, boolean alter) {
-        StringBuffer buf = new StringBuffer();
-        buf.append(col).append(" ");
+        StringBuilder buf = new StringBuilder();
+        buf.append(getColumnDBName(col)).append(" ");
         buf.append(getTypeName(col));
 
         // can't add constraints to a column we're adding after table
@@ -240,13 +261,15 @@ public class SybaseDictionary
         return buf.toString();
     }
 
+    @Override
     public String[] getDropColumnSQL(Column column) {
         // Sybase uses "ALTER TABLE DROP <COLUMN_NAME>" rather than the
         // usual "ALTER TABLE DROP COLUMN <COLUMN_NAME>"
         return new String[]{ "ALTER TABLE "
-            + getFullName(column.getTable(), false) + " DROP " + column };
+            + getFullName(column.getTable(), false) + " DROP " + getColumnDBName(column) };
     }
 
+    @Override
     public void refSchemaComponents(Table table) {
         // note that we use getColumns() rather than getting the column by name
         // because under some circumstances this method is called under the
@@ -254,10 +277,11 @@ public class SybaseDictionary
         // that column
         Column[] cols = table.getColumns();
         for (int i = 0; i < cols.length; i++)
-            if (identityColumnName.equalsIgnoreCase(cols[i].getName()))
+            if (identityColumnName.equalsIgnoreCase(cols[i].getIdentifier().getName()))
                 cols[i].ref();
     }
 
+    @Override
     public void endConfiguration() {
         super.endConfiguration();
 
@@ -271,6 +295,7 @@ public class SybaseDictionary
         }
     }
 
+    @Override
     public Connection decorate(Connection conn)
         throws SQLException {
         conn = super.decorate(conn);
@@ -296,7 +321,34 @@ public class SybaseDictionary
             stmnt.close();            
         }        
         
-        return new SybaseConnection(conn);
+        return ConcreteClassGenerator.newInstance(sybaseConnectionImpl, conn);
+    }
+
+    /**
+     * Create a new primary key from the information in the schema metadata.
+     */
+    protected PrimaryKey newPrimaryKey(ResultSet pkMeta)
+        throws SQLException {
+        PrimaryKey pk = new PrimaryKey();
+        pk.setSchemaIdentifier(fromDBName(pkMeta.getString("table_owner"), DBIdentifierType.SCHEMA));
+        pk.setTableIdentifier(fromDBName(pkMeta.getString("table_name"), DBIdentifierType.TABLE));
+        pk.setColumnIdentifier(fromDBName(pkMeta.getString("column_name"), DBIdentifierType.COLUMN));
+        pk.setIdentifier(fromDBName(pkMeta.getString("index_name"), DBIdentifierType.CONSTRAINT));
+        return pk;
+    }
+
+    /**
+     * Create a new index from the information in the index metadata.
+     */
+    protected Index newIndex(ResultSet idxMeta)
+        throws SQLException {
+        Index idx = new Index();
+        idx.setSchemaIdentifier(fromDBName(idxMeta.getString("table_owner"), DBIdentifierType.SCHEMA));
+        idx.setTableIdentifier(fromDBName(idxMeta.getString("table_name"), DBIdentifierType.TABLE));
+        idx.setColumnIdentifier(fromDBName(idxMeta.getString("column_name"), DBIdentifierType.COLUMN));
+        idx.setIdentifier(fromDBName(idxMeta.getString("index_name"), DBIdentifierType.INDEX));
+        idx.setUnique(!idxMeta.getBoolean("non_unique"));
+        return idx;
     }
 
     /**
@@ -304,7 +356,7 @@ public class SybaseDictionary
      * which takes a very long time with the Sybase Connection (and
      * which we frequently invoke).
      */
-    private static class SybaseConnection
+    protected abstract static class SybaseConnection
         extends DelegatingConnection {
 
         private String _catalog = null;

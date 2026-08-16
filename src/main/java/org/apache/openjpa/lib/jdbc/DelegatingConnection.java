@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.lib.jdbc;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.sql.CallableStatement;
 import java.sql.Connection;
@@ -33,7 +34,9 @@ import java.util.Map;
 
 import org.apache.commons.lang.exception.NestableRuntimeException;
 import org.apache.openjpa.lib.util.Closeable;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.Localizer;
+
 import serp.util.Numbers;
 
 /**
@@ -44,7 +47,16 @@ import serp.util.Numbers;
  *
  * @author Abe White
  */
-public class DelegatingConnection implements Connection, Closeable {
+public abstract class DelegatingConnection implements Connection, Closeable {
+
+    static final Constructor<DelegatingConnection> concreteImpl;
+    static {
+        try {
+            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DelegatingConnection.class, Connection.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     // jdbc 3 method keys
     private static final Object SET_HOLDABILITY = new Object();
@@ -69,8 +81,7 @@ public class DelegatingConnection implements Connection, Closeable {
         boolean jdbc3 = false;
         Method m = null;
         try {
-            m = Connection.class.getMethod("setSavepoint",
-                new Class[]{ String.class });
+            m = Connection.class.getMethod("setSavepoint", new Class[]{ String.class });
             jdbc3 = true;
         } catch (Throwable t) {
         }
@@ -92,6 +103,18 @@ public class DelegatingConnection implements Connection, Closeable {
         else
             _del = null;
     }
+
+    /** 
+     *  Constructor for the concrete implementation of this abstract class.
+     */
+    public static DelegatingConnection newInstance(Connection conn) {
+        return ConcreteClassGenerator.newInstance(concreteImpl, conn);
+    }
+
+    /** 
+     *  Marker to enforce that subclasses of this class are abstract.
+     */
+    protected abstract void enforceAbstract();
 
     /**
      * Return the wrapped connection.
@@ -145,7 +168,7 @@ public class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.createStatement();
         if (wrap)
-            stmnt = new DelegatingStatement(stmnt, this);
+            stmnt = DelegatingStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -166,7 +189,7 @@ public class DelegatingConnection implements Connection, Closeable {
             stmnt = _conn.prepareStatement(str, ResultSet.TYPE_FORWARD_ONLY, 
                 ResultSet.CONCUR_READ_ONLY);
         if (wrap)
-            stmnt = new DelegatingPreparedStatement(stmnt, this);
+            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -186,7 +209,7 @@ public class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.prepareCall(str);
         if (wrap)
-            stmnt = new DelegatingCallableStatement(stmnt, this);
+            stmnt = DelegatingCallableStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -233,7 +256,7 @@ public class DelegatingConnection implements Connection, Closeable {
         else
             meta = _conn.getMetaData();
         if (wrap)
-            meta = new DelegatingDatabaseMetaData(meta, this);
+            meta = DelegatingDatabaseMetaData.newInstance(meta, this);
         return meta;
     }
 
@@ -285,7 +308,7 @@ public class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.createStatement(type, concur);
         if (wrap)
-            stmnt = new DelegatingStatement(stmnt, this);
+            stmnt = DelegatingStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -306,7 +329,7 @@ public class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.prepareStatement(str, type, concur);
         if (wrap)
-            stmnt = new DelegatingPreparedStatement(stmnt, this);
+            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -327,7 +350,7 @@ public class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.prepareCall(str, type, concur);
         if (wrap)
-            stmnt = new DelegatingCallableStatement(stmnt, this);
+            stmnt = DelegatingCallableStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -421,7 +444,7 @@ public class DelegatingConnection implements Connection, Closeable {
                 Numbers.valueOf(resultSetHoldability) });
         }
         if (wrap)
-            stmnt = new DelegatingStatement(stmnt, this);
+            stmnt = DelegatingStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -452,7 +475,7 @@ public class DelegatingConnection implements Connection, Closeable {
                 Numbers.valueOf(resultSetHoldability) });
         }
         if (wrap)
-            stmnt = new DelegatingPreparedStatement(stmnt, this);
+            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -483,7 +506,7 @@ public class DelegatingConnection implements Connection, Closeable {
                 Numbers.valueOf(resultSetHoldability) });
         }
         if (wrap)
-            stmnt = new DelegatingCallableStatement(stmnt, this);
+            stmnt = DelegatingCallableStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -507,7 +530,7 @@ public class DelegatingConnection implements Connection, Closeable {
                 Numbers.valueOf(autoGeneratedKeys) });
         }
         if (wrap)
-            stmnt = new DelegatingPreparedStatement(stmnt, this);
+            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -531,7 +554,7 @@ public class DelegatingConnection implements Connection, Closeable {
                 columnIndexes });
         }
         if (wrap)
-            stmnt = new DelegatingPreparedStatement(stmnt, this);
+            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -556,7 +579,7 @@ public class DelegatingConnection implements Connection, Closeable {
                 columnNames });
         }
         if (wrap)
-            stmnt = new DelegatingPreparedStatement(stmnt, this);
+            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
         return stmnt;
     }
 
@@ -587,5 +610,17 @@ public class DelegatingConnection implements Connection, Closeable {
             throw new NestableRuntimeException(_loc.get("error-jdbc3")
                 .getMessage(), t);
         }
+    }
+
+    // java.sql.Wrapper implementation (JDBC 4)
+    public boolean isWrapperFor(Class iface) {
+        return iface.isAssignableFrom(getDelegate().getClass());
+    }
+
+    public Object unwrap(Class iface) {
+        if (isWrapperFor(iface))
+            return getDelegate();
+        else
+            return null;
     }
 }

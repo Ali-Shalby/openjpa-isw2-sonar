@@ -28,33 +28,40 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
 import java.lang.reflect.Array;
-import java.sql.Connection;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
 
+import javax.persistence.CacheRetrieveMode;
+import javax.persistence.CacheStoreMode;
 import javax.persistence.EntityManager;
 import javax.persistence.FlushModeType;
 import javax.persistence.LockModeType;
 import javax.persistence.Query;
-import javax.persistence.QueryDefinition;
+import javax.persistence.TypedQuery;
+import javax.persistence.criteria.CriteriaQuery;
+import javax.persistence.criteria.ParameterExpression;
+import javax.persistence.metamodel.Metamodel;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.conf.Compatibility;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.enhance.PCEnhancer;
 import org.apache.openjpa.enhance.PCRegistry;
-import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.kernel.AbstractBrokerFactory;
 import org.apache.openjpa.kernel.Broker;
+import org.apache.openjpa.kernel.DataCacheRetrieveMode;
+import org.apache.openjpa.kernel.DataCacheStoreMode;
 import org.apache.openjpa.kernel.DelegatingBroker;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.FindCallbacks;
-import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.OpCallbacks;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.PreparedQuery;
@@ -63,20 +70,23 @@ import org.apache.openjpa.kernel.QueryFlushModes;
 import org.apache.openjpa.kernel.QueryLanguages;
 import org.apache.openjpa.kernel.Seq;
 import org.apache.openjpa.kernel.jpql.JPQLParser;
-import org.apache.openjpa.lib.conf.Configuration;
-import org.apache.openjpa.lib.conf.IntValue;
+import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.QueryMetaData;
 import org.apache.openjpa.meta.SequenceMetaData;
-import org.apache.openjpa.persistence.query.OpenJPAQueryBuilder;
-import org.apache.openjpa.persistence.query.QueryBuilderImpl;
+import org.apache.openjpa.persistence.criteria.CriteriaBuilderImpl;
+import org.apache.openjpa.persistence.criteria.OpenJPACriteriaBuilder;
+import org.apache.openjpa.persistence.criteria.OpenJPACriteriaQuery;
+import org.apache.openjpa.persistence.validation.ValidationUtils;
 import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 import org.apache.openjpa.util.UserException;
+
+import serp.util.Strings;
 
 /**
  * Implementation of {@link EntityManager} interface.
@@ -89,17 +99,13 @@ public class EntityManagerImpl
     implements OpenJPAEntityManagerSPI, Externalizable,
     FindCallbacks, OpCallbacks, Closeable, OpenJPAEntityTransaction {
 
-    private static final Localizer _loc = Localizer.forPackage
-        (EntityManagerImpl.class);
+    private static final Localizer _loc = Localizer.forPackage(EntityManagerImpl.class);
     private static final Object[] EMPTY_OBJECTS = new Object[0];
 
     private DelegatingBroker _broker;
     private EntityManagerFactoryImpl _emf;
-    private Map<FetchConfiguration,FetchPlan> _plans =
-        new IdentityHashMap<FetchConfiguration,FetchPlan>(1);
-
-    private RuntimeExceptionTranslator _ret =
-        PersistenceExceptions.getRollbackTranslator(this);
+    private Map<FetchConfiguration,FetchPlan> _plans = new IdentityHashMap<FetchConfiguration,FetchPlan>(1);
+    private RuntimeExceptionTranslator _ret = PersistenceExceptions.getRollbackTranslator(this);
 
     public EntityManagerImpl() {
         // for Externalizable
@@ -108,8 +114,7 @@ public class EntityManagerImpl
     /**
      * Constructor; supply factory and delegate.
      */
-    public EntityManagerImpl(EntityManagerFactoryImpl factory,
-        Broker broker) {
+    public EntityManagerImpl(EntityManagerFactoryImpl factory, Broker broker) {
         initialize(factory, broker);
     }
 
@@ -459,6 +464,8 @@ public class EntityManagerImpl
     @SuppressWarnings("unchecked")
     public <T> T find(Class<T> cls, Object oid) {
         assertNotCloseInvoked();
+        if (oid == null)
+        	return null;
         oid = _broker.newObjectId(cls, oid);
         return (T) _broker.find(oid, true, this);
     }
@@ -467,19 +474,20 @@ public class EntityManagerImpl
         return find(cls, oid, mode, null);
     }
 
-    @SuppressWarnings("unchecked")
-    public <T> T find(Class<T> cls, Object oid, LockModeType mode,
-        Map<String, Object> properties) {
-        assertNotCloseInvoked();
-        if (mode != LockModeType.NONE)
-            _broker.assertActiveTransaction();
+    public <T> T find(Class<T> cls, Object oid, 
+        Map<String, Object> properties){
+        return find(cls, oid, null, properties);
+    }
 
-        boolean fcPushed = pushLockProperties(mode, properties);
+    @SuppressWarnings("unchecked")
+    public <T> T find(Class<T> cls, Object oid, LockModeType mode, Map<String, Object> properties) {
+        assertNotCloseInvoked();
+        configureCurrentFetchPlan(pushFetchPlan(), properties, mode, true);
         try {
             oid = _broker.newObjectId(cls, oid);
             return (T) _broker.find(oid, true, this);
         } finally {
-            popLockProperties(fcPushed);
+            popFetchPlan();
         }
     }
 
@@ -546,6 +554,12 @@ public class EntityManagerImpl
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
+        	// Per JPA 2.0 spec, if the exception was due to a JSR-303 
+            // constraint violation, the ConstraintViolationException should be 
+            // thrown.  Since JSR-303 is optional, the cast to RuntimeException 
+            // prevents the introduction of a runtime dependency on the BV API.
+            if (ValidationUtils.isConstraintViolationException(e))
+                throw (RuntimeException)e;
             // RollbackExceptions are special and aren't handled by the
             // normal exception translator, since the spec says they
             // should be thrown whenever the commit fails for any reason at
@@ -714,28 +728,36 @@ public class EntityManagerImpl
     }
 
     public void refresh(Object entity) {
-        assertNotCloseInvoked();
-        assertValidAttchedEntity(entity);
-        _broker.assertWriteOperation();
-        _broker.refresh(entity, this);
+        refresh(entity, null, null);
     }
 
     public void refresh(Object entity, LockModeType mode) {
         refresh(entity, mode, null);
     }
 
-    public void refresh(Object entity, LockModeType mode,
-        Map<String, Object> properties) {
-        assertNotCloseInvoked();
-        assertValidAttchedEntity(entity);
-        _broker.assertActiveTransaction();
-        _broker.assertWriteOperation();
+    public void refresh(Object entity, Map<String, Object> properties) {
+        refresh(entity, null, properties);
+    }
 
-        boolean fcPushed = pushLockProperties(mode, properties);
+    public void refresh(Object entity, LockModeType mode, Map<String, Object> properties) {
+        assertNotCloseInvoked();
+        assertValidAttchedEntity("refresh", entity);
+
+        _broker.assertWriteOperation();
+        configureCurrentFetchPlan(pushFetchPlan(), properties, mode, true);
+        DataCacheRetrieveMode rmode = getFetchPlan().getCacheRetrieveMode();
+        if (DataCacheRetrieveMode.USE.equals(rmode) || rmode == null) {
+            getFetchPlan().setCacheRetrieveMode(DataCacheRetrieveMode.BYPASS);
+            if (rmode != null) {
+                Log log = _broker.getConfiguration().getConfigurationLog();
+                log.warn(_loc.get("cache-retrieve-override", Exceptions.toString(entity)));
+            }
+                
+        }
         try {
             _broker.refresh(entity, this);
         } finally {
-            popLockProperties(fcPushed);
+            popFetchPlan();
         }
     }
 
@@ -799,9 +821,23 @@ public class EntityManagerImpl
     }
 
     @SuppressWarnings("unchecked")
-    public <T> T detach(T entity) {
+    public <T> T detachCopy(T entity) {
         assertNotCloseInvoked();
-        return (T) _broker.detach(entity, this);
+        Compatibility compat = this.getConfiguration().
+            getCompatibilityInstance();
+        boolean copyOnDetach = compat.getCopyOnDetach();
+        boolean cascadeWithDetach = compat.getCascadeWithDetach();
+        // Set compatibility options to get 1.x detach behavior
+        compat.setCopyOnDetach(true);
+        compat.setCascadeWithDetach(true);
+        try {
+            T t = (T)_broker.detach(entity, this);
+            return t;
+        } finally {
+            // Reset compatibility options
+            compat.setCopyOnDetach(copyOnDetach);
+            compat.setCascadeWithDetach(cascadeWithDetach);
+        }        
     }
 
     public Object[] detachAll(Object... entities) {
@@ -912,6 +948,11 @@ public class EntityManagerImpl
         return new ExtentImpl<T>(this, _broker.newExtent(cls, subclasses));
     }
 
+    @SuppressWarnings("unchecked")
+    public <T> TypedQuery<T> createQuery(String query, Class<T> resultClass) {
+        return createQuery(query).setResultClass(resultClass);
+    }
+    
     public OpenJPAQuery createQuery(String query) {
         return createQuery(JPQLParser.LANG_JPQL, query);
     }
@@ -944,6 +985,11 @@ public class EntityManagerImpl
         org.apache.openjpa.kernel.Query q = ((QueryImpl) query).getDelegate();
         return new QueryImpl(this, _ret, _broker.newQuery(q.getLanguage(),
             q));
+    }
+    
+    @SuppressWarnings("unchecked")
+    public <T> TypedQuery<T> createNamedQuery(String name, Class<T> resultClass) {
+        return createNamedQuery(name).setResultClass(resultClass);
     }
 
     public OpenJPAQuery createNamedQuery(String name) {
@@ -1065,6 +1111,7 @@ public class EntityManagerImpl
     public void clear() {
         assertNotCloseInvoked();
         _broker.detachAll(this, false);
+        _plans.clear();
     }
 
     public Object getDelegate() {
@@ -1075,39 +1122,45 @@ public class EntityManagerImpl
 
     public LockModeType getLockMode(Object entity) {
         assertNotCloseInvoked();
-        return JPA2LockLevels.fromLockLevel(_broker.getLockLevel(entity));
+        _broker.assertActiveTransaction();
+        assertValidAttchedEntity("getLockMode", entity);
+        return MixedLockLevelsHelper.fromLockLevel(
+            _broker.getLockLevel(entity));
     }
 
     public void lock(Object entity, LockModeType mode) {
-        assertNotCloseInvoked();
-        assertValidAttchedEntity(entity);
-        _broker.lock(entity, JPA2LockLevels.toLockLevel(mode), -1, this);
+        lock(entity, mode, -1);
     }
 
     public void lock(Object entity) {
         assertNotCloseInvoked();
-        assertValidAttchedEntity(entity);
+        assertValidAttchedEntity("lock", entity);
         _broker.lock(entity, this);
     }
 
     public void lock(Object entity, LockModeType mode, int timeout) {
         assertNotCloseInvoked();
-        assertValidAttchedEntity(entity);
-        _broker.lock(entity, JPA2LockLevels.toLockLevel(mode), timeout, this);
+        assertValidAttchedEntity("lock", entity);
+
+        configureCurrentFetchPlan(pushFetchPlan(), null, mode, false);
+        try {
+            _broker.lock(entity, MixedLockLevelsHelper.toLockLevel(mode),  timeout, this);
+        } finally {
+            popFetchPlan();
+        }
     }
 
-    public void lock(Object entity, LockModeType mode,
-        Map<String, Object> properties) {
+    public void lock(Object entity, LockModeType mode, Map<String, Object> properties) {
         assertNotCloseInvoked();
-        assertValidAttchedEntity(entity);
+        assertValidAttchedEntity("lock", entity);
         _broker.assertActiveTransaction();
 
-        boolean fcPushed = pushLockProperties(mode, properties);
+        configureCurrentFetchPlan(pushFetchPlan(), properties, mode, false);
         try {
-            _broker.lock(entity, JPA2LockLevels.toLockLevel(mode), _broker
-                .getFetchConfiguration().getLockTimeout(), this);
+            _broker.lock(entity, MixedLockLevelsHelper.toLockLevel(mode),
+                _broker.getFetchConfiguration().getLockTimeout(), this);
         } finally {
-            popLockProperties(fcPushed);
+            popFetchPlan();
         }
     }
 
@@ -1118,7 +1171,8 @@ public class EntityManagerImpl
 
     public void lockAll(Collection entities, LockModeType mode, int timeout) {
         assertNotCloseInvoked();
-        _broker.lockAll(entities, JPA2LockLevels.toLockLevel(mode), timeout, this);
+        _broker.lockAll(entities, MixedLockLevelsHelper.toLockLevel(mode),
+            timeout, this);
     }
 
     public void lockAll(Object... entities) {
@@ -1190,6 +1244,7 @@ public class EntityManagerImpl
     public void close() {
         assertNotCloseInvoked();
         _broker.close();
+        _plans.clear();
     }
 
     public boolean isOpen() {
@@ -1263,11 +1318,11 @@ public class EntityManagerImpl
      * Throw IllegalArgumentExceptionif if entity is not a valid entity or
      * if it is detached.
      */
-    void assertValidAttchedEntity(Object entity) {
+    void assertValidAttchedEntity(String call, Object entity) {
         OpenJPAStateManager sm = _broker.getStateManager(entity);
         if (sm == null || !sm.isPersistent() || sm.isDetached()) {
-            throw new IllegalArgumentException(_loc.get(
-                "invalid_entity_argument").getMessage());
+            throw new IllegalArgumentException(_loc.get("invalid_entity_argument", 
+                call, entity == null ? "null" : Exceptions.toString(entity)).getMessage());
         }
     }
 
@@ -1323,13 +1378,15 @@ public class EntityManagerImpl
     }
 
     public int hashCode() {
-        return _broker.hashCode();
+        return (_broker == null) ? 0 : _broker.hashCode();
     }
 
     public boolean equals(Object other) {
         if (other == this)
             return true;
-        if (!(other instanceof EntityManagerImpl))
+        if ((other == null) || (other.getClass() != this.getClass()))
+            return false;
+        if (_broker == null)
             return false;
         return _broker.equals(((EntityManagerImpl) other)._broker);
     }
@@ -1416,13 +1473,13 @@ public class EntityManagerImpl
             }
         }
 
-        protected Class resolveClass(ObjectStreamClass classDesc)
+        protected Class<?> resolveClass(ObjectStreamClass classDesc)
             throws IOException, ClassNotFoundException {
 
             String cname = classDesc.getName();
             if (cname.startsWith("[")) {
                 // An array
-                Class component;		// component class
+                Class<?> component;		// component class
                 int dcount;			    // dimension
                 for (dcount=1; cname.charAt(dcount)=='['; dcount++) ;
                 if (cname.charAt(dcount) == 'L') {
@@ -1448,7 +1505,7 @@ public class EntityManagerImpl
          * If this is a generated subclass, look up the corresponding Class
          * object via metadata.
          */
-        private Class lookupClass(String className)
+        private Class<?> lookupClass(String className)
             throws ClassNotFoundException {
             try {
                 return Class.forName(className);
@@ -1474,33 +1531,71 @@ public class EntityManagerImpl
         }
     }
 
-    public void clear(Object entity) {
+    public void detach(Object entity) {
         assertNotCloseInvoked();
         _broker.detach(entity, this);
     }
 
-    public Query createQuery(QueryDefinition qdef) {
-        String jpql = getQueryBuilder().toJPQL(qdef);
+    /**
+     * Create a query from the given CritriaQuery.
+     * Compile to register the parameters in this query.
+     */
+    public <T> TypedQuery<T> createQuery(CriteriaQuery<T> criteriaQuery) {
+        ((OpenJPACriteriaQuery<T>)criteriaQuery).compile(); 
+        
+        org.apache.openjpa.kernel.Query kernelQuery =_broker.newQuery(CriteriaBuilderImpl.LANG_CRITERIA, criteriaQuery);
+        
+        QueryImpl<T> facadeQuery = new QueryImpl<T>(this, _ret, kernelQuery);
+        Set<ParameterExpression<?>> params = criteriaQuery.getParameters();
+        
+        for (ParameterExpression<?> param : params) {
+            facadeQuery.declareParameter(param, param);
+        }
+        return facadeQuery;
+    }
+    
+    public OpenJPAQuery createDynamicQuery(
+        org.apache.openjpa.persistence.query.QueryDefinition qdef) {
+        String jpql = _emf.getDynamicQueryBuilder().toJPQL(qdef);
         return createQuery(jpql);
     }
 
-    /*
-     * @see javax.persistence.EntityManager#getProperties()
-     * 
-     * This does not return the password property.
+    /**
+     * Get the properties used currently by this entity manager.
+     * The property keys and their values are harvested from kernel artifacts namely
+     * the Broker and FetchPlan by reflection.
+     * These property keys and values that denote the bean properties/values of the kernel artifacts
+     * are converted to the original keys/values that user used to set the properties.
+     *    
      */
     public Map<String, Object> getProperties() {
-        Map<String, String> currentProperties = _broker.getProperties();
-        
-        // Convert the <String, String> map into a <String, Object> map
-        Map<String, Object> finalMap =
-            new HashMap<String, Object>(currentProperties);
-        
-        return finalMap;
+        Map<String,Object> props = _broker.getProperties();
+        for (String s : _broker.getSupportedProperties()) {
+            String kernelKey = getBeanPropertyName(s);
+            Method getter = Reflection.findGetter(this.getClass(), kernelKey, false);
+            if (getter != null) {
+                String userKey = JPAProperties.getUserName(kernelKey);
+                Object kvalue  = Reflection.get(this, getter);
+                props.put(userKey.equals(kernelKey) ? s : userKey, JPAProperties.convertToUserValue(userKey, kvalue));
+            }
+        }
+        FetchPlan fetch = getFetchPlan();
+        Class<?> fetchType = fetch.getClass();
+        Set<String> fProperties = Reflection.getBeanStylePropertyNames(fetchType);
+        for (String s : fProperties) {
+            String kernelKey = getBeanPropertyName(s);
+            Method getter = Reflection.findGetter(fetchType, kernelKey, false);
+            if (getter != null) {
+                String userKey = JPAProperties.getUserName(kernelKey);
+                Object kvalue  = Reflection.get(fetch, getter);
+                props.put(userKey.equals(kernelKey) ? s : userKey, JPAProperties.convertToUserValue(userKey, kvalue));
+            }
+        }
+        return props;
     }
 
-    public OpenJPAQueryBuilder getQueryBuilder() {
-        return new QueryBuilderImpl(_emf);
+    public OpenJPACriteriaBuilder getCriteriaBuilder() {
+        return _emf.getCriteriaBuilder();
     }
 
     public Set<String> getSupportedProperties() {
@@ -1517,8 +1612,7 @@ public class EntityManagerImpl
         throw new PersistenceException(_loc.get("unwrap-em-invalid", cls)
             .toString(), null, this, false);
     }
-    
-    
+
     public void setQuerySQLCache(boolean flag) {
         _broker.setCachePreparedQuery(flag);
     }
@@ -1531,132 +1625,133 @@ public class EntityManagerImpl
         return _ret;
     }
 
-    private enum FetchConfigProperty {
-        LockTimeout, ReadLockLevel, WriteLockLevel
-    };
-
-    private boolean setFetchConfigProperty(FetchConfigProperty[] validProps,
-        Map<String, Object> properties) {
-        boolean fcPushed = false;
-        if (properties != null && properties.size() > 0) {
-            Configuration conf = _broker.getConfiguration();
-            Set<String> inKeys = properties.keySet();
-            for (String inKey : inKeys) {
-                for (FetchConfigProperty validProp : validProps) {
-                    String validPropStr = validProp.toString();
-                    Set<String> validPropKeys = conf
-                        .getPropertyKeys(validPropStr);
-
-                    if (validPropKeys.contains(inKey)) {
-                        FetchConfiguration fCfg = _broker
-                            .getFetchConfiguration();
-                        IntValue intVal = new IntValue(inKey);
-                        try {
-                            Object setValue = properties.get(inKey);
-                            if (setValue instanceof String) {
-                                intVal.setString((String) setValue);
-                            } else if (Number.class.isAssignableFrom(setValue
-                                .getClass())) {
-                                intVal.setObject(setValue);
-                            } else {
-                                intVal.setString(setValue.toString());
-                            }
-                            int value = intVal.get();
-                            switch (validProp) {
-                            case LockTimeout:
-                                if (!fcPushed) {
-                                    fCfg = _broker.pushFetchConfiguration();
-                                    fcPushed = true;
-                                }
-                                fCfg.setLockTimeout(value);
-                                break;
-                            case ReadLockLevel:
-                                if (value != LockLevels.LOCK_NONE
-                                    && value != fCfg.getReadLockLevel()) {
-                                    if (!fcPushed) {
-                                        fCfg = _broker.pushFetchConfiguration();
-                                        fcPushed = true;
-                                    }
-                                    fCfg.setReadLockLevel(value);
-                                }
-                                break;
-                            case WriteLockLevel:
-                                if (value != LockLevels.LOCK_NONE
-                                    && value != fCfg.getWriteLockLevel()) {
-                                    if (!fcPushed) {
-                                        fCfg = _broker.pushFetchConfiguration();
-                                        fcPushed = true;
-                                    }
-                                    fCfg.setWriteLockLevel(value);
-                                }
-                                break;
-                            }
-                        } catch (Exception e) {
-                            // silently ignore the property
-                        }
-                        break; // for(String inKey : inKeys)
-                    }
-                }
-            }
-        }
-        return fcPushed;
-    }
-
-    private boolean pushLockProperties(LockModeType mode,
-        Map<String, Object> properties) {
-        boolean fcPushed = false;
+    /**
+     * Populate the given FetchPlan with the given properties. 
+     * Optionally overrides the given lock mode.
+     */
+    private void configureCurrentFetchPlan(FetchPlan fetch, Map<String, Object> properties, 
+            LockModeType lock, boolean requiresTxn) {
         // handle properties in map first
+        configureCurrentCacheModes(fetch, properties);
         if (properties != null) {
-            fcPushed = setFetchConfigProperty(new FetchConfigProperty[] {
-                FetchConfigProperty.LockTimeout,
-                FetchConfigProperty.ReadLockLevel,
-                FetchConfigProperty.WriteLockLevel }, properties);
+            for (Map.Entry<String, Object> entry : properties.entrySet())
+                fetch.setHint(entry.getKey(), entry.getValue());
         }
         // override with the specific lockMode, if needed.
-        int setReadLevel = JPA2LockLevels.toLockLevel(mode);
-        if (setReadLevel != JPA2LockLevels.LOCK_NONE) {
-            // Set overriden read lock level
-            FetchConfiguration fCfg = _broker.getFetchConfiguration();
-            int curReadLevel = fCfg.getReadLockLevel();
-            if (setReadLevel != curReadLevel) {
-                if (!fcPushed) {
-                    fCfg = _broker.pushFetchConfiguration();
-                    fcPushed = true;
-                }
-                fCfg.setReadLockLevel(setReadLevel);
+        if (lock != null && lock != LockModeType.NONE) {
+            if (requiresTxn) {
+                _broker.assertActiveTransaction();
             }
-            // Set overriden isolation level for pessimistic-read/write
-            switch (setReadLevel) {
-            case JPA2LockLevels.LOCK_PESSIMISTIC_READ:
-                fcPushed = setIsolationForPessimisticLock(fCfg, fcPushed,
-                    Connection.TRANSACTION_REPEATABLE_READ);
-                break;
-
-            case JPA2LockLevels.LOCK_PESSIMISTIC_WRITE:
-            case JPA2LockLevels.LOCK_PESSIMISTIC_FORCE_INCREMENT:
-                fcPushed = setIsolationForPessimisticLock(fCfg, fcPushed,
-                    Connection.TRANSACTION_SERIALIZABLE);
-                break;
-
-            default:
-            }
+            // Override read lock level
+            LockModeType curReadLockMode = fetch.getReadLockMode();
+            if (lock != curReadLockMode)
+                fetch.setReadLockMode(lock);
         }
-        return fcPushed;
+    }
+    
+    private void configureCurrentCacheModes(FetchPlan fetch, Map<String, Object> properties) {
+        if (properties == null)
+            return;
+        CacheRetrieveMode rMode = JPAProperties.getEnumValue(CacheRetrieveMode.class, 
+                JPAProperties.CACHE_RETRIEVE_MODE, properties);
+        if (rMode != null) {
+            fetch.setCacheRetrieveMode(JPAProperties.convertToKenelValue(DataCacheRetrieveMode.class, 
+                    JPAProperties.CACHE_RETRIEVE_MODE, rMode));
+            properties.remove(JPAProperties.CACHE_RETRIEVE_MODE);
+        }
+        CacheStoreMode sMode = JPAProperties.getEnumValue(CacheStoreMode.class, 
+                JPAProperties.CACHE_STORE_MODE, properties);
+        if (sMode != null) {
+            fetch.setCacheStoreMode(JPAProperties.convertToKenelValue(DataCacheStoreMode.class, 
+                    JPAProperties.CACHE_STORE_MODE, sMode));
+            properties.remove(JPAProperties.CACHE_STORE_MODE);
+        }
     }
 
-    private boolean setIsolationForPessimisticLock(FetchConfiguration fCfg,
-        boolean fcPushed, int level) {
-        if (!fcPushed) {
-            fCfg = _broker.pushFetchConfiguration();
-            fcPushed = true;
-        }
-        ((JDBCFetchConfiguration) fCfg).setIsolation(level);
-        return fcPushed;
+    public Metamodel getMetamodel() {
+        return _emf.getMetamodel();
     }
 
-    private void popLockProperties(boolean fcPushed) {
-        if (fcPushed) {
-            _broker.popFetchConfiguration();
+    /**
+     * Sets the given property to the given value, reflectively.
+     * 
+     * The property key is transposed to a bean-style property.
+     * The value is converted to a type consumable by the kernel.
+     * After requisite transformation, if the value can not be set
+     * on either this instance or its fetch plan by reflection,
+     * then an warning message (not an exception as per JPA specification) is issued.
+     */
+    public void setProperty(String prop, Object value) {
+        if (!setKernelProperty(this, prop, value)) {
+            if (!setKernelProperty(this.getFetchPlan(), prop, value)) {
+                Log log = getConfiguration().getLog(OpenJPAConfiguration.LOG_RUNTIME);
+                if (log.isWarnEnabled()) {
+                    log.warn(_loc.get("bad-em-prop", prop, value == null ? "" : value.getClass()+":" + value));
+                 }
+            }
         }
+    }
+    
+    /**
+     * Attempt to set the given property and value to the given target instance.
+     * The original property is transposed to a bean-style property name.
+     * The original value is transformed to a type consumable by the target.
+     *  
+     * @return if the property can be set to the given target.
+     */
+    private boolean setKernelProperty(Object target, String original, Object value) {
+        String beanProp = getBeanPropertyName(original);
+        JPAProperties.record(beanProp, original);
+        Class<?> kType  = null;
+        Object   kValue = null;
+        Method setter = Reflection.findSetter(target.getClass(), beanProp, false);
+        if (setter != null) {
+            kType  = setter.getParameterTypes()[0];
+            kValue = convertUserValue(original, value, kType);
+            Reflection.set(target, setter, kValue);
+            return true;
+        } else {
+            Field field = Reflection.findField(target.getClass(), beanProp, false);
+            if (field != null) {
+                kType  = field.getType();
+                kValue = convertUserValue(original, value, kType);
+                Reflection.set(target, field, kValue);
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
+     * Extract a bean-style property name from the given string.
+     * If the given string is <code>"a.b.xyz"</code> then returns <code>"xyz"</code> 
+     */
+    String getBeanPropertyName(String user) {
+        String result = user;
+        if (JPAProperties.isValidKey(user)) {
+            result = JPAProperties.getBeanProperty(user);
+        } else {
+            int dot = user.lastIndexOf('.');
+            if (dot != -1)
+                result = user.substring(dot+1);
+        }
+        return result; 
+    }
+    
+    
+    /**
+     * Convert the given value to a value consumable by OpenJPA kernel constructs.
+     */
+    Object convertUserValue(String key, Object value, Class<?> targetType) {
+        if (JPAProperties.isValidKey(key)) 
+            return JPAProperties.convertToKenelValue(targetType, key, value);
+        if (value instanceof String) {
+            if ("null".equals(value)) {
+                return null;
+            } else {
+                return Strings.parse((String) value, targetType);
+            }
+        }
+        return value;
     }
 }

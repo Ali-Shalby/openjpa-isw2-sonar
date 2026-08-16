@@ -19,6 +19,7 @@
 package org.apache.openjpa.jdbc.schema;
 
 import java.io.PrintWriter;
+import java.lang.reflect.Constructor;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.sql.Connection;
@@ -28,17 +29,19 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.Properties;
 
+import javax.sql.DataSource;
+
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.jdbc.DelegatingDataSource;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.StoreException;
-import org.apache.openjpa.util.UserException;
 
 /**
  * Non-pooling driver data source.
  */
-public class SimpleDriverDataSource
+public abstract class SimpleDriverDataSource
     implements DriverDataSource {
 
     private String _connectionDriverName;
@@ -50,10 +53,22 @@ public class SimpleDriverDataSource
     private Driver _driver;
     private ClassLoader _classLoader;
     
-    protected static Localizer _loc = 
-    	Localizer.forPackage(SimpleDriverDataSource.class);
-    protected static Localizer _eloc = 
-    	Localizer.forPackage(DelegatingDataSource.class);
+    protected static Localizer _loc = Localizer.forPackage(SimpleDriverDataSource.class);
+    protected static Localizer _eloc = Localizer.forPackage(DelegatingDataSource.class);
+
+    private static final Class<? extends SimpleDriverDataSource> implClass;
+
+    static {
+        try {
+            implClass = ConcreteClassGenerator.makeConcrete(SimpleDriverDataSource.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    public static SimpleDriverDataSource newInstance() {
+        return ConcreteClassGenerator.newInstance(implClass);
+    }
 
     public Connection getConnection()
         throws SQLException {
@@ -80,8 +95,8 @@ public class SimpleDriverDataSource
         throws SQLException {
     	Connection con = getDriver().connect(_connectionURL, props);
     	if (con == null) {
-        	throw new SQLException(_eloc.get("poolds-null",
-        			_connectionDriverName, _connectionURL).getMessage());
+            throw new SQLException(_eloc.get("poolds-null",
+                    _connectionDriverName, _connectionURL).getMessage());
         }
         return con;
     }
@@ -195,5 +210,19 @@ public class SimpleDriverDataSource
             throw new StoreException(e);
         }
     }
+    
+
+    // java.sql.Wrapper implementation (JDBC 4)
+    public boolean isWrapperFor(Class iface) {
+        return iface.isAssignableFrom(SimpleDriverDataSource.class);
+    }
+
+    public Object unwrap(Class iface) {
+        if (isWrapperFor(iface))
+            return this;
+        else
+            return null;
+    }
+
 }
 

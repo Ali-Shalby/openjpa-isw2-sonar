@@ -183,7 +183,8 @@ public class RowImpl
         while (mapping.getTable() != getTable())
             mapping = mapping.getPCSuperclassMapping();
         Column[] cols = mapping.getPrimaryKeyColumns();
-        flushJoinValues(sm, cols, cols, io, set);
+        Object oid = mapping.useIdClassFromParent() ? sm.getObjectId() : null;
+        flushJoinValues(sm, oid, cols, cols, io, set);
     }
 
     public void setForeignKey(ForeignKey fk, OpenJPAStateManager sm)
@@ -219,7 +220,7 @@ public class RowImpl
     private void flushForeignKey(ForeignKey fk, ColumnIO io,
         OpenJPAStateManager sm, boolean set)
         throws SQLException {
-        flushJoinValues(sm, fk.getPrimaryKeyColumns(), fk.getColumns(),
+        flushJoinValues(sm, null, fk.getPrimaryKeyColumns(), fk.getColumns(),
             io, set);
         if (sm != null) {
             Column[] cols = fk.getConstantColumns();
@@ -250,7 +251,7 @@ public class RowImpl
      * @param set whether this should be flushed as an update or
      * as a where condition
      */
-    private void flushJoinValues(OpenJPAStateManager to, Column[] toCols,
+    private void flushJoinValues(OpenJPAStateManager to, Object oid, Column[] toCols,
         Column[] fromCols, ColumnIO io, boolean set)
         throws SQLException {
         if (to == null) {
@@ -278,8 +279,13 @@ public class RowImpl
             }
 
             join = toMapping.assertJoinable(toCols[i]);
-            val = join.getJoinValue(to, toCols[i], (JDBCStore) to.
-                getContext().getStoreManager().getInnermostDelegate());
+            if (oid != null)
+                val = join.getJoinValue(oid, toCols[i], (JDBCStore) to.
+                    getContext().getStoreManager().getInnermostDelegate());
+            else
+                val = join.getJoinValue(to, toCols[i], (JDBCStore) to.
+                    getContext().getStoreManager().getInnermostDelegate());
+                
             if (set && val == null) {
                 if (canSet(io, i, true))
                     setNull(fromCols[i]);
@@ -741,7 +747,7 @@ public class RowImpl
      * Return the SQL for a prepared statement update on this row.
      */
     private String getUpdateSQL(DBDictionary dict) {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append("UPDATE ").append(dict.getFullName(getTable(), false)).
             append(" SET ");
 
@@ -752,7 +758,7 @@ public class RowImpl
 
             if (hasVal)
                 buf.append(", ");
-            buf.append(_cols[i]);
+            buf.append(dict.getColumnDBName(_cols[i]));
             if (_types[i] == RAW)
                 buf.append(" = ").append(_vals[i]);
             else
@@ -768,8 +774,8 @@ public class RowImpl
      * Return the SQL for a prepared statement insert on this row.
      */
     private String getInsertSQL(DBDictionary dict) {
-        StringBuffer buf = new StringBuffer();
-        StringBuffer vals = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
+        StringBuilder vals = new StringBuilder();
         buf.append("INSERT INTO ").
             append(dict.getFullName(getTable(), false)).append(" (");
 
@@ -782,7 +788,7 @@ public class RowImpl
                 buf.append(", ");
                 vals.append(", ");
             }
-            buf.append(_cols[i]);
+            buf.append(dict.getColumnDBName(_cols[i]));
             if (_types[i] == RAW)
                 vals.append(_vals[i]);
             else
@@ -798,7 +804,7 @@ public class RowImpl
      * Return the SQL for a prepared statement delete on this row.
      */
     private String getDeleteSQL(DBDictionary dict) {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append("DELETE FROM ").
             append(dict.getFullName(getTable(), false));
         appendWhere(buf, dict);
@@ -808,7 +814,7 @@ public class RowImpl
     /**
      * Appends the where clause onto the given sql buffer.
      */
-    private void appendWhere(StringBuffer buf, DBDictionary dict) {
+    private void appendWhere(StringBuilder buf, DBDictionary dict) {
         boolean hasWhere = false;
         for (int i = 0; i < _cols.length; i++) {
             if (_vals[getWhereIndex(_cols[i])] == null)
@@ -821,16 +827,16 @@ public class RowImpl
 
             // Get platform specific version column name
             if (_cols[i].getVersionStrategy() != null)
-               buf.append(dict.getVersionColumn(_cols[i], _cols[i]
-                   .getTableName())).append(" = ?");
+               buf.append(dict.toDBName(dict.getVersionColumn(_cols[i], _cols[i]
+                   .getTableIdentifier()))).append(" = ?");
             // sqlserver seems to have problems using null parameters in the
             // where clause
             else if (_vals[getWhereIndex(_cols[i])] == NULL)
-                buf.append(_cols[i]).append(" IS NULL");
+                buf.append(dict.getColumnDBName(_cols[i])).append(" IS NULL");
             else if (_types[i] == RAW)
-                buf.append(_cols[i]).append(" = ").append(_vals[i]);
+                buf.append(dict.getColumnDBName(_cols[i])).append(" = ").append(_vals[i]);
             else
-                buf.append(_cols[i]).append(" = ?");
+                buf.append(dict.getColumnDBName(_cols[i])).append(" = ?");
             hasWhere = true;
         }
     }

@@ -18,17 +18,31 @@
  */
 package org.apache.openjpa.lib.jdbc;
 
+import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
+
 /**
- * Wrapper around a DatabaseMetadata instance.
+ * Wrapper around a DatabaseMetaData instance.
  *
  * @author Marc Prud'hommeaux
  */
-public class DelegatingDatabaseMetaData implements DatabaseMetaData {
+public abstract class DelegatingDatabaseMetaData implements DatabaseMetaData {
+
+    static final Constructor<DelegatingDatabaseMetaData> concreteImpl;
+
+    static {
+        try {
+            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DelegatingDatabaseMetaData.class, 
+                    DatabaseMetaData.class, Connection.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     private final DatabaseMetaData _metaData;
     private final Connection _conn;
@@ -38,6 +52,15 @@ public class DelegatingDatabaseMetaData implements DatabaseMetaData {
         _conn = conn;
         _metaData = metaData;
     }
+
+    public static DelegatingDatabaseMetaData newInstance(DatabaseMetaData metaData, Connection conn) {
+        return ConcreteClassGenerator.newInstance(concreteImpl, metaData, conn);
+    }
+
+    /** 
+     *  Marker to enforce that subclasses of this class are abstract.
+     */
+    protected abstract void enforceAbstract();
 
     /**
      * Return the base underlying database metadata.
@@ -62,7 +85,7 @@ public class DelegatingDatabaseMetaData implements DatabaseMetaData {
     }
 
     public String toString() {
-        StringBuffer buf = new StringBuffer("metadata ").append(hashCode());
+        StringBuilder buf = new StringBuilder("metadata ").append(hashCode());
         buf.append("[").append(_metaData.toString()).append("]");
         return buf.toString();
     }
@@ -698,48 +721,49 @@ public class DelegatingDatabaseMetaData implements DatabaseMetaData {
         return _metaData.usesLocalFiles();
     }
 
-    // JDBC 3.0 methods(unsupported) follow; these are required to be able to
-    // compile against JDK 1.4
+    // JDBC 3.0 methods follow.
 
     public boolean supportsSavepoints() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.supportsSavepoints();
     }
 
     public boolean supportsNamedParameters() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.supportsNamedParameters();
     }
 
     public boolean supportsMultipleOpenResults() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.supportsMultipleOpenResults();
     }
 
     public boolean supportsGetGeneratedKeys() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.supportsGetGeneratedKeys();
     }
 
-    public ResultSet getSuperTypes(String catalog, String schemaPatter,
+    public ResultSet getSuperTypes(String catalog, String schemaPattern,
         String typeNamePattern) throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.getSuperTypes(catalog, schemaPattern, typeNamePattern);
     }
 
-    public ResultSet getSuperTables(String catalog, String schemaPatter,
+    public ResultSet getSuperTables(String catalog, String schemaPattern,
         String tableNamePattern) throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.getSuperTables(catalog, schemaPattern,
+            tableNamePattern);
     }
 
-    public ResultSet getAttributes(String catalog, String schemaPatter,
+    public ResultSet getAttributes(String catalog, String schemaPattern,
         String typeNamePattern, String attributeNamePattern)
         throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.getAttributes(catalog, schemaPattern, typeNamePattern,
+            attributeNamePattern);
     }
 
     public boolean supportsResultSetHoldability(int holdability)
         throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.supportsResultSetHoldability(holdability);
     }
 
     public int getResultSetHoldability() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.getResultSetHoldability();
     }
 
     public int getDatabaseMajorVersion() throws SQLException {
@@ -755,19 +779,37 @@ public class DelegatingDatabaseMetaData implements DatabaseMetaData {
     }
 
     public int getJDBCMinorVersion() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.getJDBCMinorVersion();
     }
 
     public int getSQLStateType() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.getSQLStateType();
     }
 
     public boolean locatorsUpdateCopy() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.locatorsUpdateCopy();
     }
 
     public boolean supportsStatementPooling() throws SQLException {
-        throw new UnsupportedOperationException();
+        return _metaData.supportsStatementPooling();
+    }
+
+    /**
+     * Return the wrapped database metadata.
+     */
+    public DatabaseMetaData getDelegate() {
+        return _metaData;
+    }
+
+    // java.sql.Wrapper implementation (JDBC 4)
+    public boolean isWrapperFor(Class iface) {
+        return iface.isAssignableFrom(getDelegate().getClass());
+    }
+
+    public Object unwrap(Class iface) {
+        if (isWrapperFor(iface))
+            return getDelegate();
+        else
+            return null;
     }
 }
-

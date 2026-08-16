@@ -29,6 +29,7 @@ import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.net.InetAddress;
 import java.net.MalformedURLException;
 import java.net.ServerSocket;
@@ -41,7 +42,13 @@ import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
 import java.util.Enumeration;
 import java.util.Properties;
+import java.util.Set;
 import java.util.zip.ZipFile;
+
+import javax.validation.ConstraintViolation;
+import javax.validation.Validation;
+import javax.validation.Validator;
+import javax.validation.ValidatorFactory;
 
 import serp.bytecode.BCClass;
 import serp.bytecode.BCClassLoader;
@@ -68,6 +75,7 @@ import serp.bytecode.Project;
  * <li>ClassLoader.getResource
  * <li>ClassLoader.getResources
  * <li>ClassLoader.getSystemClassLoader
+ * <li>File.deleteOnExit
  * <li>File.delete
  * <li>File.exists
  * <li>File.getAbsoluteFile
@@ -89,6 +97,7 @@ import serp.bytecode.Project;
  * <li>Socket.accept
  * <li>System.getProperty
  * <li>Thread.getContextClassLoader
+ * <li>Thread.setContextClassLoader
  * <li>Thread new
  * <li>TemporaryClassLoader new
  * <li>URL.openStream
@@ -103,11 +112,13 @@ import serp.bytecode.Project;
  * <li>AnnotatedElement.getAnnotations
  * <li>AnnotatedElement.getDeclaredAnnotations
  * <li>AnnotatedElement.isAnnotationPresent
+ * <li>javax.validation.Validator.validate
+ * <li>javax.validation.Validation.buildDefaultValidatorFactory
  * </ul>
  * 
  * If these methods are used, the following sample usage patterns should be
  * followed to ensure proper privilege is granted:
- * <xmp>
+ * <pre>
  * 1) No security risk method call. E.g.
  *  
  *    private static final String SEP = J2DoPrivHelper.getLineSeparator();
@@ -141,7 +152,7 @@ import serp.bytecode.Project;
  *    } catch (PrivilegedActionException pae) {
  *        throw (NoSuchMethodException) pae.getException()
  *    }                               
- * </xmp> 
+ * </pre> 
  * @author Albert Lee
  */
 
@@ -353,7 +364,16 @@ public abstract class J2DoPrivHelper {
         return new PrivilegedExceptionAction<T>() {
             public T run() throws IllegalAccessException,
                     InstantiationException {
-                return clazz.newInstance();
+                if (!Modifier.isAbstract(clazz.getModifiers())) {
+                    return clazz.newInstance();
+                } else {
+                    try {
+                        return (T)clazz.getMethod("newInstance", 
+                            new Class[]{}).invoke(null, new Object[]{});
+                    } catch (Throwable t) {
+                        throw new InstantiationException(t.toString());
+                    }
+                }
             }
         };
     }
@@ -465,6 +485,22 @@ public abstract class J2DoPrivHelper {
     }
 
     /**
+     * Return a PrivilegeAction object for f.deleteOnExit().
+     * 
+     * Requires security policy:
+     *   'permission java.io.FilePermission "delete";'
+     */
+    public static final PrivilegedAction<Boolean> deleteOnExitAction(
+        final File f) {
+        return new PrivilegedAction<Boolean>() {
+            public Boolean run() {
+                f.deleteOnExit();
+                return Boolean.TRUE;
+            }
+        };
+    }
+
+    /**
      * Return a PrivilegeAction object for f.getAbsoluteFile().
      * 
      * Requires security policy:
@@ -472,7 +508,8 @@ public abstract class J2DoPrivHelper {
      * 
      * @return File
      */
-    public static final PrivilegedAction<File> getAbsoluteFileAction(final File f) {
+    public static final PrivilegedAction<File> getAbsoluteFileAction(
+            final File f) {
         return new PrivilegedAction<File>() {
             public File run() {
                 return f.getAbsoluteFile();
@@ -736,7 +773,8 @@ public abstract class J2DoPrivHelper {
      * @return ServerSocket
      * @throws IOException
      */
-    public static final PrivilegedExceptionAction<ServerSocket> newServerSocketAction(
+    public static final PrivilegedExceptionAction<ServerSocket>
+            newServerSocketAction(
         final int port) throws IOException {
         return new PrivilegedExceptionAction<ServerSocket>() {
             public ServerSocket run() throws IOException {
@@ -810,6 +848,25 @@ public abstract class J2DoPrivHelper {
         return new PrivilegedAction<ClassLoader>() {
             public ClassLoader run() {
                 return Thread.currentThread().getContextClassLoader();
+            }
+        };
+    }
+
+    /**
+     * Return a PrivilegeAction object for Thread.currentThread
+     *   .setContextClassLoader().
+     * 
+     * Requires security policy:
+     *   'permission java.lang.RuntimePermission "setContextClassLoader";'
+     *   
+     * @return ClassLoader
+     */
+    public static final PrivilegedAction<Boolean> 
+            setContextClassLoaderAction(final ClassLoader loader) {
+        return new PrivilegedAction<Boolean>() {
+            public Boolean run() {
+                Thread.currentThread().setContextClassLoader(loader);
+                return Boolean.TRUE;
             }
         };
     }
@@ -931,9 +988,8 @@ public abstract class J2DoPrivHelper {
      *   
      * @return MultiClassLoader
      */
-    public static final PrivilegedAction<MultiClassLoader>
-        newMultiClassLoaderAction() {
-        return new PrivilegedAction<MultiClassLoader>() {
+    public static final PrivilegedAction<MultiClassLoader> newMultiClassLoaderAction() {
+        return new PrivilegedAction() {
             public MultiClassLoader run() {
                 return new MultiClassLoader();
             }
@@ -1010,7 +1066,8 @@ public abstract class J2DoPrivHelper {
      *   
      * @return BCField
      */
-    public static final PrivilegedAction<BCField> getFieldInstructionFieldAction(
+    public static final PrivilegedAction<BCField> getFieldInstructionFieldAction
+    (
         final FieldInstruction instruction) {
         return new PrivilegedAction<BCField>() {
             public BCField run() {
@@ -1105,6 +1162,53 @@ public abstract class J2DoPrivHelper {
             public Boolean run() {
                 return element.isAnnotationPresent(annotationClazz)
                     ? Boolean.TRUE : Boolean.FALSE;
+            }
+        };
+    }
+    
+    /**
+     * Return a PrivilegedAction object for
+     *   AnnotatedElement.getAnnotation().
+     *
+     * Requires security policy:
+     *   'permission java.lang.RuntimePermission "accessDeclaredMembers";'
+     *
+     * @return Annotation
+     */
+    public static final <T extends Annotation> PrivilegedAction<T> 
+        getAnnotationAction(
+        final AnnotatedElement element, 
+        final Class<T> annotationClazz) {
+        return new PrivilegedAction<T>() {
+            public T run() {
+                return (T) element.getAnnotation(annotationClazz);
+            }
+        };
+    }
+    
+    /**
+     * Return a PrivilegeAction object for javax.validation.Validator.validate().
+     * 
+     * Requires security policy: 'permission java.lang.RuntimePermission "accessDeclaredMemeber";'
+     */
+    public static final <T> PrivilegedAction<Set<ConstraintViolation<T>>> validateAction(
+        final Validator validator, final T arg0, final Class<?>[] groups) {
+        return new PrivilegedAction<Set<ConstraintViolation<T>>>() {
+            public Set<ConstraintViolation<T>> run() {
+                return validator.validate(arg0, groups);
+            }
+        };
+    }
+
+    /**
+     * Return a PrivilegeAction object for javax.validation.Validation.buildDefaultValidatorFactory().
+     * 
+     * Requires security policy: 'permission java.lang.RuntimePermission "createClassLoader";'
+     */
+    public static final <T> PrivilegedAction<ValidatorFactory> buildDefaultValidatorFactoryAction() {
+        return new PrivilegedAction<ValidatorFactory>() {
+            public ValidatorFactory run() {
+                return Validation.buildDefaultValidatorFactory();
             }
         };
     }

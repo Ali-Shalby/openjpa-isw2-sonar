@@ -37,12 +37,15 @@ import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.QueryContext;
+import org.apache.openjpa.kernel.ResultShape;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.kernel.StoreQuery;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
+import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.lib.rop.ListResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
+import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataRepository;
@@ -109,7 +112,7 @@ public class QueryCacheStoreQuery
      * READ_SERIALIZABLE -- to do so, we'd just return false when in
      * a transaction.
      */
-    private List checkCache(QueryKey qk) {
+    private List<Object> checkCache(QueryKey qk) {
         if (qk == null)
             return null;
         FetchConfiguration fetch = getContext().getFetchConfiguration();
@@ -123,7 +126,7 @@ public class QueryCacheStoreQuery
         if (res == null)
             return null;        
         if (res.isEmpty())
-            return Collections.EMPTY_LIST;
+            return Collections.emptyList();
 
         // this if block is invoked if the evictOnTimestamp is set to true
         if (_cache instanceof AbstractQueryCache) {
@@ -289,7 +292,8 @@ public class QueryCacheStoreQuery
 
     public Executor newDataStoreExecutor(ClassMetaData meta, boolean subs) {
         Executor ex = _query.newDataStoreExecutor(meta, subs);
-        return new QueryCacheExecutor(ex, meta, subs);
+        return new QueryCacheExecutor(ex, meta, subs,
+                      getContext().getFetchConfiguration());
     }
 
     public boolean supportsAbstractExecutors() {
@@ -320,14 +324,16 @@ public class QueryCacheStoreQuery
         implements Executor {
 
         private final Executor _ex;
-        private final Class _candidate;
+        private final Class<?> _candidate;
         private final boolean _subs;
+        private final FetchConfiguration _fc;
 
         public QueryCacheExecutor(Executor ex, ClassMetaData meta,
-            boolean subs) {
+            boolean subs, FetchConfiguration fc) {
             _ex = ex;
             _candidate = (meta == null) ? null : meta.getDescribedType();
             _subs = subs;
+            _fc = fc;
         }
 
         public ResultObjectProvider executeQuery(StoreQuery q, Object[] params,
@@ -336,13 +342,20 @@ public class QueryCacheStoreQuery
             QueryKey key = QueryKey.newInstance(cq.getContext(),
                 _ex.isPacking(q), params, _candidate, _subs, range.start, 
                 range.end);
-            List cached = cq.checkCache(key);
+            List<Object> cached = cq.checkCache(key);
             if (cached != null)
                 return new ListResultObjectProvider(cached);
 
             ResultObjectProvider rop = _ex.executeQuery(cq.getDelegate(),
                 params, range);
-            return cq.wrapResult(rop, key);
+            if (_fc.getQueryCacheEnabled())
+                return cq.wrapResult(rop, key);
+            else
+                return rop;
+        }
+        
+        public QueryExpressions[] getQueryExpressions() {
+            return _ex.getQueryExpressions();
         }
 
         /**
@@ -359,7 +372,7 @@ public class QueryCacheStoreQuery
             if (cmd == null || cmd.length == 0)
                 return;
 
-            List classes = new ArrayList(cmd.length);
+            List<Class<?>> classes = new ArrayList<Class<?>>(cmd.length);
             for (int i = 0; i < cmd.length; i++)
                 classes.add(cmd[i].getDescribedType());
 
@@ -423,15 +436,19 @@ public class QueryCacheStoreQuery
             return _ex.getAlias(unwrap(q));
         }
 
-        public Class getResultClass(StoreQuery q) {
+        public Class<?> getResultClass(StoreQuery q) {
             return _ex.getResultClass(unwrap(q));
         }
 
+        public ResultShape<?> getResultShape(StoreQuery q) {
+            return _ex.getResultShape(q);
+        }
+        
         public String[] getProjectionAliases(StoreQuery q) {
             return _ex.getProjectionAliases(unwrap(q));
         }
 
-        public Class[] getProjectionTypes(StoreQuery q) {
+        public Class<?>[] getProjectionTypes(StoreQuery q) {
             return _ex.getProjectionTypes(unwrap(q));
         }
 
@@ -447,10 +464,18 @@ public class QueryCacheStoreQuery
             return _ex.isAggregate(unwrap(q));
         }
 
+        public boolean isDistinct(StoreQuery q) {
+            return _ex.isDistinct(unwrap(q));
+        }
+
         public boolean hasGrouping(StoreQuery q) {
             return _ex.hasGrouping(unwrap(q));
         }
 
+        public OrderedMap<Object, Class<?>> getOrderedParameterTypes(StoreQuery q) {
+            return _ex.getOrderedParameterTypes(unwrap(q));
+        }
+        
         public LinkedMap getParameterTypes(StoreQuery q) {
             return _ex.getParameterTypes(unwrap(q));
         }
@@ -472,8 +497,7 @@ public class QueryCacheStoreQuery
      * Result list implementation for a cached query result. Package-protected
      * for testing.
      */
-    public static class CachedList
-        extends AbstractList
+    public static class CachedList extends AbstractList<Object>
         implements Serializable {
 
         private final QueryResult _res;
@@ -505,7 +529,7 @@ public class QueryCacheStoreQuery
 
         public Object writeReplace()
             throws ObjectStreamException {
-            return new ArrayList(this);
+            return new ArrayList<Object>(this);
         }
     }
 
@@ -521,7 +545,7 @@ public class QueryCacheStoreQuery
         private final ResultObjectProvider _rop;
         private final boolean _proj;
         private final QueryKey _qk;
-        private final TreeMap _data = new TreeMap();
+        private final TreeMap<Integer,Object> _data = new TreeMap<Integer,Object>();
         private boolean _maintainCache = true;
         private int _pos = -1;
 
@@ -694,8 +718,8 @@ public class QueryCacheStoreQuery
         public final Object oid;
 
         public CachedObjectId (Object oid)
-		{
-			this.oid = oid;
-		}
-	}
+        {
+            this.oid = oid;
+        }
+    }
 }

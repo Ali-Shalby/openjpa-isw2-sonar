@@ -21,7 +21,12 @@ package org.apache.openjpa.jdbc.sql;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.security.AccessController;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -31,16 +36,22 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
+import java.util.Map;
 
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.lib.jdbc.DelegatingConnection;
 import org.apache.openjpa.lib.jdbc.DelegatingPreparedStatement;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.StoreException;
 import org.postgresql.PGConnection;
@@ -48,13 +59,35 @@ import org.postgresql.largeobject.LargeObject;
 import org.postgresql.largeobject.LargeObjectManager;
 
 /**
- * Dictionary for Postgres.
+ * Dictionary for PostgreSQL.
  */
 public class PostgresDictionary
     extends DBDictionary {
 
     private static final Localizer _loc = Localizer.forPackage
         (PostgresDictionary.class);
+
+    private static Constructor<PostgresConnection> postgresConnectionImpl;
+    private static Constructor<PostgresPreparedStatement> postgresPreparedStatementImpl;
+
+    private Method dbcpGetDelegate;
+    private Method connectionUnwrap;
+
+    static {
+        try {
+            postgresConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(
+                    PostgresConnection.class,
+                    Connection.class, 
+                    PostgresDictionary.class);
+            postgresPreparedStatementImpl = ConcreteClassGenerator.getConcreteConstructor(
+                    PostgresPreparedStatement.class,
+                    PreparedStatement.class, 
+                    Connection.class, 
+                    PostgresDictionary.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     /**
      * SQL statement to load all sequence schema,name pairs from all schemas.
@@ -135,7 +168,6 @@ public class PostgresDictionary
         clobTypeName = "TEXT";
         longVarcharTypeName = "TEXT";
         doubleTypeName = "DOUBLE PRECISION";
-        varcharTypeName = "VARCHAR{0}";
         timestampTypeName = "ABSTIME";
         fixedSizeTypeNameSet.addAll(Arrays.asList(new String[]{
             "BOOL", "BYTEA", "NAME", "INT8", "INT2", "INT2VECTOR", "INT4",
@@ -159,8 +191,26 @@ public class PostgresDictionary
             "RETRIEVE", "RETURNS", "RULE", "SETOF", "STDIN", "STDOUT",
             "STORE", "VACUUM", "VERBOSE", "VERSION",
         }));
+
+        // reservedWordSet subset that CANNOT be used as valid column names
+        // (i.e., without surrounding them with double-quotes)
+        invalidColumnWordSet.addAll(Arrays.asList(new String[] {
+            "ALL", "AND", "ANY", "AS", "ASC", "AUTHORIZATION", "BETWEEN", 
+            "BINARY", "BOTH", "CASE", "CAST", "CHECK", "COLLATE", "COLUMN",
+            "CONSTRAINT", "CREATE", "CROSS", "CURRENT_DATE", "CURRENT_TIME",
+            "CURRENT_TIMESTAMP", "CURRENT_USER", "DEFAULT", "DEFERRABLE", 
+            "DESC", "DISTINCT", "DO", "ELSE", "END", "END", "EXCEPT", "FALSE",
+            "FOR", "FOREIGN", "FROM", "FULL", "GRANT", "GROUP", "HAVING", "IN",
+            "INITIALLY", "INNER", "INTERSECT", "INTO", "IS", "ISNULL", "JOIN",
+            "LEADING", "LEFT", "LIKE", "NATURAL", "NOT", "NOTNULL", "NULL", 
+            "ON", "ONLY", "OR", "ORDER", "OUTER", "OVERLAPS", "PRIMARY",
+            "REFERENCES", "RIGHT", "SELECT", "SESSION_USER", "SOME", "TABLE",
+            "THEN", "TO", "TRAILING", "TRUE", "UNION", "UNIQUE", "USER", 
+            "USING", "VERBOSE", "WHEN", "WHERE",
+        }));
     }
 
+    @Override
     public Date getDate(ResultSet rs, int column)
         throws SQLException {
         try {
@@ -186,6 +236,7 @@ public class PostgresDictionary
         }
     }
 
+    @Override
     public byte getByte(ResultSet rs, int column)
         throws SQLException {
         // postgres does not perform automatic conversions, so attempting to
@@ -198,6 +249,7 @@ public class PostgresDictionary
         }
     }
 
+    @Override
     public short getShort(ResultSet rs, int column)
         throws SQLException {
         // postgres does not perform automatic conversions, so attempting to
@@ -210,6 +262,7 @@ public class PostgresDictionary
         }
     }
 
+    @Override
     public int getInt(ResultSet rs, int column)
         throws SQLException {
         // postgres does not perform automatic conversions, so attempting to
@@ -222,6 +275,7 @@ public class PostgresDictionary
         }
     }
 
+    @Override
     public long getLong(ResultSet rs, int column)
         throws SQLException {
         // postgres does not perform automatic conversions, so attempting to
@@ -234,6 +288,7 @@ public class PostgresDictionary
         }
     }
 
+    @Override
     public void setBoolean(PreparedStatement stmnt, int idx, boolean val,
         Column col)
         throws SQLException {
@@ -242,15 +297,25 @@ public class PostgresDictionary
         stmnt.setBoolean(idx, val);
     }
 
+    /**
+     * Handle XML and bytea/oid columns in a PostgreSQL way.
+     */
+    @Override
     public void setNull(PreparedStatement stmnt, int idx, int colType,
         Column col)
         throws SQLException {
-        // OPENJPA-
+        if (col != null && col.isXML()) {
+            stmnt.setNull(idx, Types.OTHER);
+            return;
+        }
+
+        // OPENJPA-308
         if (colType == Types.BLOB)
             colType = Types.BINARY;
         stmnt.setNull(idx, colType);
     }
 
+    @Override
     protected void appendSelectRange(SQLBuffer buf, long start, long end,
         boolean subselect) {
         if (end != Long.MAX_VALUE)
@@ -259,6 +324,7 @@ public class PostgresDictionary
             buf.append(" OFFSET ").appendValue(start);
     }
 
+    @Override
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
         FilterValue start) {
         buf.append("(POSITION(");
@@ -276,6 +342,7 @@ public class PostgresDictionary
         buf.append(")");
     }
 
+    @Override
     public String[] getCreateSequenceSQL(Sequence seq) {
         String[] sql = super.getCreateSequenceSQL(seq);
         if (seq.getAllocate() > 1)
@@ -283,17 +350,22 @@ public class PostgresDictionary
         return sql;
     }
 
+    @Override
     protected boolean supportsDeferredUniqueConstraints() {
         // Postgres only supports deferred foreign key constraints.
         return false;
     }
 
     protected String getSequencesSQL(String schemaName, String sequenceName) {
-        if (schemaName == null && sequenceName == null)
+        return getSequencesSQL(DBIdentifier.newSchema(schemaName), DBIdentifier.newSequence(sequenceName));
+    }
+
+    protected String getSequencesSQL(DBIdentifier schemaName, DBIdentifier sequenceName) {
+        if (DBIdentifier.isNull(schemaName) && DBIdentifier.isNull(sequenceName))
             return allSequencesSQL;
-        else if (schemaName == null)
+        else if (DBIdentifier.isNull(schemaName))
             return namedSequencesFromAllSchemasSQL;
-        else if (sequenceName == null)
+        else if (DBIdentifier.isNull(sequenceName))
             return allSequencesFromOneSchemaSQL;
         else
             return namedSequenceFromOneSchemaSQL;
@@ -301,32 +373,49 @@ public class PostgresDictionary
 
     public boolean isSystemSequence(String name, String schema,
         boolean targetSchema) {
+        return isSystemSequence(DBIdentifier.newTable(name), DBIdentifier.newSchema(schema), targetSchema);
+    }
+
+    public boolean isSystemSequence(DBIdentifier name, DBIdentifier schema,
+        boolean targetSchema) {
         if (super.isSystemSequence(name, schema, targetSchema))
             return true;
 
         // filter out generated sequences used for bigserial cols, which are
         // of the form <table>_<col>_seq
-        int idx = name.indexOf('_');
-        return idx != -1 && idx != name.length() - 4
-            && name.toUpperCase().endsWith("_SEQ");
+        String strName = DBIdentifier.isNull(name) ? null : name.getName();
+        int idx = strName.indexOf('_');
+        return idx != -1 && idx != strName.length() - 4
+            && strName.toUpperCase().endsWith("_SEQ");
     }
 
     public boolean isSystemTable(String name, String schema,
         boolean targetSchema) {
+        return isSystemTable(DBIdentifier.newTable(name), DBIdentifier.newSchema(schema), targetSchema);
+    }
+
+    public boolean isSystemTable(DBIdentifier name, DBIdentifier schema,
+        boolean targetSchema) {
         // names starting with "pg_" are reserved for Postgresql internal use
+        String strName = DBIdentifier.isNull(name) ? null : name.getName();
         return super.isSystemTable(name, schema, targetSchema)
-            || (name != null && name.toLowerCase().startsWith("pg_"));
+            || (strName != null && strName.toLowerCase().startsWith("pg_"));
     }
 
     public boolean isSystemIndex(String name, Table table) {
+        return isSystemIndex(DBIdentifier.newIndex(name), table);
+    }
+
+    public boolean isSystemIndex(DBIdentifier name, Table table) {
         // names starting with "pg_" are reserved for Postgresql internal use
+        String strName = DBIdentifier.isNull(name) ? null : name.getName();
         return super.isSystemIndex(name, table)
-            || (name != null && name.toLowerCase().startsWith("pg_"));
+            || (strName != null && strName.toLowerCase().startsWith("pg_"));
     }
 
     public Connection decorate(Connection conn)
         throws SQLException {
-        return new PostgresConnection(super.decorate(conn), this);
+        return ConcreteClassGenerator.newInstance(postgresConnectionImpl, super.decorate(conn), this);
     }
 
     public InputStream getLOBStream(JDBCStore store, ResultSet rs,
@@ -334,8 +423,7 @@ public class PostgresDictionary
         DelegatingConnection conn = (DelegatingConnection)store
             .getConnection();
         conn.setAutoCommit(false);
-        LargeObjectManager lom = ((PGConnection)conn.getInnermostDelegate())
-        .getLargeObjectAPI();
+        LargeObjectManager lom = getLargeObjectManager(conn);
         if (rs.getInt(column) != -1) {
             LargeObject lo = lom.open(rs.getInt(column));
             return lo.getInputStream();
@@ -361,10 +449,9 @@ public class PostgresDictionary
             .getConnection();
             try {
                 conn.setAutoCommit(false);
-                PGConnection pgconn = (PGConnection) conn.getInnermostDelegate();
-                LargeObjectManager lom = pgconn.getLargeObjectAPI();
-                // The create method is valid in versions previous 8.3
-                // in 8.3 this methos is deprecated, use createLO
+                LargeObjectManager lom = getLargeObjectManager(conn);
+                // The create method is valid in versions previous to 8.3
+                // in 8.3 this method is deprecated, use createLO
                 int oid = lom.create();
                 LargeObject lo = lom.open(oid, LargeObjectManager.WRITE);
                 OutputStream os = lo.getOutputStream();
@@ -400,13 +487,12 @@ public class PostgresDictionary
             int oid = res.getInt(1);
             if (oid != -1) {
                 conn.setAutoCommit(false);
-                PGConnection pgconn = (PGConnection)conn
-                    .getInnermostDelegate();
-                LargeObjectManager lom = pgconn.getLargeObjectAPI();
+                LargeObjectManager lom = getLargeObjectManager(conn);
                 if (ob != null) {
                     LargeObject lo = lom.open(oid, LargeObjectManager.WRITE);
                     OutputStream os = lo.getOutputStream();
-                    copy((InputStream)ob, os);
+                    long size = copy((InputStream) ob, os);
+                    lo.truncate((int) size);
                     lo.close();
                 } else {
                     lom.delete(oid);
@@ -415,9 +501,7 @@ public class PostgresDictionary
             } else {
                 if (ob != null) {
                     conn.setAutoCommit(false);
-                    PGConnection pgconn = (PGConnection)conn
-                        .getInnermostDelegate();
-                    LargeObjectManager lom = pgconn.getLargeObjectAPI();
+                    LargeObjectManager lom = getLargeObjectManager(conn);
                     oid = lom.create();
                     LargeObject lo = lom.open(oid, LargeObjectManager.WRITE);
                     OutputStream os = lo.getOutputStream();
@@ -463,9 +547,7 @@ public class PostgresDictionary
             int oid = res.getInt(1);
             if (oid != -1) {
                 conn.setAutoCommit(false);
-                PGConnection pgconn = (PGConnection)conn
-                    .getInnermostDelegate();
-                LargeObjectManager lom = pgconn.getLargeObjectAPI();
+                LargeObjectManager lom = getLargeObjectManager(conn);
                 lom.delete(oid);
             }
         } finally {
@@ -477,11 +559,227 @@ public class PostgresDictionary
                 try { conn.close (); } catch (SQLException e) {}
         }
     }
+
+    /**
+     * Determine whether XML column is supported.
+     */
+    public void connectedConfiguration(Connection conn) throws SQLException {
+        super.connectedConfiguration(conn);
+        
+        DatabaseMetaData metaData = conn.getMetaData();
+        int maj = 0;
+        int min = 0;
+        if (isJDBC3) {
+            maj = metaData.getDatabaseMajorVersion();
+            min = metaData.getDatabaseMinorVersion();
+        } else {
+            try {
+                // The product version looks like "8.3.5".
+                String productVersion = metaData.getDatabaseProductVersion();
+                String majMin[] = productVersion.split("\\.");
+                maj = Integer.parseInt(majMin[0]);
+                min = Integer.parseInt(majMin[1]);
+            } catch (Exception e) {
+                // We don't understand the version format.
+                if (log.isWarnEnabled())
+                    log.warn(e.toString(),e);
+            }
+        }
+        
+        if ((maj >= 9 || (maj == 8 && min >= 3))) {
+            supportsXMLColumn = true;
+        }
+    }
+ 
+    /**
+     * If column is an XML column, PostgreSQL requires that its value is set
+     * by using {@link PreparedStatement#setObject(int, Object, int)}
+     * with {@link Types#OTHER} as the third argument.
+     */
+    public void setClobString(PreparedStatement stmnt, int idx, String val,
+        Column col) throws SQLException {
+        if (col != null && col.isXML())
+            stmnt.setObject(idx, val, Types.OTHER);
+        else
+            super.setClobString(stmnt, idx, val, col);
+    }
     
+    /**
+     * Override the getOjbect() method to handle the case where the latest
+     * Postgres JDBC driver returns a org.postgresql.util.PGobject instead of a
+     * java.sql.Timestamp
+     * 
+     * @param rs
+     * @param column
+     * @param map
+     * 
+     * @return
+     * @exception SQLException
+     */
+    public Object getObject(ResultSet rs, int column, Map map)
+        throws SQLException {
+        Object obj = super.getObject(rs, column, map);
+
+        if (obj == null) {
+            return null;
+        }
+        if (obj.getClass().getName().equals("org.postgresql.util.PGobject")) {
+            try {
+                Method m = obj.getClass().getMethod("getType", (Class[]) null);
+                Object type = m.invoke(obj, (Object[]) null);
+                if (((String) type).equalsIgnoreCase(timestampTypeName)) {
+                    return rs.getTimestamp(column);
+                }
+            } catch (Throwable t) {
+                if (t instanceof InvocationTargetException)
+                    t = ((InvocationTargetException) t).getTargetException();
+                if (t instanceof SQLException)
+                    throw (SQLException) t;
+                throw new SQLException(t.getMessage());
+            }
+        }
+        return obj;
+    }
+
+    /**
+     * Append XML comparison.
+     * 
+     * @param buf
+     *            the SQL buffer to write the comparison
+     * @param op
+     *            the comparison operation to perform
+     * @param lhs
+     *            the left hand side of the comparison
+     * @param rhs
+     *            the right hand side of the comparison
+     * @param lhsxml
+     *            indicates whether the left operand maps to XML
+     * @param rhsxml
+     *            indicates whether the right operand maps to XML
+     */
+    public void appendXmlComparison(SQLBuffer buf, String op, FilterValue lhs,
+        FilterValue rhs, boolean lhsxml, boolean rhsxml) {
+        super.appendXmlComparison(buf, op, lhs, rhs, lhsxml, rhsxml);
+        if (lhsxml)
+            appendXmlValue(buf, lhs);
+        else
+            lhs.appendTo(buf);
+        buf.append(" ").append(op).append(" ");
+        if (rhsxml)
+            appendXmlValue(buf, rhs);
+        else
+            rhs.appendTo(buf);
+    }
+    
+    /**
+     * Append XML column value so that it can be used in comparisons.
+     * 
+     * @param buf
+     *            the SQL buffer to write the value
+     * @param val
+     *            the value to be written
+     */
+    private void appendXmlValue(SQLBuffer buf, FilterValue val) {
+        Class rc = Filters.wrap(val.getType());
+        int type = getJDBCType(JavaTypes.getTypeCode(rc), false);
+        boolean isXmlAttribute = (val.getXmlMapping() == null) ? false
+                : val.getXmlMapping().isXmlAttribute();
+        SQLBuffer newBufer = new SQLBuffer(this);
+        newBufer.append("(xpath('/*/");
+        val.appendTo(newBufer);
+        if (!isXmlAttribute)
+            newBufer.append("/text()");
+        newBufer.append("',").
+            append(val.getColumnAlias(val.getFieldMapping().getColumns()[0])).
+            append("))[1]");
+        appendCast(buf, newBufer, type);
+    }
+
+
+    /**
+     * Return a SQL string to act as a placeholder for the given column.
+     */
+    public String getPlaceholderValueString(Column col) {
+        if (col.getType() == Types.BIT) {
+            return "false";
+        } else {
+            return super.getPlaceholderValueString(col);
+        }
+    }
+
+    /**
+     * Get the native PostgreSQL Large Object Manager used for LOB handling.
+     */
+    protected LargeObjectManager getLargeObjectManager(DelegatingConnection conn) throws SQLException {
+        return getPGConnection(conn).getLargeObjectAPI();
+    }
+
+    /**
+     * Get the native PostgreSQL connection from the given connection.
+     * Various attempts of unwrapping are being performed.
+     */
+    protected PGConnection getPGConnection(DelegatingConnection conn) {
+        Connection innerConn = conn.getInnermostDelegate();
+        if (innerConn instanceof PGConnection) {
+            return (PGConnection) innerConn;
+        }
+        if (innerConn.getClass().getName().startsWith("org.apache.commons.dbcp")) {
+            return (PGConnection) getDbcpDelegate(innerConn);
+        }
+        return (PGConnection) unwrapConnection(conn, PGConnection.class);
+    }
+
+    /**
+     * Get the delegated connection from the given DBCP connection.
+     * 
+     * @param conn must be a DBCP connection
+     * @return connection the DBCP connection delegates to
+     */
+    protected Connection getDbcpDelegate(Connection conn) {
+        Connection delegate = null;
+        try {
+            if (dbcpGetDelegate == null) {
+                Class<?> dbcpConnectionClass =
+                    Class.forName("org.apache.commons.dbcp.DelegatingConnection", true, AccessController
+                        .doPrivileged(J2DoPrivHelper.getContextClassLoaderAction()));
+                
+                dbcpGetDelegate = dbcpConnectionClass.getMethod("getInnermostDelegate");
+            }
+            delegate = (Connection) dbcpGetDelegate.invoke(conn);
+        } catch (Exception e) {
+            throw new InternalException(_loc.get("dbcp-unwrap-failed"), e);
+        }
+        if (delegate == null) {
+            throw new InternalException(_loc.get("dbcp-unwrap-failed"));
+        }
+        return delegate;
+    }
+
+    /**
+     * Get (unwrap) the delegated connection from the given connection.
+     * Use reflection to attempt to unwrap a connection.
+     * Note: This is a JDBC 4 operation, so it requires a Java 6 environment 
+     * with a JDBC 4 driver or data source to have any chance of success.
+     * 
+     * @param conn a delegating connection
+     * @param connectionClass the expected type of delegated connection
+     * @return connection the given connection delegates to
+     */
+    private Connection unwrapConnection(Connection conn, Class<?> connectionClass) {
+        try {
+            if (connectionUnwrap == null) {
+                connectionUnwrap = Connection.class.getMethod("unwrap", Class.class);
+            }
+            return (Connection) connectionUnwrap.invoke(conn, connectionClass);
+        } catch (Exception e) {
+            throw new InternalException(_loc.get("connection-unwrap-failed"), e);
+        }
+    }
+
     /**
      * Connection wrapper to work around the postgres empty result set bug.
      */
-    private static class PostgresConnection
+    protected abstract static class PostgresConnection
         extends DelegatingConnection {
 
         private final PostgresDictionary _dict;
@@ -493,22 +791,25 @@ public class PostgresDictionary
 
         protected PreparedStatement prepareStatement(String sql, boolean wrap)
             throws SQLException {
-            return new PostgresPreparedStatement(super.prepareStatement
-                (sql, false), this, _dict);
+           return ConcreteClassGenerator.newInstance(postgresPreparedStatementImpl, 
+                   super.prepareStatement(sql, false), PostgresConnection.this, _dict);
         }
 
         protected PreparedStatement prepareStatement(String sql, int rsType,
             int rsConcur, boolean wrap)
             throws SQLException {
-            return new PostgresPreparedStatement(super.prepareStatement
-                (sql, rsType, rsConcur, false), this, _dict);
+            return ConcreteClassGenerator.
+                newInstance(postgresPreparedStatementImpl,
+                    super.prepareStatement(sql, rsType, rsConcur, false),
+                    PostgresConnection.this,
+                    _dict);
         }
     }
 
     /**
      * Statement wrapper to work around the postgres empty result set bug.
      */
-    private static class PostgresPreparedStatement
+    protected abstract static class PostgresPreparedStatement
         extends DelegatingPreparedStatement {
 
         private final PostgresDictionary _dict;
@@ -532,7 +833,7 @@ public class PostgresDictionary
                 ResultSet rs = getResultSet(wrap);
 
                 // ResultSet should be empty: if not, then maybe an
-                // actual error occured
+                // actual error occurred
                 if (rs == null)
                     throw se;
 

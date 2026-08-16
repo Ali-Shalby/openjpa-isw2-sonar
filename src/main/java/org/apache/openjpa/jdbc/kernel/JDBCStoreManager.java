@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.jdbc.kernel;
 
+import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -29,6 +30,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
 
 import javax.sql.DataSource;
@@ -40,6 +42,7 @@ import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
+import org.apache.openjpa.jdbc.meta.strats.SuperclassDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
 import org.apache.openjpa.jdbc.sql.Joins;
@@ -66,6 +69,7 @@ import org.apache.openjpa.lib.jdbc.DelegatingPreparedStatement;
 import org.apache.openjpa.lib.jdbc.DelegatingStatement;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -102,7 +106,27 @@ public class JDBCStoreManager
     private boolean _active = false;
 
     // track the pending statements so we can cancel them
-    private Set _stmnts = Collections.synchronizedSet(new HashSet());
+    private Set<Statement> _stmnts = Collections.synchronizedSet(new HashSet<Statement>());
+
+    private static final Constructor<ClientConnection> clientConnectionImpl;
+    private static final Constructor<RefCountConnection> refCountConnectionImpl;
+    private static final Constructor<CancelStatement> cancelStatementImpl;
+    private static final Constructor<CancelPreparedStatement> cancelPreparedStatementImpl;
+
+    static {
+        try {
+            clientConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(ClientConnection.class, 
+                Connection.class);
+            refCountConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(RefCountConnection.class,
+                JDBCStoreManager.class, Connection.class);
+            cancelStatementImpl = ConcreteClassGenerator.getConcreteConstructor(CancelStatement.class,
+                JDBCStoreManager.class, Statement.class, Connection.class);
+            cancelPreparedStatementImpl = ConcreteClassGenerator.getConcreteConstructor(CancelPreparedStatement.class,
+                JDBCStoreManager.class, PreparedStatement.class, Connection.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
 
     public StoreContext getContext() {
         return _ctx;
@@ -212,7 +236,7 @@ public class JDBCStoreManager
     }
 
     public Object getClientConnection() {
-        return new ClientConnection(getConnection());
+        return ConcreteClassGenerator.newInstance(clientConnectionImpl, getConnection());
     }
 
     public Connection getConnection() {
@@ -269,8 +293,7 @@ public class JDBCStoreManager
         } catch (ClassNotFoundException cnfe) {
             throw new UserException(cnfe);
         } catch (SQLException se) {
-            throw SQLExceptions.getStoreSQLException(sm, se, _dict,
-                fetch.getReadLockLevel());
+            throw SQLExceptions.getStore(se, _dict, fetch.getReadLockLevel());
         }
     }
 
@@ -322,7 +345,7 @@ public class JDBCStoreManager
 
             // figure out what type of object this is; the state manager
             // only guarantees to provide a base class
-            Class type;
+            Class<?> type;
             if ((type = getType(res, mapping)) == null) {
                 if (res.getBaseMapping() != null)
                     mapping = res.getBaseMapping();
@@ -384,16 +407,20 @@ public class JDBCStoreManager
         // Check if the owner has eagerly loaded ToMany relations.
         for (int i = 0; i < fms.length; i++) {
             if (res.getEager(fms[i]) != null) {
+                if (!fms[i].getElement().isTypePC())
+                    continue;
                 Object coll =  owner.fetchObject(fms[i].getIndex());
-                if (coll instanceof Collection && 
-                    ((Collection) coll).size() > 0) {
+                if (coll instanceof Map)
+                    coll = ((Map)coll).values();
+                if (coll instanceof Collection<?> && 
+                    ((Collection<?>) coll).size() > 0) {
                     // Found eagerly loaded collection.
                     // Publisher (1) <==>  (M) Magazine
                     //    publisher has a EAGER OneToMany relation
                     //    magazine has a EAGER or LAZY ManyToOne publisher
                     // For each member (Magazine) in the collection, 
                     // set its inverse relation (Publisher).
-                    for (Iterator itr = ((Collection) coll).iterator();
+                    for (Iterator<?> itr = ((Collection<?>) coll).iterator();
                         itr.hasNext();) {
                         PersistenceCapable pc = (PersistenceCapable) itr.next();
 
@@ -425,7 +452,7 @@ public class JDBCStoreManager
     protected void setMappedBy(OpenJPAStateManager sm,
         FieldMapping mappedByFieldMapping, Object mappedByObject) {
         ClassMapping mapping = (ClassMapping) sm.getMetaData();
-        FieldMapping[] fms = mapping.getDeclaredFieldMappings();
+        FieldMapping[] fms = mapping.getFieldMappings();
         for (int i = 0; i < fms.length; i++) {
             if (fms[i] == mappedByFieldMapping) {
                 sm.storeObject(fms[i].getIndex(), mappedByObject);
@@ -457,7 +484,7 @@ public class JDBCStoreManager
      * This method is to provide override for non-JDBC or JDBC-like 
      * implementation of getting type from the result set.
      */
-    protected Class getType(Result res, ClassMapping mapping){
+    protected Class<?> getType(Result res, ClassMapping mapping){
         if (res == null)
             return mapping.getDescribedType();
         return null;
@@ -618,7 +645,7 @@ public class JDBCStoreManager
         } catch (ClassNotFoundException cnfe) {
             throw new StoreException(cnfe);
         } catch (SQLException se) {
-            throw SQLExceptions.getStore(se, _dict);
+            throw SQLExceptions.getStore(se, _dict, lockLevel);
         }
     }
 
@@ -654,15 +681,15 @@ public class JDBCStoreManager
         // we want to allow a different thread to be able to cancel the
         // outstanding statement on a different context
 
-        Collection stmnts;
+        Collection<Statement> stmnts;
         synchronized (_stmnts) {
             if (_stmnts.isEmpty())
                 return false;
-            stmnts = new ArrayList(_stmnts);
+            stmnts = new ArrayList<Statement>(_stmnts);
         }
 
         try {
-            for (Iterator itr = stmnts.iterator(); itr.hasNext();)
+            for (Iterator<Statement> itr = stmnts.iterator(); itr.hasNext();)
                 ((Statement) itr.next()).cancel();
             return true;
         } catch (SQLException se) {
@@ -696,13 +723,13 @@ public class JDBCStoreManager
         return true;
     }
 
-    public Class getManagedType(Object oid) {
+    public Class<?> getManagedType(Object oid) {
         if (oid instanceof Id)
             return ((Id) oid).getType();
         return null;
     }
 
-    public Class getDataStoreIdType(ClassMetaData meta) {
+    public Class<?> getDataStoreIdType(ClassMetaData meta) {
         return Id.class;
     }
 
@@ -872,7 +899,15 @@ public class JDBCStoreManager
      * can be overridden.
      */
     protected RefCountConnection connectInternal() throws SQLException {
-        return new RefCountConnection(_ds.getConnection());
+        return ConcreteClassGenerator.newInstance(refCountConnectionImpl, JDBCStoreManager.this, _ds.getConnection());
+    }
+    
+    public Connection getNewConnection() {
+        try {
+            return connectInternal();
+        } catch (SQLException e) {
+            throw SQLExceptions.getStore(e, _dict);
+        }
     }
 
     /**
@@ -1020,15 +1055,11 @@ public class JDBCStoreManager
         OpenJPAStateManager sm, BitSet fields, JDBCFetchConfiguration fetch,
         int eager, boolean ident, boolean outer) {
         // add class conditions so that they're cloned for any batched selects
-        boolean joinedSupers = false;
-        if ((sm == null || sm.getPCState() == PCState.TRANSIENT)
-            && (subs == Select.SUBS_JOINABLE || subs == Select.SUBS_NONE)) {
-            loadSubclasses(mapping); 
-            Joins joins = (outer) ? sel.newOuterJoins() : null;
-            joinedSupers = mapping.getDiscriminator().addClassConditions(sel,
-                subs == Select.SUBS_JOINABLE, joins);
+        boolean joinedSupers = false;    
+        if(needClassCondition(mapping, subs, sm)) {
+            joinedSupers = getJoinedSupers(sel, mapping, subs, outer);
         }
-
+        
         // create all our eager selects so that those fields are reserved
         // and cannot be reused during the actual eager select process,
         // preventing infinite recursion
@@ -1057,6 +1088,31 @@ public class JDBCStoreManager
         return seld > 0;
     }
 
+    private boolean getJoinedSupers(Select sel, ClassMapping mapping, int subs, boolean outer) {
+        loadSubclasses(mapping); 
+        Joins joins = (outer) ? sel.newOuterJoins() : null;
+        return mapping.getDiscriminator().addClassConditions(sel, subs == Select.SUBS_JOINABLE, joins);
+    }
+    
+    private boolean needClassCondition(ClassMapping mapping, int subs,
+        OpenJPAStateManager sm) {
+        boolean retVal = false;
+        if(sm == null || sm.getPCState() == PCState.TRANSIENT) {
+            if(subs == Select.SUBS_JOINABLE || subs == Select.SUBS_NONE) {
+                retVal = true;
+            }
+            else {
+                if (mapping.getDiscriminator() != null
+                    && SuperclassDiscriminatorStrategy.class.isInstance(mapping.getDiscriminator().getStrategy())
+                    && mapping.getMappingRepository().getConfiguration().getCompatibilityInstance()
+                        .getSuperclassDiscriminatorStrategyByDefault()) {
+                    retVal = true;
+                }
+            }
+        }
+        return retVal;
+    }
+    
     /**
      * Mark the fields of this mapping as reserved so that eager fetches can't
      * get into infinite recursive situations.
@@ -1226,6 +1282,19 @@ public class JDBCStoreManager
             }
         }
 
+        // in certain circumstances force join to superclass table to avoid
+        // SQL generation error.
+        if ( eagerToMany != null && pseld < 0 && seld > 0 && !joined
+                && parent != null ) {
+            FieldMapping[] pfms = parent.getDefinedFieldMappings();
+            for (int i = 0; i < pfms.length; i++) {
+                if (pfms[i] == eagerToMany ) {
+                    pseld = 0;
+                    break;
+                }
+            }
+        }
+        
         // join to parent table if the parent / any ancestors have selected
         // anything
         if (!joined && pseld >= 0 && parent.getTable() != mapping.getTable())
@@ -1391,7 +1460,8 @@ public class JDBCStoreManager
      * Connection returned to client code. Makes sure its wrapped connection
      * ref count is decremented on finalize.
      */
-    private static class ClientConnection extends DelegatingConnection {
+    public abstract static class ClientConnection extends
+            DelegatingConnection {
 
         private boolean _closed = false;
 
@@ -1414,7 +1484,7 @@ public class JDBCStoreManager
      * Connection wrapper that keeps an internal ref count so that it knows
      * when to really close.
      */
-    protected class RefCountConnection extends DelegatingConnection {
+    protected abstract class RefCountConnection extends DelegatingConnection {
 
         private boolean _retain = false;
         private int _refs = 0;
@@ -1468,26 +1538,28 @@ public class JDBCStoreManager
         }
 
         protected Statement createStatement(boolean wrap) throws SQLException {
-            return new CancelStatement(super.createStatement(false),
-                RefCountConnection.this);
+            return ConcreteClassGenerator.newInstance(cancelStatementImpl, JDBCStoreManager.this,
+                    super.createStatement(false), RefCountConnection.this);
         }
 
         protected Statement createStatement(int rsType, int rsConcur,
             boolean wrap) throws SQLException {
-            return new CancelStatement(super.createStatement(rsType, rsConcur,
-                false), RefCountConnection.this);
+            return ConcreteClassGenerator.newInstance(cancelStatementImpl, JDBCStoreManager.this,
+                    super.createStatement(rsType, rsConcur, false), RefCountConnection.this);
         }
 
         protected PreparedStatement prepareStatement(String sql, boolean wrap)
             throws SQLException {
-            return new CancelPreparedStatement(super.prepareStatement(sql,
-                false), RefCountConnection.this);
+            return ConcreteClassGenerator.newInstance(cancelPreparedStatementImpl,
+                    JDBCStoreManager.this, super.prepareStatement(sql, false), RefCountConnection.this);
         }
 
         protected PreparedStatement prepareStatement(String sql, int rsType,
             int rsConcur, boolean wrap) throws SQLException {
-            return new CancelPreparedStatement(super.prepareStatement(sql,
-                rsType, rsConcur, false), RefCountConnection.this);
+            return ConcreteClassGenerator.newInstance
+                (cancelPreparedStatementImpl,
+                    JDBCStoreManager.this, super.prepareStatement(sql, rsType, rsConcur, false),
+                    RefCountConnection.this);
         }
     }
 
@@ -1495,7 +1567,7 @@ public class JDBCStoreManager
      * Statement type that adds and removes itself from the set of active
      * statements so that it can be canceled.
      */
-    private class CancelStatement extends DelegatingStatement {
+    protected abstract class CancelStatement extends DelegatingStatement {
 
         public CancelStatement(Statement stmnt, Connection conn) {
             super(stmnt, conn);
@@ -1525,7 +1597,8 @@ public class JDBCStoreManager
      * Statement type that adds and removes itself from the set of active
      * statements so that it can be canceled.
      */
-    private class CancelPreparedStatement extends DelegatingPreparedStatement {
+    protected abstract class CancelPreparedStatement extends
+            DelegatingPreparedStatement {
 
         public CancelPreparedStatement(PreparedStatement stmnt, 
             Connection conn) {
@@ -1560,3 +1633,4 @@ public class JDBCStoreManager
         }
     }
 }
+

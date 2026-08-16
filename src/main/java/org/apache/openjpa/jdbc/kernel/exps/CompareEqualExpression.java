@@ -47,6 +47,10 @@ abstract class CompareEqualExpression
     public CompareEqualExpression(Val val1, Val val2) {
         _val1 = val1;
         _val2 = val2;
+        if (_val1 instanceof Lit && _val2 instanceof Lit) {
+            ((Lit)_val1).setRaw(true);
+            ((Lit)_val2).setRaw(true);
+        }
     }
 
     public Val getValue1() {
@@ -73,6 +77,12 @@ abstract class CompareEqualExpression
             if (direct && ((Const) _val2).getValue(ctx, s2) == null)
                 flags1 = Val.NULL_CMP;
         }
+
+        if (_val1 instanceof PCPath && _val2 instanceof PCPath &&
+            (((PCPath)_val1).isSubqueryPath() || ((PCPath)_val2).isSubqueryPath())) {
+            flags1 = flags1 | Val.CMP_EQUAL;
+            flags2 = flags2 | Val.CMP_EQUAL;
+        }
         
         if (s1 == null)
             s1 = _val1.initialize(sel, ctx, flags1);
@@ -96,7 +106,8 @@ abstract class CompareEqualExpression
         boolean val2Null = _val2 instanceof Const
             && ((Const) _val2).isSQLValueNull(sel, ctx, bstate.state2);
         appendTo(sel, ctx, bstate, buf, val1Null, val2Null);
-        sel.append(buf, state.joins);
+        if (sel != null)
+            sel.append(buf, state.joins);
     }
 
     public void selectColumns(Select sel, ExpContext ctx, ExpState state, 

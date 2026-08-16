@@ -401,6 +401,23 @@ public class DelegatingFetchConfiguration
         }
     }
 
+    public int getLockScope() {
+        try {
+            return _fetch.getLockScope();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public FetchConfiguration setLockScope(int scope) {
+        try {
+            _fetch.setLockScope(scope);
+            return this;
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
     public int getReadLockLevel() {
         try {
             return _fetch.getReadLockLevel();
@@ -466,7 +483,23 @@ public class DelegatingFetchConfiguration
             throw translate(re);
         }
     }
+    
+    public void setHint(String name, Object value, Object original) {
+        try {
+            _fetch.setHint(name, value, original);
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
 
+    public boolean isHintSet(String key) {
+        try {
+            return _fetch.isHintSet(key);
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+    
     public Object getHint(String name) {
         try {
             return _fetch.getHint(name);
@@ -474,7 +507,7 @@ public class DelegatingFetchConfiguration
             throw translate(re);
         }
     }
-    
+
     public Map<String, Object> getHints() {
         try {
             return _fetch.getHints();
@@ -482,7 +515,7 @@ public class DelegatingFetchConfiguration
             throw translate(re);
         }
     }
-
+    
     public int requiresFetch(FieldMetaData fmd) {
         try {
             return _fetch.requiresFetch(fmd);
@@ -522,4 +555,36 @@ public class DelegatingFetchConfiguration
             throw translate(re);
 		}
 	}
+
+    public DataCacheRetrieveMode getCacheRetrieveMode() {
+        try {
+            return _fetch.getCacheRetrieveMode();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public DataCacheStoreMode getCacheStoreMode() {
+        try {
+            return _fetch.getCacheStoreMode();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public void setCacheRetrieveMode(DataCacheRetrieveMode mode) {
+        try {
+            _fetch.setCacheRetrieveMode(mode);
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public void setCacheStoreMode(DataCacheStoreMode mode) {
+        try {
+            _fetch.setCacheStoreMode(mode);
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
 }

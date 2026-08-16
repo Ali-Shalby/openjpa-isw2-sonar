@@ -59,6 +59,13 @@ public class Compatibility {
     private boolean _cascadeWithDetach = false;
     private boolean _useJPA2DefaultOrderColumnName = true;
     private boolean _copyOnDetach = false;
+    private boolean _privatePersistentProperties = false;
+    private boolean _autoOff = true;
+    private boolean _superclassDiscriminatorStrategyByDefault = true;
+    private boolean _isAbstractMappingUniDirectional = false;
+    private boolean _isNonDefaultMappingAllowed = false;
+    private boolean _reorderMetaDataResolution = true;
+    private boolean _reloadOnDetach = false;
     
     /**
      * Whether to require exact identity value types when creating object
@@ -74,6 +81,38 @@ public class Compatibility {
      */
     public void setStrictIdentityValues(boolean strictVals) {
         _strictIdValues = strictVals;
+    }
+    
+    /**
+     * Whether to turn collection/map tracing off in case of more number of modifications.
+     * Defaults to true.
+     */
+    public boolean getAutoOff() {
+        return _autoOff;
+    }
+
+    /**
+     * Whether to turn collection/map tracing off in case of more number of modifications.
+     * Defaults to true.
+     */
+    public void setAutoOff(boolean autoOff) {
+        _autoOff = autoOff;
+    }
+    
+    /**
+     * Whether to add class criteria for super class discreminator strategy.
+     * Defaults to false.
+     */
+    public boolean getSuperclassDiscriminatorStrategyByDefault() {
+        return _superclassDiscriminatorStrategyByDefault;
+    }
+
+    /**
+     * Whether to add class criteria for super class discreminator strategy.
+     * Defaults to false.
+     */
+    public void setSuperclassDiscriminatorStrategyByDefault(boolean superclassDiscriminatorStrategyByDefault) {
+        _superclassDiscriminatorStrategyByDefault = superclassDiscriminatorStrategyByDefault;
     }
 
     /**
@@ -354,4 +393,133 @@ public class Compatibility {
     public void setUseJPA2DefaultOrderColumnName(boolean useJPA2Name) {
         _useJPA2DefaultOrderColumnName = useJPA2Name;
     }
+    
+
+    /**
+     * Whether OpenJPA allows private, non-transient properties to be 
+     * persistent.  Prior to OpenJPA 2.0, if property access was used,
+     * private properties were considered persistent. This is contrary to the
+     * JPA specification, which states that persistent properties must be
+     * public or protected.  The default value is false.
+     * 
+     * @since 2.0.0
+     * @return true if non-transient private properties should be persistent 
+     */
+    public boolean getPrivatePersistentProperties() {
+        return _privatePersistentProperties;
+    }
+
+    /**
+     * Whether OpenJPA allows private, non-transient properties to be 
+     * persistent.  Prior to OpenJPA 2.0, if property access was used,
+     * private properties were considered persistent. This is contrary to the
+     * JPA specification, which states that persistent properties must be
+     * public or protected.
+     * 
+     * @param privateProps true if non-transient private properties 
+     *        should be persistent
+     * @since 2.0.0
+     */
+    public void setPrivatePersistentProperties(boolean privateProps) {
+        _privatePersistentProperties = privateProps;
+    }
+    
+    /**
+     * Whether OpenJPA allows bi-directional relationship in the MappedSuperclass.
+     * Prior to OpenJPA 2.0, the bi-directional relationship in the MappedSuperclass,
+     * is not blocked. This is contrary to the JPA specification, which states that 
+     * persistent relationships defined by a mapped superclass must be
+     * unidirectional.
+     * 
+     * @param isAbstractMappingUniDirectional true if relationship defined in the 
+     *        MappedSuperclass must be uni-directional
+     * @since 2.0.0
+     */
+    public void setAbstractMappingUniDirectional(boolean isAbstractMappingUniDirectional) {
+        _isAbstractMappingUniDirectional = isAbstractMappingUniDirectional;
+    }
+
+    
+    /**
+     * Whether OpenJPA allows bi-directional relationship in the MappedSuperclass.
+     * Prior to OpenJPA 2.0, the bi-directional relationship in the MappedSuperclass,
+     * is not blocked. This is contrary to the JPA specification, which states that 
+     * persistent relationships defined by a mapped superclass must be
+     * unidirectional. The default value is false.
+     * 
+     * @since 2.0.0
+     */
+    public boolean isAbstractMappingUniDirectional() {
+        return _isAbstractMappingUniDirectional;
+    }
+    
+    /**
+     * Whether OpenJPA allows non-default entity relationship mapping. 
+     * Prior to OpenJPA 2.0, the non-default entity relationship mapping
+     * is not allowed. JPA 2.0 spec relaxes this restriction. The
+     * default value is false.
+     * @since 2.0.0
+     */
+    public void setNonDefaultMappingAllowed(boolean isNonDefaultMappingAllowed) {
+        _isNonDefaultMappingAllowed = isNonDefaultMappingAllowed;
+    }
+
+    /**
+     * Whether OpenJPA allows non-default entity relationship mapping. 
+     * Prior to OpenJPA 2.0, the non-default entity relationship mapping
+     * is not allowed. JPA 2.0 spec relaxes this restriction. The
+     * default value is false.
+     * @since 2.0.0
+     */
+    public boolean isNonDefaultMappingAllowed() {
+        return _isNonDefaultMappingAllowed;
+    }
+    
+    /**
+     * Whether OpenJPA should reorder entities in MetaDataRepository.processBuffer() to ensure that the metadata for 
+     * entities with foreign keys in their identity are processed after the entities it depends on.
+     * 
+     * @return true if the reordering should be performed, false if not.
+     */
+    public boolean getReorderMetaDataResolution() {
+        return _reorderMetaDataResolution;
+    }
+    
+    /**
+     * Whether OpenJPA should reorder entities in MetaDataRepository.processBuffer() to ensure that the metadata for 
+     * entities with foreign keys in their identity are processed after the entities it depends on.
+     * 
+     * @param reorderProcessBuffer true if the reordering should be performed, false if not.
+     */
+    public void setReorderMetaDataResolution(boolean reorderProcessBuffer) {
+        _reorderMetaDataResolution = reorderProcessBuffer;
+    }
+
+    /**
+     * Whether OpenJPA should attempt to load fields when the DetachState
+     * option is set to loaded. This also determines whether a
+     * redundant copy of the version field is made. Beginning in 2.0
+     * it defaults to false.
+     * 
+     * @return the _reloadOnDetach
+     * 
+     * @since 1.2.2
+     */
+    public boolean getReloadOnDetach() {
+        return _reloadOnDetach;
+    }
+
+    /**
+     * Whether OpenJPA should attempt to load fields when the DetachState
+     * option is set to loaded. This also determines whether a
+     * redundant copy of the version field is made. Beginning in 2.0
+     * it defaults to false.
+     * 
+     * @param reloadOnDetach the _reloadOnDetach to set
+     * 
+     * @since 1.2.2
+     */
+    public void setReloadOnDetach(boolean reloadOnDetach) {
+        _reloadOnDetach = reloadOnDetach;
+    }       
 }

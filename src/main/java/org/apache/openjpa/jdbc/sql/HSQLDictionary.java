@@ -28,6 +28,7 @@ import java.util.Arrays;
 
 import org.apache.commons.lang.StringUtils;
 import org.hsqldb.Trace;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
@@ -54,6 +55,7 @@ public class HSQLDictionary
     public HSQLDictionary() {
         platform = "HSQL";
         validationSQL = "CALL 1";
+        concatenateFunction = "CONCAT({0},{1})";
         closePoolSQL = "SHUTDOWN";
 
         supportsAutoAssign = true;
@@ -96,6 +98,7 @@ public class HSQLDictionary
         }));
     }
 
+    @Override
     public int getJDBCType(int metaTypeCode, boolean lob) {
         int type = super.getJDBCType(metaTypeCode, lob);
         switch (type) {
@@ -107,6 +110,7 @@ public class HSQLDictionary
         return type;
     }
 
+    @Override
     public int getPreferredType(int type) {
         switch (type) {
             case Types.CLOB:
@@ -118,22 +122,26 @@ public class HSQLDictionary
         }
     }
 
+    @Override
     public String[] getAddPrimaryKeySQL(PrimaryKey pk) {
         return new String[0];
     }
 
+    @Override
     public String[] getDropPrimaryKeySQL(PrimaryKey pk) {
         return new String[0];
     }
 
+    @Override
     public String[] getAddColumnSQL(Column column) {
         return new String[]{ "ALTER TABLE "
             + getFullName(column.getTable(), false)
             + " ADD COLUMN " + getDeclareColumnSQL(column, true) };
     }
 
+    @Override
     public String[] getCreateTableSQL(Table table) {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append("CREATE ");
         if (cacheTables)
             buf.append("CACHED ");
@@ -166,6 +174,7 @@ public class HSQLDictionary
         return new String[]{ buf.toString() };
     }
 
+    @Override
     protected String getPrimaryKeyConstraintSQL(PrimaryKey pk) {
         Column[] cols = pk.getColumns();
         if (cols.length == 1 && cols[0].isAutoAssigned())
@@ -177,8 +186,17 @@ public class HSQLDictionary
         return name.toUpperCase().startsWith("SYS_");
     }
 
+    @Override
+    public boolean isSystemIndex(DBIdentifier name, Table table) {
+        if (DBIdentifier.isNull(name)) {
+            return false;
+        }
+        return name.getName().toUpperCase().startsWith("SYS_");
+    }
+
+    @Override
     protected String getSequencesSQL(String schemaName, String sequenceName) {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append("SELECT SEQUENCE_SCHEMA, SEQUENCE_NAME FROM ").
             append("INFORMATION_SCHEMA.SYSTEM_SEQUENCES");
         if (schemaName != null || sequenceName != null)
@@ -193,6 +211,7 @@ public class HSQLDictionary
         return buf.toString();
     }
 
+    @Override
     public SQLBuffer toOperation(String op, SQLBuffer selects,
         SQLBuffer from, SQLBuffer where, SQLBuffer group, SQLBuffer having,
         SQLBuffer order, boolean distinct, long start, long end,
@@ -205,6 +224,7 @@ public class HSQLDictionary
             order, distinct, start, end, forUpdateClause);
     }
 
+    @Override
     public Column[] getColumns(DatabaseMetaData meta, String catalog,
         String schemaName, String tableName, String columnName, Connection conn)
         throws SQLException {
@@ -212,11 +232,12 @@ public class HSQLDictionary
             columnName, conn);
 
         for (int i = 0; cols != null && i < cols.length; i++)
-            if ("BOOLEAN".equalsIgnoreCase(cols[i].getTypeName()))
+            if ("BOOLEAN".equalsIgnoreCase(cols[i].getTypeIdentifier().getName()))
                 cols[i].setType(Types.BIT);
         return cols;
     }
 
+    @Override
     public void setDouble(PreparedStatement stmnt, int idx, double val,
         Column col)
         throws SQLException {
@@ -229,6 +250,7 @@ public class HSQLDictionary
         }
     }
 
+    @Override
     public void setBigDecimal(PreparedStatement stmnt, int idx, BigDecimal val,
         Column col)
         throws SQLException {
@@ -250,6 +272,7 @@ public class HSQLDictionary
         }
     }
 
+    @Override
     protected void appendSelectRange(SQLBuffer buf, long start, long end,
         boolean subselect) {
         // HSQL doesn't parameters in range
@@ -260,6 +283,7 @@ public class HSQLDictionary
             buf.append(String.valueOf(end - start));
     }
 
+    @Override
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
         FilterValue start) {
         buf.append("(LOCATE(");
@@ -274,6 +298,7 @@ public class HSQLDictionary
         buf.append(") - 1)");
     }
 
+    @Override
     public String getPlaceholderValueString(Column col) {
         String type = getTypeName(col.getType());
         int idx = type.indexOf("{0}");
@@ -287,6 +312,7 @@ public class HSQLDictionary
         return "NULL AS " + type;
     }
 
+    @Override
     public OpenJPAException newStoreException(String msg, SQLException[] causes,
         Object failed) {
         OpenJPAException ke = super.newStoreException(msg, causes, failed);

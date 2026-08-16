@@ -18,6 +18,8 @@
  */
 package org.apache.openjpa.datacache;
 
+import java.util.List;
+
 import org.apache.openjpa.event.RemoteCommitListener;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.CacheMap;
@@ -34,8 +36,6 @@ import org.apache.openjpa.util.CacheMap;
 public class ConcurrentDataCache
     extends AbstractDataCache
     implements RemoteCommitListener {
-
-    private static final long serialVersionUID = 7331996968322793473L;
 
     private static final Localizer _loc = Localizer.forPackage
         (ConcurrentDataCache.class);
@@ -138,16 +138,7 @@ public class ConcurrentDataCache
         // unlikely that this method will be called in a performance intensive
         // environment. In any event applications can revert to the old behavior
         // by simply calling removeAll().
-        CacheMap orig = _cache;
-        _cache = newCacheMap(); 
-        for (Object o : orig.values()) {
-            Class<?> curClass = ((DataCachePCData) o).getType();
-            if (cls == curClass
-                || (curClass != null && curClass.isAssignableFrom(cls))) {
-                orig.remove(((DataCachePCData) o).getId());
-            }
-        }
-        _cache.putAll(orig, false);
+        _cache.clear();
     }
 
     protected void clearInternal() {

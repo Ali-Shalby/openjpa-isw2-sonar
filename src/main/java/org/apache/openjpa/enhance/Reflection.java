@@ -21,20 +21,23 @@ package org.apache.openjpa.enhance;
 import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.security.AccessController;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.ReferenceMap;
 import org.apache.openjpa.lib.util.Reflectable;
-import org.apache.openjpa.util.GeneralException; 
-import org.apache.openjpa.util.UserException; 
+import org.apache.openjpa.lib.util.Localizer.Message;
+import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
+import org.apache.openjpa.util.GeneralException;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Reflection utilities used to support and augment enhancement.  Used both
@@ -47,27 +50,80 @@ public class Reflection {
     private static final Localizer _loc = Localizer.forPackage
         (Reflection.class);
 
+    // Weak HashMap caches of getter/setter/beanProperty methods
+    private static Map<Class<?>, Map<String, Method>> getterMethodCache = 
+        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
+    private static Map<Class<?>, Map<String, Method>> setterMethodCache = 
+        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
+    private static Map<Class<?>, Set<String>> beanPropertiesNameCache = 
+        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
+    
+    private static Method getGetterMethod(Class<?> cls, String prop) {
+        Method rtnMethod = null;
+        Map<String, Method> clsMap = getterMethodCache.get(cls);
+        if (clsMap != null) {
+            rtnMethod = clsMap.get(prop);
+        }
+        return rtnMethod;
+    }
+
+    private static void setGetterMethod(Class<?> cls, String prop,
+        Method method) {
+        Map<String, Method> clsMap = getterMethodCache.get(cls);
+        if (clsMap == null) {
+            clsMap = new ConcurrentReferenceHashMap(ReferenceMap.HARD,
+                ReferenceMap.WEAK);
+            getterMethodCache.put(cls, clsMap);
+        }
+        clsMap.put(prop, method);
+    }
+
+    private static Method getSetterMethod(Class<?> cls, String prop) {
+        Method rtnMethod = null;
+        Map<String, Method> clsMap = setterMethodCache.get(cls);
+        if (clsMap != null) {
+            rtnMethod = clsMap.get(prop);
+        }
+        return rtnMethod;
+    }
+
+    private static void setSetterMethod(Class<?> cls, String prop,
+        Method method) {
+        Map<String, Method> clsMap = setterMethodCache.get(cls);
+        if (clsMap == null) {
+            clsMap = new ConcurrentReferenceHashMap(ReferenceMap.HARD,
+                ReferenceMap.WEAK);
+            setterMethodCache.put(cls, clsMap);
+        }
+        clsMap.put(prop, method);
+    }
+
     /**
      * Return the getter method matching the given property name, optionally
      * throwing an exception if none.
      */
     public static Method findGetter(Class cls, String prop, boolean mustExist) {
-        prop = StringUtils.capitalize(prop);
-        String name = "get" + prop;
-        Method m;
+        Method m = getGetterMethod(cls, prop);
+        if (m != null) {
+            return m;
+        }
+        String capProp = StringUtils.capitalize(prop);
         try {
             // this algorithm searches for a get<prop> or is<prop> method in
             // a breadth-first manner.
             for (Class c = cls; c != null && c != Object.class;
                 c = c.getSuperclass()) {
-                m = getDeclaredMethod(c, name, null);
+                m = getDeclaredMethod(c, "get" + capProp, null);
                 if (m != null) {
+                    setGetterMethod(cls, prop, m);
                     return m;
                 } else {
-                    m = getDeclaredMethod(c, "is" + prop, null);
+                    m = getDeclaredMethod(c, "is" + capProp, null);
                     if (m != null && (m.getReturnType() == boolean.class
-                        || m.getReturnType() == Boolean.class))
+                        || m.getReturnType() == Boolean.class)) {
+                        setGetterMethod(cls, prop, m);
                         return m;
+                    }
                 }
             }
         } catch (Exception e) {
@@ -95,14 +151,19 @@ public class Reflection {
      */
     public static Method findSetter(Class cls, String prop, Class param,
         boolean mustExist) {
+        Method m = getSetterMethod(cls, prop);
+        if (m != null) {
+            return m;
+        }
         String name = "set" + StringUtils.capitalize(prop);
-        Method m;
         try {
             for (Class c = cls; c != null && c != Object.class;
                 c = c.getSuperclass()) {
                 m = getDeclaredMethod(c, name, param);
-                if (m != null)
+                if (m != null) {
+                    setSetterMethod(cls, prop, m);
                     return m;
+                }
             }
         } catch (Exception e) {
             throw new GeneralException(e);
@@ -222,7 +283,7 @@ public class Reflection {
         try {
             return field.get(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
     
@@ -267,9 +328,10 @@ public class Reflection {
     /**
      * Wrap the given reflection exception as a runtime exception.
      */
-    private static RuntimeException wrapReflectionException(Throwable t) {
+    private static RuntimeException wrapReflectionException(Throwable t, Message message) {
         if (t instanceof InvocationTargetException)
-            t = ((InvocationTargetException) t).getTargetException();    
+            t = ((InvocationTargetException) t).getTargetException();  
+        t.initCause(new IllegalArgumentException(message.getMessage()));
         if (t instanceof RuntimeException)
             return (RuntimeException) t;
         return new GeneralException(t);
@@ -285,7 +347,7 @@ public class Reflection {
         try {
             return field.getBoolean(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -299,7 +361,7 @@ public class Reflection {
         try {
             return field.getByte(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -313,7 +375,7 @@ public class Reflection {
         try {
             return field.getChar(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -327,7 +389,7 @@ public class Reflection {
         try {
             return field.getDouble(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -341,7 +403,7 @@ public class Reflection {
         try {
             return field.getFloat(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -355,7 +417,7 @@ public class Reflection {
         try {
             return field.getInt(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -369,7 +431,7 @@ public class Reflection {
         try {
             return field.getLong(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -383,7 +445,7 @@ public class Reflection {
         try {
             return field.getShort(target);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
 
@@ -397,7 +459,7 @@ public class Reflection {
         try {
             return getter.invoke(target, (Object[]) null);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("get-method", target, getter));
         }
     }
 
@@ -475,7 +537,8 @@ public class Reflection {
         try {
             field.set(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, 
+                    value == null ? "" : value.getClass()}));
         }
     }
 
@@ -489,7 +552,7 @@ public class Reflection {
         try {
             field.setBoolean(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "boolean"}));
         }
     }
 
@@ -503,7 +566,7 @@ public class Reflection {
         try {
             field.setByte(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "byte"}));
         }
     }
 
@@ -517,7 +580,7 @@ public class Reflection {
         try {
             field.setChar(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "char"}));
         }
     }
 
@@ -531,7 +594,7 @@ public class Reflection {
         try {
             field.setDouble(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "double"}));
         }
     }
 
@@ -545,7 +608,7 @@ public class Reflection {
         try {
             field.setFloat(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "float"}));
         }
     }
 
@@ -559,7 +622,7 @@ public class Reflection {
         try {
             field.setInt(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "int"}));
         }
     }
 
@@ -573,7 +636,7 @@ public class Reflection {
         try {
             field.setLong(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "long"}));
         }
     }
 
@@ -587,7 +650,7 @@ public class Reflection {
         try {
             field.setShort(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, "short"}));
         }
     }
 
@@ -700,7 +763,8 @@ public class Reflection {
         try {
             setter.invoke(target, new Object[] { value });
         } catch (Throwable t) {
-            throw wrapReflectionException(t);
+            throw wrapReflectionException(t, _loc.get("set-method", new Object[]{target, setter, value, 
+                    value == null ? "" : value.getClass()}));
         }
     }
 
@@ -771,22 +835,26 @@ public class Reflection {
      * it is ignored.
      *   
      */
-    public static Set<String> getBeanStylePropertyNames(Class c) {
+    public static Set<String> getBeanStylePropertyNames(Class<?> c) {
         if (c == null)
-            return Collections.EMPTY_SET;
+            return Collections.emptySet();
+        Set<String> result = beanPropertiesNameCache.get(c);
+        if (result != null) {
+            return result;
+        }
         Method[] methods = c.getMethods();
         if (methods == null || methods.length < 2)
-            return Collections.EMPTY_SET;
-        Set<String> result = new TreeSet<String>();
+            return Collections.emptySet();
+        result = new TreeSet<String>();
         for (Method m : methods) {
             if (m.getName().startsWith("get")) {
                 if (!canReflect(m))
                     continue;
                 String prop = StringUtils.capitalize(m.getName()
                     .substring("get".length()));
-                Class rtype = m.getReturnType();
+                Class<?> rtype = m.getReturnType();
                 try {
-                  Method setter = c.getMethod("set"+prop, new Class[]{rtype});
+                  Method setter = c.getMethod("set"+prop, new Class<?>[]{rtype});
                   if (setter.getReturnType() == void.class || 
                       setter.getReturnType().isAssignableFrom(c))
                   result.add(prop);
@@ -795,6 +863,7 @@ public class Reflection {
                 }
             }
         }
+        beanPropertiesNameCache.put(c, result);
         return result;
     }
     

@@ -20,10 +20,12 @@ package org.apache.openjpa.persistence;
 
 import java.util.Collection;
 import java.util.Map;
-import java.util.Set;
 
 import javax.persistence.LockModeType;
+import javax.persistence.PessimisticLockScope;
 
+import org.apache.openjpa.kernel.DataCacheRetrieveMode;
+import org.apache.openjpa.kernel.DataCacheStoreMode;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.lib.util.Reflectable;
 import org.apache.openjpa.meta.FetchGroup;
@@ -92,7 +94,6 @@ public interface FetchPlan {
      *
      * @since 1.0.0
      */
-    @Reflectable(false)
     public boolean getQueryResultCacheEnabled();
 
     /**
@@ -107,7 +108,6 @@ public interface FetchPlan {
     /**
      * @deprecated use {@link #getQueryResultCacheEnabled()} instead.
      */
-    @Reflectable(false)
     public boolean getQueryResultCache();
 
     /**
@@ -115,27 +115,7 @@ public interface FetchPlan {
      */
     public FetchPlan setQueryResultCache(boolean cache);
     
-    /**
-     * Gets the hint for the given key.
-     * 
-     * @since 2.0.0
-     */
-    public Object getHint(String key);
     
-    /**
-     * Sets the hint for the given key to the given value.
-     * 
-     * @since 2.0.0
-     */
-    public void setHint(String key, Object value);
-    
-    /**
-     * Gets the hint keys and values currently set of this receiver.
-     * 
-     * @since 2.0.0
-     */
-    public Map<String, Object> getHints();
-
     /**
      * Returns the names of the fetch groups that this component will use
      * when loading objects. Defaults to the
@@ -291,10 +271,20 @@ public interface FetchPlan {
     public int getLockTimeout();
 
     /**
-     * The number of milliseconds to wait for a query, or -1 for no
+     * The number of milliseconds to wait for an object lock, or -1 for no
      * limit.
      */
-    public FetchPlan setQueryTimeout(int timeout);
+    public FetchPlan setLockTimeout(int timeout);
+
+    /**
+     * The lock scope to use for locking loaded objects.
+     */
+    public PessimisticLockScope getLockScope();
+
+    /**
+     * The lock scope to use for locking loaded objects.
+     */
+    public FetchPlan setLockScope(PessimisticLockScope scope);
 
     /**
      * The number of milliseconds to wait for a query, or -1 for no
@@ -303,11 +293,11 @@ public interface FetchPlan {
     public int getQueryTimeout();
 
     /**
-     * The number of milliseconds to wait for an object lock, or -1 for no
+     * The number of milliseconds to wait for a query, or -1 for no
      * limit.
      */
+    public FetchPlan setQueryTimeout(int timeout);
 
-    public FetchPlan setLockTimeout(int timeout);
     /**
      * The lock level to use for locking loaded objects.
      */
@@ -327,7 +317,6 @@ public interface FetchPlan {
      * The lock level to use for locking dirtied objects.
      */
     public FetchPlan setWriteLockMode(LockModeType mode);
-    
 
     /**
      * @deprecated cast to {@link FetchPlanImpl} instead. This
@@ -349,5 +338,56 @@ public interface FetchPlan {
      * @since 2.0.0
      */
     public FetchPlan setExtendedPathLookup(boolean flag);
+    
+    /**
+     * Gets the current storage mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public DataCacheStoreMode getCacheStoreMode();
+    
+    /**
+     * Sets the current storage mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public FetchPlan setCacheStoreMode(DataCacheStoreMode mode);
+    
+    /**
+     * Gets the current retrieve mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public DataCacheRetrieveMode getCacheRetrieveMode();
+    
+    /**
+     * Sets the current retrieve mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public FetchPlan setCacheRetrieveMode(DataCacheRetrieveMode mode);
+    
+    /**
+     * Set the hint for the given key to the given value.
+     * 
+     * @param value the value of the hint.
+     * @param name the name of the hint.
+     * 
+     * @since 2.0.0
+     */
+    public void setHint(String key, Object value);
 
+    /**
+     * Get the hints and their values currently set on this receiver.
+     * 
+     * @return empty map if no hint has been set.
+     */
+    Map<String, Object> getHints();
+    
+    /**
+     * Get the hint value for the given key.
+     * 
+     * @return null if the key has not been set.
+     */
+    Object getHint(String key);
 }

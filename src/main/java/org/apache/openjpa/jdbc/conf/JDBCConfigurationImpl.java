@@ -24,6 +24,7 @@ import javax.sql.DataSource;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
+import org.apache.openjpa.jdbc.identifier.DBIdentifierUtil;
 import org.apache.openjpa.jdbc.kernel.BatchingConstraintUpdateManager;
 import org.apache.openjpa.jdbc.kernel.BatchingOperationOrderUpdateManager;
 import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
@@ -40,8 +41,6 @@ import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.DBDictionaryFactory;
 import org.apache.openjpa.jdbc.sql.SQLFactory;
 import org.apache.openjpa.kernel.BrokerImpl;
-import org.apache.openjpa.kernel.FinderCache;
-import org.apache.openjpa.kernel.PreparedQueryCache;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.conf.IntValue;
 import org.apache.openjpa.lib.conf.ObjectValue;
@@ -49,6 +48,7 @@ import org.apache.openjpa.lib.conf.PluginValue;
 import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.StringListValue;
 import org.apache.openjpa.lib.conf.StringValue;
+import org.apache.openjpa.lib.identifier.IdentifierUtil;
 import org.apache.openjpa.lib.jdbc.ConnectionDecorator;
 import org.apache.openjpa.lib.jdbc.DecoratingDataSource;
 import org.apache.openjpa.lib.jdbc.JDBCListener;
@@ -84,6 +84,7 @@ public class JDBCConfigurationImpl
     public ObjectValue mappingDefaultsPlugin;
     public PluginValue driverDataSourcePlugin;
     public MappingFactoryValue mappingFactoryPlugin;
+    public ObjectValue identifierUtilPlugin;
 
     // used internally
     private String firstUser = null;
@@ -205,6 +206,7 @@ public class JDBCConfigurationImpl
             "h2", "org.apache.openjpa.jdbc.sql.H2Dictionary",
             "hsql", "org.apache.openjpa.jdbc.sql.HSQLDictionary",
             "informix", "org.apache.openjpa.jdbc.sql.InformixDictionary",
+            "ingres", "org.apache.openjpa.jdbc.sql.IngresDictionary",
             "jdatastore", "org.apache.openjpa.jdbc.sql.JDataStoreDictionary",
             "mysql", "org.apache.openjpa.jdbc.sql.MySQLDictionary",
             "oracle", "org.apache.openjpa.jdbc.sql.OracleDictionary",
@@ -317,7 +319,8 @@ public class JDBCConfigurationImpl
         preparedQueryCachePlugin.setDefault(aliases[0]);
         preparedQueryCachePlugin.setClassName(aliases[1]);
         preparedQueryCachePlugin.setDynamic(true);
-        preparedQueryCachePlugin.setInstantiatingGetter("getQuerySQLCacheInstance");
+        preparedQueryCachePlugin.setInstantiatingGetter(
+                "getQuerySQLCacheInstance");
 
         finderCachePlugin = addPlugin("jdbc.FinderCache", true);
         aliases = new String[] {
@@ -331,6 +334,15 @@ public class JDBCConfigurationImpl
         finderCachePlugin.setDynamic(true);
         finderCachePlugin.setInstantiatingGetter("getFinderCacheInstance");
 
+        identifierUtilPlugin = addPlugin("jdbc.IdentifierUtil", true);
+        aliases = new String[] { 
+            "default", "org.apache.openjpa.jdbc.identifier.DBIdentifierUtilImpl" };
+        identifierUtilPlugin.setAliases(aliases);
+        identifierUtilPlugin.setDefault(aliases[0]);
+        identifierUtilPlugin.setString(aliases[0]);
+        identifierUtilPlugin.setInstantiatingGetter("getIdentifierUtilInstance");
+
+        
         // this static initializer is to get past a weird
         // ClassCircularityError that happens only under IBM's
         // JDK 1.3.1 on Linux from within the JRun ClassLoader;
@@ -758,8 +770,22 @@ public class JDBCConfigurationImpl
     public Object getConnectionFactory2() {
         // override to configure data source
         if (dataSource2 == null) {
-            // superclass will lookup from JNDI. 
-            DataSource ds = (DataSource) super.getConnectionFactory2();
+            // superclass will lookup from JNDI.
+            Object obj = super.getConnectionFactory2();
+            DataSource ds = null;
+            if (obj != null) {
+                if (obj instanceof DataSource) 
+                    ds = (DataSource) obj;
+                else {
+                    Log log = getLog(LOG_JDBC);
+                    if (log.isTraceEnabled()) {
+                        Localizer loc = Localizer.forPackage(JDBCConfigurationImpl.class);
+                        log.trace(loc.get("unknown-datasource", getConnectionFactory2Name(), 
+                            obj.getClass().getName()));
+                    }
+                }
+            }
+                
             if (ds == null) {
                 // the driver name is always required, so if not specified,
                 // then no connection factory 2
@@ -885,4 +911,19 @@ public class JDBCConfigurationImpl
                 return true; 
         return false;
     }
+    
+    public String getIdentifierUtil() {
+        return identifierUtilPlugin.getString();
+    }
+
+    public DBIdentifierUtil getIdentifierUtilInstance() {
+        if (identifierUtilPlugin.get() == null)
+            identifierUtilPlugin.instantiate(DBIdentifierUtil.class, this);
+        return (DBIdentifierUtil) identifierUtilPlugin.get();
+    }
+
+    public void setIdentifierUtil(DBIdentifierUtil util) {
+        identifierUtilPlugin.set(util);
+    }
+
 }

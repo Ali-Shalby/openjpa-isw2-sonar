@@ -36,7 +36,7 @@ import org.apache.openjpa.meta.FieldMetaData;
  * @author Pinaki Poddar
  */
 public interface FetchConfiguration
-    extends Serializable, Cloneable, LockLevels, QueryFlushModes {
+    extends Serializable, Cloneable, LockLevels, LockScopes, QueryFlushModes {
 
     /**
      * Constant to revert any setting back to its default value.
@@ -70,7 +70,7 @@ public interface FetchConfiguration
 
 
     /**
-     * Return the context assiciated with this configuration;
+     * Return the context associated with this configuration;
      * may be null if it has not been set or this object has been serialized.
      */
     public StoreContext getContext();
@@ -168,7 +168,7 @@ public interface FetchConfiguration
      * will use when loading objects. Defaults to the
      * <code>openjpa.FetchGroups</code> setting.  This set is not thread safe.
      */
-    public Set getFetchGroups();
+    public Set<String> getFetchGroups();
 
     /**
      * Return true if the given fetch group has been added.
@@ -185,7 +185,7 @@ public interface FetchConfiguration
      * Adds <code>groups</code> to the set of fetch group names to
      * use when loading objects.
      */
-    public FetchConfiguration addFetchGroups(Collection groups);
+    public FetchConfiguration addFetchGroups(Collection<String> groups);
 
     /**
      * Remove the given fetch group.
@@ -196,7 +196,7 @@ public interface FetchConfiguration
      * Removes <code>groups</code> from the set of fetch group names
      * to use when loading objects.
      */
-    public FetchConfiguration removeFetchGroups(Collection groups);
+    public FetchConfiguration removeFetchGroups(Collection<String> groups);
 
     /**
      * Clears the set of fetch group names to use when loading
@@ -216,7 +216,7 @@ public interface FetchConfiguration
      * will use when loading objects. Defaults to the empty set.  This set is
      * not thread safe.
      */
-    public Set getFields();
+    public Set<String> getFields();
 
     /**
      * Return true if the given fully-qualified field has been added.
@@ -233,7 +233,7 @@ public interface FetchConfiguration
      * Adds <code>fields</code> to the set of fully-qualified field names to
      * use when loading objects.
      */
-    public FetchConfiguration addFields(Collection fields);
+    public FetchConfiguration addFields(Collection<String> fields);
 
     /**
      * Remove the given fully-qualified field.
@@ -244,7 +244,7 @@ public interface FetchConfiguration
      * Removes <code>fields</code> from the set of fully-qualified field names
      * to use when loading objects.
      */
-    public FetchConfiguration removeFields(Collection fields);
+    public FetchConfiguration removeFields(Collection<String> fields);
 
     /**
      * Clears the set of field names to use when loading
@@ -268,7 +268,21 @@ public interface FetchConfiguration
      * @since 0.3.1
      */
     public FetchConfiguration setLockTimeout(int timeout);
-    
+
+    /**
+     * The lock scope for next fetch.
+     *
+     * @since 2.0.0
+     */
+    public int getLockScope();
+
+    /**
+     * The lock scope for next fetch.
+     *
+     * @since 2.0.0
+     */
+    public FetchConfiguration setLockScope(int scope);
+
     /**
      * The number of milliseconds to wait for a query, or -1 for no
      * limit.
@@ -305,6 +319,34 @@ public interface FetchConfiguration
      * @since 0.3.1
      */
     public int getWriteLockLevel();
+    
+    /**
+     * Gets the current storage mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public DataCacheStoreMode getCacheStoreMode();
+    
+    /**
+     * Sets the current storage mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public void setCacheStoreMode(DataCacheStoreMode mode);
+    
+    /**
+     * Gets the current retrieve mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public DataCacheRetrieveMode getCacheRetrieveMode();
+    
+    /**
+     * Sets the current retrieve mode for data cache.
+     * 
+     * @since 2.0.0
+     */
+    public void setCacheRetrieveMode(DataCacheRetrieveMode mode);
 
     /**
      * The lock level to use for locking dirtied objects.
@@ -316,53 +358,81 @@ public interface FetchConfiguration
     /**
      * Return a new result list for the current fetch configuration.
      */
-    public ResultList newResultList(ResultObjectProvider rop);
+    public ResultList<?> newResultList(ResultObjectProvider rop);
 
     /**
-     * Sets an arbitrary query hint that may be utilized during
-     * execution. The hint may be datastore-specific.
+     * Sets an arbitrary query hint that may be utilized during execution. 
+     * The hint may be specific to a particular database. A hint, if known 
+     * to this receiver, may have a corresponding setter method, then the hint sets the value.
+     * Otherwise the hint is stored opaquely by the receiver.
      *
      * @param name the name of the hint
-     * @param value the value of the hint
-     * @since 0.4.0
+     * @param value the value of the hint. If the hint has a corresponding setter, then
+     * the type of value must be same as the setter argument. 
+     * @param original the value of the hint as specified by the user. 
+     * 
+     * @since 2.0.0
      */
-    public void setHint(String name, Object value);
+    public void setHint(String name, Object value, Object original);
+    
+    /**
+     * Sets an arbitrary query hint that may be utilized during execution. 
+     * The hint may be specific to a particular database. A hint, if known 
+     * to this receiver, may have a corresponding setter method, then the hint sets the value.
+     * Otherwise the hint is stored opaquely by the receiver.
+     * <br>
+     * This is same as calling {@linkplain #setHint(String, Object, Object)} with the third
+     * argument being the same as the second.
+     *
+     * @param name the name of the hint
+     * @param value the value of the hint. If the hint has a corresponding setter, then
+     * the type of value must be same as the setter argument. 
+     * 
+     * @since 2.0.0
+     */
+    public void setHint(String key, Object value);
 
     /**
-     * Returns the hint for the specific key, or null if the hint
-     * is not specified.
+     * Get the hint value for the specific key as originally set by the caller, or null if the hint is not specified.
      *
 	 * @param name the hint name
 	 * @since 0.4.0
 	 */
-	public Object getHint (String name);
+	public Object getHint (String key);
 	
 	/**
-	 * Returns an immutable view of the currently active hints and their values. 
+     * Get an immutable view of the currently active hints and their values.
+	 * The values are as specified by the user.
 	 * 
 	 * @since 2.0.0
 	 */
 	public Map<String, Object> getHints();
+	
+	/**
+	 * Affirm if the given hint has been set in this receiver.
+	 * 
+	 */
+	public boolean isHintSet(String key);
 
     /**
      * Root classes for recursive operations. This set is not thread safe.
      */
-    public Set getRootClasses();
+    public Set<Class<?>> getRootClasses();
 
     /**
      * Root classes for recursive operations.
      */
-    public FetchConfiguration setRootClasses(Collection classes);
+    public FetchConfiguration setRootClasses(Collection<Class<?>> classes);
 
     /**
      * Root instances for recursive operations. This set is not thread safe.
      */
-    public Set getRootInstances();
+    public Set<Object> getRootInstances();
 
     /**
      * Root instances for recursive operations.
      */
-    public FetchConfiguration setRootInstances(Collection roots);
+    public FetchConfiguration setRootInstances(Collection<?> roots);
 
     /**
      * Synchronize on internal lock if multithreaded is true.

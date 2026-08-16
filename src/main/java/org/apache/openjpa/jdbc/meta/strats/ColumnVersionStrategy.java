@@ -23,6 +23,8 @@ import java.math.BigDecimal;
 import java.sql.SQLException;
 import java.util.Comparator;
 
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
+import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.VersionMappingInfo;
@@ -30,10 +32,12 @@ import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Index;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.Row;
 import org.apache.openjpa.jdbc.sql.RowManager;
 import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.kernel.MixedLockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreManager;
 import org.apache.openjpa.lib.util.Localizer;
@@ -65,8 +69,8 @@ public abstract class ColumnVersionStrategy
      * one column. 
      */
     protected int getJavaType(int i) {
-    	throw new AbstractMethodError(
-    		_loc.get("multi-column-version-unsupported",getAlias()).toString());
+        throw new AbstractMethodError(_loc.get(
+                "multi-column-version-unsupported",getAlias()).toString());
     }
     
     /**
@@ -107,13 +111,13 @@ public abstract class ColumnVersionStrategy
 
 	/**
 	 * Compare each element of the given arrays that must be of equal size. 
-	 * The given array values represent version values and the result designate
+     * The given array values represent version values and the result designate
 	 * whether first version is earlier, same or later than the second one.
 	 * 
 	 * @return If any element of a1 is later than corresponding element of
-	 * a2 then returns 1 i.e. the first version is later than the second version.
-	 * If each element of a1 is equal to corresponding element of a2 then return
-	 * 0 i.e. the first version is same as the second version.
+     * a2 then returns 1 i.e. the first version is later than the second
+     * version. If each element of a1 is equal to corresponding element of a2
+     * then return 0 i.e. the first version is same as the second version.
 	 * else return a negative number i.e. the first version is earlier than 
 	 * the second version.
 	 */
@@ -145,12 +149,12 @@ public abstract class ColumnVersionStrategy
         	for (int i = 0; i < info.getColumns().size(); i++) {
                 templates[i] = new Column();
         		Column infoColumn = (Column)info.getColumns().get(i);
-        		templates[i].setTableName(infoColumn.getTableName());
+        		templates[i].setTableIdentifier(infoColumn.getTableIdentifier());
         		templates[i].setType(infoColumn.getType());
         		templates[i].setSize(infoColumn.getSize());
-        		templates[i].setDecimalDigits(infoColumn.getDecimalDigits());
+                templates[i].setDecimalDigits(infoColumn.getDecimalDigits());
         		templates[i].setJavaType(getJavaType(i));
-        		templates[i].setName(infoColumn.getName());
+        		templates[i].setIdentifier(infoColumn.getIdentifier());
         	}
         	Column[] cols = info.getColumns(vers, templates, adapt);
         	for (int i = 0; i < cols.length; i++)
@@ -160,9 +164,12 @@ public abstract class ColumnVersionStrategy
         } else {
            Column tmplate = new Column();
            tmplate.setJavaType(getJavaType());
-           tmplate.setName("versn");
+           DBDictionary dict = vers.getMappingRepository().getDBDictionary();
+           DBIdentifier versName = DBIdentifier.newColumn("versn", dict != null ? dict.delimitAll() : false);
+           tmplate.setIdentifier(versName);
 
-           Column[] cols = info.getColumns(vers, new Column[]{ tmplate }, adapt);
+           Column[] cols = info.getColumns(vers, new Column[]{ tmplate },
+                   adapt);
            cols[0].setVersionStrategy(this);
            vers.setColumns(cols);
            vers.setColumnIO(info.getColumnIO());
@@ -178,7 +185,8 @@ public abstract class ColumnVersionStrategy
         ColumnIO io = vers.getColumnIO();
         Object initial = nextVersion(null);
         for (int i = 0; i < cols.length; i++) {
-            Row row = rm.getRow(cols[i].getTable(), Row.ACTION_INSERT, sm, true);
+            Row row = rm.getRow(cols[i].getTable(), Row.ACTION_INSERT, sm,
+                    true);
             if (io.isInsertable(i, initial == null))
                 row.setObject(cols[i], getColumnValue(initial, i));
         }
@@ -201,7 +209,8 @@ public abstract class ColumnVersionStrategy
 
         // set where and update conditions on row
         for (int i = 0; i < cols.length; i++) {
-            Row row = rm.getRow(cols[i].getTable(), Row.ACTION_UPDATE, sm, true);
+            Row row = rm.getRow(cols[i].getTable(), Row.ACTION_UPDATE, sm,
+                    true);
             row.setFailedObject(sm.getManagedInstance());
             if (curVersion != null && sm.isVersionCheckRequired()) {
                 row.whereObject(cols[i], getColumnValue(curVersion, i));
@@ -274,7 +283,13 @@ public abstract class ColumnVersionStrategy
         sel.select(cols);
         sel.wherePrimaryKey(sm.getObjectId(), vers.getClassMapping(), store);
 
-        Result res = sel.execute(store, null);
+        // No need to lock version field (i.e. optimistic), except when version update is required (e.g. refresh) 
+        JDBCFetchConfiguration fetch = store.getFetchConfiguration();
+        if (!updateVersion && fetch.getReadLockLevel() >= MixedLockLevels.LOCK_PESSIMISTIC_READ) {
+            fetch = (JDBCFetchConfiguration) fetch.clone();
+            fetch.setReadLockLevel(MixedLockLevels.LOCK_NONE);
+        }
+        Result res = sel.execute(store, fetch);
         try {
             if (!res.next())
                 return false;

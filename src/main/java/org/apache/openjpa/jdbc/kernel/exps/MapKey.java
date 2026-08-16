@@ -62,18 +62,25 @@ public class MapKey
 
     public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
+        KeyExpState estate = (KeyExpState) state;
+        _key.appendTo(sel, ctx, estate.key, sql, index);
     }
 
     public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
-        _key.calculateValue(sel, ctx, state, other, otherState);
+        KeyExpState estate = (KeyExpState) state;
+        _key.calculateValue(sel, ctx, estate.key, other, otherState);
     }
 
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
+        KeyExpState estate = (KeyExpState) state;
+        _key.groupBy(sel, ctx, estate.key);
     }
 
     public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
+        KeyExpState estate = (KeyExpState) state;
+        _key.orderBy(sel, ctx, estate.key, asc);
     }
 
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
@@ -92,7 +99,8 @@ public class MapKey
         return key;
     }
 
-    public void select(Select sel, ExpContext ctx, ExpState state, boolean pks) {
+    public void select(Select sel, ExpContext ctx, ExpState state, boolean pks)
+    {
         selectColumns(sel, ctx, state, pks);
     }
 
@@ -107,7 +115,7 @@ public class MapKey
     }
 
     public Class getType() {
-        return Object.class;
+        return _key.getType();
     }
 
     public void setImplicitType(Class type) {
@@ -115,5 +123,12 @@ public class MapKey
 
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;        
+    }
+
+    public Object toDataStoreValue(Select sel, ExpContext ctx, ExpState state, 
+        Object val) {
+        KeyExpState estate = (KeyExpState) state;
+        return _key.toDataStoreValue(sel, ctx, 
+            estate.key, val);
     }
 }

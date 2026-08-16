@@ -28,7 +28,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.meta.strats.BlobValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.ByteArrayValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.CharArrayStreamValueHandler;
@@ -51,7 +53,8 @@ import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedByteArrayFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedCharArrayFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedClobFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MultiColumnVersionStrategy;
-import org.apache.openjpa.jdbc.meta.strats.NanoPrecisionTimestampVersionStrategy;
+import org.apache.openjpa.jdbc.meta.strats.
+        NanoPrecisionTimestampVersionStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneFieldStrategy;
@@ -60,13 +63,15 @@ import org.apache.openjpa.jdbc.meta.strats.NumberVersionStrategy;
 import org.apache.openjpa.jdbc.meta.strats.ObjectIdClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.ObjectIdValueHandler;
 import org.apache.openjpa.jdbc.meta.strats.PrimitiveFieldStrategy;
-import org.apache.openjpa.jdbc.meta.strats.RelationCollectionInverseKeyFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.
+        RelationCollectionInverseKeyFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationCollectionTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationHandlerMapTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationMapInverseKeyFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationMapTableFieldStrategy;
-import org.apache.openjpa.jdbc.meta.strats.RelationRelationMapTableFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.
+        RelationRelationMapTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.StateComparisonVersionStrategy;
 import org.apache.openjpa.jdbc.meta.strats.StringFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.SubclassJoinDiscriminatorStrategy;
@@ -93,14 +98,14 @@ import org.apache.openjpa.meta.Order;
 import org.apache.openjpa.meta.SequenceMetaData;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.MetaDataException;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Repository of object/relational mapping information.
  *
  * @author Abe White
  */
-public class MappingRepository
-    extends MetaDataRepository {
+public class MappingRepository extends MetaDataRepository {
 
     private static final Localizer _loc = Localizer.forPackage
         (MappingRepository.class);
@@ -108,7 +113,8 @@ public class MappingRepository
     private transient DBDictionary _dict = null;
     private transient MappingDefaults _defaults = null;
     
-    private Map _results = new HashMap(); // object->queryresultmapping
+    // object->queryresultmapping
+    private Map<Object, QueryResultMapping> _results = new HashMap<Object, QueryResultMapping>(); 
     private SchemaGroup _schema = null;
     private StrategyInstaller _installer = null;
 
@@ -144,43 +150,75 @@ public class MappingRepository
     /**
      * Representation of the database schema.
      */
-    public synchronized SchemaGroup getSchemaGroup() {
-        if (_schema == null)
-            _schema = ((JDBCConfiguration) getConfiguration()).
-                getSchemaFactoryInstance().readSchema();
-        return _schema;
+    public SchemaGroup getSchemaGroup() {
+        if (_locking) {
+            synchronized (this) {
+                if (_schema == null)
+                    _schema = ((JDBCConfiguration) getConfiguration()).getSchemaFactoryInstance().readSchema();
+                return _schema;
+            }
+        } else {
+            if (_schema == null)
+                _schema = ((JDBCConfiguration) getConfiguration()).getSchemaFactoryInstance().readSchema();
+            return _schema;
+        }
     }
 
     /**
      * Representation of the database schema.
      */
-    public synchronized void setSchemaGroup(SchemaGroup schema) {
-        _schema = schema;
+    public void setSchemaGroup(SchemaGroup schema) {
+        if (_locking) {
+            synchronized (this) {
+                _schema = schema;
+            }
+        } else {
+            _schema = schema;
+        }
     }
 
     /**
      * Installs mapping strategies on components.
      */
-    public synchronized StrategyInstaller getStrategyInstaller() {
-        if (_installer == null)
-            _installer = new RuntimeStrategyInstaller(this);
-        return _installer;
+    public StrategyInstaller getStrategyInstaller() {
+        if (_locking) {
+            synchronized (this) {
+                if (_installer == null)
+                    _installer = new RuntimeStrategyInstaller(this);
+                return _installer;
+            }
+        } else {
+            if (_installer == null)
+                _installer = new RuntimeStrategyInstaller(this);
+            return _installer;
+        }
     }
 
     /**
      * Installs mapping strategies on components.
      */
-    public synchronized void setStrategyInstaller(StrategyInstaller installer) {
-        _installer = installer;
+    public void setStrategyInstaller(StrategyInstaller installer) {
+        if (_locking) {
+            synchronized (this) {
+                _installer = installer;
+            }
+        } else {
+            _installer = installer;
+        }
     }
 
     /**
      * Return the query result mapping for the given name.
      */
-    public synchronized QueryResultMapping getQueryResultMapping(Class cls,
-        String name, ClassLoader envLoader, boolean mustExist) {
-        QueryResultMapping res = getQueryResultMappingInternal(cls, name,
-            envLoader);
+    public QueryResultMapping getQueryResultMapping(Class<?> cls, String name, ClassLoader loader, boolean mustExist) {
+        QueryResultMapping res = null;
+        if (_locking) {
+            synchronized (this) {
+                res = getQueryResultMappingInternal(cls, name, loader);
+            }
+        } else {
+            res = getQueryResultMappingInternal(cls, name, loader);
+        }
         if (res == null && mustExist)
             throw new MetaDataException(_loc.get("no-query-res", cls, name));
         return res;
@@ -189,8 +227,7 @@ public class MappingRepository
     /**
      * Returned the query result mapping with the given name.
      */
-    private QueryResultMapping getQueryResultMappingInternal(Class cls,
-        String name, ClassLoader envLoader) {
+    private QueryResultMapping getQueryResultMappingInternal(Class<?> cls, String name, ClassLoader envLoader) {
         if (name == null)
             return null;
 
@@ -220,26 +257,46 @@ public class MappingRepository
     /**
      * Return all cached query result mappings.
      */
-    public synchronized QueryResultMapping[] getQueryResultMappings() {
-        Collection values = _results.values();
-        return (QueryResultMapping[]) values.toArray
-            (new QueryResultMapping[values.size()]);
+    public QueryResultMapping[] getQueryResultMappings() {
+        if (_locking) {
+            synchronized (this) {
+                Collection values = _results.values();
+                return (QueryResultMapping[]) values.toArray(new QueryResultMapping[values.size()]);
+            }
+        } else {
+            Collection values = _results.values();
+            return (QueryResultMapping[]) values.toArray(new QueryResultMapping[values.size()]);
+        }
     }
 
     /**
      * Return the cached query result mapping with the given name, or null if
      * none.
      */
-    public synchronized QueryResultMapping getCachedQueryResultMapping
-        (Class cls, String name) {
-        return (QueryResultMapping) _results.get(getQueryResultKey(cls, name));
+    public QueryResultMapping getCachedQueryResultMapping(Class cls, String name) {
+        if (_locking) {
+            synchronized (this) {
+                return (QueryResultMapping) _results.get(getQueryResultKey(cls, name));
+            }
+        } else {
+            return (QueryResultMapping) _results.get(getQueryResultKey(cls, name));
+        }
     }
 
     /**
      * Add a query result mapping.
      */
-    public synchronized QueryResultMapping addQueryResultMapping(Class cls,
-        String name) {
+    public QueryResultMapping addQueryResultMapping(Class cls, String name) {
+        if (_locking) {
+            synchronized (this) {
+                return addQueryResultMappingInternal(cls, name);
+            }
+        } else {
+            return addQueryResultMappingInternal(cls, name);
+        }
+    }
+
+    private QueryResultMapping addQueryResultMappingInternal(Class cls, String name) {
         QueryResultMapping res = new QueryResultMapping(name, this);
         res.setDefiningType(cls);
         _results.put(getQueryResultKey(res), res);
@@ -249,19 +306,31 @@ public class MappingRepository
     /**
      * Remove a query result mapping.
      */
-    public synchronized boolean removeQueryResultMapping
-        (QueryResultMapping res) {
-        return _results.remove(getQueryResultKey(res)) != null;
+    public boolean removeQueryResultMapping(QueryResultMapping res) {
+        if (_locking) {
+            synchronized (this) {
+                return _results.remove(getQueryResultKey(res)) != null;
+            }
+        } else {
+            return _results.remove(getQueryResultKey(res)) != null;
+        }
     }
 
     /**
      * Remove a query result mapping.
      */
-    public synchronized boolean removeQueryResultMapping(Class cls,
-        String name) {
-        if (name == null)
-            return false;
-        return _results.remove(getQueryResultKey(cls, name)) != null;
+    public boolean removeQueryResultMapping(Class cls, String name) {
+        if (_locking) {
+            synchronized (this) {
+                if (name == null)
+                    return false;
+                return _results.remove(getQueryResultKey(cls, name)) != null;
+            }
+        } else {
+            if (name == null)
+                return false;
+            return _results.remove(getQueryResultKey(cls, name)) != null;
+        }
     }
 
     /**
@@ -277,11 +346,11 @@ public class MappingRepository
      * Return a unique key for the given class / name. The class argument
      * can be null.
      */
-    private static Object getQueryResultKey(Class cls, String name) {
+    private static Object getQueryResultKey(Class<?> cls, String name) {
         return getQueryKey(cls, name);
     }
 
-    public ClassMapping getMapping(Class cls, ClassLoader envLoader,
+    public ClassMapping getMapping(Class<?> cls, ClassLoader envLoader,
         boolean mustExist) {
         return (ClassMapping) super.getMetaData(cls, envLoader, mustExist);
     }
@@ -295,16 +364,24 @@ public class MappingRepository
         return (ClassMapping) super.getMetaData(oid, envLoader, mustExist);
     }
 
-    public ClassMapping[] getImplementorMappings(Class cls,
+    public ClassMapping[] getImplementorMappings(Class<?> cls,
         ClassLoader envLoader, boolean mustExist) {
         return (ClassMapping[]) super.getImplementorMetaDatas(cls, envLoader,
             mustExist);
     }
 
-    public synchronized void clear() {
-        super.clear();
-        _schema = null;
-        _results.clear();
+    public void clear() {
+        if (_locking) {
+            synchronized (this) {
+                super.clear();
+                _schema = null;
+                _results.clear();
+            }
+        } else {
+            super.clear();
+            _schema = null;
+            _results.clear();
+        }
     }
 
     protected void prepareMapping(ClassMetaData meta) {
@@ -340,7 +417,7 @@ public class MappingRepository
         mapping.resolveNonRelationMappings();
     }
 
-    protected ClassMetaData newClassMetaData(Class type) {
+    protected ClassMetaData newClassMetaData(Class<?> type) {
         return new ClassMapping(type, this);
     }
 
@@ -348,7 +425,7 @@ public class MappingRepository
         return new ClassMapping[length];
     }
 
-    protected FieldMetaData newFieldMetaData(String name, Class type,
+    protected FieldMetaData newFieldMetaData(String name, Class<?> type,
         ClassMetaData owner) {
         return new FieldMapping(name, type, (ClassMapping) owner);
     }
@@ -455,7 +532,7 @@ public class MappingRepository
 
         String props = Configurations.getProperties(name);
         name = Configurations.getClassName(name);
-        Class strat = null;
+        Class<?> strat = null;
 
         // base and vertical strategies use same alias; differentiate on join
         if (FullClassStrategy.ALIAS.equals(name))
@@ -500,7 +577,7 @@ public class MappingRepository
         String props = Configurations.getProperties(name);
         name = Configurations.getClassName(name);
         try {
-            Class c = JavaTypes.classForName(name, field,
+            Class<?> c = JavaTypes.classForName(name, field,
                 AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)));
             if (FieldStrategy.class.isAssignableFrom(c)) {
@@ -561,7 +638,7 @@ public class MappingRepository
 
         String props = Configurations.getProperties(name);
         name = Configurations.getClassName(name);
-        Class strat = null;
+        Class<?> strat = null;
 
         if (ClassNameDiscriminatorStrategy.ALIAS.equals(name))
             strat = ClassNameDiscriminatorStrategy.class;
@@ -623,7 +700,7 @@ public class MappingRepository
 
         String props = Configurations.getProperties(name);
         name = Configurations.getClassName(name);
-        Class strat = null;
+        Class<?> strat = null;
 
         if (NumberVersionStrategy.ALIAS.equals(name))
             strat = NumberVersionStrategy.class;
@@ -654,7 +731,7 @@ public class MappingRepository
     /**
      * Instantiate the given version strategy.
      */
-    protected VersionStrategy instantiateVersionStrategy(Class strat,
+    protected VersionStrategy instantiateVersionStrategy(Class<?> strat,
         Version version, String props) {
         try {
             VersionStrategy strategy = (VersionStrategy)
@@ -749,7 +826,7 @@ public class MappingRepository
     protected FieldStrategy defaultStrategy(FieldMapping field,
         boolean installHandlers, boolean adapting) {
         // not persistent?
-        if (field.getManagement() != field.MANAGE_PERSISTENT
+        if (field.getManagement() != FieldMetaData.MANAGE_PERSISTENT
             || field.isVersion())
             return NoneFieldStrategy.getInstance();
         if (field.getDefiningMapping().getStrategy() ==
@@ -877,7 +954,7 @@ public class MappingRepository
                 boolean vrel = vhandler == null 
                     && val.getTypeCode() == JavaTypes.PC
                     && !val.isSerialized() && !val.isEmbeddedPC();
-                if (!krel && vrel && key.getValueMappedBy() != null) {
+                if (vrel && key.getValueMappedBy() != null) {
                     if (useInverseKeyMapping(field))
                         return new RelationMapInverseKeyFieldStrategy();
                     return new RelationMapTableFieldStrategy();
@@ -946,6 +1023,9 @@ public class MappingRepository
     private boolean useInverseKeyMapping(FieldMapping field) {
         FieldMapping mapped = field.getMappedByMapping();
         if (mapped != null) {
+            //bi-/M-1/JoinTable ==> join table strategy
+            if (isBiMTo1JT(field)) 
+                return false;
             if (mapped.getTypeCode() == JavaTypes.PC)
                 return true;
             if (mapped.getElement().getTypeCode() == JavaTypes.PC)
@@ -960,14 +1040,148 @@ public class MappingRepository
         // an association table
         FieldMappingInfo info = field.getMappingInfo();
         ValueMapping elem = field.getElementMapping();
-        return info.getTableName() == null && info.getColumns().isEmpty()
+        boolean useInverseKeyMapping = DBIdentifier.isNull(info.getTableIdentifier()) && info.getColumns().isEmpty()
             && !elem.getValueInfo().getColumns().isEmpty();
+        
+        // JPA 2.0: non-default mapping: uni-/1-M/JoinColumn ==> foreign key strategy
+        if (isUni1ToMFK(field)) {
+            return true;
+        }
+        return useInverseKeyMapping;
+    }
+        
+    public boolean isNonDefaultMappingAllowed() {
+        OpenJPAConfiguration conf = getConfiguration();
+        return getMetaDataFactory().getDefaults().isNonDefaultMappingAllowed(conf);
+    }
+    
+    public boolean isUniMTo1JT(FieldMapping field) {
+        if (isNonDefaultMappingAllowed() && 
+            field.getAssociationType() == FieldMetaData.MANY_TO_ONE &&
+            hasJoinTable(field) && 
+            !isBidirectional(field))  {
+            field.getValueMapping().getValueInfo().setColumns(field.getElementMapping().getValueInfo().getColumns());
+            return true;
+        }
+        return false;
     }
 
+    public boolean isUni1To1JT(FieldMapping field) {
+        if (isNonDefaultMappingAllowed() && 
+            field.getAssociationType() == FieldMetaData.ONE_TO_ONE && 
+            hasJoinTable(field) && 
+            !isBidirectional(field)) {
+            field.getValueMapping().getValueInfo().setColumns(field.getElementMapping().getValueInfo().getColumns());
+            return true;
+        }
+        return false;
+    }
+
+    public boolean isBi1To1JT(FieldMapping field) {
+        if (isNonDefaultMappingAllowed() && 
+            field.getAssociationType() == FieldMetaData.ONE_TO_ONE && 
+            hasJoinTable(field) && 
+            isBidirectional(field)) {
+            field.getValueMapping().getValueInfo().setColumns(field.getElementMapping().getValueInfo().getColumns());
+            return true;
+        }
+        return false;
+    }
+    
+    public boolean isUni1ToMFK(FieldMapping field) {
+        if (isNonDefaultMappingAllowed() && 
+            field.getAssociationType() == FieldMetaData.ONE_TO_MANY &&
+            hasJoinColumn(field) &&
+            !isBidirectional(field)) {
+            field.getElementMapping().getValueInfo().setColumns(field.getValueInfo().getColumns());
+            return true;
+        }
+        return false;
+    }
+    
+    public boolean isBiMTo1JT(FieldMapping field) {
+        FieldMapping mapped = field.getMappedByMapping();
+        if (isNonDefaultMappingAllowed()) {
+            if (field.getAssociationType() == FieldMetaData.ONE_TO_MANY ) {
+                if (mapped != null && hasJoinTable(mapped))
+                    return true;
+            } else if (field.getAssociationType() == FieldMetaData.MANY_TO_ONE) {
+                if (getBi_1ToM_JoinTableField(field) != null)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    // return the inverse field of bidirectional many to one
+    // relation using join table strategy
+    public FieldMapping getBi_1ToM_JoinTableField(FieldMapping field) {
+        if (isNonDefaultMappingAllowed()) {
+            if (field.getAssociationType() == FieldMetaData.ONE_TO_MANY) {
+                FieldMapping mappedBy = field.getMappedByMapping();
+                if (mappedBy != null && hasJoinTable(mappedBy))
+                    return field;
+            } else if (field.getAssociationType() == FieldMetaData.MANY_TO_ONE) {
+                if (!hasJoinTable(field))
+                    return null;
+                ClassMapping inverse = field.getValueMapping().getTypeMapping();
+                FieldMapping[] fmds = inverse.getFieldMappings();
+                for (int i = 0; i < fmds.length; i++) {
+                    if (field == fmds[i].getMappedByMapping()) 
+                        return fmds[i];
+                }
+            }
+        }
+        return null;
+    }
+
+    // return the owning field of bidirectional one to many
+    // relation using join table strategy
+    public FieldMapping getBi_MTo1_JoinTableField(FieldMapping field) {
+        if (isNonDefaultMappingAllowed()) {
+            if (field.getAssociationType() == FieldMetaData.MANY_TO_ONE) {
+                if (!hasJoinTable(field))
+                    return null;
+                if (isBidirectional(field))
+                    return field;
+             } else if (field.getAssociationType() == FieldMetaData.ONE_TO_MANY) {
+                FieldMapping mappedBy = field.getMappedByMapping();
+                if (mappedBy != null && hasJoinTable(mappedBy))
+                    return mappedBy;
+            }
+        }
+        return null;
+    }
+    
+    public boolean hasJoinColumn(FieldMapping field) {
+        boolean hasJoinColumn = (field.getValueInfo().getColumns().size() > 0 ? true : false);
+        return hasJoinColumn;
+    }
+    
+    public boolean hasJoinTable(FieldMapping field) {
+        boolean hasJoinTable = !DBIdentifier.isNull(field.getMappingInfo().getTableIdentifier()) ? true : false;
+        return hasJoinTable;
+    }
+
+    public boolean isBidirectional(FieldMapping field) {
+        if (field.getMappedByMapping() != null) return true;
+        int assoType = field.getAssociationType();
+        if (assoType == FieldMetaData.ONE_TO_ONE || 
+            assoType == FieldMetaData.MANY_TO_ONE) {
+            ClassMapping inverse = field.getValueMapping().getTypeMapping();
+            FieldMapping[] fmds = inverse.getFieldMappings();
+            for (int i = 0; i < fmds.length; i++) {
+                if (field == fmds[i].getMappedByMapping()) 
+                    return true;
+            }
+        }
+        return false;
+    }
+    
     /**
      * Check the given value against mapped strategies.
      */
-    private Object mappedStrategy(ValueMapping val, Class type,
+    private Object mappedStrategy(ValueMapping val, Class<?> type,
         boolean adapting) {
         if (type == null || type == Object.class)
             return null;
@@ -988,7 +1202,7 @@ public class MappingRepository
         String props = Configurations.getProperties(name);
         name = Configurations.getClassName(name);
         try {
-            Class c = JavaTypes.classForName(name, val,
+            Class<?> c = JavaTypes.classForName(name, val,
                 AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)));
             Object o = AccessController.doPrivileged(
@@ -1015,7 +1229,7 @@ public class MappingRepository
         String props = Configurations.getProperties(name);
         name = Configurations.getClassName(name);
         try {
-            Class c = JavaTypes.classForName(name, val,
+            Class<?> c = JavaTypes.classForName(name, val,
                 AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(ValueHandler.class)));
             if (ValueHandler.class.isAssignableFrom(c)) {
@@ -1033,7 +1247,7 @@ public class MappingRepository
                 val, name), e);
         }
     }
-
+    
     /**
      * Determine the default handler to use for the given value. Does
      * not take into account the named handler, if any.
@@ -1132,7 +1346,7 @@ public class MappingRepository
      * Checks for hints as to whether the given column is a CLOB.
      */
     private boolean isClob(ValueMapping val, boolean warn) {
-        List cols = val.getValueInfo().getColumns();
+        List<Column> cols = val.getValueInfo().getColumns();
         if (cols.size() != 1)
             return false;
 
@@ -1263,12 +1477,12 @@ public class MappingRepository
             case JavaTypes.NUMBER:
                 return new NumberVersionStrategy();
             default:
-                return NoneVersionStrategy.getInstance();
+                throw new UserException(_loc.get("version-type-unsupported", vfield, vfield.getDeclaredType()));
+//                return NoneVersionStrategy.getInstance();
         }
     }
     
-    public void endConfiguration()
-    {
+    public void endConfiguration() {
         super.endConfiguration();
 
         JDBCConfiguration conf = (JDBCConfiguration) getConfiguration();
@@ -1299,12 +1513,12 @@ public class MappingRepository
                 // persistent subclasses may not have been resolved yet.  
                 // run through the persistent types to see if any of them 
                 // or their superclass is a subclass of this class.
-                Collection classes = loadPersistentTypes(false, 
+                Collection<Class<?>> classes = loadPersistentTypes(false, 
                         mapping.getEnvClassLoader());
-                Class cls;
-                for (Iterator itr = classes.iterator(); itr.hasNext();) {
-                    cls = (Class) itr.next();
-                    Class supcl = cls.getSuperclass();
+                Class<?> cls;
+                for (Iterator<Class<?>> itr = classes.iterator(); itr.hasNext();) {
+                    cls = itr.next();
+                    Class<?> supcl = cls.getSuperclass();
                     while (supcl != null && 
                            !supcl.getClass().equals(java.lang.Object.class)) {
                         if (!supcl.isInterface() &&

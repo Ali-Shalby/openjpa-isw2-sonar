@@ -30,6 +30,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import org.apache.commons.lang.ObjectUtils;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -58,7 +59,7 @@ public final class SQLBuffer
     private static final String PARAMETER_TOKEN = "?";
 
     private final DBDictionary _dict;
-    private final StringBuffer _sql = new StringBuffer();
+    private final StringBuilder _sql = new StringBuilder();
     private List _subsels = null;
     private List _params = null;
     private List _cols = null;
@@ -166,7 +167,26 @@ public final class SQLBuffer
                 _userIndex.add(newIndex);
                 _userIndex.add(userParam);
             }
+        } else { 
+            if (_userIndex != null) {
+                List userIndex = new ArrayList();
+                for (int i = 0; i < _userIndex.size(); i+=2) {
+                    int oldIndex = ((Integer)_userIndex.get(i)).intValue();
+                    Object userParam = _userIndex.get(i+1);
+                    if (oldIndex >= paramIndex) 
+                        userIndex.add(oldIndex + paramIndex);
+                    else 
+                        userIndex.add(oldIndex);
+                    userIndex.add(userParam);
+                }
+                _userIndex = userIndex;
+            }
         }
+    }
+    
+    public SQLBuffer append(DBIdentifier name) {
+        _sql.append(_dict.toDBName(name));
+        return this;
     }
 
     public SQLBuffer append(Table table) {
@@ -180,7 +200,7 @@ public final class SQLBuffer
     }
 
     public SQLBuffer append(Column col) {
-        _sql.append(col.getName());
+        _sql.append(_dict.getColumnDBName(col));
         return this;
     }
 
@@ -258,7 +278,7 @@ public final class SQLBuffer
      * Append a user parameter value for a specific column. User parameters
      * are marked as opposed to the parameters inserted by the internal runtime
      * system. This helps to reuse the buffer by reparmeterizing it with new
-     * set of user parameters while the 'internal' parameters remain unchanged.  
+     * set of user parameters while the 'internal' parameters remain unchanged.
      * 
      * @param userParam if non-null, designates a 'user' parameter.
      */
@@ -446,7 +466,7 @@ public final class SQLBuffer
         if (!replaceParams || _params == null || _params.isEmpty())
             return sql;
 
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         Iterator pi = _params.iterator();
         for (int i = 0; i < sql.length(); i++) {
             if (sql.charAt(i) != '?') {
@@ -534,7 +554,8 @@ public final class SQLBuffer
             setParameters(stmnt);
             if (fetch != null) {
                 if (fetch.getFetchBatchSize() > 0)
-                    stmnt.setFetchSize(fetch.getFetchBatchSize());
+                    stmnt.setFetchSize(
+                        _dict.getBatchFetchSize(fetch.getFetchBatchSize()));
                 if (rsType != ResultSet.TYPE_FORWARD_ONLY
                     && fetch.getFetchDirection() != ResultSet.FETCH_FORWARD)
                     stmnt.setFetchDirection(fetch.getFetchDirection());
@@ -593,7 +614,8 @@ public final class SQLBuffer
             setParameters(stmnt);
             if (fetch != null) {
                 if (fetch.getFetchBatchSize() > 0)
-                    stmnt.setFetchSize(fetch.getFetchBatchSize());
+                    stmnt.setFetchSize(
+                        _dict.getBatchFetchSize(fetch.getFetchBatchSize()));
                 if (rsType != ResultSet.TYPE_FORWARD_ONLY
                     && fetch.getFetchDirection() != ResultSet.FETCH_FORWARD)
                     stmnt.setFetchDirection(fetch.getFetchDirection());

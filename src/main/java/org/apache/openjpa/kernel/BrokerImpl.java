@@ -26,6 +26,7 @@ import java.lang.reflect.Modifier;
 import java.security.AccessController;
 import java.util.AbstractCollection;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
@@ -37,6 +38,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Stack;
 import java.util.TreeSet;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -53,13 +55,13 @@ import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.ee.ManagedRuntime;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.event.LifecycleEvent;
 import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.TransactionEvent;
 import org.apache.openjpa.event.TransactionEventManager;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
-import org.apache.openjpa.lib.conf.Value;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
@@ -89,6 +91,7 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
+import org.apache.openjpa.util.WrappedException;
 
 /**
  * Concrete {@link Broker}. The broker handles object-level behavior,
@@ -97,6 +100,7 @@ import org.apache.openjpa.util.UserException;
  *
  * @author Abe White
  */
+@SuppressWarnings("serial")
 public class BrokerImpl
     implements Broker, FindCallbacks, Cloneable, Serializable {
 
@@ -225,11 +229,7 @@ public class BrokerImpl
     private boolean _orderDirty = false;
     private boolean _cachePreparedQuery = true;
     private boolean _cacheFinderQuery = true;
-    
-
-    // Map of properties whose values have been changed
-    private Map<String, String> _changedProperties =
-        new HashMap<String, String>();
+    private boolean _suppressBatchOLELogging = false;
 
     // status
     private int _flags = 0;
@@ -248,10 +248,33 @@ public class BrokerImpl
     private int _lifeCallbackMode = 0;
 
     private transient boolean _initializeWasInvoked = false;
+    private transient boolean _fromWriteBehindCallback = false;
     private LinkedList _fcs;
     
-    // Set of supported properties
-    private Set<String> _supportedPropertyNames;
+    // Set of supported property keys. The keys in this set correspond to bean-style setter methods
+    // that can be set by reflection. The keys are not qualified by any prefix.
+    private static Set<String> _supportedPropertyNames;
+    static {
+        _supportedPropertyNames = new HashSet<String>();
+        _supportedPropertyNames.addAll(Arrays.asList(new String[] {
+                "AutoClear", 
+                "AutoDetach", 
+                "CacheFinderQuery", 
+                "CachePreparedQuery", 
+                "DetachedNew", 
+                "DetachState", 
+                "EvictFromDataCache", 
+                "IgnoreChanges", 
+                "LifecycleListenerCallbackMode", 
+                "Multithreaded", 
+                "NontransactionalRead", 
+                "NontransactionalWrite", 
+                "Optimistic", 
+                "PopulateDataCache",
+                "RestoreState", 
+                "RetainState",
+                }));
+    }
 
     /**
      * Set the persistence manager's authentication. This is the first
@@ -282,6 +305,13 @@ public class BrokerImpl
     public void initialize(AbstractBrokerFactory factory,
         DelegatingStoreManager sm, boolean managed, int connMode,
         boolean fromDeserialization) {
+        initialize(factory, sm, managed, connMode, fromDeserialization, false);
+    }
+    
+    public void initialize(AbstractBrokerFactory factory,
+        DelegatingStoreManager sm, boolean managed, int connMode,
+        boolean fromDeserialization, boolean fromWriteBehindCallback) {
+        _fromWriteBehindCallback = fromWriteBehindCallback;
         _initializeWasInvoked = true;
         _loader = AccessController.doPrivileged(
             J2DoPrivHelper.getContextClassLoaderAction());
@@ -301,7 +331,7 @@ public class BrokerImpl
             _runtime = new LocalManagedRuntime(this);
 
         if (!fromDeserialization) {
-            _lifeEventManager = new LifecycleEventManager();
+            _lifeEventManager = _conf.getLifecycleEventManagerInstance();
             _transEventManager = new TransactionEventManager();
             int cmode = _conf.getMetaDataRepositoryInstance().
                 getMetaDataFactory().getDefaults().getCallbackMode();
@@ -315,7 +345,7 @@ public class BrokerImpl
         // make sure to do this after configuring broker so that store manager
         // can look to broker configuration; we set both store and lock managers
         // before initializing them because they may each try to access the
-        // other in thier initialization
+        // other in their initialization
         _store = sm;
         _lm = _conf.newLockManagerInstance();
         _im = _conf.newInverseManagerInstance();
@@ -410,7 +440,8 @@ public class BrokerImpl
 
     public void popFetchConfiguration() {
         if (_fcs == null || _fcs.isEmpty())
-            throw new UserException(_loc.get("fetch-configuration-stack-empty"));
+            throw new UserException(
+                    _loc.get("fetch-configuration-stack-empty"));
         _fc = (FetchConfiguration) _fcs.removeLast();
     }
 
@@ -470,8 +501,6 @@ public class BrokerImpl
     public void setIgnoreChanges(boolean val) {
         assertOpen();
         _ignoreChanges = val;
-        _changedProperties.put("IgnoreChanges", String
-            .valueOf(_ignoreChanges));
     }
 
     public boolean getNontransactionalRead() {
@@ -490,8 +519,6 @@ public class BrokerImpl
                 ("nontrans-read-not-supported"));
 
         _nontransRead = val;
-        _changedProperties.put("NontransactionalRead", String
-            .valueOf(_nontransRead));
     }
 
     public boolean getNontransactionalWrite() {
@@ -504,8 +531,6 @@ public class BrokerImpl
             throw new UserException(_loc.get("illegal-op-in-prestore"));
 
         _nontransWrite = val;
-        _changedProperties.put("NontransactionalWrite", String
-            .valueOf(_nontransWrite));
     }
 
     public boolean getOptimistic() {
@@ -524,8 +549,6 @@ public class BrokerImpl
                 ("optimistic-not-supported"));
 
         _optimistic = val;
-        _changedProperties.put("Optimistic", String
-            .valueOf(_optimistic));
     }
 
     public int getRestoreState() {
@@ -539,8 +562,6 @@ public class BrokerImpl
                 "Restore"));
 
         _restoreState = val;
-        _changedProperties.put("RestoreState", String
-            .valueOf(_restoreState));
     }
 
     public boolean getRetainState() {
@@ -552,8 +573,6 @@ public class BrokerImpl
         if ((_flags & FLAG_PRESTORING) != 0)
             throw new UserException(_loc.get("illegal-op-in-prestore"));
         _retainState = val;
-        _changedProperties.put("RetainState", String
-            .valueOf(_retainState));
     }
 
     public int getAutoClear() {
@@ -563,7 +582,6 @@ public class BrokerImpl
     public void setAutoClear(int val) {
         assertOpen();
         _autoClear = val;
-        _changedProperties.put("AutoClear", String.valueOf(_autoClear));
     }
 
     public int getAutoDetach() {
@@ -573,8 +591,6 @@ public class BrokerImpl
     public void setAutoDetach(int detachFlags) {
         assertOpen();
         _autoDetach = detachFlags;
-        _changedProperties.put("AutoDetach", String
-            .valueOf(_autoDetach));
     }
 
     public void setAutoDetach(int detachFlag, boolean on) {
@@ -583,8 +599,6 @@ public class BrokerImpl
             _autoDetach |= detachFlag;
         else
             _autoDetach &= ~detachFlag;
-        _changedProperties.put("AutoDetach", String
-            .valueOf(_autoDetach));
     }
 
     public int getDetachState() {
@@ -594,8 +608,6 @@ public class BrokerImpl
     public void setDetachState(int mode) {
         assertOpen();
         _detachState = mode;
-        _changedProperties.put("DetachState", String
-            .valueOf(_detachState));
     }
 
     public boolean isDetachedNew() {
@@ -666,65 +678,29 @@ public class BrokerImpl
         }
     }
 
-    public Map<String, String> getProperties() {
-        Map<String, String> currentProperties = _conf.getAllProperties();
-        
-        // Update the properties from the config with properties that may
-        // have changed for this broker
-        if (!_changedProperties.isEmpty()) {
-            Set<String> changedKeys = _changedProperties.keySet();
-            for (String changedKey : changedKeys) {
-                Value value = _conf.getValue(changedKey);
-                String valueKey = value.getLoadKey();
-                if (valueKey == null) {
-                    valueKey = "openjpa." + value.getProperty();
-                }
-                
-                if (currentProperties.containsKey(valueKey)) {
-                    currentProperties.put(valueKey, _changedProperties
-                        .get(changedKey));
-                }
-                else {
-                    Set<String> equivalentKeys = value.getEquivalentKeys();
-                    if (!equivalentKeys.isEmpty()) {
-                        for (String equivalentKey : equivalentKeys) {
-                            if (currentProperties.containsKey(equivalentKey)) {
-                                currentProperties.put(equivalentKey,
-                                    _changedProperties.get(changedKey));
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
+    /**
+     * Get current configuration property values used by this instance.
+     * This values are combination of the current configuration values 
+     * overwritten by values maintained by this instance such as
+     * Optimistic flag. 
+     */
+    public Map<String, Object> getProperties() {
+        Map props = _conf.toProperties(true);
+        for (String s : _supportedPropertyNames) {
+            props.put("openjpa." + s, Reflection.getValue(this, s, true));
         }
-
-        return currentProperties;
+        return props;
     }
     
+    /**
+     * Gets the property names that can be used to corresponding setter methods of this receiver
+     * to set its value.
+     */    
     public Set<String> getSupportedProperties() {
-        if (_supportedPropertyNames == null) {
-            _supportedPropertyNames = new TreeSet<String>();
-            _supportedPropertyNames.add("AutoClear");
-            _supportedPropertyNames.add("AutoDetach");
-            _supportedPropertyNames.add("DetachState");
-            _supportedPropertyNames.add("IgnoreChanges");
-            _supportedPropertyNames.add("LockTimeout");
-            _supportedPropertyNames.add("Multithreaded");
-            _supportedPropertyNames.add("NontransactionalRead");
-            _supportedPropertyNames.add("NontransactionalWrite");
-            _supportedPropertyNames.add("Optimistic");
-            _supportedPropertyNames.add("RestoreState");
-            _supportedPropertyNames.add("RetainState");
-        }
-        Set<String> supportedProperties = new LinkedHashSet<String>();
-        for (String propertyName : _supportedPropertyNames) {
-            supportedProperties.addAll(_conf.getPropertyKeys(propertyName));
-        }
-        supportedProperties.add("javax.persistence.query.timeout");
-        supportedProperties.add("javax.persistence.lock.timeout");
-        
-        return supportedProperties;
+        Set<String> keys = _conf.getPropertyKeys();
+        for (String s : _supportedPropertyNames)
+            keys.add("openjpa." + s);
+        return keys;
     }
 
     // ////////
@@ -799,11 +775,17 @@ public class BrokerImpl
             return;
 
         OpenJPAException ce;
-        if (exceps.length == 1)
-            ce = new CallbackException(exceps[0]);
-        else 
+        if (exceps.length == 1) {
+            // If the exception is already a wrapped exception throw the 
+            // exception instead of wrapping it with a callback exception
+            if (exceps[0] instanceof WrappedException)
+                throw (WrappedException)exceps[0];
+            else
+                ce = new CallbackException(exceps[0]);
+        } else {
             ce = new CallbackException(_loc.get("callback-err")).
                 setNestedThrowables(exceps);
+        }
         if ((mode & CALLBACK_ROLLBACK) != 0 && (_flags & FLAG_ACTIVE) != 0) {
             ce.setFatal(true);
             setRollbackOnlyInternal(ce);
@@ -835,6 +817,10 @@ public class BrokerImpl
             endOperation();
         }
     }
+    
+    public Collection<Object> getTransactionListeners() {
+        return _transEventManager.getListeners();
+    }
 
     public int getTransactionListenerCallbackMode() {
         return _transCallbackMode;
@@ -859,6 +845,23 @@ public class BrokerImpl
                 _transCallbackMode);
     }
 
+    /**
+     * Set whether this Broker will generate verbose optimistic lock exceptions when batching
+     * operations. Defaults to true.
+     * 
+     * @param b
+     */
+    public void setSuppressBatchOLELogging(boolean b) {
+        _suppressBatchOLELogging = b;
+    }
+    
+    /**
+     * Return whether this Broker will generate verbose optimistic lock exceptions when batching
+     * operations.
+     */
+    public boolean getSuppressBatchOLELogging() {
+        return _suppressBatchOLELogging;
+    }
     ///////////
     // Lookups
     ///////////
@@ -1951,7 +1954,7 @@ public class BrokerImpl
 
             if ((_autoDetach & DETACH_COMMIT) != 0)
                 detachAllInternal(null);
-            else if (status == Status.STATUS_ROLLEDBACK 
+            else if (status == Status.STATUS_ROLLEDBACK
                 && (_autoDetach & DETACH_ROLLBACK) != 0) {
                 detachAllInternal(null);
             }
@@ -2258,8 +2261,13 @@ public class BrokerImpl
                     failed.add(f);
             }
         }
-        if (opt && !failed.isEmpty())
-            return new OptimisticException(failed, t);
+        if (opt && !failed.isEmpty()) {
+            if(_suppressBatchOLELogging == true){
+                return new OptimisticException(_loc.get("broker-suppressing-exceptions",t.length));
+            }else{
+                return new OptimisticException(failed, t);
+            }
+        }
         if (opt)
             return new OptimisticException(t);
         return new StoreException(_loc.get("rolled-back")).
@@ -2329,7 +2337,7 @@ public class BrokerImpl
             _derefCache = null;
         }
 
-        // peform commit or rollback state transitions on each instance
+        // perform commit or rollback state transitions on each instance
         StateManagerImpl sm;
         for (Iterator itr = transStates.iterator(); itr.hasNext();) {
             sm = (StateManagerImpl) itr.next();
@@ -2339,8 +2347,13 @@ public class BrokerImpl
                     // (and therefore deleted) to un-deref
                     sm.setDereferencedDependent(false, false);
                     sm.rollback();
-                } else
+                } else {
+                    if (sm.getPCState() == PCState.PNEWDELETED || sm.getPCState() == PCState.PDELETED) {
+                        fireLifecycleEvent(sm.getPersistenceCapable(), null, sm.getMetaData(), 
+                            LifecycleEvent.AFTER_DELETE_PERFORMED);
+                    }
                     sm.commit();
+                }
             } catch (RuntimeException re) {
                 exceps = add(exceps, re);
             }
@@ -2531,9 +2544,10 @@ public class BrokerImpl
 
             // create id for instance
             if (id == null) {
-                if (meta.getIdentityType() == ClassMetaData.ID_APPLICATION)
+            	int idType = meta.getIdentityType();
+                if (idType == ClassMetaData.ID_APPLICATION)
                     id = ApplicationIds.create(pc, meta);
-                else if (meta.getIdentityType() == ClassMetaData.ID_UNKNOWN)
+                else if (idType == ClassMetaData.ID_UNKNOWN)
                     throw new UserException(_loc.get("meta-unknownid", meta));
                 else
                     id = StateManagerId.newInstance(this);
@@ -2656,8 +2670,11 @@ public class BrokerImpl
 
         // ACT_CASCADE
         if ((action & OpCallbacks.ACT_RUN) == 0) {
-            if (sm != null)
-                sm.cascadeDelete(call);
+            if (sm != null) {
+                if (!sm.isEmbedded() || !sm.getDereferencedEmbedDependent()) {
+                    sm.cascadeDelete(call);
+                }
+            }
             else
                 cascadeTransient(OpCallbacks.OP_DELETE, obj, call, "delete");
             return;
@@ -2667,8 +2684,11 @@ public class BrokerImpl
         if (sm != null) {
             if (sm.isDetached())
                 throw newDetachedException(obj, "delete");
-            if ((action & OpCallbacks.ACT_CASCADE) != 0)
-                sm.cascadeDelete(call);
+            if ((action & OpCallbacks.ACT_CASCADE) != 0) {
+                if (!sm.isEmbedded() || !sm.getDereferencedEmbedDependent()) {
+                    sm.cascadeDelete(call);
+                }
+            }
             sm.delete();
         } else if (assertPersistenceCapable(obj).pcIsDetached() == Boolean.TRUE)
             throw newDetachedException(obj, "delete");
@@ -3216,7 +3236,7 @@ public class BrokerImpl
 
             sm.evict();
             if (_evictDataCache && sm.getObjectId() != null) {
-                DataCache cache = sm.getMetaData().getDataCache();
+                DataCache cache = _conf.getDataCacheManagerInstance().selectCache(sm);
                 if (cache != null)
                     cache.remove(sm.getObjectId());
             }
@@ -3306,8 +3326,17 @@ public class BrokerImpl
 
         if (call == null)
             call = _call;
-        new DetachManager(this, true, call).detachAll
-            (new ManagedObjectCollection(states));
+        // Make sure ALL entities are detached, even new ones that are loaded
+        // during the detach processing
+        boolean origCascade = _compat.getCascadeWithDetach();
+        _compat.setCascadeWithDetach(true);        
+        try {
+            new DetachManager(this, true, call)
+                .detachAll(new ManagedObjectCollection(states));
+        } 
+        finally {
+            _compat.setCascadeWithDetach(origCascade);
+        }
     }
 
     public Object attach(Object obj, boolean copyNew, OpCallbacks call) {
@@ -3670,9 +3699,25 @@ public class BrokerImpl
             default:
                 // use store manager for native sequence
                 if (fmd == null) {
-                    // this will return a sequence even for app id classes,
-                    // which is what we want for backwards-compatibility
-                    return _store.getDataStoreIdSequence(meta);
+                    // This will return a sequence even for app id classes,
+                    // which is what we want for backwards-compatibility.
+                    // Even if user uses Application Identity,
+                    // user might use custom sequence information.
+                    // So, first, the sequence should be checked.
+                    // Trying to get primary key field if it has
+                    // sequence meta data.
+                    FieldMetaData[] pks = meta.getPrimaryKeyFields();
+                    if (pks != null && pks.length == 1) {
+                        smd = pks[0].getValueSequenceMetaData();
+                    } else {
+                        smd = meta.getIdentitySequenceMetaData();
+                    }
+
+                    if (smd != null) {
+                        return smd.getInstance(_loader);
+                    } else {
+                        return _store.getDataStoreIdSequence(meta);
+                    }
                 }
                 return _store.getValueSequence(fmd);
         }
@@ -3891,7 +3936,7 @@ public class BrokerImpl
     /**
      * Return a copy of all transactional state managers.
      */
-    protected Collection getTransactionalStates() {
+    protected Collection<StateManagerImpl> getTransactionalStates() {
         if (!hasTransactionalObjects())
             return Collections.EMPTY_SET;
         return _transCache.copy();
@@ -4277,24 +4322,6 @@ public class BrokerImpl
             _lock.unlock();
     }
     
-    /**
-     * Creates a locks irrespective of multithreaded support. Used only by 
-     * internal implementation to guard access when it spawns its own threads 
-     * and user configured the broker for single-threaded access. 
-     */
-    public synchronized void startLocking() {
-    	if (_lock == null)
-    		_lock = new ReentrantLock();
-    }
-    
-    /**
-     * Destroys the lock if not multithreaded support. 
-     */
-    public synchronized void stopLocking() {
-    	if (_lock != null && !getMultithreaded())
-    		_lock = null;
-    }
-
     ////////////////////
     // State management
     ////////////////////
@@ -4377,7 +4404,8 @@ public class BrokerImpl
     public boolean isPersistent(Object obj) {
         assertOpen();
         if (ImplHelper.isManageable(obj))
-            return (ImplHelper.toPersistenceCapable(obj, _conf)).pcIsPersistent();
+            return (ImplHelper.toPersistenceCapable(obj, _conf)).
+                    pcIsPersistent();
         return false;
     }
 
@@ -4429,9 +4457,10 @@ public class BrokerImpl
         boolean assertThisContext) {
         if (ImplHelper.isManageable(obj)) {
             PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, _conf);
-            if (pc.pcGetGenericContext() == this)
+            BrokerImpl pcBroker = (BrokerImpl)pc.pcGetGenericContext();
+            if (pcBroker == this || isFromWriteBehindCallback())
                 return (StateManagerImpl) pc.pcGetStateManager();
-            if (assertThisContext && pc.pcGetGenericContext() != null)
+            if (assertThisContext && pcBroker != null)
                 throw new UserException(_loc.get("not-managed",
                     Exceptions.toString(obj))).setFailedObject(obj);
         }
@@ -4917,5 +4946,9 @@ public class BrokerImpl
         } finally {
             unlock();
         }
+    }
+    
+    public boolean isFromWriteBehindCallback() {
+        return _fromWriteBehindCallback;
     }
 }

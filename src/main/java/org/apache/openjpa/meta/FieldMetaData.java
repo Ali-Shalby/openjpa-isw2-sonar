@@ -72,6 +72,7 @@ import serp.util.Strings;
  *
  * @author Abe White
  */
+@SuppressWarnings("serial")
 public class FieldMetaData
     extends Extensions
     implements ValueMetaData, MetaDataContext, MetaDataModes, Commentable {
@@ -113,6 +114,11 @@ public class FieldMetaData
      * Constant specifying the management level of a field.
      */
     public static final int MANAGE_NONE = 0;
+    
+    public static final int ONE_TO_ONE = 1;
+    public static final int ONE_TO_MANY = 2;
+    public static final int MANY_TO_ONE = 3;
+    public static final int MANY_TO_MANY = 4;
 
     private static final Localizer _loc = Localizer.forPackage
         (FieldMetaData.class);
@@ -137,12 +143,13 @@ public class FieldMetaData
     private final ValueMetaData _elem;
     private final ClassMetaData _owner;
     private final String _name;
-    private Class _dec = null;
+    private Class<?> _dec = null;
     private ClassMetaData _decMeta = null;
     private String _fullName = null;
     private String _embedFullName = null;
     private int _resMode = MODE_NONE;
     private String _mappedByIdValue = null;
+    private int _access = AccessCode.UNKNOWN;
 
     // load/store info
     private String[] _comments = null;
@@ -153,7 +160,7 @@ public class FieldMetaData
     ////////////////////////////////////////////////////////////////////
 
     // misc info
-    private Class _proxyClass = null;
+    private Class<?> _proxyClass = null;
     private Object _initializer = null;
     private boolean _transient = false;
     private boolean _primKey = false;
@@ -165,7 +172,7 @@ public class FieldMetaData
     private int _pkIndex = -1;
     private boolean _explicit = false;
     private int _dfg = 0;
-    private Set _fgSet = null;
+    private Set<String> _fgSet = null;
     private String[] _fgs = null;
     private String   _lfg = null;
     private Boolean _lrs = null;
@@ -211,6 +218,7 @@ public class FieldMetaData
     // indicate if this field is used by other field as "order by" value 
     private boolean _usedInOrderBy = false;
     private boolean _isElementCollection = false;
+    private int _associationType;
 
     /**
      * Constructor.
@@ -219,7 +227,7 @@ public class FieldMetaData
      * @param type the field type
      * @param owner the owning class metadata
      */
-    protected FieldMetaData(String name, Class type, ClassMetaData owner) {
+    protected FieldMetaData(String name, Class<?> type, ClassMetaData owner) {
         _name = name;
         _owner = owner;
         _dec = null;
@@ -234,6 +242,8 @@ public class FieldMetaData
     /**
      * Supply the backing member object; this allows us to utilize
      * parameterized type information if available.
+     * Sets the access style of this receiver based on whether the given 
+     * member represents a field or getter method.
      */
     public void backingMember(Member member) {
         if (member == null)
@@ -243,16 +253,18 @@ public class FieldMetaData
 
         _backingMember = new MemberProvider(member);
 
-        Class type;
-        Class[] types;
+        Class<?> type;
+        Class<?>[] types;
         if (member instanceof Field) {
             Field f = (Field) member;
             type = f.getType();
             types = JavaVersions.getParameterizedTypes(f);
+            setAccessType(AccessCode.FIELD);
         } else {
             Method meth = (Method) member;
             type = meth.getReturnType();
             types = JavaVersions.getParameterizedTypes(meth);
+            setAccessType(AccessCode.PROPERTY);
         }
 
         setDeclaredType(type);
@@ -300,7 +312,7 @@ public class FieldMetaData
     /**
      * The declaring class.
      */
-    public void setDeclaringType(Class cls) {
+    public void setDeclaringType(Class<?> cls) {
         _dec = cls;
         _decMeta = null;
         _fullName = null;
@@ -392,7 +404,7 @@ public class FieldMetaData
      * The type this field was initialized with, and therefore the
      * type to use for proxies when loading data into this field.
      */
-    public Class getProxyType() {
+    public Class<?> getProxyType() {
         return (_proxyClass == null) ? getDeclaredType() : _proxyClass;
     }
 
@@ -400,7 +412,7 @@ public class FieldMetaData
      * The type this field was initialized with, and therefore the
      * type to use for proxies when loading data into this field.
      */
-    public void setProxyType(Class type) {
+    public void setProxyType(Class<?> type) {
         _proxyClass = type;
     }
 
@@ -563,7 +575,7 @@ public class FieldMetaData
      * For a primary key field, return the type of the corresponding object id 
      * class field.
      */
-    public Class getObjectIdFieldType() {
+    public Class<?> getObjectIdFieldType() {
         ClassMetaData relmeta = getDeclaredTypeMetaData();
         if (relmeta == null || getValue().isEmbedded())
             return getDeclaredType();
@@ -635,8 +647,8 @@ public class FieldMetaData
 
     private boolean isEnum() {
         if (_enumField == null) {
-            Class dt = getDeclaredType();
-            _enumField = JavaVersions.isEnumeration(dt)
+            Class<?> decl = getDeclaredType();
+            _enumField = JavaVersions.isEnumeration(decl)
                 ? Boolean.TRUE : Boolean.FALSE;
         }
         return _enumField.booleanValue();
@@ -644,8 +656,8 @@ public class FieldMetaData
 
     private boolean isSerializable() {
         if (_serializableField == null) {
-            Class dt = getDeclaredType();
-            if (Serializable.class.isAssignableFrom(dt))
+            Class<?> decl = getDeclaredType();
+            if (Serializable.class.isAssignableFrom(decl))
                 _serializableField = Boolean.TRUE;
             else
                 _serializableField = Boolean.FALSE;
@@ -656,9 +668,9 @@ public class FieldMetaData
     private boolean isLobArray() {
         // check for byte[], Byte[], char[], Character[]
         if (_lobField == null) {
-            Class dt = getDeclaredType();
-            if (dt == byte[].class || dt == Byte[].class ||
-                dt == char[].class || dt == Character[].class)
+            Class<?> decl = getDeclaredType();
+            if (decl == byte[].class || decl == Byte[].class ||
+                decl == char[].class || decl == Character[].class)
                 _lobField = Boolean.TRUE;
             else
                 _lobField = Boolean.FALSE;
@@ -762,7 +774,7 @@ public class FieldMetaData
         if (_owner.getFetchGroup(fg) == null)
             throw new MetaDataException(_loc.get("unknown-fg", fg, this));
         if (in && _fgSet == null)
-            _fgSet = new HashSet();
+            _fgSet = new HashSet<String>();
         if ((in && _fgSet.add(fg))
             || (!in && _fgSet != null && _fgSet.remove(fg)))
             _fgs = null;
@@ -852,6 +864,18 @@ public class FieldMetaData
             if (field.getMappedBy() != null)
                 throw new MetaDataException(_loc.get("circ-mapped-by", this,
                     _mappedBy));
+            OpenJPAConfiguration conf = getRepository().getConfiguration();
+            boolean isAbstractMappingUniDirectional = getRepository().getMetaDataFactory().
+                    getDefaults().isAbstractMappingUniDirectional(conf);
+            if (isAbstractMappingUniDirectional) {
+                if (field.getDeclaringMetaData().isAbstract())
+                    throw new MetaDataException(_loc.get("no-mapped-by-in-mapped-super", field,
+                            field.getDeclaringMetaData()));
+
+                if (this.getDeclaringMetaData().isAbstract())
+                    throw new MetaDataException(_loc.get("no-mapped-by-in-mapped-super", this,
+                            this.getDeclaringMetaData()));
+            }
             _mappedByMeta = field;
         }
         return _mappedByMeta;
@@ -917,7 +941,7 @@ public class FieldMetaData
                     break;
             }
 
-            Collection inverses = null;
+            Collection<FieldMetaData> inverses = null;
             if (meta != null) {
                 // add mapped by and named inverse, if any
                 FieldMetaData field = getMappedByMetaData();
@@ -926,7 +950,7 @@ public class FieldMetaData
                     // inverses must be
                     if (field.getTypeCode() == JavaTypes.PC
                         || field.getElement().getTypeCode() == JavaTypes.PC) {
-                        inverses = new ArrayList(3);
+                        inverses = new ArrayList<FieldMetaData>(3);
                         inverses.add(field);
                     }
                 } else if (inv != null) {
@@ -934,13 +958,13 @@ public class FieldMetaData
                     if (field == null)
                         throw new MetaDataException(_loc.get("no-inverse",
                             this, inv));
-                    inverses = new ArrayList(3);
+                    inverses = new ArrayList<FieldMetaData>(3);
                     inverses.add(field);
                 }
 
                 // scan rel type for fields that name this field as an inverse
                 FieldMetaData[] fields = meta.getFields();
-                Class type = getDeclaringMetaData().getDescribedType();
+                Class<?> type = getDeclaringMetaData().getDescribedType();
                 for (int i = 0; i < fields.length; i++) {
                     // skip fields that aren't compatible with our owning class
                     switch (fields[i].getTypeCode()) {
@@ -964,7 +988,7 @@ public class FieldMetaData
                     if (_name.equals(fields[i].getMappedBy())
                         || _name.equals(fields[i].getInverse())) {
                         if (inverses == null)
-                            inverses = new ArrayList(3);
+                            inverses = new ArrayList<FieldMetaData>(3);
                         if (!inverses.contains(fields[i]))
                             inverses.add(fields[i]);
                     }
@@ -975,7 +999,7 @@ public class FieldMetaData
             if (inverses == null)
                 _inverses = repos.EMPTY_FIELDS;
             else
-                _inverses = (FieldMetaData[]) inverses.toArray
+                _inverses = inverses.toArray
                     (repos.newFieldMetaDataArray(inverses.size()));
         }
         return _inverses;
@@ -1183,7 +1207,7 @@ public class FieldMetaData
      */
     public String getOrderDeclaration() {
         if (_orderDec == null && _orders != null) {
-            StringBuffer buf = new StringBuffer();
+            StringBuilder buf = new StringBuilder();
             for (int i = 0; i < _orders.length; i++) {
                 if (i > 0)
                     buf.append(", ");
@@ -1219,17 +1243,17 @@ public class FieldMetaData
             return val;
 
         // create a comparator for the elements of the value
-        Comparator comp;
+        Comparator<?> comp;
         if (orders.length == 1)
             comp = orders[0].getComparator();
         else {
-            List comps = null;
-            Comparator curComp;
+            List<Comparator<?>> comps = null;
+            Comparator<?> curComp;
             for (int i = 0; i < orders.length; i++) {
                 curComp = orders[i].getComparator();
                 if (curComp != null) {
                     if (comps == null)
-                        comps = new ArrayList(orders.length);
+                        comps = new ArrayList<Comparator<?>>(orders.length);
                     if (i != comps.size())
                         throw new MetaDataException(_loc.get
                             ("mixed-inmem-ordering", this));
@@ -1249,11 +1273,11 @@ public class FieldMetaData
         switch (getTypeCode()) {
             case JavaTypes.ARRAY:
                 List l = JavaTypes.toList(val, _elem.getType(), true);
-                Collections.sort(l, comp);
+                Collections.sort(l, (Comparator<? super Order>) comp);
                 return JavaTypes.toArray(l, _elem.getType());
             case JavaTypes.COLLECTION:
                 if (val instanceof List)
-                    Collections.sort((List) val, comp);
+                    Collections.sort((List) val, (Comparator<? super Order>) comp);
                 return val;
             default:
                 throw new MetaDataException(_loc.get("cant-order", this));
@@ -1508,6 +1532,8 @@ public class FieldMetaData
                 return new Character(val.charAt(0));
             case JavaTypes.STRING:
                 return val;
+            case JavaTypes.ENUM:
+                return Enum.valueOf((Class<? extends Enum>)getDeclaredType(), val);
         }
         throw new MetaDataException(_loc.get("bad-external-type", this));
     }
@@ -1579,8 +1605,8 @@ public class FieldMetaData
         String methodName = Strings.getClassName(method);
         String clsName = Strings.getPackageName(method);
 
-        Class cls = null;
-        Class owner = _owner.getDescribedType();
+        Class<?> cls = null;
+        Class<?> owner = _owner.getDescribedType();
 
         if (clsName.length() == 0)
             cls = getDeclaredType();
@@ -1592,14 +1618,14 @@ public class FieldMetaData
 
         // find the named method
         Method[] methods = cls.getMethods();
-        Class[] params;
+        Class<?>[] params;
         for (int i = 0; i < methods.length; i++) {
             if (methods[i].getName().equals(methodName)) {
                 params = methods[i].getParameterTypes();
 
                 // static factory methods require one argument or one argument
-                // plus a ctx; non-static methods require zero arguments or
-                // just a ctx
+                // plus a context; non-static methods require zero arguments or
+                // just a context
                 if (Modifier.isStatic(methods[i].getModifiers())
                     && (params.length == 1 || (params.length == 2
                     && isStoreContextParameter(params[1]))))
@@ -1619,7 +1645,7 @@ public class FieldMetaData
      * use the standard <code>isAssignableFrom</code> because of classloader
      * oddness.
      */
-    private static boolean isStoreContextParameter(Class type) {
+    private static boolean isStoreContextParameter(Class<?> type) {
         return StoreContext.class.getName().equals(type.getName());
     }
 
@@ -1712,7 +1738,7 @@ public class FieldMetaData
                 _owner.getDescribedType())
             || (validate & MetaDataRepository.VALIDATE_UNENHANCED) == 0)) {
             validateLRS();
-            if ((validate & repos.VALIDATE_RUNTIME) == 0)
+            if ((validate & MetaDataRepository.VALIDATE_RUNTIME) == 0)
                 validateSupportedType();
             validateValue();
             validateExtensionKeys();
@@ -1731,7 +1757,7 @@ public class FieldMetaData
         if (getTypeCode() == JavaTypes.ARRAY)
             throw new MetaDataException(_loc.get("bad-lrs-array", this));
 
-        // can't use lrs for extranalized vals
+        // can't use lrs for externalized vals
         if (getExternalizerMethod() != null)
             throw new MetaDataException(_loc.get("bad-lrs-extern", this));
 
@@ -1747,12 +1773,12 @@ public class FieldMetaData
     private void validateSupportedType() {
         // log warnings about things we don't handle
         OpenJPAConfiguration conf = getRepository().getConfiguration();
-        Collection opts = conf.supportedOptions();
-        Log log = conf.getLog(conf.LOG_METADATA);
+        Collection<String> opts = conf.supportedOptions();
+        Log log = conf.getLog(OpenJPAConfiguration.LOG_METADATA);
         switch (getTypeCode()) {
             case JavaTypes.PC:
-                if (isEmbedded() &&
-                    !opts.contains(conf.OPTION_EMBEDDED_RELATION)) {
+                if (isEmbedded() && !opts.contains(
+                	OpenJPAConfiguration.OPTION_EMBEDDED_RELATION)) {
                     setEmbedded(false);
                     if (log.isWarnEnabled())
                         log.warn(_loc.get("cant-embed", this));
@@ -1764,44 +1790,42 @@ public class FieldMetaData
                 }
                 break;
             case JavaTypes.COLLECTION:
-                if (!opts.contains(conf.OPTION_TYPE_COLLECTION))
+                if (!opts.contains(OpenJPAConfiguration.OPTION_TYPE_COLLECTION))
                     throw new UnsupportedException(
                         _loc.get("type-not-supported",
                             "Collection", this));
-                if (_elem.isEmbeddedPC()
-                    && !opts.contains(conf.OPTION_EMBEDDED_COLLECTION_RELATION))
-                {
+                if (_elem.isEmbeddedPC() && !opts.contains(
+                    OpenJPAConfiguration.OPTION_EMBEDDED_COLLECTION_RELATION)){
                     _elem.setEmbedded(false);
                     if (log.isWarnEnabled())
                         log.warn(_loc.get("cant-embed-element", this));
                 }
                 break;
             case JavaTypes.ARRAY:
-                if (!opts.contains(conf.OPTION_TYPE_ARRAY))
+                if (!opts.contains(OpenJPAConfiguration.OPTION_TYPE_ARRAY))
                     throw new UnsupportedException(
                         _loc.get("type-not-supported",
                             "Array", this));
-                if (_elem.isEmbeddedPC()
-                    && !opts.contains(conf.OPTION_EMBEDDED_COLLECTION_RELATION))
-                {
+                if (_elem.isEmbeddedPC() && !opts.contains(
+                    OpenJPAConfiguration.OPTION_EMBEDDED_COLLECTION_RELATION)) {
                     _elem.setEmbedded(false);
                     if (log.isWarnEnabled())
                         log.warn(_loc.get("cant-embed-element", this));
                 }
                 break;
             case JavaTypes.MAP:
-                if (!opts.contains(conf.OPTION_TYPE_MAP))
+                if (!opts.contains(OpenJPAConfiguration.OPTION_TYPE_MAP))
                     throw new UnsupportedException(
                         _loc.get("type-not-supported",
                             "Map", this));
-                if (_elem.isEmbeddedPC()
-                    && !opts.contains(conf.OPTION_EMBEDDED_MAP_RELATION)) {
+                if (_elem.isEmbeddedPC() && !opts.contains(
+                	OpenJPAConfiguration.OPTION_EMBEDDED_MAP_RELATION)) {
                     _elem.setEmbedded(false);
                     if (log.isWarnEnabled())
                         log.warn(_loc.get("cant-embed-element", this));
                 }
-                if (_key.isEmbeddedPC()
-                    && !opts.contains(conf.OPTION_EMBEDDED_MAP_RELATION)) {
+                if (_key.isEmbeddedPC() && !opts.contains(
+                	OpenJPAConfiguration.OPTION_EMBEDDED_MAP_RELATION)) {
                     _key.setEmbedded(false);
                     if (log.isWarnEnabled())
                         log.warn(_loc.get("cant-embed-key", this));
@@ -1854,6 +1878,10 @@ public class FieldMetaData
         _lobField = field._lobField;
         _serializableField = field._serializableField;
         _generated = field._generated;
+        _mappedByIdValue = field._mappedByIdValue;
+        _isElementCollection = field._isElementCollection;
+        _access = field._access;
+        _orderDec = field._orderDec;
 
         // embedded fields can't be versions
         if (_owner.getEmbeddingMetaData() == null && _version == null)
@@ -1988,6 +2016,9 @@ public class FieldMetaData
         return _val.getEmbeddedMetaData();
     }
 
+    public ClassMetaData addEmbeddedMetaData(int access) {
+        return _val.addEmbeddedMetaData(access);
+    }
     public ClassMetaData addEmbeddedMetaData() {
         return _val.addEmbeddedMetaData();
     }
@@ -2048,23 +2079,19 @@ public class FieldMetaData
         _val.setValueMappedBy(mapped);
     }
 
-    public FieldMetaData getValueMappedByMetaData ()
-	{
+    public FieldMetaData getValueMappedByMetaData () {
 		return _val.getValueMappedByMetaData ();
 	}
 
-	public Class getTypeOverride ()
-	{
+	public Class<?> getTypeOverride () {
 		return _val.getTypeOverride ();
 	}
 
-	public void setTypeOverride (Class type)
-	{
+	public void setTypeOverride(Class type) {
 		_val.setTypeOverride (type);
 	}
 
-	public void copy (ValueMetaData vmd)
-	{
+	public void copy (ValueMetaData vmd) {
 		_val.copy (vmd);
 	}
 
@@ -2113,7 +2140,7 @@ public class FieldMetaData
         public void readExternal(ObjectInput in)
             throws IOException, ClassNotFoundException {
             boolean isField = in.readBoolean();
-            Class cls = (Class) in.readObject();
+            Class<?> cls = (Class<?>) in.readObject();
             String memberName = (String) in.readObject();
             try {
                 if (isField)
@@ -2121,7 +2148,7 @@ public class FieldMetaData
                         J2DoPrivHelper.getDeclaredFieldAction(
                             cls, memberName)); 
                 else {
-                    Class[] parameterTypes = (Class[]) in.readObject();
+                    Class<?>[] parameterTypes = (Class[]) in.readObject();
                     _member = AccessController.doPrivileged(
                         J2DoPrivHelper.getDeclaredMethodAction(
                             cls, memberName, parameterTypes));
@@ -2176,4 +2203,36 @@ public class FieldMetaData
     public boolean isMappedById() {
     	return (_mappedByIdValue != null);
     }
+    
+    /**
+     * Gets the access type used by this field. If no access type is set for
+     * this field then return the access type used by the declaring class.
+     */
+    public int getAccessType() {
+        if (AccessCode.isUnknown(_access)) {
+        	int fCode = AccessCode.toFieldCode(getDeclaringMetaData()
+        			.getAccessType());
+        	return fCode;
+        }
+        return _access;
+    }
+    
+    /**
+     * Sets access type of this field. The access code is verified for validity
+     * as well as against the access style used by the declaring class.
+     */
+    public void setAccessType(int fCode) {
+    	ClassMetaData owner = getDeclaringMetaData();
+    	owner.mergeFieldAccess(this, fCode);
+        _access = fCode;
+    }
+    
+    public int getAssociationType() {
+        return _associationType;
+    }
+    
+    public void setAssociationType(int type) {
+        _associationType = type;
+    }
+    
 }

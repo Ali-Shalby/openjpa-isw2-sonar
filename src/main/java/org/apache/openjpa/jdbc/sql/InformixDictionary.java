@@ -27,7 +27,9 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Set;
 
+import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
@@ -36,6 +38,7 @@ import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
+import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
 
 /**
@@ -51,6 +54,8 @@ import org.apache.openjpa.util.UnsupportedException;
  */
 public class InformixDictionary
     extends DBDictionary {
+
+    public static final String VENDOR_IBM = "ibm";
 
     /**
      * If true, then we will issue a "SET LOCK MODE TO WAIT N"
@@ -73,6 +78,7 @@ public class InformixDictionary
      */
     public boolean swapSchemaAndCatalog = true;
 
+    protected boolean useJCC = false;
     // weak set of connections we've already executed lock mode sql on
     private final Collection _seenConnections = new ReferenceHashSet
         (ReferenceHashSet.WEAK);
@@ -120,7 +126,6 @@ public class InformixDictionary
             "INT8",
         }));
 
-        supportsQueryTimeout = false;
         supportsLockingWithDistinctClause = false;
         supportsLockingWithMultipleTables = false;
         supportsLockingWithOrderClause = false;
@@ -150,16 +155,29 @@ public class InformixDictionary
         trimSchemaName = true;
     }
 
+    @Override
     public void connectedConfiguration(Connection conn)
         throws SQLException {
         super.connectedConfiguration(conn);
-        if (driverVendor == null) {
-            DatabaseMetaData meta = conn.getMetaData();
-            if ("Informix".equalsIgnoreCase(meta.getDriverName()))
+
+        DatabaseMetaData meta = conn.getMetaData();
+        String driverName = meta.getDriverName();
+        if (driverName != null) {
+            if (driverName.equals("IBM DB2 JDBC Universal Driver Architecture"))
+            { 
+                driverVendor = VENDOR_IBM;
+                useJCC = true;
+                try {
+                    if (meta.storesLowerCaseIdentifiers()) 
+                        schemaCase = SCHEMA_CASE_LOWER;
+                } catch (SQLException e) {}
+            } else if ("Informix".equalsIgnoreCase(driverName))
                 driverVendor = VENDOR_DATADIRECT;
             else
                 driverVendor = VENDOR_OTHER;
-        }
+        } else
+            driverVendor = VENDOR_OTHER;
+
         if (isJDBC3) {
             conn.setHoldability(ResultSet.HOLD_CURSORS_OVER_COMMIT);
             if (log.isTraceEnabled())
@@ -169,6 +187,7 @@ public class InformixDictionary
         }
     }
 
+    @Override
     public Column[] getColumns(DatabaseMetaData meta, String catalog,
         String schemaName, String tableName, String columnName, Connection conn)
         throws SQLException {
@@ -182,30 +201,34 @@ public class InformixDictionary
         return cols;
     }
 
+    @Override
     public Column newColumn(ResultSet colMeta)
         throws SQLException {
         Column col = super.newColumn(colMeta);
         if (swapSchemaAndCatalog)
-            col.setSchemaName(colMeta.getString("TABLE_CAT"));
+            col.setSchemaIdentifier(fromDBName(colMeta.getString("TABLE_CAT"), DBIdentifierType.CATALOG));
         return col;
     }
 
+    @Override
     public PrimaryKey newPrimaryKey(ResultSet pkMeta)
         throws SQLException {
         PrimaryKey pk = super.newPrimaryKey(pkMeta);
         if (swapSchemaAndCatalog)
-            pk.setSchemaName(pkMeta.getString("TABLE_CAT"));
+            pk.setSchemaIdentifier(fromDBName(pkMeta.getString("TABLE_CAT"), DBIdentifierType.CATALOG));
         return pk;
     }
 
+    @Override
     public Index newIndex(ResultSet idxMeta)
         throws SQLException {
         Index idx = super.newIndex(idxMeta);
         if (swapSchemaAndCatalog)
-            idx.setSchemaName(idxMeta.getString("TABLE_CAT"));
+            idx.setSchemaIdentifier(fromDBName(idxMeta.getString("TABLE_CAT"), DBIdentifierType.CATALOG));
         return idx;
     }
 
+    @Override
     public void setBoolean(PreparedStatement stmnt, int idx, boolean val,
         Column col)
         throws SQLException {
@@ -214,12 +237,14 @@ public class InformixDictionary
         stmnt.setString(idx, val ? "t" : "f");
     }
 
+    @Override
     public String[] getCreateTableSQL(Table table) {
         String[] create = super.getCreateTableSQL(table);
         create[0] = create[0] + " LOCK MODE ROW";
         return create;
     }
 
+    @Override
     public String[] getAddPrimaryKeySQL(PrimaryKey pk) {
         String pksql = getPrimaryKeyConstraintSQL(pk);
         if (pksql == null)
@@ -228,6 +253,7 @@ public class InformixDictionary
             + getFullName(pk.getTable(), false) + " ADD CONSTRAINT " + pksql };
     }
 
+    @Override
     public String[] getAddForeignKeySQL(ForeignKey fk) {
         String fksql = getForeignKeyConstraintSQL(fk);
         if (fksql == null)
@@ -236,12 +262,14 @@ public class InformixDictionary
             + getFullName(fk.getTable(), false) + " ADD CONSTRAINT " + fksql };
     }
 
+    @Override
     public boolean supportsRandomAccessResultSet(Select sel,
         boolean forUpdate) {
         return !forUpdate && !sel.isLob()
             && super.supportsRandomAccessResultSet(sel, forUpdate);
     }
 
+    @Override
     public Connection decorate(Connection conn)
         throws SQLException {
         conn = super.decorate(conn);
@@ -287,12 +315,14 @@ public class InformixDictionary
         return conn;
     }
 
+    @Override
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
         FilterValue start) {
         throw new UnsupportedException(_loc.get("function-not-supported",
                 getClass(), "LOCATE"));
     }
 
+    @Override
     public boolean needsToCreateIndex(Index idx, Table table) {
        // Informix will automatically create a unique index for the 
        // primary key, so don't create another index again
@@ -301,4 +331,37 @@ public class InformixDictionary
            return false;
        return true;
     }
+    
+    public boolean useJCC() {
+        return useJCC;
+    }
+    
+    /**
+     * Return DB specific schemaCase 
+     */
+    @Override
+    public String getSchemaCase(){
+        return schemaCase;
+    }
+        
+    @Override
+    protected Boolean matchErrorState(int subtype, Set<String> errorStates,
+        SQLException ex) {
+        Boolean recoverable = null;
+        String errorState = ex.getSQLState();
+        if (errorStates.contains(errorState)) {
+            // SQL State of IX000 is a general purpose Informix error code
+            // category, so only return Boolean.TRUE if we match SQL Codes
+            // recoverable = Boolean.FALSE;
+            if (subtype == StoreException.LOCK &&
+                ex.getErrorCode() == -154) {
+                recoverable = Boolean.TRUE;
+            } else if (subtype == StoreException.QUERY &&
+                ex.getErrorCode() == -213) {
+                recoverable = Boolean.TRUE;
+            }
+        }
+        return recoverable;
+    }
 }
+

@@ -21,6 +21,7 @@ package org.apache.openjpa.jdbc.kernel.exps;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
+import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.kernel.exps.Value;
 
 /**
@@ -109,5 +110,13 @@ abstract class AbstractVal
     public Value getSelectAs() {
         return _alias != null ? this : null;
     }
+
+    public Path getPath() {
+        return null;
+    }
+    
+    public String getName() {
+        return null;
+    }    
 }
 

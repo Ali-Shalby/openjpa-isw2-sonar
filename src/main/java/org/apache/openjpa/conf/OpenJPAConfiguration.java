@@ -18,14 +18,17 @@
  */
 package org.apache.openjpa.conf;
 
+import java.net.URL;
 import java.util.Collection;
 import java.util.Map;
 
 import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.datacache.DataCacheManager;
+import org.apache.openjpa.datacache.DataCacheMode;
 import org.apache.openjpa.ee.ManagedRuntime;
-import org.apache.openjpa.enhance.RuntimeUnenhancedClasssesModes;
+import org.apache.openjpa.enhance.RuntimeUnenhancedClassesModes;
 import org.apache.openjpa.event.BrokerFactoryEventManager;
+import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.event.OrphanedKeyAction;
 import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.RemoteCommitProvider;
@@ -46,11 +49,14 @@ import org.apache.openjpa.kernel.Seq;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.lib.encryption.EncryptionProvider;
 import org.apache.openjpa.meta.MetaDataFactory;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.ClassResolver;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.StoreFacadeTypeRegistry;
+import org.apache.openjpa.writebehind.WriteBehindCacheManager;
+import org.apache.openjpa.writebehind.WriteBehindCallback;
 
 /**
  * Defines the properties necessary to configure runtime properties and
@@ -211,7 +217,7 @@ public interface OpenJPAConfiguration
      * Return the set of option strings supported by this runtime. This set
      * is mutable.
      */
-    public Collection supportedOptions();
+    public Collection<String> supportedOptions();
 
     /**
      * Get a name of the Specification. Specification determines various 
@@ -220,7 +226,7 @@ public interface OpenJPAConfiguration
     public String getSpecification();
     
     /**
-     * Get the Specification. Specification determines various important default 
+     * Get the Specification. Specification determines various important default
      * behaviors.
      * 
      * @since 2.0.0
@@ -369,6 +375,8 @@ public interface OpenJPAConfiguration
      * The entities are never refreshed from DataCache if lock is being applied 
      * (e.g. in a pessimistic transaction) and hence this setting only refers 
      * to behavior when not locking.
+     * This flag can be used to overwrite RetrieveMode.BYPASS.
+     * By default, however, this falg is false. 
      * 
      * @since 1.2.0
      */
@@ -1536,9 +1544,9 @@ public interface OpenJPAConfiguration
      * Return the runtime class optimization setting as one of the
      * following symbolic constants:
      * <ul>
-     * <li>{@link RuntimeUnenhancedClasssesModes#SUPPORTED}</li>
-     * <li>{@link RuntimeUnenhancedClasssesModes#UNSUPPORTED}</li>
-     * <li>{@link RuntimeUnenhancedClasssesModes#WARN}</li>
+     * <li>{@link RuntimeUnenhancedClassesModes#SUPPORTED}</li>
+     * <li>{@link RuntimeUnenhancedClassesModes#UNSUPPORTED}</li>
+     * <li>{@link RuntimeUnenhancedClassesModes#WARN}</li>
      * </ul>
      *
      * @since 1.0.0
@@ -1549,15 +1557,23 @@ public interface OpenJPAConfiguration
      * Set the runtime class optimization setting as one of the
      * following symbolic constants:
      * <ul>
-     * <li>{@link RuntimeUnenhancedClasssesModes#SUPPORTED}</li>
-     * <li>{@link RuntimeUnenhancedClasssesModes#UNSUPPORTED}</li>
-     * <li>{@link RuntimeUnenhancedClasssesModes#WARN}</li>
+     * <li>{@link RuntimeUnenhancedClassesModes#SUPPORTED}</li>
+     * <li>{@link RuntimeUnenhancedClassesModes#UNSUPPORTED}</li>
+     * <li>{@link RuntimeUnenhancedClassesModes#WARN}</li>
      * </ul>
      *
      * @since 1.0.0
      */
     public void setRuntimeUnenhancedClasses(int mode);
-
+    /**
+     * Whether OpenJPA will attempt to dynamically load the enhancement agent.
+     */
+    public boolean getDynamicEnhancementAgent();
+    /**
+     * Sets whether OpenJPA will attempt to dynamically load the enhancement
+     * agent.
+     */
+    public void setDynamicEnhancementAgent(boolean dynamic);
     /**
      * A comma-separted list of the plugin strings specifying the
      * {@link CacheMarshaller}s to use.
@@ -1567,7 +1583,7 @@ public interface OpenJPAConfiguration
     public String getCacheMarshallers();
 
     /**
-     * A comma-separted list of the plugin strings specifying the
+     * A comma-separated list of the plugin strings specifying the
      * {@link CacheMarshaller}s to use.
      *
      * @since 1.1.0
@@ -1579,7 +1595,7 @@ public interface OpenJPAConfiguration
      *
      * @since 1.1.0 
      */
-    public Map getCacheMarshallerInstances();
+    public Map<String,CacheMarshaller> getCacheMarshallerInstances();
     
     /**
      * Affirms if all configured elements are initialized eagerly as opposed
@@ -1645,4 +1661,209 @@ public interface OpenJPAConfiguration
      * @since 2.0.0
      */
     public void setFinderCache(String cache);
+    
+    /**
+     * The bean validation mode to use for managed classes.
+     * Defaults to <code>AUTO</code>.
+     *
+     * @since 2.0.0
+     */
+    public String getValidationMode();
+
+    /**
+     * Set the bean validation mode to use for managed classes.
+     * If not set, defaults to <code>AUTO</code>.
+     *
+     * @since 2.0.0
+     */
+    public void setValidationMode(String mode);
+    
+    /**
+     * The ValidatorFactory provided by the container or application.
+     * Defaults to <code>null</code>.
+     *
+     * @since 2.0.0
+     */
+    public Object getValidationFactoryInstance();
+
+    /**
+     * Set the container or application provided ValidatorFactory instance.
+     * If not set, defaults to <code>null</code>.
+     *
+     * @since 2.0.0
+     */
+    public void setValidationFactory(Object factory);
+    
+    /**
+     * The Validator provided by the container or created by the runtime.
+     * Defaults to <code>null</code>.
+     *
+     * @since 2.0.0
+     */
+    public Object getValidatorInstance();
+
+    /**
+     * Set the container or application provided Validator instance.
+     * If not set, defaults to <code>null</code>.
+     *
+     * @since 2.0.0
+     */
+    public void setValidatorInstance(Object val);
+    
+    /**
+     * Gets the lifecycle event manager instance classname.
+     * 
+     * @since 2.0.0
+     */
+    public String getLifecycleEventManager();
+
+    /**
+     * Gets the lifecycle event manager instance.
+     * 
+     * @since 2.0.0
+     */
+    public LifecycleEventManager getLifecycleEventManagerInstance();
+
+    /**
+     * Sets the lifecycle event manager instance classname.
+     * 
+     * @since 2.0.0
+     */
+    public void setLifecycleEventManager(String eventMgr);
+
+    /**
+     * The {@link WriteBehindCache} configuration string.
+     * @since 2.0.0
+     */
+    public String getWriteBehindCache();
+
+    /**
+     * Set the {@link WriteBehindCache} configuration string.
+     * @since 2.0.0
+     */
+    public void setWriteBehindCache(String writeBehindCache);
+    
+    /**
+     * Get the {@link WriteBehindCacheManager} configuration string.
+     * @since 2.0.0
+     */
+    public String getWriteBehindCacheManager();
+
+    /**
+     * Set the {@link WriteBehindCacheManager} configuration string.
+     * @since 2.0.0
+     */
+    public void setWriteBehindCacheManager(String writeBehindCache);
+    
+    /**
+     * Get the {@link WriteBehindCacheManager} instance for this configuration.
+     * @since 2.0.0
+     */
+    public WriteBehindCacheManager getWriteBehindCacheManagerInstance();
+    
+    /**
+     * Get the {@link WriteBehindCallback} configuration string.
+     * @since 2.0.0
+     */
+    public String getWriteBehindCallback();
+    
+    /**
+     * Get the {@link WriteBehindCallback} instance for this configuration.
+     * @since 2.0.0 
+     */
+    public WriteBehindCallback getWriteBehindCallbackInstance();
+    
+    /**
+     * Set the {@link WriteBehindCallback} configuration string.
+     * @since 2.0.0
+     */
+    public void setWriteBehindCallback(String wbcallback);
+
+    /**
+     * Gets the validation groups for pre-persist
+     * 
+     * @Since 2.0.0
+     */
+    public String getValidationGroupPrePersist();
+
+    /**
+     * Sets the validation groups for pre-persist
+     * 
+     * @Since 2.0.0
+     */
+    public void setValidationGroupPrePersist(String vgPrePersist);
+
+    /**
+     * Gets the validation groups for pre-update
+     * 
+     * @Since 2.0.0
+     */
+    public String getValidationGroupPreUpdate();
+
+    /**
+     * Sets the validation groups for pre-update
+     * 
+     * @Since 2.0.0
+     */
+    public void setValidationGroupPreUpdate(String vgPreUpdate);
+
+    /**
+     * Gets the validation groups for pre-remove
+     * 
+     * @Since 2.0.0
+     */
+    public String getValidationGroupPreRemove();
+
+    /**
+     * Sets the validation groups for pre-remove
+     * 
+     * @Since 2.0.0
+     */
+    public void setValidationGroupPreRemove(String vgPreRemove);
+    
+    /**
+     * Sets the {@link EncryptionProvider}.
+     * 
+     * @param className
+     */
+    public void setEncryptionProvider(String className);
+    
+    /**
+     * Gets the {@link EncryptionProvider}.
+     * 
+     * @return EncryptionProvider
+     */
+    public EncryptionProvider getEncryptionProvider();
+    
+    
+    /**
+     * Set the {@link DataCacheMode}
+     * 
+     * @param mode One of the Sting constants from {@link DataCacheMode}
+     * @since 2.0.0
+     */
+    public void setDataCacheMode(String mode);
+
+    /**
+     * Return the String constant that matches the {@link DataCacheMode}
+     * @return DataCacheMode
+     * @since 2.0.0
+     */
+    public String getDataCacheMode();
+    
+    /**
+     * Set the persistent unit root url
+     * 
+     * @param the persistent unit root url
+     * @since 2.0.0
+     */
+    public void setPuRootUrl(URL url);
+    
+    /**
+     * Return the persistent unit rool URL
+     * @return URL
+     * @since 2.0.0
+     */
+    public URL getPuRootUrl();
 }
+

@@ -18,37 +18,29 @@
  */
 package org.apache.openjpa.enhance;
 
-import java.lang.instrument.Instrumentation;
-import java.lang.instrument.ClassFileTransformer;
 import java.lang.instrument.ClassDefinition;
-import java.lang.instrument.UnmodifiableClassException;
-import java.lang.reflect.InvocationTargetException;
+import java.lang.instrument.ClassFileTransformer;
+import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Method;
 import java.security.ProtectionDomain;
 import java.util.Map;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.ArrayList;
-import java.io.IOException;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
+import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.util.InternalException;
-import org.apache.openjpa.util.UserException;
 
 /**
  * Redefines the method bodies of existing classes. Supports Java 5 VMs that
- * have a javaagent installed on the command line as well as newer VMs without
- * any javaagent flag.
+ * have a java agent installed on the command line as well as newer VMs without
+ * any <code>-javaagent</code> flag.
  *
  * @since 1.0.0
  */
 public class ClassRedefiner {
 
-    private static final Localizer _loc = 
-        Localizer.forPackage(ClassRedefiner.class);
+    private static final Localizer _loc = Localizer.forPackage(ClassRedefiner.class);
 
     private static Boolean _canRedefine = null;
 
@@ -59,17 +51,17 @@ public class ClassRedefiner {
      * this method is a no-op.
      */
     public static void redefineClasses(OpenJPAConfiguration conf,
-        final Map<Class,byte[]> classes) {
-        if (classes == null || classes.size() == 0 || !canRedefineClasses())
+        final Map<Class<?>,byte[]> classes) {
+        Log log = conf.getLog(OpenJPAConfiguration.LOG_ENHANCE);
+        if (classes == null || classes.size() == 0 || !canRedefineClasses(log))
             return;
 
-        Log log = conf.getLog(OpenJPAConfiguration.LOG_ENHANCE);
         Instrumentation inst = null;
         ClassFileTransformer t = null;
         try {
-            inst = InstrumentationFactory.getInstrumentation();
+            inst = InstrumentationFactory.getInstrumentation(log);
 
-            Class[] array = classes.keySet().toArray(new Class[classes.size()]);
+            Class<?>[] array = classes.keySet().toArray(new Class[classes.size()]);
             if (JavaVersions.VERSION >= 6) {
                 log.trace(_loc.get("retransform-types", classes.keySet()));
 
@@ -100,17 +92,7 @@ public class ClassRedefiner {
                         classes.get(array[i]));
                 inst.redefineClasses(defs);
             }
-        } catch (NoSuchMethodException e) {
-            throw new InternalException(e);
-        } catch (IllegalAccessException e) {
-            throw new InternalException(e);
-        } catch (InvocationTargetException e) {
-            throw new UserException(e.getCause());
-        } catch (IOException e) {
-            throw new InternalException(e);
-        } catch (ClassNotFoundException e) {
-            throw new InternalException(e);
-        } catch (UnmodifiableClassException e) {
+        } catch (Exception e) {
             throw new InternalException(e);
         } finally {
             if (inst != null && t != null)
@@ -126,18 +108,16 @@ public class ClassRedefiner {
      * only checks whether or not an instrumentation is available and
      * if retransformation is possible.
      */
-    public static boolean canRedefineClasses() {
+    public static boolean canRedefineClasses(Log log) {
         if (_canRedefine == null) {
             try {
-                Instrumentation inst = InstrumentationFactory
-                    .getInstrumentation();
+                Instrumentation inst = InstrumentationFactory.getInstrumentation(log);
                 if (inst == null) {
                     _canRedefine = Boolean.FALSE;
                 } else if (JavaVersions.VERSION == 5) {
-                    // if inst is non-null and we're using Java 5,
+                    // if instrumentation is non-null and we're using Java 5,
                     // isRetransformClassesSupported isn't available,
-                    // so we use the more basic class redefinition
-                    // instead.
+                    // so we use the more basic class redefinition instead.
                     _canRedefine = Boolean.TRUE;
                 } else {
                     _canRedefine = (Boolean) Instrumentation.class.getMethod(

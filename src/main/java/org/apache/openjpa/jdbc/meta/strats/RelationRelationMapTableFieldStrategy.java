@@ -27,6 +27,7 @@ import org.apache.openjpa.kernel.*;
 import org.apache.openjpa.util.*;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.jdbc.meta.*;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.*;
 import org.apache.openjpa.jdbc.schema.*;
 import org.apache.openjpa.jdbc.sql.*;
@@ -80,7 +81,17 @@ public class RelationRelationMapTableFieldStrategy
         kunion.setLRS(lrs);
         kunion.select(new Union.Selector() {
             public void select(Select sel, int idx) {
-                sel.whereForeignKey(field.getJoinForeignKey(),
+                ForeignKey joinFK = null;
+                if (field.isUni1ToMFK()) {
+                    ValueMapping val = field.getElementMapping();
+                    ValueMappingInfo vinfo = val.getValueInfo();
+                    Table table = vinfo.getTable(val);
+                    joinFK = field.getMappingInfo().getJoinForeignKey(field, table, true);
+                } else {
+                    joinFK = field.getJoinForeignKey();
+                }
+                
+                sel.whereForeignKey(joinFK,
                     sm.getObjectId(), field.getDefiningMapping(), store);
 
                 // order before select in case we're faking union with
@@ -106,21 +117,29 @@ public class RelationRelationMapTableFieldStrategy
         vunion.setLRS(lrs);
         vunion.select(new Union.Selector() {
             public void select(Select sel, int idx) {
-                sel.whereForeignKey(field.getJoinForeignKey(),
-                    sm.getObjectId(), field.getDefiningMapping(), store);
+                if (field.isUni1ToMFK()) {
+                    sel.orderBy(field.getKeyMapping().getColumns(), true, true);
+                    sel.select(vals[idx], field.getElementMapping().
+                        getSelectSubclasses(), store, fetch, eagerMode, null);
+                    sel.whereForeignKey(field.getElementMapping().getForeignKey(),
+                        sm.getObjectId(), field.getElementMapping().getDeclaredTypeMapping(), store);
+                    
+                } else {
+                    sel.whereForeignKey(field.getJoinForeignKey(),
+                        sm.getObjectId(), field.getDefiningMapping(), store);
 
-                // order before select in case we're faking union with
-                // multiple selects; order vals used to merge results
-                FieldMapping mapped = field.getMappedByMapping();
-                Joins joins = joinValueRelation(sel.newJoins(), vals[idx]);
-                sel.orderBy(field.getKeyMapping().getColumns(), true, true);
-                sel.select(vals[idx], field.getElementMapping().
-                    getSelectSubclasses(), store, fetch, eagerMode, joins);
+                    // order before select in case we're faking union with
+                    // multiple selects; order vals used to merge results
+                    Joins joins = joinValueRelation(sel.newJoins(), vals[idx]);
+                    sel.orderBy(field.getKeyMapping().getColumns(), true, true);
+                    sel.select(vals[idx], field.getElementMapping().
+                        getSelectSubclasses(), store, fetch, eagerMode, joins);
 
-                //### cheat: result joins only care about the relation path;
-                //### thus we can use first mapping of union only
-                if (idx == 0)
-                    resJoins[1] = joins;
+                    //### cheat: result joins only care about the relation path;
+                    //### thus we can use first mapping of union only
+                    if (idx == 0)
+                        resJoins[1] = joins;
+                }
             }
         });
 
@@ -183,14 +202,14 @@ public class RelationRelationMapTableFieldStrategy
             throw new MetaDataException(_loc.get("not-relation", val));
         FieldMapping mapped = field.getMappedByMapping();
         DBDictionary dict = field.getMappingRepository().getDBDictionary();
-        String keyName = null;
-        if (mapped != null) {         
-            handleMappedBy(adapt);
-            keyName = dict.getValidColumnName("vkey", field.getTable());
-         } else {
+        DBIdentifier keyName = null;
+        if (field.isUni1ToMFK() || (!field.isBiMTo1JT() && mapped != null)) { 
+            handleMappedByForeignKey(adapt);
+            keyName = dict.getValidColumnName(DBIdentifier.newColumn("vkey"), field.getTable());
+        } else if (field.isBiMTo1JT() || mapped == null) { 
             field.mapJoin(adapt, true);
-            mapTypeJoin(val, "value", adapt);
-            keyName = dict.getValidColumnName("key", field.getTable());
+            mapTypeJoin(val, DBIdentifier.newColumn("value"), adapt);
+            keyName = dict.getValidColumnName(DBIdentifier.newColumn("key"), field.getTable());
         }
         mapTypeJoin(key, keyName, adapt);
 
@@ -200,7 +219,7 @@ public class RelationRelationMapTableFieldStrategy
     /**
      * Map the given value's join to its persistent type.
      */
-    private void mapTypeJoin(ValueMapping vm, String name, boolean adapt) {
+    private void mapTypeJoin(ValueMapping vm, DBIdentifier name, boolean adapt) {
         if (vm.getTypeMapping().isMapped()) {
             ValueMappingInfo vinfo = vm.getValueInfo();
             ForeignKey fk = vinfo.getTypeJoin(vm, name, false, adapt);
@@ -226,13 +245,15 @@ public class RelationRelationMapTableFieldStrategy
         if (map == null || map.isEmpty())
             return;
         
-        if (field.getMappedBy() != null)
+        if (!field.isBiMTo1JT() && field.getMappedBy() != null)
             return;
 
-        Row row = rm.getSecondaryRow(field.getTable(), Row.ACTION_INSERT);
-        row.setForeignKey(field.getJoinForeignKey(), field.getJoinColumnIO(),
-            sm);
-
+        Row row = null;
+        if (!field.isUni1ToMFK()) {
+            row = rm.getSecondaryRow(field.getTable(), Row.ACTION_INSERT);
+            row.setForeignKey(field.getJoinForeignKey(), field.getJoinColumnIO(),
+                sm);
+        }
         ValueMapping key = field.getKeyMapping();
         ValueMapping val = field.getElementMapping();
         StoreContext ctx = sm.getContext();
@@ -242,10 +263,17 @@ public class RelationRelationMapTableFieldStrategy
             entry = (Map.Entry) itr.next();
             keysm = RelationStrategies.getStateManager(entry.getKey(), ctx);
             valsm = RelationStrategies.getStateManager(entry.getValue(), ctx);
+            if (field.isUni1ToMFK()){
+                row = rm.getRow(field.getElementMapping().getDeclaredTypeMapping().getTable(),
+                    Row.ACTION_UPDATE, valsm, true);
+                row.wherePrimaryKey(valsm);
+                val.setForeignKey(row, sm);
+            } else {
+                val.setForeignKey(row, valsm);
+            }
             key.setForeignKey(row, keysm);
-            val.setForeignKey(row, valsm);
             
-            // so far, we poplulated the key/value of each
+            // so far, we populated the key/value of each
             // map element owned by the entity.
             // In the case of ToMany, and both sides
             // use Map to represent the relation,
@@ -253,13 +281,14 @@ public class RelationRelationMapTableFieldStrategy
             // from the view point of the owned side
             PersistenceCapable obj = sm.getPersistenceCapable();
             if (!populateKey(row, valsm, obj, ctx, rm, store))
-                rm.flushSecondaryRow(row);
+                if (!field.isUni1ToMFK())
+                    rm.flushSecondaryRow(row);
         }
     }
 
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
-        if (field.getMappedBy() != null)
+        if (field.getMappedBy() != null && !field.isBiMTo1JT())
             return;
         
         Map map = (Map) sm.fetchObject(field.getIndex());
@@ -289,38 +318,69 @@ public class RelationRelationMapTableFieldStrategy
         boolean canChange = val.getForeignKey().isLogical();
         Object mkey;
         if (canChange && !change.isEmpty()) {
-            Row changeRow = rm.getSecondaryRow(field.getTable(),
-                Row.ACTION_UPDATE);
-            changeRow.whereForeignKey(field.getJoinForeignKey(), sm);
-
+            Row changeRow = null;
+            if (!field.isUni1ToMFK()) {
+                rm.getSecondaryRow(field.getTable(),
+                    Row.ACTION_UPDATE);
+                changeRow.whereForeignKey(field.getJoinForeignKey(), sm);
+            }
             for (Iterator itr = change.iterator(); itr.hasNext();) {
                 mkey = itr.next();
+                Object mval = map.get(mkey);
+                if (mval == null) {
+                    Set<Map.Entry> entries = map.entrySet();
+                    for (Map.Entry entry : entries) {
+                        if (entry.getKey().equals(mkey))
+                            mval = entry.getValue();
+                    }
+                }
+                if (mval == null)
+                    continue;
                 keysm = RelationStrategies.getStateManager(mkey, ctx);
-                valsm = RelationStrategies.getStateManager(map.get(mkey), ctx);
+                valsm = RelationStrategies.getStateManager(mval, ctx);
                 key.whereForeignKey(changeRow, keysm);
-                val.setForeignKey(changeRow, valsm);
-                rm.flushSecondaryRow(changeRow);
+                if (field.isUni1ToMFK()){
+                    changeRow = rm.getRow(field.getElementMapping().getDeclaredTypeMapping().getTable(),
+                        Row.ACTION_UPDATE, valsm, true);
+                    changeRow.wherePrimaryKey(valsm);
+                    val.setForeignKey(changeRow, sm);
+                } else {
+                    val.setForeignKey(changeRow, valsm);
+                    rm.flushSecondaryRow(changeRow);
+                }
             }
         }
 
         // delete the removes
         Collection rem = ct.getRemoved();
         if (!rem.isEmpty() || (!canChange && !change.isEmpty())) {
-            Row delRow = rm.getSecondaryRow(field.getTable(),
-                Row.ACTION_DELETE);
-            delRow.whereForeignKey(field.getJoinForeignKey(), sm);
+            Row delRow = null;
+            if (!field.isUni1ToMFK()) {
+                delRow = rm.getSecondaryRow(field.getTable(),
+                    Row.ACTION_DELETE);
+                delRow.whereForeignKey(field.getJoinForeignKey(), sm);
+            }
 
             for (Iterator itr = rem.iterator(); itr.hasNext();) {
-                keysm = RelationStrategies.getStateManager(itr.next(), ctx);
-                key.whereForeignKey(delRow, keysm);
-                rm.flushSecondaryRow(delRow);
+                Object pc = itr.next();
+                if (field.isUni1ToMFK()){
+                    updateSetNull(sm, rm, pc);
+                } else {
+                    keysm = RelationStrategies.getStateManager(pc, ctx);
+                    key.whereForeignKey(delRow, keysm);
+                    rm.flushSecondaryRow(delRow);
+                }
             }
             if (!canChange && !change.isEmpty()) {
                 for (Iterator itr = change.iterator(); itr.hasNext();) {
-                    keysm = RelationStrategies.getStateManager(itr.next(),
-                        ctx);
-                    key.whereForeignKey(delRow, keysm);
-                    rm.flushSecondaryRow(delRow);
+                    Object pc = itr.next();
+                    if (field.isUni1ToMFK()){
+                        updateSetNull(sm, rm, pc);
+                    } else { 
+                        keysm = RelationStrategies.getStateManager(pc, ctx);
+                        key.whereForeignKey(delRow, keysm);
+                        rm.flushSecondaryRow(delRow);
+                    }
                 }
             }
         }
@@ -328,28 +388,65 @@ public class RelationRelationMapTableFieldStrategy
         // insert the adds
         Collection add = ct.getAdded();
         if (!add.isEmpty() || (!canChange && !change.isEmpty())) {
-            Row addRow = rm.getSecondaryRow(field.getTable(),
-                Row.ACTION_INSERT);
-            addRow.setForeignKey(field.getJoinForeignKey(),
-                field.getJoinColumnIO(), sm);
-
+            Row addRow = null;
+            if (!field.isUni1ToMFK()) {
+                addRow = rm.getSecondaryRow(field.getTable(),
+                    Row.ACTION_INSERT);
+                addRow.setForeignKey(field.getJoinForeignKey(),
+                    field.getJoinColumnIO(), sm);
+            }
             for (Iterator itr = add.iterator(); itr.hasNext();) {
                 mkey = itr.next();
+                Object mval = map.get(mkey);
+                if (mval == null) {
+                    Set<Map.Entry> entries = map.entrySet();
+                    for (Map.Entry entry : entries) {
+                        if (entry.getKey().equals(mkey))
+                            mval = entry.getValue();
+                    }
+                }
+                if (mval == null)
+                    continue;
                 keysm = RelationStrategies.getStateManager(mkey, ctx);
-                valsm = RelationStrategies.getStateManager(map.get(mkey), ctx);
-                key.setForeignKey(addRow, keysm);
-                val.setForeignKey(addRow, valsm);
-                rm.flushSecondaryRow(addRow);
+                valsm = RelationStrategies.getStateManager(mval, ctx);
+                if (field.isUni1ToMFK()){
+                    addRow = rm.getRow(field.getElementMapping().getDeclaredTypeMapping().getTable(),
+                        Row.ACTION_UPDATE, valsm, true);
+                    addRow.wherePrimaryKey(valsm);
+                    key.setForeignKey(addRow, keysm);
+                    val.setForeignKey(addRow, sm);
+                } else {
+                    key.setForeignKey(addRow, keysm);
+                    val.setForeignKey(addRow, valsm);
+                    rm.flushSecondaryRow(addRow);
+                }
             }
             if (!canChange && !change.isEmpty()) {
                 for (Iterator itr = change.iterator(); itr.hasNext();) {
                     mkey = itr.next();
+                    Object mval = map.get(mkey);
+                    if (mval == null) {
+                        Set<Map.Entry> entries = map.entrySet();
+                        for (Map.Entry entry : entries) {
+                            if (entry.getKey().equals(mkey))
+                                mval = entry.getValue();
+                        }
+                    }
+                    if (mval == null)
+                        continue;
                     keysm = RelationStrategies.getStateManager(mkey, ctx);
-                    valsm = RelationStrategies.getStateManager(map.get(mkey),
-                        ctx);
-                    key.setForeignKey(addRow, keysm);
-                    val.setForeignKey(addRow, valsm);
-                    rm.flushSecondaryRow(addRow);
+                    valsm = RelationStrategies.getStateManager(mval, ctx);
+                    if (field.isUni1ToMFK()){
+                        addRow = rm.getRow(field.getElementMapping().getDeclaredTypeMapping().getTable(),
+                            Row.ACTION_UPDATE, valsm, true);
+                        addRow.wherePrimaryKey(valsm);
+                        key.setForeignKey(addRow, keysm);
+                        val.setForeignKey(addRow, sm);
+                    } else {
+                        key.setForeignKey(addRow, keysm);
+                        val.setForeignKey(addRow, valsm);
+                        rm.flushSecondaryRow(addRow);
+                    }
                 }
             }
         }
@@ -402,5 +499,40 @@ public class RelationRelationMapTableFieldStrategy
     public Object toKeyDataStoreValue(Object val, JDBCStore store) {
         return RelationStrategies.toDataStoreValue(field.getKeyMapping(),
             val, store);
+    }
+    
+    public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
+        throws SQLException {
+        if (field.isUni1ToMFK()) {
+            Map mapObj = (Map)sm.fetchObject(field.getIndex());
+            updateSetNull(sm, store, rm, mapObj.keySet());
+            return;
+        }    
+        super.delete(sm, store, rm);
+    }
+    
+    private void updateSetNull(OpenJPAStateManager sm, JDBCStore store, RowManager rm,
+        Set rem) throws SQLException {
+        for (Iterator itr = rem.iterator(); itr.hasNext();) {
+            Object mkey = itr.next();
+            updateSetNull(sm, rm, mkey);
+        }
+    }
+    
+    private void updateSetNull(OpenJPAStateManager sm, RowManager rm, Object mkey) 
+        throws SQLException {
+        StoreContext ctx = sm.getContext();
+        ValueMapping key = field.getKeyMapping();
+        ValueMapping val = field.getElementMapping();
+        OpenJPAStateManager keysm = RelationStrategies.getStateManager(mkey, ctx);
+        Row delRow = rm.getRow(field.getElementMapping().getDeclaredTypeMapping().getTable(),
+                Row.ACTION_UPDATE, sm, true);
+        ValueMappingInfo vinfo = field.getElementMapping().getValueInfo();
+        Table table = vinfo.getTable(val);
+        ForeignKey joinFK = field.getMappingInfo().getJoinForeignKey(field, table, true);
+        delRow.whereForeignKey(joinFK, sm);
+        delRow.whereForeignKey(key.getForeignKey(), keysm);
+        val.setForeignKey(delRow, null);
+        key.setForeignKey(delRow, null);
     }
 }

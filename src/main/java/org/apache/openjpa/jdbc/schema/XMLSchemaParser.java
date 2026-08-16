@@ -30,6 +30,7 @@ import org.xml.sax.Locator;
 import org.xml.sax.SAXException;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.meta.XMLMetaDataParser;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Localizer.Message;
@@ -115,10 +116,10 @@ public class XMLSchemaParser
     private boolean _delay = false;
 
     // used to collect info on schema elements before they're resolved
-    private final Collection _pkInfos = new LinkedList();
-    private final Collection _indexInfos = new LinkedList();
-    private final Collection _unqInfos = new LinkedList();
-    private final Collection _fkInfos = new LinkedList();
+    private final Collection<PrimaryKeyInfo> _pkInfos = new LinkedList<PrimaryKeyInfo>();
+    private final Collection<IndexInfo> _indexInfos = new LinkedList<IndexInfo>();
+    private final Collection<UniqueInfo> _unqInfos = new LinkedList<UniqueInfo>();
+    private final Collection<ForeignKeyInfo> _fkInfos = new LinkedList<ForeignKeyInfo>();
 
     /**
      * Constructor. Supply configuration.
@@ -185,10 +186,10 @@ public class XMLSchemaParser
         PrimaryKeyInfo pkInfo;
         String colName;
         Column col;
-        for (Iterator itr = _pkInfos.iterator(); itr.hasNext();) {
-            pkInfo = (PrimaryKeyInfo) itr.next();
-            for (Iterator cols = pkInfo.cols.iterator(); cols.hasNext();) {
-                colName = (String) cols.next();
+        for (Iterator<PrimaryKeyInfo> itr = _pkInfos.iterator(); itr.hasNext();) {
+            pkInfo = itr.next();
+            for (Iterator<String> cols = pkInfo.cols.iterator(); cols.hasNext();) {
+                colName = cols.next();
                 col = pkInfo.pk.getTable().getColumn(colName);
                 if (col == null)
                     throwUserException(_loc.get("pk-resolve", new Object[]
@@ -206,10 +207,10 @@ public class XMLSchemaParser
         IndexInfo indexInfo;
         String colName;
         Column col;
-        for (Iterator itr = _indexInfos.iterator(); itr.hasNext();) {
-            indexInfo = (IndexInfo) itr.next();
-            for (Iterator cols = indexInfo.cols.iterator(); cols.hasNext();) {
-                colName = (String) cols.next();
+        for (Iterator<IndexInfo> itr = _indexInfos.iterator(); itr.hasNext();) {
+            indexInfo = itr.next();
+            for (Iterator<String> cols = indexInfo.cols.iterator(); cols.hasNext();) {
+                colName = cols.next();
                 col = indexInfo.index.getTable().getColumn(colName);
                 if (col == null)
                     throwUserException(_loc.get("index-resolve", new Object[]
@@ -232,10 +233,10 @@ public class XMLSchemaParser
         Column pkCol;
         String pkColName;
         PrimaryKey pk;
-        Iterator pks;
-        Iterator cols;
-        for (Iterator itr = _fkInfos.iterator(); itr.hasNext();) {
-            fkInfo = (ForeignKeyInfo) itr.next();
+        Iterator<String> pks;
+        Iterator<String> cols;
+        for (Iterator<ForeignKeyInfo> itr = _fkInfos.iterator(); itr.hasNext();) {
+            fkInfo = itr.next();
             toTable = _group.findTable(fkInfo.toTable);
             if (toTable == null || toTable.getPrimaryKey() == null)
                 throwUserException(_loc.get("fk-totable", new Object[]
@@ -267,8 +268,8 @@ public class XMLSchemaParser
 
             // make constant joins
             cols = fkInfo.constCols.iterator();
-            for (Iterator vals = fkInfo.consts.iterator(); vals.hasNext();) {
-                colName = (String) cols.next();
+            for (Iterator<Object> vals = fkInfo.consts.iterator(); vals.hasNext();) {
+                colName = cols.next();
                 col = fkInfo.fk.getTable().getColumn(colName);
                 if (col == null)
                     throwUserException(_loc.get("fk-nocol",
@@ -278,8 +279,8 @@ public class XMLSchemaParser
             }
 
             pks = fkInfo.constColsPK.iterator();
-            for (Iterator vals = fkInfo.constsPK.iterator(); vals.hasNext();) {
-                pkColName = (String) pks.next();
+            for (Iterator<Object> vals = fkInfo.constsPK.iterator(); vals.hasNext();) {
+                pkColName = pks.next();
                 pkCol = toTable.getColumn(pkColName);
                 if (pkCol == null)
                     throwUserException(_loc.get("fk-nopkcol", new Object[]
@@ -299,9 +300,9 @@ public class XMLSchemaParser
         UniqueInfo unqInfo;
         String colName;
         Column col;
-        for (Iterator itr = _unqInfos.iterator(); itr.hasNext();) {
-            unqInfo = (UniqueInfo) itr.next();
-            for (Iterator cols = unqInfo.cols.iterator(); cols.hasNext();) {
+        for (Iterator<UniqueInfo> itr = _unqInfos.iterator(); itr.hasNext();) {
+            unqInfo = itr.next();
+            for (Iterator<String> cols = unqInfo.cols.iterator(); cols.hasNext();) {
                 colName = (String) cols.next();
                 col = unqInfo.unq.getTable().getColumn(colName);
                 if (col == null)
@@ -412,7 +413,7 @@ public class XMLSchemaParser
             seq.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
             seq.setColNumber(Numbers.valueOf(locator.getColumnNumber()));
         }
-        seq.setSource(getSourceFile(), seq.SRC_XML);
+        seq.setSource(getSourceFile(), SourceTracker.SRC_XML);
         try {
             String val = attrs.getValue("initial-value");
             if (val != null)
@@ -430,7 +431,7 @@ public class XMLSchemaParser
 
     private void startTable(Attributes attrs) {
         _table = _schema.addTable(attrs.getValue("name"));
-        _table.setSource(getSourceFile(), _table.SRC_XML);
+        _table.setSource(getSourceFile(), SourceTracker.SRC_XML);
         Locator locator = getLocation().getLocator();
         if (locator != null) {
             _table.setLineNumber(Numbers.valueOf(locator.getLineNumber()));
@@ -580,7 +581,7 @@ public class XMLSchemaParser
     private static class PrimaryKeyInfo {
 
         public PrimaryKey pk = null;
-        public Collection cols = new LinkedList();
+        public Collection<String> cols = new LinkedList<String>();
     }
 
     /**
@@ -589,7 +590,7 @@ public class XMLSchemaParser
     private static class IndexInfo {
 
         public Index index = null;
-        public Collection cols = new LinkedList();
+        public Collection<String> cols = new LinkedList<String>();
     }
 
     /**
@@ -598,7 +599,7 @@ public class XMLSchemaParser
     public static class UniqueInfo {
 
         public Unique unq = null;
-        public Collection cols = new LinkedList();
+        public Collection<String> cols = new LinkedList<String>();
     }
 
     /**
@@ -608,11 +609,11 @@ public class XMLSchemaParser
 
         public ForeignKey fk = null;
         public String toTable = null;
-        public Collection cols = new LinkedList();
-        public Collection pks = new LinkedList();
-        public Collection consts = new LinkedList();
-        public Collection constCols = new LinkedList();
-        public Collection constsPK = new LinkedList();
-        public Collection constColsPK = new LinkedList();
+        public Collection<String> cols = new LinkedList<String>();
+        public Collection<String> pks = new LinkedList<String>();
+        public Collection<Object> consts = new LinkedList<Object>();
+        public Collection<String> constCols = new LinkedList<String>();
+        public Collection<Object> constsPK = new LinkedList<Object>();
+        public Collection<String> constColsPK = new LinkedList<String>();
     }
 }

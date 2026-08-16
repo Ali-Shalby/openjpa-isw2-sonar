@@ -38,6 +38,7 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -357,6 +358,10 @@ public class ResultSetResult
         if (metaTypeCode == -1 && obj instanceof Column)
             metaTypeCode = ((Column) obj).getJavaType();
 
+        boolean isClob = (obj instanceof Column) ? ((Column) obj).getType() == Types.CLOB && !((Column) obj).isXML()
+                : false;
+        obj = translate(obj, joins);
+        
         Object val = null;
         switch (metaTypeCode) {
             case JavaTypes.BOOLEAN:
@@ -393,7 +398,7 @@ public class ResultSetResult
                 val = new Short(getShortInternal(obj, joins));
                 break;
             case JavaTypes.STRING:
-                return getStringInternal(obj, joins);
+                return getStringInternal(obj, joins, isClob);
             case JavaTypes.OBJECT:
                 return _dict
                     .getBlobObject(_rs, ((Number) obj).intValue(), _store);
@@ -462,10 +467,11 @@ public class ResultSetResult
         return _dict.getShort(_rs, ((Number) obj).intValue());
     }
 
-    protected String getStringInternal(Object obj, Joins joins)
+    protected String getStringInternal(Object obj, Joins joins, boolean isClobString)
         throws SQLException {
-        if (obj instanceof Column && ((Column) obj).getType() == Types.CLOB)
-            return _dict.getClobString(_rs, ((Column) obj).getIndex());
+        if (isClobString) {
+            return _dict.getClobString(_rs, ((Number) obj).intValue());
+        }
         return _dict.getString(_rs, ((Number) obj).intValue());
     }
 
@@ -499,7 +505,9 @@ public class ResultSetResult
     protected int findObject(Object obj, Joins joins)
         throws SQLException {
         try {
-            return getResultSet().findColumn(obj.toString());
+          String s1 = obj.toString();
+          DBIdentifier sName = DBIdentifier.newColumn(obj.toString());
+          return getResultSet().findColumn(_dict.convertSchemaCase(sName));
         } catch (SQLException se) {
             return 0;
         }

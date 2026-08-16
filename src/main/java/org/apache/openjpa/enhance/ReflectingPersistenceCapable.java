@@ -28,6 +28,7 @@ import java.lang.reflect.Method;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StateManagerImpl;
+import org.apache.openjpa.meta.AccessCode;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -337,7 +338,8 @@ public class ReflectingPersistenceCapable
     }
 
     private Object getValue(int i, Object o) {
-        if (meta.getAccessType() == ClassMetaData.ACCESS_PROPERTY) {
+        FieldMetaData fmd = meta.getField(i);
+        if (AccessCode.isProperty(fmd.getAccessType())) {
             Field field = Reflection.findField(meta.getDescribedType(),
                 toFieldName(i), true);
             return Reflection.get(o, field);
@@ -356,7 +358,8 @@ public class ReflectingPersistenceCapable
     }
 
     private void setValue(int i, Object o, Object val) {
-        if (meta.getAccessType() == ClassMetaData.ACCESS_PROPERTY) {
+        FieldMetaData fmd = meta.getField(i);
+        if (AccessCode.isProperty(fmd.getAccessType())) {
             if (!meta.isIntercepting()) {
                 Method meth = Reflection.findSetter(meta.getDescribedType(),
                     meta.getField(i).getName(), true);

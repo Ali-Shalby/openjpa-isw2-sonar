@@ -47,6 +47,7 @@ import org.apache.openjpa.lib.rop.ListResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -287,11 +288,6 @@ public class ExpressionStoreQuery
         implements Executor {
 
         /**
-         * Return the parsed query expressions for our candidate types.
-         */
-        protected abstract QueryExpressions[] getQueryExpressions();
-
-        /**
          * Return the query expressions for one candidate type, or die if none.
          */
         private QueryExpressions assertQueryExpression() {
@@ -310,7 +306,7 @@ public class ExpressionStoreQuery
             if (val.isVariable())
                 return;
 
-            Class type;
+            Class<?> type;
             if (val instanceof Path) {
                 FieldMetaData fmd = ((Path) val).last();
                 type = (fmd == null) ? val.getType() : fmd.getDeclaredType();
@@ -355,8 +351,12 @@ public class ExpressionStoreQuery
                 q.getContext().getQueryString()));
         }
 
-        public final Class getResultClass(StoreQuery q) {
+        public final Class<?> getResultClass(StoreQuery q) {
             return assertQueryExpression().resultClass;
+        }
+        
+        public final ResultShape<?> getResultShape(StoreQuery q) {
+            return assertQueryExpression().shape;
         }
 
         public final boolean[] getAscending(StoreQuery q) {
@@ -370,6 +370,10 @@ public class ExpressionStoreQuery
         public final String[] getProjectionAliases(StoreQuery q) {
             return assertQueryExpression().projectionAliases;
         }
+        
+        public Class<?>[] getProjectionTypes(StoreQuery q) {
+            return null;
+        }
 
         public final int getOperation(StoreQuery q) {
             return assertQueryExpression().operation;
@@ -378,23 +382,27 @@ public class ExpressionStoreQuery
         public final boolean isAggregate(StoreQuery q) {
             return assertQueryExpression().isAggregate();
         }
+        
+        public final boolean isDistinct(StoreQuery q) {
+            return assertQueryExpression().isDistinct();
+        }
 
         public final boolean hasGrouping(StoreQuery q) {
             return assertQueryExpression().grouping.length > 0;
         }
 
-        public final LinkedMap getParameterTypes(StoreQuery q) {
+        public final OrderedMap<Object,Class<?>> getOrderedParameterTypes(StoreQuery q) {
             return assertQueryExpression().parameterTypes;
         }
 
         /**
          * Creates a Object[] from the values of the given user parameters.
          */
-        public Object[] toParameterArray(StoreQuery q, Map userParams) {
+        public Object[] toParameterArray(StoreQuery q, Map<?,?> userParams) {
             if (userParams == null || userParams.isEmpty())
                 return StoreQuery.EMPTY_OBJECTS;
 
-            LinkedMap paramTypes = getParameterTypes(q);
+            OrderedMap<?,Class<?>> paramTypes = getOrderedParameterTypes(q);
             Object[] arr = new Object[userParams.size()];
             int base = positionalParameterBase(userParams.keySet());
             for (Object key : paramTypes.keySet()) {
@@ -460,7 +468,7 @@ public class ExpressionStoreQuery
             if (exps.length == 1)
                 return exps[0].accessPath;
 
-            List metas = null;
+            List<ClassMetaData> metas = null;
             for (int i = 0; i < exps.length; i++)
                 metas = Filters.addAccessPathMetaDatas(metas,
                     exps[i].accessPath);
@@ -574,7 +582,7 @@ public class ExpressionStoreQuery
             }
         }
 
-        protected QueryExpressions[] getQueryExpressions() {
+        public QueryExpressions[] getQueryExpressions() {
             return _exps;
         }
 
@@ -735,7 +743,7 @@ public class ExpressionStoreQuery
             }
         }
 
-        protected QueryExpressions[] getQueryExpressions() {
+        public QueryExpressions[] getQueryExpressions() {
             return _exps;
         }
 

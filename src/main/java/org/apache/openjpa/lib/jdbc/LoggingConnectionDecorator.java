@@ -20,6 +20,7 @@ package org.apache.openjpa.lib.jdbc;
 
 import java.io.InputStream;
 import java.io.Reader;
+import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 import java.sql.Array;
 import java.sql.BatchUpdateException;
@@ -45,7 +46,18 @@ import java.util.Calendar;
 import java.util.Iterator;
 import java.util.List;
 
+import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator.LoggingConnection.
+        LoggingCallableStatement;
+import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator.LoggingConnection.
+        LoggingDatabaseMetaData;
+import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator.LoggingConnection.
+        LoggingPreparedStatement;
+import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator.LoggingConnection.
+        LoggingResultSet;
+import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator.LoggingConnection.
+        LoggingStatement;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 
 /**
@@ -58,6 +70,12 @@ import org.apache.openjpa.lib.util.J2DoPrivHelper;
 public class LoggingConnectionDecorator implements ConnectionDecorator {
 
     private static final String SEP = J2DoPrivHelper.getLineSeparator();
+    static final Constructor<LoggingConnection> loggingConnectionImpl;
+    static final Constructor<LoggingResultSet> loggingResultSetImpl;
+    static final Constructor<LoggingStatement> loggingStatementImpl;
+    static final Constructor<LoggingPreparedStatement> loggingPreparedStatementImpl;
+    static final Constructor<LoggingCallableStatement> loggingCallableStatementImpl;
+    static final Constructor<LoggingDatabaseMetaData> loggingDatabaseMetaDataImpl;
 
     private static final int WARN_IGNORE = 0;
     private static final int WARN_LOG_TRACE = 1;
@@ -76,6 +94,28 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
         WARNING_ACTIONS[WARN_LOG_ERROR] = "error";
         WARNING_ACTIONS[WARN_THROW] = "throw";
         WARNING_ACTIONS[WARN_HANDLE] = "handle";
+
+        try {
+            loggingConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(LoggingConnection.class,
+                LoggingConnectionDecorator.class, Connection.class);
+            loggingResultSetImpl = ConcreteClassGenerator.getConcreteConstructor(
+                LoggingConnection.LoggingResultSet.class, 
+                LoggingConnection.class, ResultSet.class, Statement.class);
+            loggingStatementImpl = ConcreteClassGenerator.getConcreteConstructor(
+                LoggingConnection.LoggingStatement.class,
+                LoggingConnection.class, Statement.class);
+            loggingPreparedStatementImpl = ConcreteClassGenerator.getConcreteConstructor(
+                LoggingConnection.LoggingPreparedStatement.class, 
+                LoggingConnection.class, PreparedStatement.class, String.class);
+            loggingCallableStatementImpl = ConcreteClassGenerator.getConcreteConstructor(
+                LoggingConnection.LoggingCallableStatement.class,
+                LoggingConnection.class, CallableStatement.class, String.class);
+            loggingDatabaseMetaDataImpl = ConcreteClassGenerator.getConcreteConstructor(
+                LoggingConnection.LoggingDatabaseMetaData.class,
+                LoggingConnection.class, DatabaseMetaData.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
     }
 
     private final DataSourceLogs _logs = new DataSourceLogs();
@@ -181,8 +221,14 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
     }
 
     public Connection decorate(Connection conn) throws SQLException {
-        return new LoggingConnection(conn);
+        return newLoggingConnection(conn);
     }
+         
+    private LoggingConnection newLoggingConnection(Connection conn)
+        throws SQLException {
+        return ConcreteClassGenerator.newInstance(loggingConnectionImpl, LoggingConnectionDecorator.this, conn);
+    }
+
 
     /**
      * Include SQL in exception.
@@ -190,7 +236,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
     private SQLException wrap(SQLException sqle, Statement stmnt) {
         if (sqle instanceof ReportingSQLException)
             return (ReportingSQLException) sqle;
-        return new ReportingSQLException(sqle, stmnt);
+        return new ReportingSQLException(sqle, stmnt, null);
     }
 
     /**
@@ -199,7 +245,13 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
     private SQLException wrap(SQLException sqle, String sql) {
         if (sqle instanceof ReportingSQLException)
             return (ReportingSQLException) sqle;
-        return new ReportingSQLException(sqle, sql);
+        return new ReportingSQLException(sqle, null, sql);
+    }
+    
+    private SQLException wrap(SQLException sqle, Statement stmnt, String sql) {
+        if (sqle instanceof ReportingSQLException)
+            return (ReportingSQLException) sqle;
+        return new ReportingSQLException(sqle, stmnt, sql);
     }
 
     /**
@@ -214,7 +266,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
     /**
      * Logging connection.
      */
-    private class LoggingConnection extends DelegatingConnection {
+    protected abstract class LoggingConnection extends DelegatingConnection {
 
         public LoggingConnection(Connection conn) throws SQLException {
             super(conn);
@@ -225,7 +277,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             SQLException err = null;
             try {
                 PreparedStatement stmnt = super.prepareStatement(sql, false);
-                return new LoggingPreparedStatement(stmnt, sql);
+                return newLoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
                 err = wrap(se, sql);
                 throw err;
@@ -240,7 +292,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, rsType, rsConcur, false);
-                return new LoggingPreparedStatement(stmnt, sql);
+                return newLoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
                 err =  wrap(se, sql);
                 throw err;
@@ -253,7 +305,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             SQLException err = null;
             try {
                 Statement stmnt = super.createStatement(false);
-                return new LoggingStatement(stmnt);
+                return newLoggingStatement(stmnt);
             }catch (SQLException se) {
                 err = se;
                 throw se;
@@ -268,7 +320,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             try {
                 Statement stmnt = super.createStatement(type, concurrency, 
                     false);
-                return new LoggingStatement(stmnt);
+                return newLoggingStatement(stmnt);
             } catch (SQLException se) {
                 err = se;
                 throw se;
@@ -282,7 +334,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             SQLException err = null;
             try {
                 CallableStatement stmt = super.prepareCall(sql, wrap);
-                return new LoggingCallableStatement(stmt, sql);
+                return newLoggingCallableStatement(stmt, sql);
             } catch (SQLException se) {
                 err = wrap(se, sql);
                 throw err;
@@ -290,6 +342,27 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 handleSQLErrors(err);
             }
         }
+
+        private LoggingPreparedStatement newLoggingPreparedStatement
+            (PreparedStatement stmnt, String sql) throws SQLException {
+            return ConcreteClassGenerator.newInstance(loggingPreparedStatementImpl, LoggingConnection.this, stmnt, sql);
+        }
+        
+        private CallableStatement newLoggingCallableStatement(CallableStatement stmnt, String sql) throws SQLException {
+            return ConcreteClassGenerator.newInstance(loggingCallableStatementImpl, LoggingConnection.this, stmnt, sql);
+        }
+        
+        private LoggingStatement newLoggingStatement(Statement stmnt)
+            throws SQLException {
+            return ConcreteClassGenerator.newInstance(loggingStatementImpl, LoggingConnection.this, stmnt);
+        }
+        
+        private LoggingDatabaseMetaData newLoggingDatabaseMetaData
+            (DatabaseMetaData meta) throws SQLException {
+            return ConcreteClassGenerator.newInstance(loggingDatabaseMetaDataImpl, LoggingConnection.this, meta);
+        }
+
+
 
         public void commit() throws SQLException {
             long start = System.currentTimeMillis();
@@ -412,7 +485,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             try {
                 Statement stmnt = super.createStatement(resultSetType,
                     resultSetConcurrency, resultSetHoldability, false);
-                return new LoggingStatement(stmnt);
+                return newLoggingStatement(stmnt);
             }catch (SQLException se) {
                 err = se;
                 throw se;
@@ -429,7 +502,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, resultSetType, resultSetConcurrency,
                         resultSetHoldability, false);
-                return new LoggingPreparedStatement(stmnt, sql);
+                return newLoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
                 err = wrap(se, sql);
                 throw err;
@@ -444,7 +517,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, autoGeneratedKeys, false);
-                return new LoggingPreparedStatement(stmnt, sql);
+                return newLoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
                 err = wrap(se, sql);
                 throw err;
@@ -459,7 +532,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, columnIndexes, false);
-                return new LoggingPreparedStatement(stmnt, sql);
+                return newLoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
                 err = wrap(se, sql);
                 throw err;
@@ -474,7 +547,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             try {
                 PreparedStatement stmnt = super.prepareStatement
                     (sql, columnNames, false);
-                return new LoggingPreparedStatement(stmnt, sql);
+                return newLoggingPreparedStatement(stmnt, sql);
             } catch (SQLException se) {
                 err = wrap(se, sql);
                 throw err;
@@ -485,7 +558,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
 
         protected DatabaseMetaData getMetaData(boolean wrap)
             throws SQLException {
-            return new LoggingDatabaseMetaData(super.getMetaData(false));
+            return newLoggingDatabaseMetaData(super.getMetaData(false));
         }
 
         /**
@@ -627,7 +700,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
         /**
          * Metadata wrapper that logs actions.
          */
-        private class LoggingDatabaseMetaData
+        protected abstract class LoggingDatabaseMetaData
             extends DelegatingDatabaseMetaData {
 
             public LoggingDatabaseMetaData(DatabaseMetaData meta) {
@@ -807,12 +880,16 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
          * Statement wrapper that logs SQL to the parent data source and
          * remembers the last piece of SQL to be executed on it.
          */
-        private class LoggingStatement extends DelegatingStatement {
+        protected abstract class LoggingStatement extends DelegatingStatement {
 
             private String _sql = null;
 
             public LoggingStatement(Statement stmnt) throws SQLException {
                 super(stmnt, LoggingConnection.this);
+            }
+
+            private LoggingResultSet newLoggingResultSet(ResultSet rs, Statement stmnt) {
+                return ConcreteClassGenerator.newInstance(loggingResultSetImpl, LoggingConnection.this, rs, stmnt);
             }
 
             public void appendInfo(StringBuffer buf) {
@@ -830,7 +907,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             protected ResultSet wrapResult(ResultSet rs, boolean wrap) {
                 if (!wrap || rs == null)
                     return super.wrapResult(rs, wrap);
-                return new LoggingResultSet(rs, this);
+                return newLoggingResultSet(rs, this);
             }
 
             public void cancel() throws SQLException {
@@ -848,7 +925,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.executeQuery(sql, wrap);
                 } catch (SQLException se) {               	
-                    err = wrap(se, LoggingStatement.this);
+                    err = wrap(se, LoggingStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -864,7 +941,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.executeUpdate(sql);
                 } catch (SQLException se) {                	
-                    err = wrap(se, LoggingStatement.this);
+                    err = wrap(se, LoggingStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -880,7 +957,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.execute(sql);
                 } catch (SQLException se) {
-                    err = wrap(se, LoggingStatement.this);
+                    err = wrap(se, LoggingStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -889,7 +966,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
             }
         }
 
-        private class LoggingPreparedStatement
+        protected abstract class LoggingPreparedStatement
             extends DelegatingPreparedStatement {
 
             private final String _sql;
@@ -902,10 +979,19 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 _sql = sql;
             }
 
+            private LoggingResultSet newLoggingResultSet(ResultSet rs,
+                PreparedStatement stmnt) {
+                return ConcreteClassGenerator.
+                    newInstance(loggingResultSetImpl,
+                    LoggingConnection.class, LoggingConnection.this,
+                    ResultSet.class, rs,
+                    PreparedStatement.class, stmnt);
+            }
+
             protected ResultSet wrapResult(ResultSet rs, boolean wrap) {
                 if (!wrap || rs == null)
                     return super.wrapResult(rs, wrap);
-                return new LoggingResultSet(rs, this);
+                return newLoggingResultSet(rs, this);
             }
 
             protected ResultSet executeQuery(String sql, boolean wrap)
@@ -916,7 +1002,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.executeQuery(sql, wrap);
                 } catch (SQLException se) {
-                    err = wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -932,7 +1018,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.executeUpdate(sql);
                 } catch (SQLException se) {
-                    err =  wrap(se, LoggingPreparedStatement.this);
+                    err =  wrap(se, LoggingPreparedStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -948,7 +1034,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.execute(sql);
                 } catch (SQLException se) {
-                    err = wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -964,7 +1050,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.executeQuery(wrap);
                 } catch (SQLException se) {
-                    err = wrap(se, LoggingPreparedStatement.this);
+                    err = wrap(se, LoggingPreparedStatement.this, _sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -1185,7 +1271,8 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                             _paramBatch = new ArrayList<List<String>>();
                         // copy parameters since they will be re-used
                         if (_params != null) {
-                            List<String> copyParms = new ArrayList<String>(_params);
+                            List<String> copyParms =
+                                    new ArrayList<String>(_params);
                             _paramBatch.add(copyParms);
                         }
                         else
@@ -1258,9 +1345,9 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                     buf.append(_sql);
                 }
 
-                StringBuffer paramBuf = null;
+                StringBuilder paramBuf = null;
                 if (_params != null && !_params.isEmpty()) {
-                    paramBuf = new StringBuffer();
+                    paramBuf = new StringBuilder();
                     for (Iterator<String> itr = _params.iterator(); itr
                         .hasNext();) {
                         paramBuf.append(itr.next());
@@ -1343,7 +1430,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
         /**
          * Warning-handling result set.
          */
-        private class LoggingResultSet extends DelegatingResultSet {
+        protected abstract class LoggingResultSet extends DelegatingResultSet {
 
             public LoggingResultSet(ResultSet rs, Statement stmnt) {
                 super(rs, stmnt);
@@ -1463,7 +1550,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
          * Similar to {@link LoggingPreparedStatement} but can not be extended
          * due to the existing delegation hierarchy.
          */
-        private class LoggingCallableStatement extends 
+        protected abstract class LoggingCallableStatement extends 
             DelegatingCallableStatement {
             private final String _sql;
             private List<String> _params = null;
@@ -1475,10 +1562,19 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
         		_sql = sql;
         	}
         	
+            private LoggingResultSet newLoggingResultSet(ResultSet rs,
+                CallableStatement stmnt) {
+                return ConcreteClassGenerator.
+                    newInstance(loggingResultSetImpl,
+                    LoggingConnection.class, LoggingConnection.this,
+                    ResultSet.class, rs,
+                    CallableStatement.class, stmnt);
+            }
+            
             protected ResultSet wrapResult(ResultSet rs, boolean wrap) {
                 if (!wrap || rs == null)
                     return super.wrapResult(wrap, rs);
-                return new LoggingResultSet(rs, this);
+                return newLoggingResultSet(rs, this);
             }
 
             protected ResultSet executeQuery(String sql, boolean wrap)
@@ -1489,7 +1585,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.executeQuery(sql, wrap);
                 } catch (SQLException se) {
-                    err = wrap(se, LoggingCallableStatement.this);
+                    err = wrap(se, LoggingCallableStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -1505,7 +1601,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.executeUpdate(sql);
                 } catch (SQLException se) {
-                    err = wrap(se, LoggingCallableStatement.this);
+                    err = wrap(se, LoggingCallableStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -1521,7 +1617,7 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                 try {
                     return super.execute(sql);
                 } catch (SQLException se) {
-                    err = wrap(se, LoggingCallableStatement.this);
+                    err = wrap(se, LoggingCallableStatement.this, sql);
                     throw err;
                 } finally {
                     logTime(start);
@@ -1832,9 +1928,9 @@ public class LoggingConnectionDecorator implements ConnectionDecorator {
                     buf.append(_sql);
                 }
 
-                StringBuffer paramBuf = null;
+                StringBuilder paramBuf = null;
                 if (_params != null && !_params.isEmpty()) {
-                    paramBuf = new StringBuffer();
+                    paramBuf = new StringBuilder();
                     for (Iterator<String> itr = _params.iterator(); itr
                         .hasNext();) {
                         paramBuf.append(itr.next());

@@ -14,13 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
 import java.lang.reflect.InvocationTargetException;
 
 import org.apache.openjpa.kernel.Broker;
+import org.apache.openjpa.kernel.MixedLockLevels;
 import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.LockException;
 import org.apache.openjpa.util.NoTransactionException;
@@ -32,6 +33,7 @@ import org.apache.openjpa.util.QueryException;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UserException;
+import org.apache.openjpa.util.WrappedException;
 
 /**
  * Converts from OpenJPA to persistence exception types.
@@ -137,6 +139,8 @@ public class PersistenceExceptions
                 return translateStoreException(ke);
             case OpenJPAException.USER:
                 return translateUserException(ke);
+            case OpenJPAException.WRAPPED:
+                return translateWrappedException(ke);
             default:
                 return translateGeneralException(ke);
         }
@@ -147,25 +151,25 @@ public class PersistenceExceptions
      */
     private static Throwable translateStoreException(OpenJPAException ke) {
         Exception e;
-        Throwable cause = (ke.getNestedThrowables() != null 
+        Throwable cause = (ke.getNestedThrowables() != null
                         && ke.getNestedThrowables().length == 1)
                          ? ke.getNestedThrowables()[0] : null;
-        if (ke.getSubtype() == StoreException.OBJECT_NOT_FOUND 
+        if (ke.getSubtype() == StoreException.OBJECT_NOT_FOUND
          || cause instanceof ObjectNotFoundException) {
                 e = new org.apache.openjpa.persistence.EntityNotFoundException
                     (ke.getMessage(), getNestedThrowables(ke),
                         getFailedObject(ke), ke.isFatal());
-        } else if (ke.getSubtype() == StoreException.OPTIMISTIC 
+        } else if (ke.getSubtype() == StoreException.OPTIMISTIC
         		|| cause instanceof OptimisticException) {
             	e = new org.apache.openjpa.persistence.OptimisticLockException
                     (ke.getMessage(), getNestedThrowables(ke),
                         getFailedObject(ke), ke.isFatal());
-        } else if (ke.getSubtype() == StoreException.LOCK 
+        } else if (ke.getSubtype() == StoreException.LOCK
                 || cause instanceof LockException) {
             LockException lockEx = (LockException)
                 (ke instanceof LockException ? ke : cause);
-            if (lockEx != null && lockEx.getLockLevel() >= 
-                JPA2LockLevels.LOCK_PESSIMISTIC_READ) {
+            if (lockEx != null && lockEx.getLockLevel() >=
+                MixedLockLevels.LOCK_PESSIMISTIC_READ) {
                 if (!lockEx.isFatal()) {
                     e = new org.apache.openjpa.persistence
                         .LockTimeoutException(
@@ -211,10 +215,10 @@ public class PersistenceExceptions
 
     /**
      * Translate the given user exception.
-     * If a {link {@link OpenJPAException#getSubtype() sub type} is set on the 
+     * If a {link {@link OpenJPAException#getSubtype() sub type} is set on the
      * given exception then a corresponding facade-level exception i.e. the
      * exceptions that inherit JPA-defined exceptions is generated.
-     * If given exception is not further classified to a sub type, then 
+     * If given exception is not further classified to a sub type, then
      * an [@link {@link #translateInternalException(OpenJPAException)} attempt}
      * is made to translate the given OpenJPAException by its internal cause.
      */
@@ -222,7 +226,7 @@ public class PersistenceExceptions
         Exception e;
         switch (ke.getSubtype()) {
             case UserException.NO_TRANSACTION:
-                e = new 
+                e = new
                     org.apache.openjpa.persistence.TransactionRequiredException
                         (ke.getMessage(), getNestedThrowables(ke),
                             getFailedObject(ke), ke.isFatal());
@@ -249,15 +253,28 @@ public class PersistenceExceptions
         return e;
     }
     
+    /*
+     * Translate the given wrapped exception.  If contains an Exception, return
+     * the exception.  If contains a Throwable, wrap the throwable and
+     * return it.
+     */
+    private static Exception translateWrappedException(OpenJPAException ke) {
+        Throwable t = ke.getCause();
+        if (t instanceof Exception)
+        	return (Exception)t;
+        return translateCause(ke);
+    }
+
     /**
-     * Translate to a facade-level exception if the given exception 
-     *     a) has a cause i.e. one and only nested Throwable 
-     * and b) that cause is one of the known internal exception which has a 
-     *        direct facade-level counterpart 
-     *        (for example, ObjectNotFoundException can be translated to 
-     *         EntityNotFoundException). 
-     * If the above conditions are not met then return generic ArgumentException.
-     * 
+     * Translate to a facade-level exception if the given exception
+     *     a) has a cause i.e. one and only nested Throwable
+     * and b) that cause is one of the known internal exception which has a
+     *        direct facade-level counterpart
+     *        (for example, ObjectNotFoundException can be translated to
+     *         EntityNotFoundException).
+     * If the above conditions are not met then return generic
+     *    ArgumentException.
+     *
      * In either case, preserve all the details.
      */
     private static Exception translateCause(OpenJPAException ke) {

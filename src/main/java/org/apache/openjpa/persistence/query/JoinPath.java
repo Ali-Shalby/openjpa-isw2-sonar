@@ -18,7 +18,6 @@
  */
 package org.apache.openjpa.persistence.query;
 
-import javax.persistence.DomainObject;
 import static org.apache.openjpa.persistence.query.PathOperator.NAVIGATION;
 
 /**
@@ -28,7 +27,8 @@ import static org.apache.openjpa.persistence.query.PathOperator.NAVIGATION;
  *
  */
 public class JoinPath extends AbstractDomainObject implements DomainObject {
-	public JoinPath(AbstractDomainObject parent, PathOperator join, String attr) {
+    public JoinPath(AbstractDomainObject parent, PathOperator join, String attr)
+    {
 		super(parent.getOwner(), parent, join, attr);
 	}
 	
@@ -49,7 +49,7 @@ public class JoinPath extends AbstractDomainObject implements DomainObject {
 		
 	@Override
 	public String asJoinable(AliasContext ctx) {
-		return new StringBuffer(getOperator().toString())
+		return new StringBuilder(getOperator().toString())
 		   .append(getParent().asProjection(ctx))
 		   .append(NAVIGATION)
 		   .append(getLastSegment())
@@ -76,7 +76,7 @@ public class JoinPath extends AbstractDomainObject implements DomainObject {
 	}
 	
 	public String toString() {
-		return getOperator() + getParent().toString() + "*" + getLastSegment();
+        return getOperator() + getParent().toString() + "*" + getLastSegment();
 	}
 
 }

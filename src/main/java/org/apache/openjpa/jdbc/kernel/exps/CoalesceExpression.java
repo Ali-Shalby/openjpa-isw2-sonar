@@ -28,6 +28,7 @@ import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
+import org.apache.openjpa.kernel.exps.Value;
 import org.apache.openjpa.meta.ClassMetaData;
 
 /**
@@ -41,6 +42,8 @@ public class CoalesceExpression
     private final Val[] _vals;
     private ClassMetaData _meta = null;
     private Class _cast = null;
+    private Value other = null;
+    private ExpState otherState = null;
 
     /**
      * Constructor.
@@ -92,8 +95,7 @@ public class CoalesceExpression
         SQLBuffer buf, int index) {
         CoalesceExpState cstate = (CoalesceExpState) state;
         
-        buf.append(" COALESCE ");
-        buf.append("(");
+        buf.append(" COALESCE("); // MySQL does not like space before bracket
 
         for (int i = 0; i < _vals.length; i++) {
             if (i > 0)
@@ -127,7 +129,7 @@ public class CoalesceExpression
         Val other, ExpState otherState) {
         CoalesceExpState cstate = (CoalesceExpState) state;
         for (int i = 0; i < _vals.length; i++)   
-            _vals[i].calculateValue(sel, ctx, cstate.states[i], null, null);
+            _vals[i].calculateValue(sel, ctx, cstate.states[i], other, otherState);
     }
 
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
@@ -139,7 +141,7 @@ public class CoalesceExpression
     }
 
     private SQLBuffer newSQLBuffer(Select sel, ExpContext ctx, ExpState state) {
-        calculateValue(sel, ctx, state, null, null);
+        calculateValue(sel, ctx, state, (Val)other, otherState);
         SQLBuffer buf = new SQLBuffer(ctx.store.getDBDictionary());
         appendTo(sel, ctx, state, buf, 0);
         return buf;
@@ -170,6 +172,22 @@ public class CoalesceExpression
 
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
+    }
+    
+    public void setOtherPath(Value other) {
+        this.other = other;
+    }
+    
+    public Value getOtherPath() {
+        return other;
+    }
+    
+    public void setOtherState(ExpState otherState) {
+        this.otherState = otherState;
+    }
+    
+    public ExpState getOtherState() {
+        return otherState;
     }
 }
 

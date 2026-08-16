@@ -481,18 +481,18 @@ public class Configurations {
 
 		if (!invalidEntries.isEmpty() && configurationName != null) {
 			Localizer.Message msg = null;
-			String first = (String) invalidEntries.keySet().iterator().next();
+            String first = (String) invalidEntries.keySet().iterator().next();
 			if (invalidEntries.keySet().size() == 1 &&
 				first.indexOf('.') == -1) {
-				// if there's just one misspelling and this is not a
+                // if there's just one misspelling and this is not a
 				// path traversal, check for near misses.
-				Collection<String> options = findOptionsFor(obj.getClass());
-				String close = StringDistance.getClosestLevenshteinDistance
+                Collection<String> options = findOptionsFor(obj.getClass());
+                String close = StringDistance.getClosestLevenshteinDistance
 					(first, options, 0.75f);
 				if (close != null)
-					msg = _loc.get("invalid-config-param-hint", new Object[]{
-						configurationName, obj.getClass(), first, close,
-						options, });
+                    msg = _loc.get("invalid-config-param-hint", new Object[]{
+                            configurationName, obj.getClass(), first, close,
+						    options, });
 			}
 
             if (msg == null) {
@@ -527,7 +527,7 @@ public class Configurations {
         if (map == null || map.isEmpty())
             return null;
 
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         Map.Entry entry;
         String val;
         for (Iterator itr = map.entrySet().iterator(); itr.hasNext();) {
@@ -584,7 +584,7 @@ public class Configurations {
                     val = val.substring(1, val.length() - 1);
                 else if (val.startsWith("\"") || val.startsWith("'")) {
                     quote = val.charAt(0);
-                    StringBuffer buf = new StringBuffer(val.substring(1));
+                    StringBuilder buf = new StringBuilder(val.substring(1));
                     int quotIdx;
                     while (++i < props.length) {
                         buf.append(",");
@@ -677,11 +677,10 @@ public class Configurations {
     public static Object removeProperty(String partialKey, Map props) {
         if (partialKey == null || props == null || props.isEmpty())
             return null;
-        if (containsProperty(partialKey, props))
-            return props.remove(ProductDerivations.getConfigurationKey(
-                partialKey, props));
-        else
-            return null;
+ 	if (containsProperty(partialKey, props))
+	    return props.remove(ProductDerivations.getConfigurationKey(partialKey, props));
+	else 
+	    return null;
     }
 
     /**

@@ -38,7 +38,7 @@ public class WhenClause {
 	
 	void setThen(Object then) {
 		if (hasThen())
-			throw new IllegalStateException("then() is already set");
+            throw new IllegalStateException("then() is already set");
 		this.then = then;
 	}
 	
@@ -47,7 +47,7 @@ public class WhenClause {
 	}
 	
 	public String toJPQL(AliasContext ctx) {
-		StringBuffer tmp = new StringBuffer();
+		StringBuilder tmp = new StringBuilder();
 		tmp.append(" WHEN ").append(JPQLHelper.toJPQL(ctx, when))
 		   .append(" THEN ").append(JPQLHelper.toJPQL(ctx, then));
 		return tmp.toString();

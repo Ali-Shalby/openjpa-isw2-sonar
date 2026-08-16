@@ -20,6 +20,7 @@ package org.apache.openjpa.meta;
 
 import java.lang.reflect.Member;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.event.CallbackModes;
 
 /**
@@ -80,13 +81,50 @@ public interface MetaDataDefaults
     public void populate(ClassMetaData meta, int access);
 
     /**
+     * Populate the given metadata with default settings.
+     *
+     * @param access access type constant from {@link ClassMetaData}
+     */
+    public void populate(ClassMetaData meta, int access, boolean ignoreTransient);
+
+    /**
      * Return the backing member for the given field metadata.
      */
     public Member getBackingMember(FieldMetaData field);
+    
+    /**
+     * Get the field or getter for the given attribute of the given class.
+     * 
+     * @param meta is the declaring class 
+     * @param attribute name of the logical attribute
+     * @param access whether to look for the field of getter method. 
+     * If unknown, then field or property is chosen based on the access type 
+     * used by the given class.
+     * @param scanAnnotation if true and access is unknown then scans the
+     * annotation on the member to determine access.
+     * 
+     * @since 2.0.0
+     */
+    public Member getMemberByProperty(ClassMetaData meta, String attribute, 
+    	int access, boolean scanAnnotation);
 
     /**
      * Return a runtime exception class to throw for un-implemented
      * managed interface methods.
      */
     public Class getUnimplementedExceptionType();
+    
+    /**
+     * Whether the relationship in MappedSuper class must be
+     * uni-directional.  
+     * @since 2.0.0
+     */
+    public boolean isAbstractMappingUniDirectional(OpenJPAConfiguration conf);
+    
+    /**
+     * Whether non-default mapping is allowed.
+     * @since 2.0.0
+     */
+    public boolean isNonDefaultMappingAllowed(OpenJPAConfiguration conf);
+    
 }

@@ -24,6 +24,7 @@ import java.util.Map;
 import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
+import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 
@@ -333,6 +334,14 @@ public class DelegatingQuery
             throw translate(re);
         }
     }
+    
+    public boolean isDistinct() {
+        try {
+            return _query.isDistinct();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
 
     public Class getResultType() {
         try {
@@ -377,6 +386,14 @@ public class DelegatingQuery
     public String getParameterDeclaration() {
         try {
             return _query.getParameterDeclaration();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    public OrderedMap<Object,Class<?>> getOrderedParameterTypes() {
+        try {
+            return _query.getOrderedParameterTypes();
         } catch (RuntimeException re) {
             throw translate(re);
         }

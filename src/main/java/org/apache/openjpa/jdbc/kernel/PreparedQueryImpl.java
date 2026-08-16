@@ -31,7 +31,6 @@ import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.sql.LogicalUnion;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
-import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.jdbc.sql.SelectExecutor;
 import org.apache.openjpa.jdbc.sql.SelectImpl;
 import org.apache.openjpa.jdbc.sql.Union;
@@ -40,6 +39,10 @@ import org.apache.openjpa.kernel.PreparedQuery;
 import org.apache.openjpa.kernel.Query;
 import org.apache.openjpa.kernel.QueryImpl;
 import org.apache.openjpa.kernel.QueryLanguages;
+import org.apache.openjpa.kernel.StoreQuery;
+import org.apache.openjpa.kernel.PreparedQueryCache.Exclusion;
+import org.apache.openjpa.kernel.exps.QueryExpressions;
+import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultList;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.ImplHelper;
@@ -48,6 +51,9 @@ import org.apache.openjpa.util.UserException;
 
 /**
  * Implements {@link PreparedQuery} for SQL queries.
+ * PreparedQuery holds the post-compilation and post-execution state of a kernel Query.
+ * The post-execution internal state of a query is appended as a <em>user object</em>
+ * to the user-visible result to maintain the API contract. 
  * 
  * @author Pinaki Poddar
  *
@@ -61,10 +67,13 @@ public class PreparedQueryImpl implements PreparedQuery {
     private boolean _initialized;
     
     // Post-compilation state of an executable query, populated on construction
-    private Class _candidate;
+    private Class<?> _candidate;
     private boolean _subclasses;
-    private boolean _isProjection;
     
+    // post-execution state of a query
+    private QueryExpressions[] _exps;
+    private Class<?>[] _projTypes;
+
     // Position of the user defined parameters in the _params list
     private Map<Object, int[]>    _userParamPositions;
     private Map<Integer, Object> _template;
@@ -93,7 +102,6 @@ public class PreparedQueryImpl implements PreparedQuery {
         if (compiled != null) {
             _candidate    = compiled.getCandidateType();
             _subclasses   = compiled.hasSubclasses();
-            _isProjection = compiled.getProjectionAliases().length > 0;
         }
     }
     
@@ -125,13 +133,21 @@ public class PreparedQueryImpl implements PreparedQuery {
         return _initialized;
     }
     
+    public QueryExpressions[] getQueryExpressions() {
+        return _exps;
+    }
+    
+    public Class[] getProjectionTypes() {
+        return _projTypes;
+    }
+    
     /**
      * Pours the post-compilation state held by this receiver to the given
      * query.
      */
     public void setInto(Query q) {
-        if (!_isProjection)
-            q.setCandidateType(_candidate, _subclasses);
+    	q.setQuery(_id);
+        q.setCandidateType(_candidate, _subclasses);
     }
 
     /**
@@ -139,45 +155,71 @@ public class PreparedQueryImpl implements PreparedQuery {
      * The input argument is processed only if it is a {@link ResultList} with
      * an attached {@link SelectResultObjectProvider} as its
      * {@link ResultList#getUserObject() user object}. 
+     * 
+     * @return an exclusion if can not be initialized for some reason. 
+     * null if initialization is successful. 
      */
-    public boolean initialize(Object result) {
+    public Exclusion initialize(Object result) {
         if (isInitialized())
-            return true;
-        SelectExecutor selector = extractSelectExecutor(result);
+            return null;
+        Object[] extract = extractSelectExecutor(result);
+        SelectExecutor selector = (SelectExecutor)extract[0];
+        if (selector == null)
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, ((Localizer.Message)extract[1]).getMessage());
         if (selector == null || selector.hasMultipleSelects()
-          || ((selector instanceof Union) 
-          && (((Union)selector).getSelects().length != 1)))
-            return false;
+            || ((selector instanceof Union) 
+            && (((Union)selector).getSelects().length != 1)))
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-multi-select").getMessage());
         select = extractImplementation(selector);
         if (select == null)
-            return false;
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-select").getMessage());
         SQLBuffer buffer = selector.getSQL();
         if (buffer == null)
-            return false;
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-sql").getMessage());;
         setTargetQuery(buffer.getSQL());
         setParameters(buffer.getParameters());
         setUserParameterPositions(buffer.getUserParameters());
         _initialized = true;
         
-        return true;
+        return null;
     }
     
     /**
-     * Extract the underlying SelectExecutor from the given argument, if 
-     * possible.
+     * Extract the underlying SelectExecutor from the given argument, if possible.
+     * 
+     * @return two objects in an array. The element at index 0 is SelectExecutor, 
+     * if it can be extracted. The element at index 1 is the reason why it can
+     * not be extracted.
      */
-    private SelectExecutor extractSelectExecutor(Object result) {
+    private Object[] extractSelectExecutor(Object result) {
         if (result instanceof ResultList == false)
-            return null;
-        Object provider = ((ResultList)result).getUserObject();
+            return new Object[]{null, _loc.get("exclude-not-result")};
+        Object userObject = ((ResultList<?>)result).getUserObject();
+        if (userObject == null || !userObject.getClass().isArray() || ((Object[])userObject).length != 2)
+            return new Object[]{null, _loc.get("exclude-no-user-object")};
+        Object provider = ((Object[])userObject)[0];
+        Object executor = ((Object[])userObject)[1];
+        if (executor instanceof StoreQuery.Executor == false)
+            return new Object[]{null, _loc.get("exclude-not-executor")};
+        _exps = ((StoreQuery.Executor)executor).getQueryExpressions();
+        if (_exps[0].projections.length == 0) {
+            _projTypes = StoreQuery.EMPTY_CLASSES;
+        } else {
+            _projTypes = new Class[_exps[0].projections.length];
+            for (int i = 0; i < _exps[0].projections.length; i++) {
+                _projTypes[i] = _exps[0].projections[i].getType();
+            }
+        }
         if (provider instanceof QueryImpl.PackingResultObjectProvider) {
-            provider = ((QueryImpl.PackingResultObjectProvider)provider)
-                .getDelegate();
+            provider = ((QueryImpl.PackingResultObjectProvider)provider).getDelegate();
+        }
+        if (provider instanceof RangeResultObjectProvider) {
+            provider = ((RangeResultObjectProvider)provider).getDelegate();
         }
         if (provider instanceof SelectResultObjectProvider) {
-            return ((SelectResultObjectProvider)provider).getSelect();
+            return new Object[]{((SelectResultObjectProvider)provider).getSelect(), null};
         } 
-        return null;
+        return new Object[]{null, _loc.get("exclude-not-select-rop", provider)};
     }
     
     private SelectImpl extractImplementation(SelectExecutor selector) {
@@ -229,8 +271,16 @@ public class PreparedQueryImpl implements PreparedQuery {
                 setCollectionValuedParameter(result, (Collection)val, indices, 
                     key);
             } else {
-                for (int j : indices)
+                for (int j : indices) {
+                    if (val instanceof Enum) {
+                        if (_template.get(j) instanceof Integer) {
+                            val = ((Enum)val).ordinal();
+                        } else {
+                            val = ((Enum)val).name();
+                        }
+                    } 
                     result.put(j, val);
+                }
             }
         }
         return result;

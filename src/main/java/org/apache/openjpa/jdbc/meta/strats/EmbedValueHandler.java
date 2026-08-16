@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -33,6 +34,7 @@ import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.meta.ValueMappingImpl;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.kernel.ObjectIdStateManager;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StateManagerImpl;
@@ -53,8 +55,19 @@ public abstract class EmbedValueHandler
 
     /**
      * Maps embedded value and gathers columns and arguments into given lists.
+     * @deprecated
      */
     protected void map(ValueMapping vm, String name, ColumnIO io,
+        boolean adapt, List cols, List args) {
+        DBDictionary dict = vm.getMappingRepository().getDBDictionary();
+        DBIdentifier colName = DBIdentifier.newColumn(name, dict != null ? dict.delimitAll() : false);
+        map(vm, colName, io, adapt, cols, args);
+    }
+
+    /**
+     * Maps embedded value and gathers columns and arguments into given lists.
+     */    
+    protected void map(ValueMapping vm, DBIdentifier name, ColumnIO io,
         boolean adapt, List cols, List args) {
         // have to resolve embedded value to collect its columns
         vm.getEmbeddedMapping().resolve(vm.MODE_META | vm.MODE_MAPPING);
@@ -152,9 +165,11 @@ public abstract class EmbedValueHandler
                 if (cval instanceof PersistenceCapable) {
                     OpenJPAStateManager embedSm = (OpenJPAStateManager)
                         ((PersistenceCapable)cval).pcGetStateManager();
-                    idx = toDataStoreValue1(embedSm, val, store, cols, rvals, idx);
+                    idx = toDataStoreValue1(embedSm, val, store, cols, rvals,
+                            idx);
                 } else if (cval instanceof ObjectIdStateManager) {
-                    idx = toDataStoreValue1((ObjectIdStateManager)cval, val, store, cols, rvals, idx);
+                    idx = toDataStoreValue1((ObjectIdStateManager)cval, val,
+                            store, cols, rvals, idx);
                 } else if (cval == null) {
                     idx = toDataStoreValue1(null, val, store, cols, rvals, idx);
                 }
@@ -222,7 +237,8 @@ public abstract class EmbedValueHandler
                 idx = toObjectValue1(em1, vm1, val, store, fetch, cols, idx);
                 } else if (em instanceof ObjectIdStateManager) {
                     em1 = new ObjectIdStateManager(null, null, vm1);
-                    idx = toObjectValue1(em1, vm1, val, store, null, getColumns(fms[i]), idx);
+                    idx = toObjectValue1(em1, vm1, val, store, null,
+                            getColumns(fms[i]), idx);
                 }
                 cval = em1.getManagedInstance();
             } else {
@@ -244,8 +260,11 @@ public abstract class EmbedValueHandler
                 embed.loadEmbedded(em, store, fetch, cval);
             else {
                 if (!(em instanceof ObjectIdStateManager))
-                cval = embed.toEmbeddedObjectValue(cval);
-                em.store(fms[i].getIndex(), cval);
+                    cval = embed.toEmbeddedObjectValue(cval);
+                if (fms[i].getHandler() != null)
+                    cval = fms[i].getHandler().toObjectValue(fms[i], cval);
+
+                em.store(fms[i].getIndex(), cval); 
             }
         }
         return idx;
@@ -277,7 +296,7 @@ public abstract class EmbedValueHandler
         Column[] pkCols =  ((ValueMappingImpl)fmd.getValue()).getColumns();
         for (int j = 0; j < pkCols.length; j++) {
             Column newCol = new Column();
-            newCol.setName(pkCols[j].getName());
+            newCol.copy(pkCols[j]);
             cols.add(newCol);
         }
     }

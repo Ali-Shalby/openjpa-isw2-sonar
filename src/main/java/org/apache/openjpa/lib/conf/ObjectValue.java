@@ -86,7 +86,22 @@ public class ObjectValue extends Value {
     /**
      * Instantiate the object as an instance of the given class.
      */
-    public Object instantiate(Class<?> type, Configuration conf, boolean fatal) {
+    public Object instantiate(Class<?> type, Configuration conf, boolean fatal)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Configure the given object.
+     */
+    public Object configure(Object obj, Configuration conf) {
+        return configure(obj, conf, true);
+    }
+
+    /**
+     * Configure the given object.
+     */
+    public Object configure(Object obj, Configuration conf, boolean fatal) {
         throw new UnsupportedOperationException();
     }
 

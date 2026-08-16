@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.openjpa.event.LifecycleEventManager;
-import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.exps.ExpContext;
 import org.apache.openjpa.jdbc.kernel.exps.GetColumn;
 import org.apache.openjpa.jdbc.kernel.exps.JDBCExpressionFactory;
@@ -46,20 +45,20 @@ import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
-import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.jdbc.sql.SelectImpl;
 import org.apache.openjpa.jdbc.sql.Union;
 import org.apache.openjpa.kernel.ExpressionStoreQuery;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.OrderingMergedResultObjectProvider;
-import org.apache.openjpa.kernel.QueryContext;
 import org.apache.openjpa.kernel.QueryHints;
 import org.apache.openjpa.kernel.exps.Constant;
+import org.apache.openjpa.kernel.exps.Context;
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.kernel.exps.FilterListener;
@@ -103,6 +102,7 @@ public class JDBCStoreQuery
     }
 
     private final transient JDBCStore _store;
+    private static ThreadLocalContext localContext = new ThreadLocalContext();
 
     /**
      * Constructor. Supply store manager.
@@ -143,11 +143,15 @@ public class JDBCStoreQuery
     protected ExpressionFactory getExpressionFactory(ClassMetaData meta) {
         return new JDBCExpressionFactory((ClassMapping) meta);
     }
-
+    
     protected ResultObjectProvider executeQuery(Executor ex,
         ClassMetaData base, ClassMetaData[] metas, boolean subclasses,
         ExpressionFactory[] facts, QueryExpressions[] exps, Object[] params,
         Range range) {
+        Context[] ctxs = new Context[exps.length];
+        for (int i = 0; i < exps.length; i++)
+            ctxs[i] = exps[i].ctx();
+        localContext.set(clone(ctxs, null));
         if (metas.length > 1 && exps[0].isAggregate())
             throw new UserException(Localizer.forPackage(JDBCStoreQuery.class).
                 get("mult-mapping-aggregate", Arrays.asList(metas)));
@@ -170,8 +174,10 @@ public class JDBCStoreQuery
         long end = (dict.supportsSelectEndIndex) ? range.end : Long.MAX_VALUE;
 
         QueryExpressionsState[] states = new QueryExpressionsState[exps.length];
-        for (int i = 0; i < states.length; i++)
+        for (int i = 0; i < states.length; i++) {
             states[i] = new QueryExpressionsState();
+            exps[i].state = states[i];
+        }
         ExpContext ctx = new ExpContext(_store, params, fetch);
 
         // add selects with populate WHERE conditions to list
@@ -236,6 +242,8 @@ public class JDBCStoreQuery
         if ((rops != null && range.end != Long.MAX_VALUE) 
             || start != range.start || end != range.end)
             rop = new RangeResultObjectProvider(rop, range.start, range.end);
+
+        localContext.remove();
         return rop;
     }
 
@@ -447,6 +455,11 @@ public class JDBCStoreQuery
     private Number executeBulkOperation(ClassMetaData[] metas,
         boolean subclasses, ExpressionFactory[] facts, QueryExpressions[] exps,
         Object[] params, Map updates) {
+        Context[] ctxs = new Context[exps.length];
+        for (int i = 0; i < exps.length; i++)
+            ctxs[i] = exps[i].ctx();
+        localContext.set(clone(ctxs, null));
+        
         // we cannot execute a bulk delete statement when have mappings in
         // multiple tables, so indicate we want to use in-memory with null
         ClassMapping[] mappings = (ClassMapping[]) metas;
@@ -514,7 +527,7 @@ public class JDBCStoreQuery
                 try {
                     stmnt = prepareStatement(conn, sql[i]);
                     dict.setTimeouts(stmnt, fetch, true);
-                    count += executeUpdate(conn, stmnt, sql[i], isUpdate);                    
+                    count += executeUpdate(conn, stmnt, sql[i], isUpdate);
                 } catch (SQLException se) {
                     throw SQLExceptions.getStore(se, sql[i].getSQL(), 
                         _store.getDBDictionary());
@@ -526,6 +539,8 @@ public class JDBCStoreQuery
         } finally {
             try { conn.close(); } catch (SQLException se) {}
         }
+
+        localContext.remove();
         return Numbers.valueOf(count);
     }
 
@@ -609,6 +624,10 @@ public class JDBCStoreQuery
     protected String[] getDataStoreActions(ClassMetaData base,
         ClassMetaData[] metas, boolean subclasses, ExpressionFactory[] facts,
         QueryExpressions[] exps, Object[] params, Range range) {
+        Context[] ctxs = new Context[exps.length];
+        for (int i = 0; i < exps.length; i++)
+            ctxs[i] = exps[i].ctx();
+        localContext.set(clone(ctxs, null));
         ClassMapping[] mappings = (ClassMapping[]) metas;
         JDBCFetchConfiguration fetch = (JDBCFetchConfiguration) ctx.
             getFetchConfiguration();
@@ -666,6 +685,8 @@ public class JDBCStoreQuery
         String[] sql = new String[sels.size()];
         for (int i = 0; i < sels.size(); i++)
             sql[i] = ((Select) sels.get(i)).toSelect(false, fetch).getSQL(true);
+
+        localContext.remove();
         return sql;
     }
     
@@ -761,7 +782,7 @@ public class JDBCStoreQuery
 
         Val value2 = concatVal.getVal2();
         Object val2 = getValue(value2, ob, params, sm);
-        return new StringBuffer(100).append(val1).append(val2).toString();
+        return new StringBuilder(100).append(val1).append(val2).toString();
     }
 
     private Object handleSubstringVal(Object value, Object ob, Object[] params,
@@ -960,5 +981,89 @@ public class JDBCStoreQuery
         default:
             throw new UnsupportedException();
         }
+    }
+
+    private static class ThreadLocalContext extends ThreadLocal<Context[]> {
+        public Context[] initialValue() {
+          return null;
+        }
+    }
+
+    public static Context[] getThreadLocalContext() {
+        return localContext.get();
+    }
+
+    public static Context getThreadLocalContext(Context orig) {
+        Context[] root = localContext.get();
+        for (int i = 0; i < root.length; i++) {
+            Context lctx = getThreadLocalContext(root[i], orig);
+            if (lctx != null)
+                return lctx;
+        }
+        return null;
+    }
+
+    public static Select getThreadLocalSelect(Select select) {
+        if (select == null)
+            return null;
+        Context[] lctx = JDBCStoreQuery.getThreadLocalContext();
+        Context cloneFrom = select.ctx();
+        for (int i = 0; i < lctx.length; i++) {
+            Context cloneTo = getThreadLocalContext(lctx[i], cloneFrom);
+            if (cloneTo != null)
+                return (Select)cloneTo.getSelect();
+        }
+        return select;
+    }
+
+    public static Context getThreadLocalContext(Context lctx, Context cloneFrom) {
+        if (lctx.cloneFrom == cloneFrom)
+            return lctx;
+        java.util.List<Context> subselCtxs = lctx.getSubselContexts();
+        if (subselCtxs != null) {
+            for (Context subselCtx : subselCtxs) {
+                Context ctx = getThreadLocalContext(subselCtx, cloneFrom);
+                if (ctx != null)
+                    return ctx;
+            }
+        }
+        return null;
+    }
+
+    private static Context[] clone(Context[] orig, Context parent) {
+        Context[] newCtx = new Context[orig.length];
+        for (int i = 0; i < orig.length; i++) {
+            newCtx[i] = clone(orig[i], parent);
+        }
+        return newCtx;
+    }
+
+    private static Context clone(Context orig, Context parent) {
+        Context myParent = null;
+        if (parent == null) {
+            Context origParent = orig.getParent();
+            if (origParent != null)
+                myParent = clone(orig.getParent(), null);
+        } else
+            myParent = parent;
+
+        Context newCtx = new Context(orig.parsed, null, myParent);
+        newCtx.from = orig.from;
+        newCtx.meta = orig.meta;
+        newCtx.schemaAlias = orig.schemaAlias;
+        newCtx.setSchemas(orig.getSchemas());
+        newCtx.setVariables(orig.getVariables());
+        newCtx.cloneFrom = orig;
+        Object select = orig.getSelect();
+        if (select != null)
+            newCtx.setSelect(((SelectImpl)select).clone(newCtx));
+        newCtx.subquery = orig.subquery;
+        List<Context> subsels = orig.getSubselContexts();
+        if (subsels != null) {
+            for (Context subsel : subsels) 
+                newCtx.addSubselContext(clone(subsel, newCtx));
+        }
+
+        return newCtx;        
     }
 }

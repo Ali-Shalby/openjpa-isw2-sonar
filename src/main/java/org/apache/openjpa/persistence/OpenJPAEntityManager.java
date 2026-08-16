@@ -20,6 +20,8 @@ package org.apache.openjpa.persistence;
 
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.Set;
+
 import javax.persistence.EntityManager;
 import javax.persistence.EntityTransaction;
 import javax.persistence.LockModeType;
@@ -31,6 +33,8 @@ import org.apache.openjpa.kernel.AutoDetach;
 import org.apache.openjpa.kernel.ConnectionRetainModes;
 import org.apache.openjpa.kernel.DetachState;
 import org.apache.openjpa.kernel.RestoreState;
+import org.apache.openjpa.persistence.criteria.OpenJPACriteriaBuilder;
+import org.apache.openjpa.persistence.query.QueryDefinition;
 
 /**
  * Interface implemented by OpenJPA entity managers.
@@ -533,12 +537,22 @@ public interface OpenJPAEntityManager
     public void evictAll(Extent extent);
 
     /**
-     * Detach the specified object from the entity manager.
+     * Detach the specified object from the entity manager, detaching based on
+     * the AutoDetach value specified and returning a copy of the detached
+     * entity.
      *
      * @param pc the instance to detach
      * @return the detached instance
+     * 
+     * @since 2.0.0
+     * 
+     * Note: This method provides the same contract as the detach method with 
+     * signature: public <T> T detach(T pc) available in the 1.x release of 
+     * OpenJPA. The JPA 2.0 specification defined a method with an incompatible
+     * signature and different semantics.  The specification defined method 
+     * trumped the existing method.
      */
-    public <T> T detach(T pc);
+    public <T> T detachCopy(T pc);
 
     /**
      * Detach the specified objects from the entity manager.
@@ -660,6 +674,13 @@ public interface OpenJPAEntityManager
      * Create a new query in the given language.
      */
     public OpenJPAQuery createQuery(String language, String query);
+    
+    /**
+     * Create an executable query from a dynamically defined query.
+     * 
+     * @since 2.0.0
+     */
+    public OpenJPAQuery createDynamicQuery(QueryDefinition dynamic);
 
     ///////////
     // Locking
@@ -1123,4 +1144,20 @@ public interface OpenJPAEntityManager
      * instead: <code>em.getTransaction().getRollbackOnly()</code>
      */
     public boolean getRollbackOnly();
+    
+    /**
+     * Gets the QueryBuilder with OpenJPA-extended capabilities. 
+     * 
+     * @since 2.0.0
+     */
+    public OpenJPACriteriaBuilder getCriteriaBuilder();
+    
+    /**
+     * Get the properties supported by this runtime.
+     * 
+     * @since 2.0.0
+    */
+    public Set<String> getSupportedProperties();
+
+
 }

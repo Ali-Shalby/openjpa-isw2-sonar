@@ -18,10 +18,6 @@
  */
 package org.apache.openjpa.persistence.query;
 
-import java.util.Arrays;
-
-import javax.persistence.Expression;
-
 /**
  * A expression that holds an array of Expressions. Used as operand for 
  * CONCAT(e1,e2,e3,...), for example. Different than {@link ArrayExpression} 
@@ -39,7 +35,7 @@ public class VarArgsExpression extends ExpressionImpl {
 
 	@Override
 	public String asExpression(AliasContext ctx) {
-		StringBuffer tmp = new StringBuffer();
+		StringBuilder tmp = new StringBuilder();
 		for (int i = 0; i < _values.length; i++) {
 			Visitable v = (Visitable)_values[i];
 			tmp.append(v.asExpression(ctx))

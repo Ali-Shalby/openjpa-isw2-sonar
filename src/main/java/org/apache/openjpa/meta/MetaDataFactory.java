@@ -31,6 +31,7 @@ import org.apache.openjpa.lib.meta.ClassArgParser;
  *
  * @author Patrick Linskey
  * @author Abe White
+ * @author Pinaki Poddar
  */
 public interface MetaDataFactory
     extends MetaDataModes {
@@ -74,7 +75,7 @@ public interface MetaDataFactory
      * {@link MetaDataModes#MODE_META MODE_META}, so long as
      * the <code>strict</code> property hasn't been set
      */
-    public void load(Class cls, int mode, ClassLoader envLoader);
+    public void load(Class<?> cls, int mode, ClassLoader envLoader);
 
     /**
      * Store the given metadata.
@@ -94,7 +95,7 @@ public interface MetaDataFactory
      *
      * @return false if any metadata could not be dropped
      */
-    public boolean drop(Class[] cls, int mode, ClassLoader envLoader);
+    public boolean drop(Class<?>[] cls, int mode, ClassLoader envLoader);
 
     /**
      * Return the metadata defaults for this factory.
@@ -111,17 +112,18 @@ public interface MetaDataFactory
      * @see MetaDataRepository#getPersistentTypeNames
      * @see MetaDataRepository#loadPersistentTypes
      */
-    public Set getPersistentTypeNames(boolean devpath, ClassLoader envLoader);
+    public Set<String> getPersistentTypeNames(boolean devpath, 
+    		ClassLoader envLoader);
 
     /**
      * Return the type defining the given query name, if any.
      */
-    public Class getQueryScope(String queryName, ClassLoader loader);
+    public Class<?> getQueryScope(String queryName, ClassLoader loader);
 
     /**
      * Return the type defining the given result set mapping name, if any.
      */
-    public Class getResultSetMappingScope(String resultSetMappingName,
+    public Class<?> getResultSetMappingScope(String resultSetMappingName,
         ClassLoader loader);
     
     /**
@@ -138,16 +140,49 @@ public interface MetaDataFactory
     /**
      * Add any extension keys used by this instance to the given set.
      */
-    public void addClassExtensionKeys(Collection exts);
+    public void addClassExtensionKeys(Collection<?> exts);
 
     /**
      * Add any extension keys used by this instance to the given set.
      */
-    public void addFieldExtensionKeys (Collection exts);
+    public void addFieldExtensionKeys (Collection<?> exts);
 
     /**
      * Load XMLClassMetadata for the given class. Loaded
      * metadata should be added directly to the repository.
      */
     public void loadXMLMetaData(FieldMetaData fmd);
+    
+    /**
+     * Gets the name of the meta-model class for the given fully-qualified
+     * managed class name.
+     * 
+     * @since 2.0.0
+     */
+    public String getMetaModelClassName(String managedClassName);
+    
+    /**
+     * Gets the name of the managed class for the given fully-qualified
+     * meta-model class name.
+     * 
+     * @since 2.0.0
+     */
+    public String getManagedClassName(String metamodelClassName);
+    
+    /**
+     * Affirms if the given class is a meta-class.
+     * 
+     * @since 2.0.0
+     */
+    public boolean isMetaClass(Class<?> c);
+    
+    /**
+     * Gets the managed class corresponding to the given meta-class.
+     * 
+     * @return null if the given input is not a meta-class.
+     * 
+     * @since 2.0.0
+     */
+    public Class<?> getManagedClass(Class<?> c);
+
 }

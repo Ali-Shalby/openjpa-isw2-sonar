@@ -22,7 +22,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
@@ -56,17 +55,17 @@ public abstract class AbstractExpressionBuilder {
     protected static final int EX_UNSUPPORTED = 2;
 
     // common implicit type settings
-    protected static final Class TYPE_OBJECT = Object.class;
-    protected static final Class TYPE_STRING = String.class;
-    protected static final Class TYPE_CHAR_OBJ = Character.class;
-    protected static final Class TYPE_NUMBER = Number.class;
-    protected static final Class TYPE_COLLECTION = Collection.class;
-    protected static final Class TYPE_MAP = Map.class;
+    public static final Class<Object> TYPE_OBJECT = Object.class;
+    public static final Class<String> TYPE_STRING = String.class;
+    public static final Class<Character> TYPE_CHAR_OBJ = Character.class;
+    public static final Class<Number> TYPE_NUMBER = Number.class;
+    public static final Class<Collection> TYPE_COLLECTION = Collection.class;
+    public static final Class<Map> TYPE_MAP = Map.class;
 
     // contains types for setImplicitTypes
-    protected static final int CONTAINS_TYPE_ELEMENT = 1;
-    protected static final int CONTAINS_TYPE_KEY = 2;
-    protected static final int CONTAINS_TYPE_VALUE = 3;
+    public static final int CONTAINS_TYPE_ELEMENT = 1;
+    public static final int CONTAINS_TYPE_KEY = 2;
+    public static final int CONTAINS_TYPE_VALUE = 3;
 
     private static final Localizer _loc = Localizer.forPackage
         (AbstractExpressionBuilder.class);
@@ -74,9 +73,9 @@ public abstract class AbstractExpressionBuilder {
     protected final Resolver resolver;
     protected ExpressionFactory factory;
 
-    private final Set _accessPath = new HashSet();
-    private Map _seenVars = null;
-    private Set _boundVars = null;
+    private final Set<ClassMetaData> _accessPath = new HashSet<ClassMetaData>();
+    private Map<String,Value> _seenVars = null;
+    private Set<Value> _boundVars = null;
 
     /**
      * Constructor.
@@ -149,7 +148,7 @@ public abstract class AbstractExpressionBuilder {
      */
     protected void bind(Value var) {
         if (_boundVars == null)
-            _boundVars = new HashSet();
+            _boundVars = new HashSet<Value>();
         _boundVars.add(var);
     }
 
@@ -159,10 +158,14 @@ public abstract class AbstractExpressionBuilder {
     protected Value getVariable(String id, boolean bind) {
         // check for already constructed var
         if (isSeenVariable(id))
-            return (Value) _seenVars.get(id);
+            return getVariable(id);
 
+        return createVariable(id, bind);
+    }
+
+    protected Value createVariable(String id, boolean bind) {
         // create and cache var
-        Class type = getDeclaredVariableType(id);
+        Class<?> type = getDeclaredVariableType(id);
 
         // add this type to the set of classes in the filter's access path
         ClassMetaData meta = null;
@@ -170,10 +173,12 @@ public abstract class AbstractExpressionBuilder {
             type = TYPE_OBJECT;
         else
             meta = getMetaData(type, false);
-        if (meta != null)
-            _accessPath.add(meta);
+        if (meta != null) {
+            addAccessPath(meta);
+            addSchemaToContext(id, meta);
+        }
 
-        Value var;
+        Value var = null;
         if (bind)
             var = factory.newBoundVariable(id, type);
         else
@@ -181,8 +186,10 @@ public abstract class AbstractExpressionBuilder {
         var.setMetaData(meta);
 
         if (_seenVars == null)
-            _seenVars = new HashMap();
+            _seenVars = new HashMap<String,Value>();
         _seenVars.put(id, var);
+
+        addVariableToContext(id, var);
         return var;
     }
 
@@ -195,13 +202,11 @@ public abstract class AbstractExpressionBuilder {
         if (_seenVars == null)
             return;
 
-        Map.Entry entry;
         Value var;
-        for (Iterator itr = _seenVars.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
-            var = (Value) entry.getValue();
+        for (Map.Entry<String,Value> entry : _seenVars.entrySet()) {
+            var = entry.getValue();
             if (var.getMetaData() == null && !isBound(var)
-                && !isDeclaredVariable((String) entry.getKey())) {
+                && !isDeclaredVariable(entry.getKey())) {
                 throw parseException(EX_USER, "not-unbound-var",
                     new Object[]{ entry.getKey() }, null);
             }
@@ -228,14 +233,14 @@ public abstract class AbstractExpressionBuilder {
     /**
      * Convenience method to get metadata for the given type.
      */
-    protected ClassMetaData getMetaData(Class c, boolean required) {
+    protected ClassMetaData getMetaData(Class<?> c, boolean required) {
         return getMetaData(c, required, getClassLoader());
     }
 
     /**
      * Convenience method to get metadata for the given type.
      */
-    protected ClassMetaData getMetaData(Class c, boolean required,
+    protected ClassMetaData getMetaData(Class<?> c, boolean required,
         ClassLoader loader) {
         return resolver.getConfiguration().getMetaDataRepositoryInstance().
             getMetaData(c, loader, required);
@@ -284,10 +289,10 @@ public abstract class AbstractExpressionBuilder {
             Object val = traverseStaticField(meta.getDescribedType(), field);
             if (val == null) {
             	String[] all = meta.getFieldNames();
-            	Class cls = meta.getDescribedType();
+            	Class<?> cls = meta.getDescribedType();
                 throw parseException(EX_USER, "no-field",
                     new Object[] {field, cls.getSimpleName(), 
-                	StringDistance.getClosestLevenshteinDistance(field, all), 
+                    StringDistance.getClosestLevenshteinDistance(field, all), 
                 	cls.getName(), Arrays.toString(all)}, null);
             }
 
@@ -311,7 +316,7 @@ public abstract class AbstractExpressionBuilder {
             }
         }
 
-        if (meta != null || !pcOnly)
+        if (meta != null || !pcOnly) 
             path.get(fmd, allowNull);
 
         return path;
@@ -320,7 +325,7 @@ public abstract class AbstractExpressionBuilder {
     /**
      * Return a constant containing the value of the given static field.
      */
-    protected Object traverseStaticField(Class cls, String field) {
+    protected Object traverseStaticField(Class<?> cls, String field) {
         try {
             return cls.getField(field).get(null);
         } catch (Exception e) {
@@ -330,18 +335,22 @@ public abstract class AbstractExpressionBuilder {
     }
 
     /**
-     * Returns the type of the named variabe if it has been declared.
+     * Returns the type of the named variable if it has been declared.
      */
-    protected abstract Class getDeclaredVariableType(String name);
+    protected abstract Class<?> getDeclaredVariableType(String name);
 
     /**
      * Set the implicit types of the given values based on the fact that
      * they're used together, and based on the operator type.
      */
     protected void setImplicitTypes(Value val1, Value val2,
-        Class expected) {
-        Class c1 = val1.getType();
-        Class c2 = val2.getType();
+        Class<?> expected) {
+        setImplicitTypes(val1, val2, expected, resolver);
+    }
+    protected static void setImplicitTypes(Value val1, Value val2,
+        Class<?> expected, Resolver resolver) {
+        Class<?> c1 = val1.getType();
+        Class<?> c2 = val2.getType();
         boolean o1 = c1 == TYPE_OBJECT;
         boolean o2 = c2 == TYPE_OBJECT;
 
@@ -369,9 +378,9 @@ public abstract class AbstractExpressionBuilder {
     /**
      * Perform conversions to make values compatible.
      */
-    private void convertTypes(Value val1, Value val2) {
-        Class t1 = val1.getType();
-        Class t2 = val2.getType();
+    public static void convertTypes(Value val1, Value val2) {
+        Class<?> t1 = val1.getType();
+        Class<?> t2 = val2.getType();
 
         // allow string-to-char conversions
         if (t1 == TYPE_STRING && (Filters.wrap(t2) == TYPE_CHAR_OBJ
@@ -418,9 +427,9 @@ public abstract class AbstractExpressionBuilder {
     /**
      * Perform conversions to make values compatible.
      */
-    private void convertTypesQuotedNumbers(Value val1, Value val2) {
-        Class t1 = val1.getType();
-        Class t2 = val2.getType();
+    public static void convertTypesQuotedNumbers(Value val1, Value val2) {
+        Class<?> t1 = val1.getType();
+        Class<?> t2 = val2.getType();
 
         // if we're comparing to a single-quoted string, convert
         // the value according to the 3.1 rules.
@@ -460,7 +469,7 @@ public abstract class AbstractExpressionBuilder {
     /**
      * Return true if given class can be used as a number.
      */
-    private static boolean isNumeric(Class type) {
+    public static boolean isNumeric(Class<?> type) {
         type = Filters.wrap(type);
         return Number.class.isAssignableFrom(type)
             || type == Character.TYPE || type == TYPE_CHAR_OBJ;
@@ -504,7 +513,7 @@ public abstract class AbstractExpressionBuilder {
     /**
      * Set the implicit type of the given value to the given class.
      */
-    protected static void setImplicitType(Value val, Class expected) {
+    protected static void setImplicitType(Value val, Class<?> expected) {
         // we never expect a pc type, so no need to worry about metadata
         if (val.getType() == TYPE_OBJECT)
             val.setImplicitType(expected);
@@ -520,5 +529,28 @@ public abstract class AbstractExpressionBuilder {
      * Returns the current string being parsed; used for error messages.
 	 */
 	protected abstract String currentQuery ();
+
+    /**
+     * Register the schema alias to the current JPQL query context.
+     * @param alias
+     * @param meta
+     */
+    protected abstract void addSchemaToContext(String alias,
+        ClassMetaData meta);
+
+    /**
+     * Register the variable associated with the schema alias (id) to
+     * the current JPQL query context.
+     * @param id
+     * @param var
+     */
+    protected abstract void addVariableToContext(String id, Value var);
+
+    /**
+     * Returns the variable associated with the schema alias (id).
+     * @param id
+     * @return
+     */
+    protected abstract Value getVariable(String id);
 }
 

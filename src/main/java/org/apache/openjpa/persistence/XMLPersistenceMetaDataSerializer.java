@@ -47,6 +47,8 @@ import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataInheritanceComparator;
 import static org.apache.openjpa.meta.MetaDataModes.*;
+
+import org.apache.openjpa.meta.AccessCode;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.meta.Order;
 import org.apache.openjpa.meta.QueryMetaData;
@@ -452,7 +454,7 @@ public class XMLPersistenceMetaDataSerializer
             switch (type(meta)) {
                 case TYPE_META:
                     ClassMetaData cls = (ClassMetaData) meta;
-                    if (cls.getAccessType() == ClassMetaData.ACCESS_FIELD)
+                    if (AccessCode.isField(cls.getAccessType()))
                         fieldAccess = true;
                     else
                         propertyAccess = true;
@@ -480,9 +482,9 @@ public class XMLPersistenceMetaDataSerializer
             int def = getConfiguration().getMetaDataRepositoryInstance().
                 getMetaDataFactory().getDefaults().getDefaultAccessType();
             String access = null;
-            if (fieldAccess && def == ClassMetaData.ACCESS_PROPERTY)
+            if (fieldAccess && AccessCode.isProperty(def))
                 access = "FIELD";
-            else if (propertyAccess && def == ClassMetaData.ACCESS_FIELD)
+            else if (propertyAccess && AccessCode.isField(def))
                 access = "PROPERTY";
             if (access != null) {
                 startElement("access");
@@ -807,11 +809,11 @@ public class XMLPersistenceMetaDataSerializer
             return;
         int def = getConfiguration().getMetaDataRepositoryInstance().
             getMetaDataFactory().getDefaults().getDefaultAccessType();
-        if (meta.getAccessType() == ClassMetaData.ACCESS_FIELD
-            && def == ClassMetaData.ACCESS_PROPERTY)
+        if (AccessCode.isField(meta.getAccessType())
+            && AccessCode.isProperty(def))
             addAttribute("access", "FIELD");
-        else if (meta.getAccessType() == ClassMetaData.ACCESS_PROPERTY
-            && def == ClassMetaData.ACCESS_FIELD)
+        else if (AccessCode.isProperty(meta.getAccessType())
+            && AccessCode.isField(def))
             addAttribute("access", "PROPERTY");
     }
 
@@ -1030,7 +1032,12 @@ public class XMLPersistenceMetaDataSerializer
                 cascades = new ArrayList<String>();
             cascades.add("cascade-refresh");
         }
-        if (cascades != null && cascades.size() == 4) // ALL
+        if (vmd.getCascadeDetach() == ValueMetaData.CASCADE_IMMEDIATE) {
+            if (cascades == null)
+                cascades = new ArrayList<String>();
+            cascades.add("cascade-detach");
+        }
+        if (cascades != null && cascades.size() == 5) // ALL
         {
             cascades.clear();
             cascades.add("cascade-all");
@@ -1470,12 +1477,12 @@ public class XMLPersistenceMetaDataSerializer
             if (fmd1.isVersion()) {
                 if (fmd2.isVersion())
                     return compareListingOrder(fmd1, fmd2);
-				return getStrategy(fmd2) == PersistenceStrategy.BASIC ? 1 : -1;
+                return getStrategy(fmd2) == PersistenceStrategy.BASIC ? 1 : -1;
 			}
 			if (fmd2.isVersion())
-				return getStrategy(fmd1) == PersistenceStrategy.BASIC ? -1 : 1;
+                return getStrategy(fmd1) == PersistenceStrategy.BASIC ? -1 : 1;
 
-			int stcmp = getStrategy(fmd1).compareTo(getStrategy(fmd2));
+            int stcmp = getStrategy(fmd1).compareTo(getStrategy(fmd2));
             if (stcmp != 0)
                 return stcmp;
             return compareListingOrder(fmd1, fmd2);

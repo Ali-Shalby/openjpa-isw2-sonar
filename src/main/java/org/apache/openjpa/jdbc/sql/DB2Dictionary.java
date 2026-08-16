@@ -18,15 +18,21 @@
  */
 package org.apache.openjpa.jdbc.sql;
 
+import java.io.ByteArrayInputStream;
 import java.lang.reflect.Method;
+import java.sql.Blob;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Types;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.StringTokenizer;
 
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.kernel.exps.Lit;
@@ -38,6 +44,8 @@ import org.apache.openjpa.jdbc.schema.Schema;
 import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.kernel.Filters;
+import org.apache.openjpa.kernel.MixedLockLevels;
+import org.apache.openjpa.kernel.exps.Literal;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.OpenJPAException;
@@ -54,6 +62,7 @@ public class DB2Dictionary
     private static final Localizer _loc = Localizer.forPackage
         (DB2Dictionary.class);
 
+    public static final String VENDOR_IBM = "ibm";
     public String optimizeClause = "optimize for";
     public String rowClause = "row";
     protected int db2ServerType = 0;
@@ -62,7 +71,7 @@ public class DB2Dictionary
     public static final int db2ZOSV8xOrLater = 3;
     public static final int db2UDBV82OrLater = 4;
     public static final int db2ISeriesV5R4OrLater = 5;
-	protected static final String forUpdate = "FOR UPDATE";
+    protected static final String forUpdate = "FOR UPDATE";
     protected static final String withURClause = "WITH UR";
     protected static final String withCSClause = "WITH CS";
     protected static final String withRSClause = "WITH RS";
@@ -80,7 +89,7 @@ public class DB2Dictionary
     protected int min = 0;
     
     private int defaultBatchLimit = 100;
-
+    
     public DB2Dictionary() {
         platform = "DB2";
         validationSQL = "SELECT DISTINCT(CURRENT TIMESTAMP) FROM "
@@ -114,6 +123,7 @@ public class DB2Dictionary
         supportsDeferredConstraints = false;
         supportsDefaultDeleteAction = false;
         supportsAlterTableWithDropColumn = false;
+        supportsLockingWithOrderClause = true;
 
         supportsNullTableForGetColumns = false;
         requiresCastForMathFunctions = true;
@@ -126,7 +136,7 @@ public class DB2Dictionary
             "CLUSTER", "COLLECTION", "COLLID", "COMMENT", "CONCAT",
             "CONDITION", "CONTAINS", "COUNT_BIG", "CURRENT_LC_CTYPE",
             "CURRENT_PATH", "CURRENT_SERVER", "CURRENT_TIMEZONE", "CYCLE",
-            "DATA", "DATABASE", "DAYS", "DB2GENERAL", "DB2GENRL", "DB2SQL",
+            "DATABASE", "DAYS", "DB2GENERAL", "DB2GENRL", "DB2SQL",
             "DBINFO", "DEFAULTS", "DEFINITION", "DETERMINISTIC", "DISALLOW",
             "DO", "DSNHATTR", "DSSIZE", "DYNAMIC", "EACH", "EDITPROC", "ELSEIF",
             "ENCODING", "END-EXEC1", "ERASE", "EXCLUDING", "EXIT", "FENCED",
@@ -149,10 +159,17 @@ public class DB2Dictionary
             "SOURCE", "SPECIFIC", "SQLID", "STANDARD", "START", "STATIC",
             "STAY", "STOGROUP", "STORES", "STYLE", "SUBPAGES", "SYNONYM",
             "SYSFUN", "SYSIBM", "SYSPROC", "SYSTEM", "TABLESPACE", "TRIGGER",
-            "TYPE", "UNDO", "UNTIL", "VALIDPROC", "VARIABLE", "VARIANT", "VCAT",
+            "UNDO", "UNTIL", "VALIDPROC", "VARIABLE", "VARIANT", "VCAT",
             "VOLUMES", "WHILE", "WLM", "YEARS",
         }));
         
+        // reservedWordSet subset that CANNOT be used as valid column names
+        // (i.e., without surrounding them with double-quotes)
+        invalidColumnWordSet.addAll(Arrays.asList(new String[] {
+            "CONSTRAINT", "END-EXEC", "END-EXEC1", 
+        }));
+
+
         super.setBatchLimit(defaultBatchLimit);
         
         selectWordSet.add("WITH");
@@ -178,14 +195,19 @@ public class DB2Dictionary
         int idx) {
         // if this is a literal value, add a cast...
         Object val = sel.getSelects().get(idx);
-        if (val instanceof Lit)
+        boolean toCast = (val instanceof Lit) && 
+            ((Lit)val).getParseType() != Literal.TYPE_DATE && 
+            ((Lit)val).getParseType() != Literal.TYPE_TIME &&
+            ((Lit)val).getParseType() != Literal.TYPE_TIMESTAMP;
+        
+        if (toCast) 
             selectSQL.append("CAST(");
 
         // ... and add the select per super's behavior...
         super.appendSelect(selectSQL, alias, sel, idx);
 
         // ... and finish the cast
-        if (val instanceof Lit) {
+        if (toCast) {
             Class c = ((Lit) val).getType();
             int javaTypeCode = JavaTypes.getTypeCode(c);
             int jdbcTypeCode = getJDBCType(javaTypeCode, false);
@@ -208,17 +230,24 @@ public class DB2Dictionary
         return sql;
     }
 
+    @Override
     protected String getSequencesSQL(String schemaName, String sequenceName) {
-        StringBuffer buf = new StringBuffer();
+        return getSequencesSQL(DBIdentifier.newSchema(schemaName), 
+            DBIdentifier.newSequence(sequenceName));
+    }
+
+    @Override
+    protected String getSequencesSQL(DBIdentifier schemaName, DBIdentifier sequenceName) {
+        StringBuilder buf = new StringBuilder();
         buf.append(sequenceSQL);
-        if (schemaName != null || sequenceName != null)
+        if (!DBIdentifier.isNull(schemaName) || !DBIdentifier.isNull(sequenceName))
             buf.append(" WHERE ");
-        if (schemaName != null) {
+        if (!DBIdentifier.isNull(schemaName)) {
             buf.append(sequenceSchemaSQL);
-            if (sequenceName != null)
+            if (!DBIdentifier.isNull(sequenceName))
                 buf.append(" AND ");
         }
-        if (sequenceName != null)
+        if (!DBIdentifier.isNull(sequenceName))
             buf.append(sequenceNameSQL);
         return buf.toString();
     }
@@ -233,17 +262,35 @@ public class DB2Dictionary
         // TRANSACTION_READ_COMMITTED
         conn = super.decorate(conn);
 
-        if (conf.getTransactionIsolationConstant() == -1
-            && conn.getTransactionIsolation() < Connection.TRANSACTION_READ_COMMITTED)
+        if (conf.getTransactionIsolationConstant() == -1 &&
+                conn.getTransactionIsolation() <
+                Connection.TRANSACTION_READ_COMMITTED)
             conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
 
         return conn;
     }
 
     public void connectedConfiguration(Connection conn) throws SQLException {
-    	super.connectedConfiguration(conn);
+        super.connectedConfiguration(conn);
 
-    	DatabaseMetaData metaData = conn.getMetaData();
+        DatabaseMetaData metaData = conn.getMetaData();
+        String str = "VALUES CURRENT SCHEMA";
+        Statement stmnt = conn.createStatement();
+        ResultSet rs = stmnt.executeQuery(str);
+        if (rs.next()) {
+            String currSchema = rs.getString(1);
+            if (currSchema != null)
+                setDefaultSchemaName(currSchema.trim());
+        }
+        rs.close();
+        stmnt.close();
+
+        String driverName = metaData.getDriverName();
+        if (driverName != null && driverName.startsWith("IBM DB2"))
+            driverVendor = VENDOR_IBM;
+        else
+            driverVendor = VENDOR_OTHER;
+
         databaseProductName = nullSafe(metaData.getDatabaseProductName());
         databaseProductVersion = nullSafe(metaData.getDatabaseProductVersion());
         
@@ -258,36 +305,36 @@ public class DB2Dictionary
                 db2ServerType = db2ISeriesV5R4OrLater;
         }
         
-    	if (db2ServerType == 0) {
-    	    if (isJDBC3) {
-    	        maj = metaData.getDatabaseMajorVersion();
-    	        min = metaData.getDatabaseMinorVersion();
-    	    }
-    	    else
-    	        getProductVersionMajorMinor();
+        if (db2ServerType == 0) {
+            if (isJDBC3) {
+                maj = metaData.getDatabaseMajorVersion();
+                min = metaData.getDatabaseMinorVersion();
+            }
+            else
+                getProductVersionMajorMinor();
 
-    	    // Determine the type of DB2 database for ZOS & UDB
-    	    if (isDB2UDBV81OrEarlier())
-    	        db2ServerType = db2UDBV81OrEarlier;
-    	    else if (isDB2ZOSV8xOrLater())
-    	        db2ServerType = db2ZOSV8xOrLater;
-    	    else if (isDB2UDBV82OrLater())
-    	        db2ServerType = db2UDBV82OrLater;
+            // Determine the type of DB2 database for ZOS & UDB
+            if (isDB2UDBV81OrEarlier())
+                db2ServerType = db2UDBV81OrEarlier;
+            else if (isDB2ZOSV8xOrLater())
+                db2ServerType = db2ZOSV8xOrLater;
+            else if (isDB2UDBV82OrLater())
+                db2ServerType = db2UDBV82OrLater;
         }
 
         // verify that database product is supported
         if (db2ServerType == 0 || maj == 0)
             throw new UnsupportedException(_loc.get("db-not-supported",
-                new Object[] {databaseProductName, databaseProductVersion }));                    
+                new Object[] {databaseProductName, databaseProductVersion }));
 
-    	if (maj >= 9 || (maj == 8 && min >= 2)) {
-    	    supportsLockingWithMultipleTables = true;
-    	    supportsLockingWithInnerJoin = true;
-    	    supportsLockingWithOuterJoin = true;
-    	    forUpdateClause = "WITH RR USE AND KEEP UPDATE LOCKS";
-    	    if (maj >=9)
-    	        supportsXMLColumn = true;
-    	}
+        if (maj >= 9 || (maj == 8 && min >= 2)) {
+            supportsLockingWithMultipleTables = true;
+            supportsLockingWithInnerJoin = true;
+            supportsLockingWithOuterJoin = true;
+            forUpdateClause = "WITH RR USE AND KEEP UPDATE LOCKS";
+            if (maj >=9)
+                supportsXMLColumn = true;
+        }
 
         // platform specific settings
         switch (db2ServerType) {
@@ -306,10 +353,11 @@ public class DB2Dictionary
                 + "NAME AS SEQUENCE_NAME FROM SYSIBM.SYSSEQUENCES";
             sequenceSchemaSQL = "SCHEMA = ?";
             sequenceNameSQL = "NAME = ?";
-            if (maj == 8)
+            if (maj == 8) {
                 // DB2 Z/OS Version 8: no bigint support, hence map Java
                 // long to decimal
                 bigintTypeName = "DECIMAL(31,0)";
+            }
             break;
         case db2ISeriesV5R3OrEarlier:
         case db2ISeriesV5R4OrLater:
@@ -347,6 +395,10 @@ public class DB2Dictionary
             isolationLevel = fetch.getIsolation();
         else
             isolationLevel = conf.getTransactionIsolationConstant();
+
+        if (fetch != null && fetch.getReadLockLevel() >= 
+            MixedLockLevels.LOCK_PESSIMISTIC_WRITE)
+            isolationLevel = Connection.TRANSACTION_SERIALIZABLE;
 
         if (isForUpdate) {
             switch (db2ServerType) {
@@ -397,7 +449,6 @@ public class DB2Dictionary
        return (databaseProductVersion.indexOf("DSN") != -1
             || databaseProductName.indexOf("DB2/") == -1)
             && maj >= 8;
-           
     }
 
     public boolean isDB2ISeriesV5R3OrEarlier() {
@@ -490,7 +541,7 @@ public class DB2Dictionary
 
     protected String getOptimizeClause(Select sel) {
         if (sel != null && sel.getExpectedResultCount() > 0) {
-            StringBuffer buf = new StringBuffer();
+            StringBuilder buf = new StringBuilder();
             buf.append(" ").append(optimizeClause).append(" ")
                 .append(String.valueOf(sel.getExpectedResultCount()))
                 .append(" ").append(rowClause);
@@ -525,7 +576,7 @@ public class DB2Dictionary
             getMethod("getSqlWarn", null);
             Method  getSqlErrdMethd = sqlca.getClass().
             getMethod("getSqlErrd", null);
-            StringBuffer errdStr = new StringBuffer();
+            StringBuilder errdStr = new StringBuilder();
 
             int[] errds = (int[]) getSqlErrdMethd.invoke(sqlca, new Object[]{});
             for (int i = 0; i < errds.length; i++)
@@ -732,9 +783,36 @@ public class DB2Dictionary
      * @return a String with the correct CAST function syntax
      */
     public String getCastFunction(Val val, String func) {
-        if (val instanceof Lit || val instanceof Param)
-            if (func.indexOf("VARCHAR") == -1)
-                func = addCastAsString(func, "{0}", " AS VARCHAR(1000)");
+        if (val instanceof Lit || val instanceof Param) {
+            if (func.indexOf("VARCHAR") == -1) {
+                func = addCastAsString(func, "{0}", " AS VARCHAR(" + varcharCastLength + ")");
+            }
+        }
+        return func;
+    }
+
+    /**
+     * Return the correct CAST function syntax
+     * 
+     * @param val operand of cast
+     * @param func original string
+     * @param col database column
+     * @return a String with the correct CAST function syntax
+     */
+    public String getCastFunction(Val val, String func, Column col) {
+        boolean doCast = false;
+        if (val instanceof Lit || val instanceof Param) {
+            doCast = true;
+        }
+        // cast anything not already a VARCHAR to VARCHAR
+        if (col.getType() != Types.VARCHAR) {
+            doCast = true;
+        }
+        if (doCast == true) {
+            if (func.indexOf("VARCHAR") == -1) {
+                func = addCastAsString(func, "{0}", " AS VARCHAR(" + varcharCastLength + ")");
+            }
+        }
         return func;
     }
 
@@ -818,22 +896,28 @@ public class DB2Dictionary
      * Create an index if necessary for some database tables
      */
     public void createIndexIfNecessary(Schema schema, String table,
+        Column pkColumn) {
+        createIndexIfNecessary(schema, DBIdentifier.newTable(table), 
+            pkColumn);
+    }
+
+    public void createIndexIfNecessary(Schema schema, DBIdentifier table,
             Column pkColumn) {
         if (isDB2ZOSV8xOrLater()) {
             // build the index for the sequence tables
             // the index name will be the fully qualified table name + _IDX
             Table tab = schema.getTable(table);
-            Index idx = tab.addIndex(tab.getFullName() + "_IDX");
+            Index idx = tab.addIndex(DBIdentifier.append(tab.getFullIdentifier(), "IDX"));
             idx.setUnique(true);
             idx.addColumn(pkColumn);
         }
     }
     
     String nullSafe(String s) {
-    	return s == null ? "" : s;
+        return s == null ? "" : s;
     }
 
-	@Override
+    @Override
     protected Boolean matchErrorState(int subtype, Set<String> errorStates,
         SQLException ex) {
         Boolean recoverable = null;
@@ -843,12 +927,98 @@ public class DB2Dictionary
             if (subtype == StoreException.LOCK && errorState.equals("57033")
                 && ex.getMessage().indexOf("80") != -1) {
                 recoverable = Boolean.TRUE;
-            } else if (subtype == StoreException.QUERY && errorState.equals("57014")
-                && ex.getMessage().indexOf("40001") == -1) {
-                // FIXME drwoods - OPENJPA-964 - Need to determine expected DB2 behavior for query timeouts
+            } else if ((subtype == StoreException.QUERY &&
+                errorState.equals("57014")) &&
+                (ex.getErrorCode() == -952 || ex.getErrorCode() == -905)) {
                 recoverable = Boolean.TRUE;
             }
         }
         return recoverable;
+    }
+    
+    @Override
+    protected void setDelimitedCase(DatabaseMetaData metaData) {
+        delimitedCase = SCHEMA_CASE_PRESERVE;
+    }
+    
+    /**
+     * The Type 2 JDBC Driver may throw an SQLException when provided a non-
+     * zero timeout if we're connected to Z/OS. The SQLException should be
+     * logged but not thrown.
+     */
+    @Override
+    public void setQueryTimeout(PreparedStatement stmnt, int timeout)
+        throws SQLException {
+        if(isDB2ZOSV8xOrLater()) { 
+            try { 
+                super.setQueryTimeout(stmnt, timeout);
+            }
+            catch (SQLException e) {
+                if (log.isTraceEnabled()) {
+                    log.trace(_loc.get("error-setting-query-timeout", timeout,
+                        e.getMessage()), e);
+                }
+            }
+        }
+        else { 
+            super.setQueryTimeout(stmnt, timeout);
+        }
+    }
+
+    /**
+     * Set the given value as a parameter to the statement.
+     */
+    public void setBytes(PreparedStatement stmnt, int idx, byte[] val,
+        Column col)
+        throws SQLException {
+        // for DB2, if the column was defined as CHAR for BIT DATA, then
+        // we want to use the setBytes in stead of the setBinaryStream
+        if (useSetBytesForBlobs 
+                || (!DBIdentifier.isNull(col.getTypeIdentifier()) && 
+                col.getTypeIdentifier().getName().contains("BIT DATA"))) {
+            stmnt.setBytes(idx, val);
+        } else {
+            setBinaryStream(stmnt, idx, new ByteArrayInputStream(val), val.length, col);
+        }
+    }
+
+    /**
+     * Convert the specified column of the SQL ResultSet to the proper
+     * java type.
+     */
+    public byte[] getBytes(ResultSet rs, int column)
+        throws SQLException {
+        if (useGetBytesForBlobs) {
+            return rs.getBytes(column);
+        }
+        if (useGetObjectForBlobs) {
+            return (byte[]) rs.getObject(column);
+        }
+
+        // At this point we don't have any idea if the DB2 column was defined as
+        //     a blob or if it was defined as CHAR for BIT DATA.
+        // First try as a blob, if that doesn't work, then try as CHAR for BIT DATA
+        // If that doesn't work, then go ahead and throw the first exception
+        try {
+            Blob blob = getBlob(rs, column);
+            if (blob == null) {
+                return null;
+            }
+            
+            int length = (int) blob.length();
+            if (length == 0) {
+                return null;
+            }
+            
+            return blob.getBytes(1, length);
+        }
+        catch (SQLException e) {
+            try {
+                return rs.getBytes(column);
+            }
+            catch (SQLException e2) {
+                throw e;                
+            }
+        }
     }
 }

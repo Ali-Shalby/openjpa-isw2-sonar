@@ -88,4 +88,8 @@ public interface Value
      * Return 'this' concrete class if alias is set, otherwise null
      */
     public Value getSelectAs();
+
+    public Path getPath();
+
+    public String getName();
 }

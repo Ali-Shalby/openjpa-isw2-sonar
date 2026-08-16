@@ -24,6 +24,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.meta.ClassArgParser;
 
 /**
@@ -98,7 +99,7 @@ public class NoneMetaDataFactory
     }
 
     public int getDefaultAccessType() {
-        return ClassMetaData.ACCESS_UNKNOWN;
+        return AccessCode.UNKNOWN;
     }
 
     public int getDefaultIdentityType() {
@@ -127,14 +128,45 @@ public class NoneMetaDataFactory
     public void populate(ClassMetaData meta, int access) {
     }
 
+    public void populate(ClassMetaData meta, int access, boolean ignoreTransient) {
+    }
+
     public Member getBackingMember(FieldMetaData fmd) {
         return null;
     }
 
-    public Class getUnimplementedExceptionType() {
+    public Member getMemberByProperty(ClassMetaData meta, String property,
+    		int access, boolean scan) {
+    	return null;
+    }
+    
+    public Class<? extends Exception> getUnimplementedExceptionType() {
         return null;
     }
     
     public void loadXMLMetaData(FieldMetaData fmd) {
+    }
+
+    public String getMetaModelClassName(String managedClassName) {
+        return null;
+    }
+    public String getManagedClassName(String metamodelClassName) {
+        return null;
+    }
+    
+    public boolean isMetaClass(Class<?> c) {
+        return false;
+    }
+
+    public Class<?> getManagedClass(Class<?> c) {
+        return null;
+    }
+
+    public boolean isAbstractMappingUniDirectional(OpenJPAConfiguration conf) {
+        return false;
+    }
+    
+    public boolean isNonDefaultMappingAllowed(OpenJPAConfiguration conf) {
+        return false;
     }
 }

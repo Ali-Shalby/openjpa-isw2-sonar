@@ -73,9 +73,9 @@ public class DBDictionaryFactory {
      */
     public static DBDictionary calculateDBDictionary(JDBCConfiguration conf,
         String url, String driver, String props) {
-        String dclass = dictionaryClassForString(driver, conf);
+        String dclass = dictionaryClassForString(getProtocol(url), conf);
         if (dclass == null)
-            dclass = dictionaryClassForString(getProtocol(url), conf);
+            dclass = dictionaryClassForString(driver, conf);
         if (dclass == null)
             return null;
         return newDBDictionary(conf, dclass, props);
@@ -154,6 +154,18 @@ public class DBDictionaryFactory {
                         DBDictionary.class)));
             dict = (DBDictionary) AccessController.doPrivileged(
                 J2DoPrivHelper.newInstanceAction(c));
+        } catch (ClassNotFoundException cnfe) {
+            // if the dictionary was not found, make another attempt
+            // at loading the dictionary using the current thread.
+            try {
+                Class c = Thread.currentThread().getContextClassLoader().loadClass(dclass);
+                dict = (DBDictionary) AccessController.doPrivileged(
+                        J2DoPrivHelper.newInstanceAction(c));
+            } catch (Exception e) {
+                if (e instanceof PrivilegedActionException)
+                    e = ((PrivilegedActionException) e).getException();
+                throw new UserException(e).setFatal(true);
+            }
         } catch (Exception e) {
             if (e instanceof PrivilegedActionException)
                 e = ((PrivilegedActionException) e).getException();
@@ -223,6 +235,8 @@ public class DBDictionaryFactory {
             return dbdictionaryPlugin.unalias("sybase");
         if (prod.indexOf("informix") != -1 || prod.indexOf("ids") != -1)
             return dbdictionaryPlugin.unalias("informix");
+        if (prod.indexOf("ingres") != -1)
+            return dbdictionaryPlugin.unalias("ingres");
         if (prod.indexOf("hsql") != -1)
             return dbdictionaryPlugin.unalias("hsql");
         if (prod.indexOf("foxpro") != -1)
@@ -282,7 +296,7 @@ public class DBDictionaryFactory {
     public static String toString(DatabaseMetaData meta)
         throws SQLException {
         String lineSep = J2DoPrivHelper.getLineSeparator();
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder(4096);
         try {
             buf.append("catalogSeparator: ")
                 .append(meta.getCatalogSeparator())

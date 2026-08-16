@@ -125,7 +125,9 @@ class SingleFieldManager
                     return false;
                 proxy = checkProxy();
                 if (proxy == null) {
-                    proxy = getProxyManager().newCustomProxy(objval);
+                    proxy = getProxyManager().newCustomProxy(objval,
+                        _sm.getBroker().getConfiguration().
+                        getCompatibilityInstance().getAutoOff());
                     ret = proxy != null;
                 }
                 break;
@@ -287,13 +289,17 @@ class SingleFieldManager
      * Dereference field values.
      */
     public void dereferenceDependent() {
-        delete(false, null);
+        delete(false, null, true);
     }
 
+    private void delete(boolean immediate, OpCallbacks call) {
+        delete(immediate, call, false);
+    }
+        
     /**
      * Delete or dereference the stored field as necessary.
      */
-    private void delete(boolean immediate, OpCallbacks call) {
+    private void delete(boolean immediate, OpCallbacks call, boolean deref) {
         if (objval == null)
             return;
 
@@ -302,8 +308,11 @@ class SingleFieldManager
             // immediate cascade works on field value; dependent deref
             // works on external value
             if ((immediate || fmd.isEmbeddedPC())
-                && fmd.getCascadeDelete() == ValueMetaData.CASCADE_IMMEDIATE)
+                && fmd.getCascadeDelete() == ValueMetaData.CASCADE_IMMEDIATE) {
+                if (fmd.isEmbeddedPC() && deref)
+                    dereferenceEmbedDependent(_broker.getStateManagerImpl(objval, false));
                 delete(fmd, objval, call);
+            }
             else if (fmd.getCascadeDelete() == ValueMetaData.CASCADE_AUTO)
                 dereferenceDependent(fmd.getExternalValue(objval, _broker));
             return;
@@ -413,7 +422,11 @@ class SingleFieldManager
         if (sm != null)
             sm.setDereferencedDependent(true, true);
     }
-
+    
+    void dereferenceEmbedDependent(StateManagerImpl sm) {
+    	sm.setDereferencedEmbedDependent(true);
+    }
+    
     /**
      * Recursively invoke the broker to gather cascade-refresh objects in
      * the current field into the given set. This method is only called
@@ -797,11 +810,15 @@ class SingleFieldManager
     private Collection embed(ValueMetaData vmd, Collection orig) {
         // we have to copy to get a collection of the right type and size,
         // though we immediately clear it
-        Collection coll = getProxyManager().copyCollection(orig);
-        if (coll == null)
+        if (orig == null)
             throw new UserException(_loc.get("not-copyable",
                 vmd.getFieldMetaData()));
-
+        Collection coll = null;
+        try {
+            coll = getProxyManager().copyCollection(orig);
+        } catch (Exception e) {
+            coll = (Collection) _sm.newFieldProxy(vmd.getFieldMetaData().getIndex());
+        }
         coll.clear();
         for (Iterator itr = orig.iterator(); itr.hasNext();)
             coll.add(embed(vmd, itr.next()));
@@ -819,12 +836,15 @@ class SingleFieldManager
         // if we have to replace keys, we need to copy the map; otherwise
         // we can mutate the values directly
         if (keyEmbed) {
+            if (orig == null)
+                throw new UserException(_loc.get("not-copyable", fmd));
             // we have to copy to get a collection of the right type and size,
             // though we immediately clear it
-            map = getProxyManager().copyMap(orig);
-            if (map == null)
-                throw new UserException(_loc.get("not-copyable", fmd));
-
+            try {
+                map = getProxyManager().copyMap(orig);
+            } catch (Exception e) {
+                map = (Map) _sm.newFieldProxy(fmd.getIndex());
+            }
             map.clear();
             Object key, val;
             for (Iterator itr = orig.entrySet().iterator(); itr.hasNext();) {

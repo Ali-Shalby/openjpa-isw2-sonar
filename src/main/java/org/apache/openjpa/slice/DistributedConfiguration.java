@@ -19,6 +19,7 @@
 package org.apache.openjpa.slice;
 
 import java.util.List;
+import java.util.Map;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 
@@ -45,7 +46,7 @@ public interface DistributedConfiguration extends OpenJPAConfiguration {
 	 * specified explicitly in <code>openjpa.slice.Names</code> property or 
 	 * ordered alphabetically when found by scanning the properties.
 	 * <br>
-	 * This list always returns the identifiers that are <em>active</em>, slices
+     * This list always returns the identifiers that are <em>active</em>, slices
 	 * that can not be connected to are not included in this list.
 	 */
 	List<String> getActiveSliceNames();
@@ -70,15 +71,57 @@ public interface DistributedConfiguration extends OpenJPAConfiguration {
 	 */
 	Slice getSlice(String sliceName);
 	
-	/**
-	 * Gets the policy that governs how new instances will be distributed across
-	 * the available slices.
-	 */
-	DistributionPolicy getDistributionPolicyInstance();
+    /**
+     * Gets the policy that governs how new instances will be distributed across
+     * the available slices.
+     */
+    DistributionPolicy getDistributionPolicyInstance();
+    
+    /**
+     * Sets the policy that governs how new instances will be distributed across
+     * the available slices.
+     */
+    void setDistributionPolicyInstance(DistributionPolicy policy);
 	
+    /**
+     * Gets the policy, as a plugin string, that governs how new instances will 
+     * be distributed across the available slices.
+     */
+    String getDistributionPolicy();
+    
+    /**
+     * Sets the policy, from the given plugin string, that governs how new 
+     * instances will be distributed across the available slices.
+     */
+    void setDistributionPolicy(String policy);
+
+    /**
+     * Gets the policy that governs how new replicated instances will be 
+     * replicated across the available slices.
+     */
+    ReplicationPolicy getReplicationPolicyInstance();
+    
+    /**
+     * Gets the policy, as a plugin string, that governs how new replicated 
+     * instances will be replicated across the available slices.
+     */
+    String getReplicationPolicy();
+	
+    /**
+     * Sets the policy that governs how new replicated instances will be 
+     * replicated across the available slices.
+     */
+    void setReplicationPolicyInstance(ReplicationPolicy policy);
+    
+    /**
+     * Sets the policy, from the given plugin string, that governs how new 
+     * replicated instances will be replicated across the available slices.
+     */
+    void setReplicationPolicy(String policy);
 	/**
-	 * Gets the policy that governs how new replicated instances will be 
-	 * replicated across the available slices.
+	 * Adds a new Slice of the given name and given properties.
+     * The given properties must have keys with prefix openjpa.slice.<name>.*
+     * where <name> is the new slice to be added.
 	 */
-	ReplicationPolicy getReplicationPolicyInstance();
+    Slice addSlice(String name, Map properties);
 }

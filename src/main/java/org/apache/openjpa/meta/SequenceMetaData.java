@@ -279,7 +279,7 @@ public class SequenceMetaData
             Class cls = Class.forName(clsName, true,
                 AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(Seq.class)));
-            StringBuffer props = new StringBuffer();
+            StringBuilder props = new StringBuilder();
             if (plugin.getProperties() != null)
                 props.append(plugin.getProperties());
             addStandardProperties(props);
@@ -343,20 +343,31 @@ public class SequenceMetaData
     /**
      * Add standard properties to the given properties buffer.
      */
-    protected void addStandardProperties(StringBuffer props) {
-        appendProperty(props, PROP_SEQUENCE, _sequence);
+    protected void addStandardProperties(StringBuilder props) {
+        appendProperty(props, PROP_SEQUENCE, wrapValue(_sequence));
         appendProperty(props, PROP_INITIAL_VALUE, _initial);
         appendProperty(props, PROP_ALLOCATE, _allocate);
         appendProperty(props, PROP_INCREMENT, _increment);
-        appendProperty(props, PROP_SCHEMA, _schema);
-        appendProperty(props, PROP_CATALOG, _catalog);
+        appendProperty(props, PROP_SCHEMA, wrapValue(_schema));
+        appendProperty(props, PROP_CATALOG, wrapValue(_catalog));
+    }
+    
+    /**
+     * Wraps property values that may contain spaces or other special characters
+     * in double quotes so they are processed as a single valued argument.
+     */
+    protected String wrapValue(String value) {
+        if (value != null) {
+            return "\"" + value + "\"";
+        }
+        return value;
     }
 
     /**
      * Add a string property to the buffer. Nothing will be added if value
      * is null or empty string.
      */
-    protected void appendProperty(StringBuffer props, String name, String val) {
+    protected void appendProperty(StringBuilder props, String name, String val) {
         if (StringUtils.isEmpty(val))
             return;
         if (props.length() > 0)
@@ -367,7 +378,7 @@ public class SequenceMetaData
     /**
      * Add an int property to the buffer. Nothing will be added if value is -1.
      */
-    protected void appendProperty(StringBuffer props, String name, int val) {
+    protected void appendProperty(StringBuilder props, String name, int val) {
         if (val == -1)
             return;
         if (props.length() > 0)

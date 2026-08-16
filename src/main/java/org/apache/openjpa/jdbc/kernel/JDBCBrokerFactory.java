@@ -20,8 +20,6 @@ package org.apache.openjpa.jdbc.kernel;
 
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
-import java.util.Properties;
 import java.util.Map;
 
 import org.apache.commons.lang.StringUtils;
@@ -44,6 +42,7 @@ import org.apache.openjpa.util.UserException;
  * @author Abe White
  * @author Marc Prud'hommeaux
  */
+@SuppressWarnings("serial")
 public class JDBCBrokerFactory
     extends AbstractBrokerFactory {
 
@@ -67,7 +66,7 @@ public class JDBCBrokerFactory
      * Invoked from {@link Bootstrap#getBrokerFactory}.
      */
     public static JDBCBrokerFactory getInstance(ConfigurationProvider cp) {
-        Map props = cp.getProperties();
+        Map<String,Object> props = cp.getProperties();
         Object key = toPoolKey(props);
         JDBCBrokerFactory factory = (JDBCBrokerFactory)
             getPooledFactoryForKey(key);
@@ -86,18 +85,17 @@ public class JDBCBrokerFactory
     public JDBCBrokerFactory(JDBCConfiguration conf) {
         super(conf);
     }
-
-    public Properties getProperties() {
+   
+    public Map<String,Object> getProperties() {
         // add platform property
-        Properties props = super.getProperties();
+        Map<String,Object> props = super.getProperties();
         String db = "Unknown";
         try {
             JDBCConfiguration conf = (JDBCConfiguration) getConfiguration();
             db = conf.getDBDictionaryInstance().platform;
         } catch (RuntimeException re) {
         }
-        props.setProperty("Platform",
-            "OpenJPA JDBC Edition: " + db + " Database");
+        props.put("Platform", "OpenJPA JDBC Edition: " + db + " Database");
 
         return props;
     }
@@ -128,14 +126,14 @@ public class JDBCBrokerFactory
     /**
      * Synchronize the mappings of the classes listed in the configuration.
      */
-    protected void synchronizeMappings(ClassLoader loader) {
-        JDBCConfiguration conf = (JDBCConfiguration) getConfiguration();
+    protected void synchronizeMappings(ClassLoader loader, 
+        JDBCConfiguration conf) {
         String action = conf.getSynchronizeMappings();
         if (StringUtils.isEmpty(action))
             return;
 
         MappingRepository repo = conf.getMappingRepositoryInstance();
-        Collection classes = repo.loadPersistentTypes(false, loader);
+        Collection<Class<?>> classes = repo.loadPersistentTypes(false, loader);
         if (classes.isEmpty())
             return;
 
@@ -146,9 +144,7 @@ public class JDBCBrokerFactory
             "SynchronizeMappings");
 
         // initialize the schema
-        Class cls;
-        for (Iterator itr = classes.iterator(); itr.hasNext();) {
-            cls = (Class) itr.next();
+        for (Class<?> cls : classes) {
             try {
                 tool.run(cls);
             } catch (IllegalArgumentException iae) {
@@ -157,5 +153,9 @@ public class JDBCBrokerFactory
             }
         }
         tool.record();
+    }
+    
+    protected void synchronizeMappings(ClassLoader loader) {
+        synchronizeMappings(loader, (JDBCConfiguration) getConfiguration());
     }
 }

@@ -18,11 +18,7 @@
  */
 package org.apache.openjpa.persistence.query;
 
-import javax.persistence.DomainObject;
-import javax.persistence.PathExpression;
-import javax.persistence.Query;
-import javax.persistence.QueryDefinition;
-
+import org.apache.openjpa.kernel.Query;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.persistence.OpenJPAEntityManagerFactorySPI;
 
@@ -67,7 +63,7 @@ public class QueryBuilderImpl implements OpenJPAQueryBuilder {
 			.getMetaDataRepositoryInstance();
 		AliasContext ctx = new AliasContext(repos);
 		if (query instanceof AbstractDomainObject)
-			return ((AbstractDomainObject)query).getOwner().asExpression(ctx);
+            return ((AbstractDomainObject)query).getOwner().asExpression(ctx);
 		return ((QueryDefinitionImpl)query).asExpression(ctx);
 	}
 	

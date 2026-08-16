@@ -42,6 +42,7 @@ public class CandidatePath
     implements Path {
 
     protected LinkedList _actions = null;
+    protected String _correlationVar = null;
 
     /**
      * Traverse into the given field of the current object, and update
@@ -195,5 +196,19 @@ public class CandidatePath
     
     public XMLMetaData getXmlMapping() {
         return null;
+    }
+
+    public void setSchemaAlias(String schemaAlias) {
+    }
+
+    public String getSchemaAlias() {
+        return null;
+    }
+    
+    public void setSubqueryContext(Context conext, String correlationVar) {
+    }
+
+    public String getCorrelationVar() {
+        return _correlationVar;
     }
 }

@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.slice.jdbc;
 
+import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
@@ -31,7 +32,6 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 import org.apache.openjpa.enhance.PersistenceCapable;
@@ -41,7 +41,6 @@ import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.JDBCStoreManager;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.ResultSetResult;
-import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.PCState;
@@ -53,10 +52,13 @@ import org.apache.openjpa.kernel.StoreQuery;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.slice.DistributedStoreManager;
 import org.apache.openjpa.slice.ProductDerivation;
+import org.apache.openjpa.slice.Slice;
 import org.apache.openjpa.slice.SliceImplHelper;
 import org.apache.openjpa.slice.SliceInfo;
 import org.apache.openjpa.slice.SliceThread;
@@ -73,13 +75,27 @@ import org.apache.openjpa.util.StoreException;
  * @author Pinaki Poddar
  * 
  */
-class DistributedStoreManager extends JDBCStoreManager {
+class DistributedJDBCStoreManager extends JDBCStoreManager 
+    implements DistributedStoreManager {
     private final List<SliceStoreManager> _slices;
     private JDBCStoreManager _master;
     private final DistributedJDBCConfiguration _conf;
     private static final Localizer _loc =
-            Localizer.forPackage(DistributedStoreManager.class);
+            Localizer.forPackage(DistributedJDBCStoreManager.class);
 
+    private static final Constructor<ClientConnection> clientConnectionImpl;
+    private static final Constructor<RefCountConnection> refCountConnectionImpl;
+    static {
+        try {
+            clientConnectionImpl = ConcreteClassGenerator.
+                getConcreteConstructor(ClientConnection.class, Connection.class);
+            refCountConnectionImpl = ConcreteClassGenerator.
+                getConcreteConstructor(RefCountConnection.class, JDBCStoreManager.class, Connection.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+    
     /**
      * Constructs a set of child StoreManagers each connected to a physical
      * DataSource.
@@ -88,16 +104,16 @@ class DistributedStoreManager extends JDBCStoreManager {
      * slices. The first slice is referred as <em>master</em> and is used to
      * get Sequence based entity identifiers.
      */
-    public DistributedStoreManager(DistributedJDBCConfiguration conf) {
+    public DistributedJDBCStoreManager(DistributedJDBCConfiguration conf) {
         super();
         _conf = conf;
         _slices = new ArrayList<SliceStoreManager>();
         List<String> sliceNames = conf.getActiveSliceNames();
         for (String name : sliceNames) {
-            SliceStoreManager slice = new SliceStoreManager
-                (conf.getSlice(name));
+            SliceStoreManager slice =
+                    new SliceStoreManager(conf.getSlice(name));
             _slices.add(slice);
-            if (name.equals(conf.getMaster().getName()))
+            if (slice.getName().equals(_conf.getMaster().getName()))
                 _master = slice;
         }
     }
@@ -108,6 +124,14 @@ class DistributedStoreManager extends JDBCStoreManager {
     
     public SliceStoreManager getSlice(int i) {
     	return _slices.get(i);
+    }
+    
+    public SliceStoreManager addSlice(Slice slice) {
+        SliceStoreManager result = new SliceStoreManager(slice);
+        result.setContext(getContext(),
+                (JDBCConfiguration)slice.getConfiguration());
+        _slices.add(result);
+        return result;
     }
 
     /**
@@ -174,7 +198,8 @@ class DistributedStoreManager extends JDBCStoreManager {
         for (String target : targets) {
         	SliceStoreManager slice = lookup(target);
         	if (slice == null)
-        		throw new InternalException(_loc.get("wrong-slice", target, sm));
+        	    throw new InternalException(_loc.get("wrong-slice", target,
+        	            sm));
         	return slice;
         }
         return null;
@@ -321,7 +346,7 @@ class DistributedStoreManager extends JDBCStoreManager {
     }
     
     /**
-     * Separate the given list of StateManagers in separate lists for each slice 
+     * Separate the given list of StateManagers in separate lists for each slice
      * by the associated slice identifier of each StateManager.
      */
     private Map<String, StateManagerSet> bin(Collection sms, Object edata) {
@@ -340,18 +365,18 @@ class DistributedStoreManager extends JDBCStoreManager {
     }
 
     public Object getClientConnection() {
-        throw new UnsupportedOperationException();
+        return ConcreteClassGenerator.newInstance(clientConnectionImpl, getConnection());
     }
 
     public Seq getDataStoreIdSequence(ClassMetaData forClass) {
         return _master.getDataStoreIdSequence(forClass);
     }
 
-    public Class getDataStoreIdType(ClassMetaData meta) {
+    public Class<?> getDataStoreIdType(ClassMetaData meta) {
         return _master.getDataStoreIdType(meta);
     }
 
-    public Class getManagedType(Object oid) {
+    public Class<?> getManagedType(Object oid) {
         return _master.getManagedType(oid);
     }
 
@@ -454,8 +479,8 @@ class DistributedStoreManager extends JDBCStoreManager {
         List<Connection> list = new ArrayList<Connection>();
         for (SliceStoreManager slice : _slices)
             list.add(slice.getConnection());
-        DistributedConnection con = new DistributedConnection(list);
-        return new RefCountConnection(con);
+        DistributedConnection con = DistributedConnection.newInstance(list);
+        return ConcreteClassGenerator.newInstance(refCountConnectionImpl, DistributedJDBCStoreManager.this, con);
     }
     
     /**

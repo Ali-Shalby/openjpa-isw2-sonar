@@ -54,7 +54,8 @@ import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedBlobFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedClobFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.PrimitiveFieldStrategy;
-import org.apache.openjpa.jdbc.meta.strats.RelationCollectionInverseKeyFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.
+        RelationCollectionInverseKeyFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationCollectionTableFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.RelationFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.StateComparisonVersionStrategy;
@@ -99,7 +100,7 @@ import serp.bytecode.Project;
 import serp.util.Strings;
 
 /**
- * Reverse-maps a schema into class mappings and the assiciated java
+ * Reverse-maps a schema into class mappings and the associated java
  * code. Generates a Java code files for persistent classes and associated
  * identity classes and metadata.
  *
@@ -1473,7 +1474,7 @@ public class ReverseMappingTool
      * name, using the default package.
      */
     private String getClassName(Table table) {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         if (getPackageName() != null)
             buf.append(getPackageName()).append(".");
 
@@ -1513,7 +1514,7 @@ public class ReverseMappingTool
         else
             name = Character.toLowerCase(name.charAt(0)) + name.substring(1);
 
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         String[] subs = Strings.split(name, "_", 0);
         for (int i = 0; i < subs.length; i++) {
             if (i > 0)
@@ -1570,7 +1571,7 @@ public class ReverseMappingTool
         if (StringUtils.isEmpty(str))
             return str;
 
-        StringBuffer buf = new StringBuffer(str);
+        StringBuilder buf = new StringBuilder(str);
         char c;
         for (int i = 0; i < buf.length(); i++) {
             c = buf.charAt(i);

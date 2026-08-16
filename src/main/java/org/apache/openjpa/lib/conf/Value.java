@@ -40,6 +40,7 @@ public abstract class Value implements Cloneable {
 
     private static final String[] EMPTY_ALIASES = new String[0];
     private static final Localizer s_loc = Localizer.forPackage(Value.class);
+    public static final String INVISIBLE = "******";
     
     private String prop = null;
     private String loadKey = null;
@@ -52,8 +53,9 @@ public abstract class Value implements Cloneable {
     private boolean isDynamic = false;
     private String originalValue = null;
     private Set<String> otherNames = null;
-    private boolean visible = true;
-
+    private boolean _hidden  = false;
+    private boolean _private = false;
+    
     /**
      * Default constructor.
      */
@@ -285,7 +287,7 @@ public abstract class Value implements Cloneable {
     }
 
     /**
-     * The default value for the propert as a string.
+     * The default value for the property as a string.
      */
     public void setDefault(String def) {
         this.def = def;
@@ -411,7 +413,7 @@ public abstract class Value implements Cloneable {
     /**
      * Returns the type of the property that this Value represents.
      */
-    public abstract Class getValueType();
+    public abstract Class<?> getValueType();
 
     /**
      * Return the internal string form of this value.
@@ -552,11 +554,43 @@ public abstract class Value implements Cloneable {
         }
     }
 
-    public boolean isVisible() {
-        return visible;
+    /**
+     * Affirms if the value for this Value is visible.
+     * Certain sensitive value such as password can be made invisible
+     * so that it is not returned to the user code.
+     */
+    public boolean isHidden() {
+        return _hidden;
     }
 
-    public void setVisible(boolean visible) {
-        this.visible = visible;
+    /**
+     * Hides the value of this Value from being output to the caller.
+     */
+    public void hide() {
+        _hidden = true;
+    }
+    
+    /**
+     * Affirms if this Value is used for internal purpose only and not exposed as a supported property.
+     * @see Configuration#getPropertyKeys()
+     */
+    public boolean isPrivate() {
+        return _private;
+    }
+
+    /**
+     * Marks this Value for internal purpose only.
+     */
+    public void makePrivate() {
+        _private = true;
+    }
+    
+    /**
+     * Get the actual data stored in this value.
+     */
+    public abstract Object get();
+    
+    public String toString() {
+        return getProperty()+ ":" + get() + "[" + getValueType().getName() + "]";
     }
 }

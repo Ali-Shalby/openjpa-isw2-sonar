@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.jdbc.schema;
 
+import java.lang.reflect.Constructor;
 import java.security.AccessController;
 import java.sql.Connection;
 import java.sql.Driver;
@@ -41,6 +42,7 @@ import org.apache.openjpa.lib.jdbc.JDBCEventConnectionDecorator;
 import org.apache.openjpa.lib.jdbc.JDBCListener;
 import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
@@ -140,7 +142,8 @@ public class DataSourceFactory {
         Log jdbcLog = conf.getLog(JDBCConfiguration.LOG_JDBC);
         Log sqlLog = conf.getLog(JDBCConfiguration.LOG_SQL);
 
-        DecoratingDataSource dds = new DecoratingDataSource(ds);
+        DecoratingDataSource dds = DecoratingDataSource.
+            newDecoratingDataSource(ds);
         try {
             // add user-defined decorators
             List decorators = new ArrayList();
@@ -220,7 +223,7 @@ public class DataSourceFactory {
                 // add trace info for autoCommit setting
                 if (log.isTraceEnabled())
                     log.trace(_loc.get("set-auto-commit", new Object[] {
-                    dict.supportsMultipleNontransactionalResultSets}));                
+                    dict.supportsMultipleNontransactionalResultSets}));
             }
             Options opts = Configurations.parseProperties((factory2)
                 ? conf.getConnectionFactory2Properties()
@@ -275,7 +278,7 @@ public class DataSourceFactory {
         // also check if they are both blank strings
         if ("".equals(user) && "".equals(pass))
             return ds;
-        return new DefaultsDataSource(ds, user, pass);
+        return DefaultsDataSource.newInstance(ds, user, pass);
     }
 
     /**
@@ -290,8 +293,19 @@ public class DataSourceFactory {
     /**
      * A data source with pre-configured default user name and password.
      */
-    private static class DefaultsDataSource
+    protected abstract static class DefaultsDataSource
         extends DelegatingDataSource {
+
+        private static final Constructor<DefaultsDataSource> implClass;
+
+        static {
+            try {
+                implClass = ConcreteClassGenerator.getConcreteConstructor(DefaultsDataSource.class, 
+                        DataSource.class, String.class, String.class);
+            } catch (Exception e) {
+                throw new ExceptionInInitializerError(e);
+            }
+        }
 
         private final String _user;
         private final String _pass;
@@ -300,6 +314,10 @@ public class DataSourceFactory {
             super(ds);
             _user = user;
             _pass = pass;
+        }
+
+        public static DefaultsDataSource newInstance(DataSource ds, String user, String pass) {
+            return ConcreteClassGenerator.newInstance(implClass, ds, user, pass);
         }
 
         public Connection getConnection()

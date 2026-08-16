@@ -20,11 +20,6 @@ package org.apache.openjpa.persistence.query;
 
 import java.util.LinkedList;
 
-import javax.persistence.Aggregate;
-import javax.persistence.Expression;
-import javax.persistence.PathExpression;
-import javax.persistence.Predicate;
-
 /**
  * An abstract path is formed by two parts : the first part is a parent path.
  * The second part can be an attribute or an operation (e.g. KEY() or VALUE())
@@ -49,22 +44,23 @@ abstract class AbstractPath extends ExpressionImpl implements
 	protected final PathOperator  _operator;
 	protected final QueryDefinitionImpl _owner;
 	
-	protected AbstractPath(QueryDefinitionImpl owner, AbstractPath parent, PathOperator op, Object part2) {
+	protected AbstractPath(QueryDefinitionImpl owner, AbstractPath parent, 
+	    PathOperator op, Object part2) {
 		_owner = owner;
 		_parent = parent;
 		_part2  = part2;
 		_operator = op;
 	}
 	
-	// ------------------------------------------------------------------------
-	// Path related functions.
-	// ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // Path related functions.
+    // ------------------------------------------------------------------------
 	
 	final QueryDefinitionImpl getOwner() {
 		return _owner;
 	}
 	/**
-	 * Gets the parent from which this receiver has been derived. Can be null
+     * Gets the parent from which this receiver has been derived. Can be null
 	 * for a root path.
 	 */
 	public AbstractPath getParent() {
@@ -86,9 +82,9 @@ abstract class AbstractPath extends ExpressionImpl implements
 		return _part2;
 	}
 
-	// -----------------------------------------------------------------------
-	// Implementation of PathExpression
-	// -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
+    // Implementation of PathExpression
+    // -----------------------------------------------------------------------
 	public Aggregate avg() {
 		return new AverageExpression(this);
 	}

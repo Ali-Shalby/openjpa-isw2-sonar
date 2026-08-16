@@ -19,17 +19,16 @@
 package org.apache.openjpa.jdbc.meta;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCSeqValue;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
 import org.apache.openjpa.jdbc.kernel.ClassTableJDBCSeq;
 import org.apache.openjpa.jdbc.kernel.TableJDBCSeq;
 import org.apache.openjpa.jdbc.kernel.ValueTableJDBCSeq;
-import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.conf.PluginValue;
+import org.apache.openjpa.lib.identifier.IdentifierUtil;
 import org.apache.openjpa.meta.SequenceMetaData;
 
 /**
@@ -37,6 +36,7 @@ import org.apache.openjpa.meta.SequenceMetaData;
  *
  * @author Abe White
  */
+@SuppressWarnings("serial")
 public class SequenceMapping
     extends SequenceMetaData {
 
@@ -61,16 +61,33 @@ public class SequenceMapping
     private static final String PROP_PK_COL = "PrimaryKeyColumn";
     private static final String PROP_PK_VALUE = "PrimaryKeyValue";
     private static final String PROP_UNIQUE = "UniqueColumns";
+    private static final String PROP_UNIQUE_CONSTRAINT = "UniqueConstraintName";
 
     private File _mapFile = null;
-    private String _table = null;
-    private String _sequenceColumn = null;
-    private String _primaryKeyColumn = null;
+    private DBIdentifier _table = DBIdentifier.NULL;
+    private DBIdentifier _sequenceColumn = DBIdentifier.NULL;
+    private DBIdentifier _primaryKeyColumn = DBIdentifier.NULL;
     private String _primaryKeyValue = null;
-    private String[] _uniqueColumns   = null;
+    private DBIdentifier[] _uniqueColumns   = null;
+    private DBIdentifier _uniqueConstraintName = DBIdentifier.NULL;
     
+    /**
+     * @deprecated
+     * @param name
+     * @param repos
+     */
     public SequenceMapping(String name, MappingRepository repos) {
         super(name, repos);
+    }
+
+    /**
+     * Sequence names are a kernel object so DBIdentifiers must be converted to
+     * strings 
+     * @param name
+     * @param repos
+     */
+    public SequenceMapping(DBIdentifier name, MappingRepository repos) {
+        super(DBIdentifier.isNull(name) ? null : name.getName(), repos);
     }
 
     /**
@@ -91,43 +108,73 @@ public class SequenceMapping
 
     /**
      * Name of sequence table, if any.
+     * @deprecated
      */
     public String getTable() {
-        return _table;
+        return getTableIdentifier().getName();
+    }
+
+    public DBIdentifier getTableIdentifier() {
+        return _table == null ? DBIdentifier.NULL : _table ;
     }
 
     /**
      * Name of sequence table, if any.
+     * @deprecated
      */
     public void setTable(String table) {
+        setTableIdentifier(DBIdentifier.newTable(table));
+    }
+
+    public void setTableIdentifier(DBIdentifier table) {
         _table = table;
     }
 
     /**
      * Name of sequence column, if any.
+     * @deprecated
      */
     public String getSequenceColumn() {
-        return _sequenceColumn;
+        return getSequenceColumnIdentifier().getName();
+    }
+
+    public DBIdentifier getSequenceColumnIdentifier() {
+        return _sequenceColumn == null ? DBIdentifier.NULL : _sequenceColumn;
     }
 
     /**
      * Name of sequence column, if any.
+     * @deprecated
      */
     public void setSequenceColumn(String sequenceColumn) {
+        setSequenceColumnIdentifier(DBIdentifier.newColumn(sequenceColumn));
+    }
+
+    public void setSequenceColumnIdentifier(DBIdentifier sequenceColumn) {
         _sequenceColumn = sequenceColumn;
     }
 
     /**
      * Name of primary key column, if any.
+     * @deprecated
      */
     public String getPrimaryKeyColumn() {
-        return _primaryKeyColumn;
+        return getPrimaryKeyColumnIdentifier().getName();
+    }
+
+    public DBIdentifier getPrimaryKeyColumnIdentifier() {
+        return _primaryKeyColumn == null ? DBIdentifier.NULL : _primaryKeyColumn;
     }
 
     /**
      * Name of primary key column, if any.
+     * @deprecated
      */
     public void setPrimaryKeyColumn(String primaryKeyColumn) {
+        setPrimaryKeyColumnIdentifier(DBIdentifier.newColumn(primaryKeyColumn));
+    }
+
+    public void setPrimaryKeyColumnIdentifier(DBIdentifier primaryKeyColumn) {
         _primaryKeyColumn = primaryKeyColumn;
     }
 
@@ -145,29 +192,91 @@ public class SequenceMapping
         _primaryKeyValue = primaryKeyValue;
     }
 
+    /**
+     * @deprecated
+     * @param cols
+     */
     public void setUniqueColumns(String[] cols) {
-    	_uniqueColumns = cols;
+        setUniqueColumnsIdentifier(DBIdentifier.toArray(cols, DBIdentifierType.COLUMN));
     }
-    
+
+    public void setUniqueColumnsIdentifier(DBIdentifier[] cols) {
+        _uniqueColumns = cols;
+    }
+
+    /**
+     * @deprecated
+     */
     public String[] getUniqueColumns() {
+        return DBIdentifier.toStringArray(getUniqueColumnsIdentifier());
+    }
+
+    public DBIdentifier[] getUniqueColumnsIdentifier() {
     	return _uniqueColumns;
     }
+
     
     protected PluginValue newPluginValue(String property) {
         return new JDBCSeqValue(property);
     }
 
-    protected void addStandardProperties(StringBuffer props) {
+    @Override
+    protected void addStandardProperties(StringBuilder props) {
         super.addStandardProperties(props);
-        appendProperty(props, PROP_TABLE, _table);
-        appendProperty(props, PROP_SEQUENCE_COL, _sequenceColumn);
-        appendProperty(props, PROP_PK_COL, _primaryKeyColumn);
-        appendProperty(props, PROP_PK_VALUE, _primaryKeyValue);
+        // Quotes are conditionally added to the following because the props
+        // are eventually passed to the Configurations.parseProperties()
+        // method, which strips off quotes. This is a problem when these
+        // properties are intentionally delimited with quotes. So, an extra
+        // set preserves the intended ones. While this is an ugly solution,
+        // it's less ugly than other ones.
+        
+        appendProperty(props, PROP_TABLE, addQuotes(_table.getName()));
+        appendProperty(props, PROP_SEQUENCE_COL, addQuotes(_sequenceColumn.getName()));
+        appendProperty(props, PROP_PK_COL, addQuotes(_primaryKeyColumn.getName()));
+        appendProperty(props, PROP_PK_VALUE, addQuotes(_primaryKeyValue));
         // Array of unique column names are passed to configuration
         // as a single string "x|y|z". The configurable (TableJDBCSeq) must
         // parse it back.
+        if (!DBIdentifier.isNull(_uniqueConstraintName) && 
+                _uniqueConstraintName.getName().length() > 0) {
+            appendProperty(props, PROP_UNIQUE_CONSTRAINT, 
+                addQuotes(_uniqueConstraintName.getName()));
+        }
+            
         if (_uniqueColumns != null && _uniqueColumns.length > 0)
         	appendProperty(props, PROP_UNIQUE, 
         			StringUtils.join(_uniqueColumns,'|'));
+    }
+    
+    private String addQuotes(String name) {
+        if (name != null && name.contains(IdentifierUtil.DOUBLE_QUOTE)) {
+            return IdentifierUtil.DOUBLE_QUOTE + name + IdentifierUtil.DOUBLE_QUOTE;
+        }
+        return name;
+    }
+
+    /**
+     * @deprecated
+     * @param name
+     */
+    public void setUniqueConstraintName(String name) {
+        _uniqueConstraintName = DBIdentifier.newConstraint(name);
+    }
+
+    public void setUniqueConstraintIdentifier(DBIdentifier name) {
+        _uniqueConstraintName = name;
+    }
+
+    /**
+     * @deprecated
+     * @return
+     */
+    public String getUniqueConstraintName() {
+        return getUniqueConstraintIdentifier().getName();
+    }
+
+    public DBIdentifier getUniqueConstraintIdentifier() {
+        return _uniqueConstraintName == null ? DBIdentifier.NULL : _uniqueConstraintName;
+        
     }
 }

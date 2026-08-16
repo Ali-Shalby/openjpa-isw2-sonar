@@ -94,9 +94,9 @@ public abstract class AbstractQueryCache
     }
 
     public void onTypesChanged(TypesChangedEvent ev) {
-        writeLock();
-        Collection keys = null;
         if (evictPolicy == EvictPolicy.DEFAULT) {
+            writeLock();
+            Collection keys = null;
             try {
                 if (hasListeners())
                     fireEvent(ev);
@@ -120,12 +120,13 @@ public abstract class AbstractQueryCache
         } else {
             Collection changedTypes = ev.getTypes();
             HashMap<String,Long> changedClasses = 
-                new HashMap<String,Long>(); 
+                new HashMap<String,Long>();
+            Long tstamp = new Long(System.currentTimeMillis());
             for (Object o: changedTypes) {
                 String name = ((Class) o).getName();
-                if(!changedClasses.containsKey(name))
-                    changedClasses.put(name, 
-                        new Long(System.currentTimeMillis()));
+                if(!changedClasses.containsKey(name)) {
+                    changedClasses.put(name, tstamp );
+                }
             }           
             // Now update entity timestamp map
             updateEntityTimestamp(changedClasses);
@@ -378,7 +379,8 @@ public abstract class AbstractQueryCache
 
     /**
      * Updates the entity timestamp map with the current time in milliseconds
-     * @param timestampMap -- a map that contains entityname and its last updated timestamp
+     * @param timestampMap -- a map that contains entityname and its last
+     * updated timestamp
      */
     protected void updateEntityTimestamp(Map<String,Long> timestampMap) {
         if (entityTimestampMap != null)

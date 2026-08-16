@@ -30,8 +30,11 @@ import java.util.Map;
 import java.util.Map.Entry;
 
 import org.apache.openjpa.enhance.PCDataGenerator;
+import org.apache.openjpa.kernel.DataCacheRetrieveMode;
+import org.apache.openjpa.kernel.DataCacheStoreMode;
 import org.apache.openjpa.kernel.DelegatingStoreManager;
 import org.apache.openjpa.kernel.FetchConfiguration;
+import org.apache.openjpa.kernel.FindCallbacks;
 import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.PCState;
@@ -54,13 +57,13 @@ public class DataCacheStoreManager
     extends DelegatingStoreManager {
 
     // all the state managers changed in this transaction
-    private Collection _inserts = null; // statemanagers
-    private Map _updates = null; // statemanager -> fmd set
-    private Collection _deletes = null; // statemanagers
+    private Collection<OpenJPAStateManager> _inserts = null;
+    private Map<OpenJPAStateManager, BitSet> _updates = null;
+    private Collection<OpenJPAStateManager> _deletes = null;
 
     // the owning context
     private StoreContext _ctx = null;
-
+    private DataCacheManager _mgr = null;
     // pc data generator
     private PCDataGenerator _gen = null;
 
@@ -75,8 +78,8 @@ public class DataCacheStoreManager
 
     public void setContext(StoreContext ctx) {
         _ctx = ctx;
-        _gen = ctx.getConfiguration().getDataCacheManagerInstance().
-            getPCDataGenerator();
+        _mgr = ctx.getConfiguration().getDataCacheManagerInstance();
+        _gen = _mgr.getPCDataGenerator();
         super.setContext(ctx);
     }
 
@@ -108,18 +111,15 @@ public class DataCacheStoreManager
     /**
      * Evict all members of the given classes.
      */
-    private void evictTypes(Collection classes) {
+    private void evictTypes(Collection<Class<?>> classes) {
         if (classes.isEmpty())
             return;
 
-        MetaDataRepository mdr = _ctx.getConfiguration().
-            getMetaDataRepositoryInstance();
+        MetaDataRepository mdr = _ctx.getConfiguration().getMetaDataRepositoryInstance();
         ClassLoader loader = _ctx.getClassLoader();
 
-        Class cls;
         DataCache cache;
-        for (Iterator itr = classes.iterator(); itr.hasNext();) {
-            cls = (Class) itr.next();
+        for (Class<?> cls : classes) {
             cache = mdr.getMetaData(cls, loader, false).getDataCache();
             if (cache != null)
                 cache.removeAll(cls, false);
@@ -130,127 +130,120 @@ public class DataCacheStoreManager
      * Update all caches with the committed inserts, updates, and deletes.
      */
     private void updateCaches() {
-        // map each data cache to the modifications we need to perform
-        Map modMap = null;
-        Modifications mods;
-        OpenJPAStateManager sm;
-        DataCachePCData data;
-        DataCache cache;
+        if(_ctx.getFetchConfiguration().getCacheStoreMode() != DataCacheStoreMode.BYPASS ) { 
+            // map each data cache to the modifications we need to perform
+            Map<DataCache,Modifications> modMap = null;
+            if ((_ctx.getPopulateDataCache() && _inserts != null) || _updates != null || _deletes != null)
+                modMap = new HashMap<DataCache,Modifications>();
+            Modifications mods;
+            DataCachePCData data;
+            DataCache cache;
 
-        // create pc datas for inserts
-        if (_ctx.getPopulateDataCache() && _inserts != null) {
-            for (Iterator itr = _inserts.iterator(); itr.hasNext();) {
-                sm = (OpenJPAStateManager) itr.next();
-                cache = sm.getMetaData().getDataCache();
-                if (cache == null)
-                    continue;
+            // create pc datas for inserts
+            if (_ctx.getPopulateDataCache() && _inserts != null) {
+                for (OpenJPAStateManager sm : _inserts) {
+                    cache = _mgr.selectCache(sm);
+                    if (cache == null)
+                        continue;
 
-                if (modMap == null)
-                    modMap = new HashMap();
-                mods = getModifications(modMap, cache);
-                data = newPCData(sm);
-                data.store(sm);
-                mods.additions.add(new PCDataHolder(data, sm));
-            }
-        }
-
-        // update pcdatas for updates
-        Map.Entry entry;
-        if (_updates != null) {
-            BitSet fields;
-            for (Iterator itr = _updates.entrySet().iterator();
-                itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
-                sm = (OpenJPAStateManager) entry.getKey();
-                fields = (BitSet) entry.getValue();
-
-                cache = sm.getMetaData().getDataCache();
-                if (cache == null)
-                    continue;
-
-                // it's ok not to clone the object that we get from the cache,
-                // since we're inside the commit() method, so any modifications
-                // to the underlying cache are valid. If the commit had not
-                // already succeeded, then we'd want to clone the retrieved
-                // object.
-                if (modMap == null)
-                    modMap = new HashMap();
-                data = cache.get(sm.getObjectId());
-                mods = getModifications(modMap, cache);
-
-                // data should always be non-null, since the object is
-                // dirty, but maybe it got dropped from the cache in the
-                // interim
-                if (data == null) {
+                    mods = getModifications(modMap, cache);
                     data = newPCData(sm);
                     data.store(sm);
-                    mods.newUpdates.add(new PCDataHolder(data, sm));
-                } else {
-                    data.store(sm, fields);
-                    mods.existingUpdates.add(new PCDataHolder(data, sm));
+                    mods.additions.add(new PCDataHolder(data, sm));
                 }
             }
-        }
 
-        // remove pcdatas for deletes
-        if (_deletes != null) {
-            for (Iterator itr = _deletes.iterator(); itr.hasNext();) {
-                sm = (OpenJPAStateManager) itr.next();
-                cache = sm.getMetaData().getDataCache();
-                if (cache == null)
-                    continue;
+            // update pcdatas for updates
+            if (_updates != null) {
+                BitSet fields;
+                OpenJPAStateManager sm;
+                for (Map.Entry<OpenJPAStateManager, BitSet> entry : _updates.entrySet()) { 
+                    sm = entry.getKey();
+                    fields = entry.getValue();
 
-                if (modMap == null)
-                    modMap = new HashMap();
-                mods = getModifications(modMap, cache);
-                mods.deletes.add(sm.getObjectId());
-            }
-        }
+                    cache = _mgr.selectCache(sm);
+                    if (cache == null) {
+                        continue;
+                    }
 
-        // notify the caches of the changes
-        if (modMap != null) {
-            for (Iterator itr = modMap.entrySet().iterator(); itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
-                cache = (DataCache) entry.getKey();
-                mods = (Modifications) entry.getValue();
+                    // it's ok not to clone the object that we get from the cache,
+                    // since we're inside the commit() method, so any modifications
+                    // to the underlying cache are valid. If the commit had not
+                    // already succeeded, then we'd want to clone the retrieved
+                    // object.
+                    data = cache.get(sm.getObjectId());
+                    mods = getModifications(modMap, cache);
 
-                // make sure we're not caching old versions
-                cache.writeLock();
-                try {
-                    transformToVersionSafePCDatas(cache, mods.additions);
-                    transformToVersionSafePCDatas(cache, mods.newUpdates);
-                    transformToVersionSafePCDatas(cache, mods.existingUpdates);
-                    cache.commit(mods.additions, mods.newUpdates,
-                        mods.existingUpdates, mods.deletes);
-                } finally {
-                    cache.writeUnlock();
+                    // data should always be non-null, since the object is
+                    // dirty, but maybe it got dropped from the cache in the
+                    // interim
+                    if (data == null) {
+                        data = newPCData(sm);
+                        data.store(sm);
+                        mods.newUpdates.add(new PCDataHolder(data, sm));
+                    } else {
+                        data.store(sm, fields);
+                        mods.existingUpdates.add(new PCDataHolder(data, sm));
+                    }
                 }
             }
-        }
 
-        // if we were in largeTransaction mode, then we have recorded
-        // the classes of updated/deleted objects and these now need to be
-        // evicted
-        if (_ctx.isTrackChangesByType()) {
-            evictTypes(_ctx.getDeletedTypes());
-            evictTypes(_ctx.getUpdatedTypes());
-        }
+            // remove pcdatas for deletes
+            if (_deletes != null) {
+                for (OpenJPAStateManager sm : _deletes) { 
+                    cache = _mgr.selectCache(sm);
+                    if (cache == null)
+                        continue;
 
-        // and notify the query cache.  notify in one batch to reduce synch
-        QueryCache queryCache = _ctx.getConfiguration().
+                    mods = getModifications(modMap, cache);
+                    mods.deletes.add(sm.getObjectId());
+                }
+            }
+
+            // notify the caches of the changes
+            if (modMap != null) {
+                for (Map.Entry<DataCache,Modifications> entry : modMap.entrySet()) {
+                    cache = entry.getKey();
+                    mods = entry.getValue();
+
+                    // make sure we're not caching old versions
+                    cache.writeLock();
+                    try {
+                        cache.commit(
+                                transformToVersionSafePCDatas(cache, mods.additions), 
+                                transformToVersionSafePCDatas(cache, mods.newUpdates), 
+                                transformToVersionSafePCDatas(cache, mods.existingUpdates), 
+                                mods.deletes);
+                    } finally {
+                        cache.writeUnlock();
+                    }
+                }
+            }
+
+            // if we were in largeTransaction mode, then we have recorded
+            // the classes of updated/deleted objects and these now need to be
+            // evicted
+            if (_ctx.isTrackChangesByType()) {
+                evictTypes(_ctx.getDeletedTypes());
+                evictTypes(_ctx.getUpdatedTypes());
+            }
+
+            // and notify the query cache.  notify in one batch to reduce synch
+            QueryCache queryCache = _ctx.getConfiguration().
             getDataCacheManagerInstance().getSystemQueryCache();
-        if (queryCache != null) {
-            Collection pers = _ctx.getPersistedTypes();
-            Collection del = _ctx.getDeletedTypes();
-            Collection up = _ctx.getUpdatedTypes();
-            int size = pers.size() + del.size() + up.size();
-            if (size > 0) {
-                Collection types = new ArrayList(size);
-                types.addAll(pers);
-                types.addAll(del);
-                types.addAll(up);
-                queryCache.onTypesChanged(new TypesChangedEvent(this, types));
-            }
+            if (queryCache != null) {
+                Collection<Class<?>> pers = _ctx.getPersistedTypes();
+                Collection<Class<?>> del = _ctx.getDeletedTypes();
+                Collection<Class<?>> up = _ctx.getUpdatedTypes();
+                int size = pers.size() + del.size() + up.size();
+                if (size > 0) {
+                    Collection<Class<?>> types = new ArrayList<Class<?>>(size);
+                    types.addAll(pers);
+                    types.addAll(del);
+                    types.addAll(up);
+                    queryCache.onTypesChanged(new TypesChangedEvent(this, types));
+                }
+            } 
         }
     }
 
@@ -258,33 +251,29 @@ public class DataCacheStoreManager
      * Transforms a collection of {@link PCDataHolder}s that might contain
      * stale instances into a collection of up-to-date {@link DataCachePCData}s.
      */
-    private void transformToVersionSafePCDatas(DataCache cache,
-        List holders) {
-
+    private List<DataCachePCData> transformToVersionSafePCDatas(DataCache cache, List<PCDataHolder> holders) {
+        List<DataCachePCData> transformed = new ArrayList<DataCachePCData>(holders.size());
         Map<Object,Integer> ids = new HashMap<Object,Integer>(holders.size());
         // this list could be removed if DataCache.getAll() took a Collection
-        List idList = new ArrayList(holders.size());
+        List<Object> idList = new ArrayList<Object>(holders.size());
         int i = 0;
-        for (PCDataHolder holder : (List<PCDataHolder>) holders) {
+        for (PCDataHolder holder : holders) {
             ids.put(holder.sm.getObjectId(), i++);
             idList.add(holder.sm.getObjectId());
         }
 
-        List<PCDataHolder> removes = new ArrayList<PCDataHolder>();
         Map<Object,DataCachePCData> pcdatas = cache.getAll(idList);
         for (Entry<Object,DataCachePCData> entry : pcdatas.entrySet()) {
             Integer index = ids.get(entry.getKey());
             DataCachePCData oldpc = entry.getValue();
-            PCDataHolder holder = (PCDataHolder) holders.get(index);
+            PCDataHolder holder = holders.get(index);
             if (oldpc != null && compareVersion(holder.sm,
                 holder.sm.getVersion(), oldpc.getVersion()) == VERSION_EARLIER)
-                removes.add(holder);
+                continue;
             else
-                holders.set(index, holder.pcdata);
+                transformed.add(holder.pcdata);
         }
-
-        for (PCDataHolder holder : removes)
-            holders.remove(holder);
+        return transformed;
     }
 
     /**
@@ -292,7 +281,7 @@ public class DataCacheStoreManager
      * to the given cache, creating and caching the instance if it does
      * not already exist in the given map.
      */
-    private static Modifications getModifications(Map modMap, DataCache cache) {
+    private static Modifications getModifications(Map<DataCache,Modifications> modMap, DataCache cache) {
         Modifications mods = (Modifications) modMap.get(cache);
         if (mods == null) {
             mods = new Modifications();
@@ -302,7 +291,7 @@ public class DataCacheStoreManager
     }
 
     public boolean exists(OpenJPAStateManager sm, Object edata) {
-        DataCache cache = sm.getMetaData().getDataCache();
+        DataCache cache = _mgr.selectCache(sm); 
         if (cache != null && !isLocking(null)
             && cache.contains(sm.getObjectId()))
             return true;
@@ -310,7 +299,7 @@ public class DataCacheStoreManager
     }
 
     public boolean syncVersion(OpenJPAStateManager sm, Object edata) {
-        DataCache cache = sm.getMetaData().getDataCache();
+        DataCache cache = _mgr.selectCache(sm);
         if (cache == null || sm.isEmbedded())
             return super.syncVersion(sm, edata);
 
@@ -333,57 +322,76 @@ public class DataCacheStoreManager
         return super.syncVersion(sm, edata);
     }
 
-    public boolean initialize(OpenJPAStateManager sm, PCState state,
-        FetchConfiguration fetch, Object edata) {
-        DataCache cache = sm.getMetaData().getDataCache();
-        if (cache == null || sm.isEmbedded())
-            return super.initialize(sm, state, fetch, edata);
-
-        DataCachePCData data = cache.get(sm.getObjectId());
-        if (data != null && !isLocking(fetch)) {
-            //### the 'data.type' access here probably needs to be
-            //### addressed for bug 511
-            sm.initialize(data.getType(), state);
-            data.load(sm, fetch, edata);
-            return true;
+    public boolean initialize(OpenJPAStateManager sm, PCState state, FetchConfiguration fetch, Object edata) {
+        boolean fromDatabase; 
+        DataCache cache = _mgr.selectCache(sm);
+        DataCachePCData data = null;
+        boolean updateCache = _ctx.getFetchConfiguration().getCacheStoreMode() != DataCacheStoreMode.BYPASS 
+                            && _ctx.getPopulateDataCache();
+        if (cache == null || sm.isEmbedded() 
+            || _ctx.getFetchConfiguration().getCacheRetrieveMode() == DataCacheRetrieveMode.BYPASS
+            || _ctx.getFetchConfiguration().getCacheStoreMode() == DataCacheStoreMode.REFRESH) {
+            fromDatabase = super.initialize(sm, state, fetch, edata);
+        } else {
+            data = cache.get(sm.getObjectId());
+            if (data != null && !isLocking(fetch)) {                
+                //### the 'data.type' access here probably needs to be
+                //### addressed for bug 511
+                sm.initialize(data.getType(), state);
+                data.load(sm, fetch, edata);
+                // no need to update the cache. 
+                updateCache = false;
+                fromDatabase = true;
+            } else {
+                // initialize from store manager
+                fromDatabase = super.initialize(sm, state, fetch, edata);
+            }
         }
 
-        // initialize from store manager
-        if (!super.initialize(sm, state, fetch, edata))
-            return false;
-        if (!_ctx.getPopulateDataCache())
-            return true;
-
+        if (cache != null && (fromDatabase && updateCache)) {
+            // update cache if the result came from the database and configured to store or refresh the cache.
+            cacheStateManager(cache, sm, data);
+        }
+        return fromDatabase;
+    }
+    
+    private void cacheStateManager(DataCache cache, OpenJPAStateManager sm, DataCachePCData data) {
+        if (sm.isFlushed()) { 
+            return;
+        }
         // make sure that we're not trying to cache an old version
         cache.writeLock();
         try {
-            data = cache.get(sm.getObjectId());
-            if (data != null && compareVersion(sm, sm.getVersion(),
-                data.getVersion()) == VERSION_EARLIER)
-                return true;
+            if (data != null && compareVersion(sm, sm.getVersion(), data.getVersion()) == VERSION_EARLIER) {
+                return;
+            }
 
             // cache newly loaded info. It is safe to cache data frorm
             // initialize() because this method is only called upon
             // initial load of the data.
-            if (data == null)
+            boolean isNew = data == null;
+            if (isNew) {
                 data = newPCData(sm);
+            }
             data.store(sm);
-            cache.put(data);
+            if (isNew) { 
+                cache.put(data);
+            } else {
+                cache.update(data);
+            }
         } finally {
             cache.writeUnlock();
         }
-        return true;
     }
 
     public boolean load(OpenJPAStateManager sm, BitSet fields,
         FetchConfiguration fetch, int lockLevel, Object edata) {
-        DataCache cache = sm.getMetaData().getDataCache();
-        if (cache == null || sm.isEmbedded())
+        DataCache cache = _mgr.selectCache(sm);
+        if (cache == null || sm.isEmbedded() || bypass(_ctx.getFetchConfiguration(), StoreManager.FORCE_LOAD_NONE))
             return super.load(sm, fields, fetch, lockLevel, edata);
 
         DataCachePCData data = cache.get(sm.getObjectId());
-        if (lockLevel == LockLevels.LOCK_NONE && !isLocking(fetch)
-            && data != null)
+        if (lockLevel == LockLevels.LOCK_NONE && !isLocking(fetch) && data != null)
             data.load(sm, fields, fetch, edata);
         if (fields.length() == 0)
             return true;
@@ -392,55 +400,28 @@ public class DataCacheStoreManager
         // so that if the store manager decides to modify it it won't affect us
         if (!super.load(sm, (BitSet) fields.clone(), fetch, lockLevel, edata))
             return false;
-        if (!_ctx.getPopulateDataCache())
-            return true;
-        // Do not load changes into cache if the instance has been flushed
-        if (sm.isFlushed())
-            return true;
-
-        // make sure that we're not trying to cache an old version
-        cache.writeLock();
-        try {
-            data = cache.get(sm.getObjectId());
-            if (data != null && compareVersion(sm, sm.getVersion(),
-                data.getVersion()) == VERSION_EARLIER)
-                return true;
-
-            // cache newly loaded info
-            boolean isNew = data == null;
-            if (isNew)
-                data = newPCData(sm);
-            data.store(sm, fields);
-            if (isNew)
-                cache.put(data);
-            else
-                cache.update(data);
-        } finally {
-            cache.writeUnlock();
+        if (_ctx.getPopulateDataCache()) {
+            cacheStateManager(cache, sm, data);
         }
         return true;
+
     }
 
-    public Collection loadAll(Collection sms, PCState state, int load,
+    public Collection<Object> loadAll(Collection<OpenJPAStateManager> sms, PCState state, int load,
     		FetchConfiguration fetch, Object edata) {
-    	if (isLocking(fetch) || 
-    	   (!isLocking(fetch) &&
-    		(load == StoreManager.FORCE_LOAD_REFRESH)
-    		&& !_ctx.getConfiguration().getRefreshFromDataCache())) {
-    	       return super.loadAll(sms, state, load, fetch, edata);
+    	if (bypass(fetch, load)) {
+    	    return super.loadAll(sms, state, load, fetch, edata);
     	}
 
-        Map unloaded = null;
-        List smList = null;
-        Map caches = new HashMap();
-        OpenJPAStateManager sm;
+        Map<OpenJPAStateManager, BitSet> unloaded = null;
+        List<OpenJPAStateManager> smList = null;
+        Map<DataCache,List<OpenJPAStateManager>> caches = new HashMap<DataCache,List<OpenJPAStateManager>>();
         DataCache cache;
         DataCachePCData data;
         BitSet fields;
 
-        for (Iterator itr = sms.iterator(); itr.hasNext();) {
-            sm = (OpenJPAStateManager) itr.next();
-            cache = sm.getMetaData().getDataCache();
+        for (OpenJPAStateManager sm : sms) {
+            cache = _mgr.selectCache(sm);
             if (cache == null || sm.isEmbedded()) {
                 unloaded = addUnloaded(sm, null, unloaded);
                 continue;
@@ -449,9 +430,9 @@ public class DataCacheStoreManager
             if (sm.getManagedInstance() == null
                 || load != FORCE_LOAD_NONE
                 || sm.getPCState() == PCState.HOLLOW) {
-                smList = (List) caches.get(cache);
+                smList = caches.get(cache);
                 if (smList == null) {
-                    smList = new ArrayList();
+                    smList = new ArrayList<OpenJPAStateManager>();
                     caches.put(cache, smList);
                 }
                 smList.add(sm);
@@ -459,22 +440,19 @@ public class DataCacheStoreManager
                 unloaded = addUnloaded(sm, null, unloaded);
         }
         
-        for (Iterator itr = caches.keySet().iterator(); itr.hasNext();) {
-            cache = (DataCache) itr.next();
-            smList = (List) caches.get(cache);
-            List oidList = new ArrayList(smList.size());
+        for (Iterator<DataCache> itr = caches.keySet().iterator(); itr.hasNext();) {
+            cache = itr.next();
+            smList = caches.get(cache);
+            List<Object> oidList = new ArrayList<Object>(smList.size());
 
-            for (itr=smList.iterator();itr.hasNext();) {
-                sm = (OpenJPAStateManager) itr.next();
+            for (OpenJPAStateManager sm : smList) {
                 oidList.add((OpenJPAId) sm.getObjectId());
             }
             
-            Map dataMap = cache.getAll(oidList);
+            Map<Object,DataCachePCData> dataMap = cache.getAll(oidList);
 
-            for (itr=smList.iterator();itr.hasNext();) {
-                sm = (OpenJPAStateManager) itr.next();
-                data = (DataCachePCData) dataMap.get(
-                        (OpenJPAId) sm.getObjectId());
+            for (OpenJPAStateManager sm : smList) {
+                data = dataMap.get(sm.getObjectId());
 
                 if (sm.getManagedInstance() == null) {
                     if (data != null) {
@@ -482,8 +460,9 @@ public class DataCacheStoreManager
                         //### to be addressed for bug 511
                         sm.initialize(data.getType(), state);
                         data.load(sm, fetch, edata);
-                    } else
+                    } else {
                         unloaded = addUnloaded(sm, null, unloaded);
+                    }
                 } else if (load != FORCE_LOAD_NONE
                         || sm.getPCState() == PCState.HOLLOW) {
                     data = cache.get(sm.getObjectId());
@@ -500,23 +479,22 @@ public class DataCacheStoreManager
         }
 
         if (unloaded == null)
-            return Collections.EMPTY_LIST;
+            return Collections.emptyList();
 
         // load with delegate
-        Collection failed = super.loadAll(unloaded.keySet(), state, load,
-            fetch, edata);
+        Collection<Object> failed = super.loadAll(unloaded.keySet(), state, load, fetch, edata);
         if (!_ctx.getPopulateDataCache())
             return failed;
 
         // for each loaded instance, merge loaded state into cached data
-        Map.Entry entry;
-        boolean isNew;
-        for (Iterator itr = unloaded.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
-            sm = (OpenJPAStateManager) entry.getKey();
-            fields = (BitSet) entry.getValue();
 
-            cache = sm.getMetaData().getDataCache();
+        boolean isNew;
+
+        for(Map.Entry<OpenJPAStateManager, BitSet> entry : unloaded.entrySet()) { 
+            OpenJPAStateManager sm = entry.getKey();
+            fields = entry.getValue();
+
+            cache = _mgr.selectCache(sm);
             if (cache == null || sm.isEmbedded() || (failed != null
                 && failed.contains(sm.getId())))
                 continue;
@@ -546,25 +524,24 @@ public class DataCacheStoreManager
         }
         return failed;
     }
-
+    
     /**
      * Helper method to add an unloaded instance to the given map.
      */
-    private static Map addUnloaded(OpenJPAStateManager sm, BitSet fields,
-        Map unloaded) {
+    private static Map<OpenJPAStateManager, BitSet> addUnloaded(OpenJPAStateManager sm, BitSet fields,
+        Map<OpenJPAStateManager, BitSet> unloaded) {
         if (unloaded == null)
-            unloaded = new HashMap();
+            unloaded = new HashMap<OpenJPAStateManager, BitSet>();
         unloaded.put(sm, fields);
         return unloaded;
     }
 
-    public Collection flush(Collection states) {
-        Collection exceps = super.flush(states);
+    public Collection<Exception> flush(Collection<OpenJPAStateManager> states) {
+        Collection<Exception> exceps = super.flush(states);
 
         // if there were errors evict bad instances and don't record changes
         if (!exceps.isEmpty()) {
-            for (Iterator iter = exceps.iterator(); iter.hasNext(); ) {
-                Exception e = (Exception) iter.next();
+            for (Exception e : exceps) {
                 if (e instanceof OptimisticException)
                     notifyOptimisticLockFailure((OptimisticException) e);
             }
@@ -575,33 +552,35 @@ public class DataCacheStoreManager
         if (_ctx.isTrackChangesByType())
             return exceps;
 
-        OpenJPAStateManager sm;
-        for (Iterator itr = states.iterator(); itr.hasNext();) {
-            sm = (OpenJPAStateManager) itr.next();
-
+        for (OpenJPAStateManager sm : states) {
             if (sm.getPCState() == PCState.PNEW && !sm.isFlushed()) {
-                if (_inserts == null)
-                    _inserts = new ArrayList();
+                if (_inserts == null) {
+                    _inserts = new ArrayList<OpenJPAStateManager>();
+                }
                 _inserts.add(sm);
 
                 // may have been re-persisted
-                if (_deletes != null)
-                    _deletes.remove(sm);
+                if (_deletes != null) {
+                    _deletes.remove(sm); 
+                }
             } else if (_inserts != null 
                 && (sm.getPCState() == PCState.PNEWDELETED 
-                || sm.getPCState() == PCState.PNEWFLUSHEDDELETED))
+                || sm.getPCState() == PCState.PNEWFLUSHEDDELETED)) {
                 _inserts.remove(sm);
+            }
             else if (sm.getPCState() == PCState.PDIRTY) {
-                if (_updates == null)
-                    _updates = new HashMap();
+                if (_updates == null) {
+                    _updates = new HashMap<OpenJPAStateManager, BitSet>();
+                }
                 _updates.put(sm, sm.getDirty());
             } else if (sm.getPCState() == PCState.PDELETED) {
-                if (_deletes == null)
-                    _deletes = new HashSet();
+                if (_deletes == null) {
+                    _deletes = new HashSet<OpenJPAStateManager>();
+                }
                 _deletes.add(sm);
             }
         }
-        return Collections.EMPTY_LIST;
+        return Collections.emptyList();
     }
 
     /**
@@ -628,8 +607,7 @@ public class DataCacheStoreManager
         // this logic could be more efficient -- we could aggregate
         // all the cache->oid changes, and then use DataCache.removeAll() 
         // and less write locks to do the mutation.
-        ClassMetaData meta = sm.getMetaData();
-        DataCache cache = meta.getDataCache();
+        DataCache cache = _mgr.selectCache(sm);
         if (cache == null)
             return;
 
@@ -704,9 +682,26 @@ public class DataCacheStoreManager
     private DataCachePCData newPCData(OpenJPAStateManager sm) {
         ClassMetaData meta = sm.getMetaData();
         if (_gen != null)
-            return (DataCachePCData) _gen.generatePCData
-                (sm.getObjectId(), meta);
-        return new DataCachePCDataImpl(sm.fetchObjectId(), meta);
+            return (DataCachePCData) _gen.generatePCData(sm.getObjectId(), meta);
+        return new DataCachePCDataImpl(sm.fetchObjectId(), meta, _mgr.selectCache(sm).getName());
+    }
+
+    /**
+     * Affirms if a load operation must bypass the L2 cache.
+     * If lock is active, always bypass.
+     * 
+     */
+    boolean bypass(FetchConfiguration fetch, int load) {
+        // Order of checks are important
+        if (isLocking(fetch))
+            return true;
+        if (_ctx.getConfiguration().getRefreshFromDataCache()) 
+            return false;
+        if (fetch.getCacheRetrieveMode() == DataCacheRetrieveMode.BYPASS)
+            return true;
+        if (load == StoreManager.FORCE_LOAD_REFRESH)
+            return true;
+        return false;
     }
 
     /**
@@ -716,26 +711,29 @@ public class DataCacheStoreManager
         if (fetch == null)
             fetch = _ctx.getFetchConfiguration();
         return fetch.getReadLockLevel() > LockLevels.LOCK_NONE;
-    }
-
+    }  
+    
     /**
      * Structure used during the commit process to track cache modifications.
      */
     private static class Modifications {
 
-        public final List additions = new ArrayList();
-        public final List newUpdates = new ArrayList();
-        public final List existingUpdates = new ArrayList();
-        public final List deletes = new ArrayList();
+        public final List<PCDataHolder> additions = new ArrayList<PCDataHolder>();
+        public final List<PCDataHolder> newUpdates = new ArrayList<PCDataHolder>();
+        public final List<PCDataHolder> existingUpdates = new ArrayList<PCDataHolder>();
+        public final List<Object> deletes = new ArrayList<Object>();
     }
 
+    /**
+     * Utility structure holds the tuple of cacheable instance and its corresponding state manager. 
+     *
+     */
     private static class PCDataHolder {
 
         public final DataCachePCData pcdata;
         public final OpenJPAStateManager sm;
 
-        public PCDataHolder(DataCachePCData pcdata,
-            OpenJPAStateManager sm) {
+        public PCDataHolder(DataCachePCData pcdata, OpenJPAStateManager sm) {
             this.pcdata = pcdata;
             this.sm = sm;
 		}

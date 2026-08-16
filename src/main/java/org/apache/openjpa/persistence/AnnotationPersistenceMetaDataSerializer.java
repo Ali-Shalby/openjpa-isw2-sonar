@@ -488,7 +488,8 @@ public class AnnotationPersistenceMetaDataSerializer
      */
     protected void addAnnotation(AnnotationBuilder ab, SequenceMetaData meta) {
         if (_seqAnnos == null)
-            _seqAnnos = new HashMap<SequenceMetaData, List<AnnotationBuilder>>();
+            _seqAnnos = new HashMap<SequenceMetaData,
+                    List<AnnotationBuilder>>();
         List<AnnotationBuilder> list = _seqAnnos.get(meta);
         if (list == null) {
             list = new ArrayList<AnnotationBuilder>();
@@ -844,6 +845,8 @@ public class AnnotationPersistenceMetaDataSerializer
      * Return the MetaDataTag for the given class meta data.
      */
     private static MetaDataTag getEntityTag(ClassMetaData meta) {
+        if (meta.isAbstract())
+            return MetaDataTag.MAPPED_SUPERCLASS;
         // @Embeddable classes can't declare Id fields
         if (meta.isEmbeddedOnly() && meta.getPrimaryKeyFields().length == 0)
             return MetaDataTag.EMBEDDABLE;
@@ -1013,7 +1016,7 @@ public class AnnotationPersistenceMetaDataSerializer
             cascades.add(CascadeType.REFRESH);
         }
         if (vmd.getCascadeDetach() == ValueMetaData.CASCADE_IMMEDIATE) {
-            cascades.add(CascadeType.CLEAR);
+            cascades.add(CascadeType.DETACH);
         }
         if (cascades.size() == 5) // ALL
         {
@@ -1236,8 +1239,9 @@ public class AnnotationPersistenceMetaDataSerializer
     }
 
     /**
-     * Represents ordered set of {@link org.apache.openjpa.meta.SequenceMetaData}s with a
-     * common class scope.
+     * Represents ordered set of 
+     * {@link org.apache.openjpa.meta.SequenceMetaData}s with a common class
+     * scope.
      *
      * @author Stephen Kim
      * @author Pinaki Poddar
@@ -1304,8 +1308,8 @@ public class AnnotationPersistenceMetaDataSerializer
     }
 
     /**
-     * Represents ordered set of {@link org.apache.openjpa.meta.QueryMetaData}s with a
-     * common class scope.
+     * Represents ordered set of {@link org.apache.openjpa.meta.QueryMetaData}s
+     * with a common class scope.
      *
      * @author Stephen Kim
      * @author Pinaki Poddar
@@ -1498,12 +1502,12 @@ public class AnnotationPersistenceMetaDataSerializer
             if (fmd1.isVersion()) {
                 if (fmd2.isVersion())
                     return compareListingOrder(fmd1, fmd2);
-				return getStrategy(fmd2) == PersistenceStrategy.BASIC ? 1 : -1;
+                return getStrategy(fmd2) == PersistenceStrategy.BASIC ? 1 : -1;
 			}
 			if (fmd2.isVersion())
-				return getStrategy(fmd1) == PersistenceStrategy.BASIC ? -1 : 1;
+                return getStrategy(fmd1) == PersistenceStrategy.BASIC ? -1 : 1;
 
-			int stcmp = getStrategy(fmd1).compareTo(getStrategy(fmd2));
+            int stcmp = getStrategy(fmd1).compareTo(getStrategy(fmd2));
             if (stcmp != 0)
                 return stcmp;
             return compareListingOrder(fmd1, fmd2);

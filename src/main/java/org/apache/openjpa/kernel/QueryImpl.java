@@ -29,6 +29,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.collections.map.LinkedMap;
 import org.apache.commons.lang.ObjectUtils;
@@ -36,13 +37,12 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.kernel.exps.AggregateListener;
-import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.kernel.exps.Constant;
+import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.kernel.exps.Literal;
-import org.apache.openjpa.kernel.exps.Parameter;
 import org.apache.openjpa.kernel.exps.Path;
+import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.kernel.exps.Val;
-import org.apache.openjpa.kernel.jpql.JPQLExpressionBuilder;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.rop.EagerResultList;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
@@ -51,20 +51,21 @@ import org.apache.openjpa.lib.rop.ResultList;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
-import java.util.concurrent.locks.ReentrantLock;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.GeneralException;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InvalidStateException;
-import org.apache.openjpa.util.NonUniqueResultException;
 import org.apache.openjpa.util.NoResultException;
+import org.apache.openjpa.util.NonUniqueResultException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
-import org.apache.openjpa.util.ImplHelper;
+
 import serp.util.Numbers;
 import serp.util.Strings;
 
@@ -74,6 +75,7 @@ import serp.util.Strings;
  * @author Abe White
  * @nojavadoc
  */
+@SuppressWarnings("serial")
 public class QueryImpl
     implements Query {
 
@@ -89,7 +91,7 @@ public class QueryImpl
     private ReentrantLock _lock;
 
     // unparsed state
-    private Class _class = null;
+    private Class<?> _class = null;
     private boolean _subclasses = true;
     private boolean _readOnly = false;
     private String _query = null;
@@ -101,31 +103,31 @@ public class QueryImpl
     private transient ResultPacker _packer = null;
 
     // candidates
-    private transient Collection _collection = null;
+    private transient Collection<?> _collection = null;
     private transient Extent _extent = null;
 
     // listeners
-    private Map _filtListeners = null;
-    private Map _aggListeners = null;
+    private Map<String,FilterListener> _filtListeners = null;
+    private Map<String,AggregateListener> _aggListeners = null;
 
     // configuration for loading objects
     private FetchConfiguration _fc = null;
     private boolean _ignoreChanges = false;
-    private Class _resultMappingScope = null;
+    private Class<?> _resultMappingScope = null;
     private String _resultMappingName = null;
 
     // these fields should only be used directly after we have a compilation,
     // because their values may be encoded in the query string
     private Boolean _unique = null;
-    private Class _resultClass = null;
+    private Class<?> _resultClass = null;
     private transient long _startIdx = 0;
     private transient long _endIdx = Long.MAX_VALUE;
     private transient boolean _rangeSet = false;
 
     // remember the list of all the results we have returned so we
     // can free their resources when close or closeAll is called
-    private transient final Collection _resultLists = new ReferenceHashSet
-        (ReferenceHashSet.WEAK);
+    private transient final Collection<RemoveOnCloseResultList> _resultLists = 
+        new ReferenceHashSet(ReferenceHashSet.WEAK);
 
     /**
      * Construct a query managed by the given broker.
@@ -210,7 +212,7 @@ public class QueryImpl
             assertOpen();
             assertNotReadOnly();
             if (_filtListeners == null)
-                _filtListeners = new HashMap(5);
+                _filtListeners = new HashMap<String,FilterListener>(5);
             _filtListeners.put(listener.getTag(), listener);
         } finally {
             unlock();
@@ -229,9 +231,11 @@ public class QueryImpl
         }
     }
 
-    public Collection getFilterListeners() {
-        return (_filtListeners == null) ? Collections.EMPTY_LIST
-            : _filtListeners.values();
+    public Collection<FilterListener> getFilterListeners() {
+        if (_filtListeners == null) 
+            return Collections.emptyList();
+        else
+            return _filtListeners.values();
     }
 
     public FilterListener getFilterListener(String tag) {
@@ -259,7 +263,7 @@ public class QueryImpl
             assertOpen();
             assertNotReadOnly();
             if (_aggListeners == null)
-                _aggListeners = new HashMap(5);
+                _aggListeners = new HashMap<String,AggregateListener>(5);
             _aggListeners.put(listener.getTag(), listener);
         } finally {
             unlock();
@@ -278,9 +282,11 @@ public class QueryImpl
         }
     }
 
-    public Collection getAggregateListeners() {
-        return (_aggListeners == null) ? Collections.EMPTY_LIST
-            : _aggListeners.values();
+    public Collection<AggregateListener> getAggregateListeners() {
+        if (_aggListeners == null) 
+            return Collections.emptyList();
+        else
+            return _aggListeners.values();
     }
 
     public AggregateListener getAggregateListener(String tag) {
@@ -310,7 +316,7 @@ public class QueryImpl
         // in case the user has a reference to it and might use it)
         lock();
         try {
-            Class cls = getCandidateType();
+            Class<?> cls = getCandidateType();
             if (_extent == null && _collection == null && _broker != null
                 && cls != null) {
                 _extent = _broker.newExtent(cls, _subclasses);
@@ -360,12 +366,12 @@ public class QueryImpl
         }
     }
 
-    public Collection getCandidateCollection() {
+    public Collection<?> getCandidateCollection() {
         assertOpen();
         return _collection;
     }
 
-    public void setCandidateCollection(Collection candidateCollection) {
+    public void setCandidateCollection(Collection<?> candidateCollection) {
         if (!_storeQuery.supportsInMemoryExecution())
             throw new UnsupportedException(_loc.get("query-nosupport",
                 _language));
@@ -427,7 +433,7 @@ public class QueryImpl
         return _resultMappingScope;
     }
 
-    public void setResultMapping(Class scope, String name) {
+    public void setResultMapping(Class<?> scope, String name) {
         lock();
         try {
             assertOpen();
@@ -445,7 +451,7 @@ public class QueryImpl
             assertOpen();
             if (_unique != null)
                 return _unique.booleanValue();
-            if (_query == null || _compiling || _broker == null)
+            if ((_query == null && _language.endsWith("JPQL")) || _compiling || _broker == null)
                 return false;
 
             // check again after compilation; maybe encoded in string
@@ -463,6 +469,13 @@ public class QueryImpl
         } finally {
             unlock();
         }
+    }
+    
+    /**
+     * Affirms if this query has originated by parsing a string-based query.
+     */
+    public boolean isParsedQuery() {
+        return getQueryString() != null;
     }
 
     public void setUnique(boolean unique) {
@@ -621,7 +634,7 @@ public class QueryImpl
     protected Compilation compilationFromCache() {
         Map compCache =
             _broker.getConfiguration().getQueryCompilationCacheInstance();
-        if (compCache == null) {
+        if (compCache == null || !isParsedQuery()) {
             return newCompilation();
         } else {
             CompilationKey key = new CompilationKey();
@@ -798,7 +811,7 @@ public class QueryImpl
 
                 assertParameters(_storeQuery, ex, params);
                 if (_log.isTraceEnabled())
-                    logExecution(operation, ex.getParameterTypes(_storeQuery),
+                    logExecution(operation, ex.getOrderedParameterTypes(_storeQuery),
                         params);
 
                 if (operation == OP_SELECT)
@@ -900,7 +913,8 @@ public class QueryImpl
      * key and index. The index set on the Parameter by the parser is the
      * same index used to access the Object[] elements returned by this method.
      * 
-     * {@link JPQLExpressionBuilder} creates and populates parameters as follows:
+     * {@link JPQLExpressionBuilder} creates and populates parameters as
+     * follows: 
      * The parameter key is not the token encountered by the parser, but 
      * converted to Integer or String based on the context in which the token 
      * appeared. 
@@ -914,12 +928,14 @@ public class QueryImpl
      * This LinkedMap contains the parameter key and their expected 
      * (if determinable) value types. That it is a LinkedMap points to the 
      * fact that an ordering is implicit. The ordering of the keys in this Map 
-     * is the same as the order in which parser encountered the parameter tokens.
+     * is the same as the order in which parser encountered the parameter
+     * tokens.
      * 
      * For example, parsing result of the following two JPQL queries
      *   a) UPDATE CompUser e SET e.name= ?1, e.age = ?2 WHERE e.userid = ?3
-     *   b) UPDATE CompUser e SET e.name= :name, e.age = :age WHERE e.userid = :id
-     * The parameter keys will appear in the order (3,2,1) or (:id, :name, :age) 
+     *   b) UPDATE CompUser e SET e.name= :name, e.age = :age WHERE e.userid =
+     *          :id
+     * The parameter keys will appear in the order (3,2,1) or (:id, :name, :age)
      * in the given LinkedMap because WHERE clause is parsed before SET clause.
      * The corresponding Parameter Expressions created by the parser will have
      * following key and index:
@@ -1083,7 +1099,8 @@ public class QueryImpl
                 try {
                     val = q.evaluate(value, ob, params, sm);
                 } catch (UnsupportedException e1) {
-                    throw new UserException(_loc.get("fail-to-get-update-value"));
+                    throw new UserException(
+                            _loc.get("fail-to-get-update-value"));
                 }
             }
 
@@ -1158,13 +1175,12 @@ public class QueryImpl
     /**
      * Trace log that the query is executing.
      */
-    private void logExecution(int op, LinkedMap types, Object[] params) {
-        Map pmap = Collections.EMPTY_MAP;
+    private void logExecution(int op, OrderedMap<Object, Class<?>> types, Object[] params) {
+        OrderedMap<Object, Object> pmap = new OrderedMap<Object, Object>();
         if (params.length > 0) {
-            pmap = new HashMap((int) (params.length * 1.33 + 1));
             if (types != null && types.size() == params.length) {
                 int i = 0;
-                for (Iterator itr = types.keySet().iterator(); itr.hasNext();)
+                for (Iterator<Object> itr = types.keySet().iterator(); itr.hasNext();)
                     pmap.put(itr.next(), params[i++]);
             } else {
                 for (int i = 0; i < params.length; i++)
@@ -1177,7 +1193,7 @@ public class QueryImpl
     /**
      * Trace log that the query is executing.
      */
-    private void logExecution(int op, Map params) {
+    private void logExecution(int op, Map<?, ?> params) {
         String s = _query;
         if (StringUtils.isEmpty(s))
             s = toString();
@@ -1224,9 +1240,9 @@ public class QueryImpl
         boolean detach = (_broker.getAutoDetach() &
             AutoDetach.DETACH_NONTXREAD) > 0 && !_broker.isActive();
         boolean lrs = range.lrs && !ex.isAggregate(q) && !ex.hasGrouping(q);
-        ResultList res = (!detach && lrs) ? _fc.newResultList(rop)
+        ResultList<?> res = (!detach && lrs) ? _fc.newResultList(rop)
             : new EagerResultList(rop);
-        res.setUserObject(rop);
+        res.setUserObject(new Object[]{rop,ex});
         _resultLists.add(decorateResultList(res));
         return res;
     }
@@ -1234,7 +1250,7 @@ public class QueryImpl
     /**
      * Optionally decorate the native result.
      */
-    protected ResultList decorateResultList(ResultList res) {
+    protected RemoveOnCloseResultList decorateResultList(ResultList<?> res) {
         return new RemoveOnCloseResultList(res);
     }
 
@@ -1245,20 +1261,28 @@ public class QueryImpl
         if (_packer != null)
             return _packer;
 
-        Class resultClass = (_resultClass != null) ? _resultClass
+        Class<?> resultClass = (_resultClass != null) ? _resultClass
             : ex.getResultClass(q);
         if (resultClass == null)
             return null;
 
         String[] aliases = ex.getProjectionAliases(q);
-        if (aliases.length == 0) {
-            // result class but no result; means candidate is being set
-            // into some result class
-            _packer = new ResultPacker(_class, getAlias(), resultClass);
-        } else if (resultClass != null) {
-            // projection
-            Class[] types = ex.getProjectionTypes(q);
-            _packer = new ResultPacker(types, aliases, resultClass);
+        ResultShape<?> shape = ex.getResultShape(q);
+        if (shape != null) { // using JPA2.0 style result shape for packing
+            if (aliases.length == 0) {
+                _packer = new ResultShapePacker(new Class[]{_class}, new String[]{""}, resultClass, shape);
+            } else {
+                _packer = new ResultShapePacker(ex.getProjectionTypes(q), aliases, resultClass, shape);
+            }
+        } else {
+            if (aliases.length == 0) {
+                // result class but no result; means candidate is being set
+                // into some result class
+                _packer = new ResultPacker(_class, getAlias(), resultClass);
+            } else if (resultClass != null) { // projection
+                Class<?>[] types = ex.getProjectionTypes(q);
+                _packer = new ResultPacker(types, aliases, resultClass);
+            }
         }
         return _packer;
     }
@@ -1323,9 +1347,9 @@ public class QueryImpl
 
     public static boolean isAccessPathDirty(Broker broker,
         ClassMetaData[] accessMetas) {
-        Collection persisted = broker.getPersistedTypes();
-        Collection updated = broker.getUpdatedTypes();
-        Collection deleted = broker.getDeletedTypes();
+        Collection<Class<?>> persisted = broker.getPersistedTypes();
+        Collection<Class<?>> updated = broker.getUpdatedTypes();
+        Collection<Class<?>> deleted = broker.getDeletedTypes();
         if (persisted.isEmpty() && updated.isEmpty() && deleted.isEmpty())
             return false;
 
@@ -1335,8 +1359,10 @@ public class QueryImpl
             return true;
 
         // compare dirty classes to the access path classes
-        Class accClass;
+        Class<?> accClass;
         for (int i = 0; i < accessMetas.length; i++) {
+            if (accessMetas[i] == null)
+                continue;
             // shortcut if actual class is dirty
             accClass = accessMetas[i].getDescribedType();
             if (persisted.contains(accClass) || updated.contains(accClass)
@@ -1344,14 +1370,14 @@ public class QueryImpl
                 return true;
 
             // check for dirty subclass
-            for (Iterator dirty = persisted.iterator(); dirty.hasNext();)
-                if (accClass.isAssignableFrom((Class) dirty.next()))
+            for (Iterator<Class<?>> dirty = persisted.iterator(); dirty.hasNext();)
+                if (accClass.isAssignableFrom(dirty.next()))
                     return true;
-            for (Iterator dirty = updated.iterator(); dirty.hasNext();)
-                if (accClass.isAssignableFrom((Class) dirty.next()))
+            for (Iterator<Class<?>> dirty = updated.iterator(); dirty.hasNext();)
+                if (accClass.isAssignableFrom(dirty.next()))
                     return true;
-            for (Iterator dirty = deleted.iterator(); dirty.hasNext();)
-                if (accClass.isAssignableFrom((Class) dirty.next()))
+            for (Iterator<Class<?>> dirty = deleted.iterator(); dirty.hasNext();)
+                if (accClass.isAssignableFrom(dirty.next()))
                     return true;
         }
 
@@ -1376,8 +1402,8 @@ public class QueryImpl
             assertOpen();
 
             RemoveOnCloseResultList res;
-            for (Iterator itr = _resultLists.iterator(); itr.hasNext();) {
-                res = (RemoveOnCloseResultList) itr.next();
+            for (Iterator<RemoveOnCloseResultList> itr = _resultLists.iterator(); itr.hasNext();) {
+                res = itr.next();
                 if (force || res.isProviderOpen())
                     res.close(false);
             }
@@ -1445,9 +1471,9 @@ public class QueryImpl
             // don't share mutable objects
             _fc.copy(q._fc);
             if (q._filtListeners != null)
-                _filtListeners = new HashMap(q._filtListeners);
+                _filtListeners = new HashMap<String,FilterListener>(q._filtListeners);
             if (q._aggListeners != null)
-                _aggListeners = new HashMap(q._aggListeners);
+                _aggListeners = new HashMap<String,AggregateListener>(q._aggListeners);
             return true;
         } finally {
             unlock();
@@ -1475,7 +1501,7 @@ public class QueryImpl
         }
     }
 
-    public Class[] getProjectionTypes() {
+    public Class<?>[] getProjectionTypes() {
         lock();
         try {
             return compileForExecutor().getProjectionTypes(_storeQuery);
@@ -1501,6 +1527,16 @@ public class QueryImpl
             unlock();
         }
     }
+    
+    public boolean isDistinct() {
+        lock();
+        try {
+            return compileForExecutor().isDistinct(_storeQuery);
+        } finally {
+            unlock();
+        }
+    }
+
 
     public boolean hasGrouping() {
         lock();
@@ -1522,14 +1558,26 @@ public class QueryImpl
         }
     }
 
-    public LinkedMap getParameterTypes() {
+    public OrderedMap<Object,Class<?>> getOrderedParameterTypes() {
         lock();
         try {
-            return compileForExecutor().getParameterTypes(_storeQuery);
+            return compileForExecutor().getOrderedParameterTypes(_storeQuery);
         } finally {
             unlock();
         }
     }
+    
+    public LinkedMap getParameterTypes() {
+        lock();
+        try {
+            LinkedMap wrap = new LinkedMap();
+            wrap.putAll(compileForExecutor().getOrderedParameterTypes(_storeQuery));
+            return wrap;
+        } finally {
+            unlock();
+        }
+    }
+
 
     public Map getUpdates() {
         lock();
@@ -1679,31 +1727,29 @@ public class QueryImpl
      */
     protected void assertParameters(StoreQuery q, StoreQuery.Executor ex, 
         Object[] params) {
-        if (!q.requiresParameterDeclarations())
+        if (!q.requiresParameterDeclarations() || !isParsedQuery())
             return;
 
-        LinkedMap paramTypes = ex.getParameterTypes(q);
+        OrderedMap<Object,Class<?>> paramTypes = ex.getOrderedParameterTypes(q);
         int typeCount = paramTypes.size();
         if (typeCount > params.length)
             throw new UserException(_loc.get("unbound-params",
                 paramTypes.keySet()));
 
-        Iterator itr = paramTypes.entrySet().iterator();
-        Map.Entry entry;
+        Iterator<Map.Entry<Object,Class<?>>> itr = paramTypes.entrySet().iterator();
+        Map.Entry<Object,Class<?>> entry;
         for (int i = 0; itr.hasNext(); i++) {
-            entry = (Map.Entry) itr.next();
-            if (((Class) entry.getValue()).isPrimitive() && params[i] == null)
-                throw new UserException(_loc.get("null-primitive-param",
-                    entry.getKey()));
+            entry = itr.next();
+            if (entry.getValue().isPrimitive() && params[i] == null)
+                throw new UserException(_loc.get("null-primitive-param", entry.getKey()));
         }
     }
     
-    protected void assertParameters(StoreQuery q, StoreQuery.Executor ex, 
-        Map params) {
+    protected void assertParameters(StoreQuery q, StoreQuery.Executor ex, Map params) {
         if (!q.requiresParameterDeclarations())
             return;
 
-        LinkedMap paramTypes = ex.getParameterTypes(q);
+        OrderedMap<Object,Class<?>> paramTypes = ex.getOrderedParameterTypes(q);
         for (Object actual : params.keySet()) {
             if (!paramTypes.containsKey(actual))
             throw new UserException(_loc.get("unbound-params",
@@ -1712,23 +1758,22 @@ public class QueryImpl
         for (Object expected : paramTypes.keySet()) {
             if (!params.containsKey(expected))
             throw new UserException(_loc.get("unbound-params",
-                params.keySet()));
+                expected, params.keySet()));
         }
 
-        Iterator itr = paramTypes.entrySet().iterator();
-        Map.Entry entry;
+        Iterator<Map.Entry<Object, Class<?>>> itr = paramTypes.entrySet().iterator();
+        Map.Entry<Object, Class<?>> entry;
         for (int i = 0; itr.hasNext(); i++) {
-            entry = (Map.Entry) itr.next();
-            if (((Class) entry.getValue()).isPrimitive() 
+            entry = itr.next();
+            if (entry.getValue().isPrimitive() 
                 && params.get(entry.getKey()) == null)
-                throw new UserException(_loc.get("null-primitive-param",
-                    entry.getKey()));
+                throw new UserException(_loc.get("null-primitive-param", entry.getKey()));
         }
     }
 
 
     public String toString() {
-        StringBuffer buf = new StringBuffer(64);
+        StringBuilder buf = new StringBuilder(255);
         buf.append("Query: ").append(super.toString());
         buf.append("; candidate class: ").append(_class);
         buf.append("; query: ").append(_query);
@@ -1820,6 +1865,10 @@ public class QueryImpl
 
         public MergedExecutor(StoreQuery.Executor[] executors) {
             _executors = executors;
+        }
+        
+        public QueryExpressions[] getQueryExpressions() {
+            return _executors[0].getQueryExpressions();
         }
 
         public ResultObjectProvider executeQuery(StoreQuery q,
@@ -1918,6 +1967,10 @@ public class QueryImpl
             return _executors[0].getResultClass(q);
         }
 
+        public ResultShape<?> getResultShape(StoreQuery q) {
+            return _executors[0].getResultShape(q);
+        }
+        
         public Class[] getProjectionTypes(StoreQuery q) {
             return _executors[0].getProjectionTypes(q);
         }
@@ -1950,6 +2003,10 @@ public class QueryImpl
                 q.getContext().getCandidateType(),
                 q.getContext().getQueryString()));
         }
+        
+        public boolean isDistinct(StoreQuery q) {
+            return _executors[0].isDistinct(q);
+        }
 
         public int getOperation(StoreQuery q) {
             return _executors[0].getOperation(q);
@@ -1959,6 +2016,10 @@ public class QueryImpl
             return _executors[0].hasGrouping(q);
         }
 
+        public OrderedMap<Object,Class<?>> getOrderedParameterTypes(StoreQuery q) {
+            return _executors[0].getOrderedParameterTypes(q);
+        }
+        
         public LinkedMap getParameterTypes(StoreQuery q) {
             return _executors[0].getParameterTypes(q);
         }

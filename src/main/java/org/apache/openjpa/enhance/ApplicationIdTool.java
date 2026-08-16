@@ -49,6 +49,7 @@ import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.meta.AccessCode;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.DelegatingMetaDataFactory;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -549,7 +550,8 @@ public class ApplicationIdTool {
      * Return the getters and setters for all primary key fields.
      */
     private String getProperties() {
-        if (_meta.getAccessType() == ClassMetaData.ACCESS_FIELD)
+        if (AccessCode.isExplicit(_meta.getAccessType()) 
+         && AccessCode.isField(_meta.getAccessType()))
             return "";
 
         CodeFormat code = newCodeFormat();
@@ -1098,7 +1100,7 @@ public class ApplicationIdTool {
             append("b == null").closeParen().endl();
         code.tab(3).append("return \"null\";").endl(2);
 
-        code.tab(2).append("StringBuffer r = new StringBuffer").
+        code.tab(2).append("StringBuilder r = new StringBuilder").
             openParen(true).append("b.length * 2").closeParen().
             append(";").endl();
         code.tab(2).append("for").openParen(true).
@@ -1475,7 +1477,7 @@ public class ApplicationIdTool {
     public static interface ObjectIdLoader
 	{
 		/**
-		 * Turn on the loading of all identity classes, even if they don't 
+         * Turn on the loading of all identity classes, even if they don't
          * exist.
 	 	 */
 		public void setLoadObjectIds ();

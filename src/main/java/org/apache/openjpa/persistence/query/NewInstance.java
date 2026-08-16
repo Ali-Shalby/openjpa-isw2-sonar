@@ -21,9 +21,6 @@ package org.apache.openjpa.persistence.query;
 import java.util.Arrays;
 import java.util.List;
 
-import javax.persistence.OrderByItem;
-import javax.persistence.SelectItem;
-
 /**
  * Denotes NEW fully.qualified.class.name(arg1, arg2,...) 
  * 
@@ -51,7 +48,7 @@ public class NewInstance extends AbstractVisitable
 	
 	
 	public String asProjection(AliasContext ctx) {
-		StringBuffer tmp = new StringBuffer("NEW ").append(_cls.getName())
+            StringBuilder tmp = new StringBuilder("NEW ").append(_cls.getName())
 		    .append("(");
 		if (_args == null || _args.isEmpty())
 			return tmp.append(")").toString();

@@ -104,7 +104,7 @@ public class FinderCacheImpl
      * {@link QueryHints#HINT_IGNORE_FINDER HINT_IGNORE_FINDER} will ignore
      * any cached finder that may exist in this cache and will return null.
      * {@link QueryHints#HINT_INVALIDATE_FINDER HINT_INVALIDATE_FINDER} will 
-     * invalidate any cached finder that may exist in this cache and will return 
+     * invalidate any cached finder that may exist in this cache and will return
      * null.
      * 
      */
@@ -120,7 +120,7 @@ public class FinderCacheImpl
             return null;
         FinderQuery<ClassMapping, SelectExecutor, Result> result = 
             _delegate.get(mapping);
-        _stats.recordExecution(mapping, result != null);
+        _stats.recordExecution(mapping);
         return result;
     }
     

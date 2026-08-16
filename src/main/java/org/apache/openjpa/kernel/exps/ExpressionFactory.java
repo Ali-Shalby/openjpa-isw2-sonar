@@ -18,6 +18,10 @@
  */
 package org.apache.openjpa.kernel.exps;
 
+import java.sql.Time;
+import java.sql.Timestamp;
+import java.util.Date;
+
 import org.apache.openjpa.meta.ClassMetaData;
 
 /**
@@ -229,17 +233,17 @@ public interface ExpressionFactory {
     /**
      * Return a value representing the current date.
      */
-    public Value getCurrentDate();
+    public <T extends Date> Value getCurrentDate(Class<T> dateType);
 
     /**
      * Return a value representing the current time.
      */
-    public Value getCurrentTime();
+    public <T extends Date> Value getCurrentTime(Class<T> timeType);
 
     /**
      * Return a value representing the current timestamp.
      */
-    public Value getCurrentTimestamp();
+    public <T extends Date> Value getCurrentTimestamp(Class<T> timestampType);
 
     /**
      * Return a value representing a parameter for the given value. The
@@ -269,6 +273,12 @@ public interface ExpressionFactory {
      * of which may itself be an argument list.
      */
     public Arguments newArgumentList(Value arg1, Value arg2);
+    
+    /**
+     * Return a function argument list consisting of the given values, any
+     * of which may itself be an argument list.
+     */
+    public Arguments newArgumentList(Value... values);
 
     /**
      * Return an unbound variable. This method will only be called once for
@@ -481,4 +491,9 @@ public interface ExpressionFactory {
      * a {@link Number}, {@link String}, or {@link Boolean} instance.
      */
     public Literal newTypeLiteral(Object val, int parseType);
+    
+    /**
+     * Return a value representing the given datastore function with the given arguments.
+     */
+    public Value newFunction(String functionName, Class<?> resultType, Value... args);
 }

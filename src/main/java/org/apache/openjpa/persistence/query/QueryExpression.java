@@ -18,8 +18,6 @@
  */
 package org.apache.openjpa.persistence.query;
 
-import javax.persistence.Subquery;
-
 /**
  * An expression resulting from operation on a query itself. Can be used as a 
  * subquery clause in a parent query.
@@ -29,7 +27,7 @@ import javax.persistence.Subquery;
  */
 abstract class QueryExpression extends UnaryOperatorExpression 
     implements Subquery {
-	public QueryExpression(QueryDefinitionImpl q, UnaryFunctionalOperator op) {
+    public QueryExpression(QueryDefinitionImpl q, UnaryFunctionalOperator op) {
 		super(q, op);
 	}
 }

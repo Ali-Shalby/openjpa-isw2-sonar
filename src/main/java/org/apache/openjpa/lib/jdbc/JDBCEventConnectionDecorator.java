@@ -18,12 +18,14 @@
  */
 package org.apache.openjpa.lib.jdbc;
 
+import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.concurrent.AbstractConcurrentEventManager;
 
 /**
@@ -36,10 +38,31 @@ import org.apache.openjpa.lib.util.concurrent.AbstractConcurrentEventManager;
 public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
     implements ConnectionDecorator {
 
+    private static final Constructor<EventConnection> eventConnectionImpl;
+    private static final Constructor<EventStatement> eventStatementImpl;
+    private static final Constructor<EventPreparedStatement>
+            eventPreparedStatementImpl;
+
+    static {
+        try {
+            eventConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(EventConnection.class,
+                JDBCEventConnectionDecorator.class, Connection.class);
+            eventStatementImpl = ConcreteClassGenerator.getConcreteConstructor(EventStatement.class,
+                JDBCEventConnectionDecorator.class, Statement.class, EventConnection.class);
+            eventPreparedStatementImpl = ConcreteClassGenerator.getConcreteConstructor(EventPreparedStatement.class,
+                JDBCEventConnectionDecorator.class, PreparedStatement.class, EventConnection.class, String.class);
+
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+
     public Connection decorate(Connection conn) {
         if (!hasListeners())
             return conn;
-        return new EventConnection(conn);
+
+        return ConcreteClassGenerator.newInstance(eventConnectionImpl, JDBCEventConnectionDecorator.this, conn);
     }
 
     /**
@@ -106,7 +129,7 @@ public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
     /**
      * Fires events as appropriate.
      */
-    private class EventConnection extends DelegatingConnection {
+    protected abstract class EventConnection extends DelegatingConnection {
 
         public EventConnection(Connection conn) {
             super(conn);
@@ -140,8 +163,8 @@ public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
                 JDBCEvent.BEFORE_CREATE_STATEMENT, null, null, null);
             Statement stmnt = null;
             try {
-                stmnt = new EventStatement(super.createStatement(false),
-                    EventConnection.this);
+                stmnt = ConcreteClassGenerator.newInstance(eventStatementImpl,
+                            JDBCEventConnectionDecorator.this, super.createStatement(false), EventConnection.this);
             } finally {
                 fireEvent(getDelegate(), JDBCEvent.AFTER_CREATE_STATEMENT,
                     before, stmnt, null);
@@ -155,8 +178,12 @@ public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
                 JDBCEvent.BEFORE_CREATE_STATEMENT, null, null, null);
             Statement stmnt = null;
             try {
-                stmnt = new EventStatement(super.createStatement
-                    (rsType, rsConcur, false), EventConnection.this);
+                stmnt = ConcreteClassGenerator.newInstance(eventStatementImpl,
+                        JDBCEventConnectionDecorator.class,
+                            JDBCEventConnectionDecorator.this,
+                        Statement.class,
+                            super.createStatement(rsType, rsConcur, false),
+                        EventConnection.class, EventConnection.this);
             } finally {
                 fireEvent(getDelegate(), JDBCEvent.AFTER_CREATE_STATEMENT,
                     before, stmnt, null);
@@ -170,8 +197,8 @@ public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
                 JDBCEvent.BEFORE_PREPARE_STATEMENT, null, null, sql);
             PreparedStatement stmnt = null;
             try {
-                stmnt = new EventPreparedStatement(super.prepareStatement
-                    (sql, false), EventConnection.this, sql);
+                stmnt = ConcreteClassGenerator.newInstance(eventPreparedStatementImpl, 
+                    JDBCEventConnectionDecorator.this, super.prepareStatement(sql, false), EventConnection.this, sql);
             } finally {
                 fireEvent(getDelegate(), JDBCEvent.AFTER_PREPARE_STATEMENT,
                     before, stmnt, sql);
@@ -185,8 +212,14 @@ public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
                 JDBCEvent.BEFORE_PREPARE_STATEMENT, null, null, sql);
             PreparedStatement stmnt = null;
             try {
-                stmnt = new EventPreparedStatement(super.prepareStatement
-                    (sql, rsType, rsConcur, false), EventConnection.this, sql);
+                stmnt = ConcreteClassGenerator.
+                    newInstance(eventPreparedStatementImpl,
+                        JDBCEventConnectionDecorator.class, 
+                        JDBCEventConnectionDecorator.this,
+                        PreparedStatement.class,
+                        super.prepareStatement(sql, rsType, rsConcur, false),
+                        EventConnection.class, EventConnection.this,
+                        String.class, sql);
             } finally {
                 fireEvent(getDelegate(), JDBCEvent.AFTER_PREPARE_STATEMENT,
                     before, stmnt, sql);
@@ -207,7 +240,8 @@ public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
     /**
      * Fires events as appropriate.
      */
-    private class EventPreparedStatement extends DelegatingPreparedStatement {
+    protected abstract class EventPreparedStatement extends
+            DelegatingPreparedStatement {
 
         private final EventConnection _conn;
         private final String _sql;
@@ -259,7 +293,7 @@ public class JDBCEventConnectionDecorator extends AbstractConcurrentEventManager
     /**
      * Fires events as appropriate.
      */
-    private class EventStatement extends DelegatingStatement {
+    protected abstract class EventStatement extends DelegatingStatement {
 
         private final EventConnection _conn;
 

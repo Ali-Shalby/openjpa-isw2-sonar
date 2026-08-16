@@ -21,6 +21,7 @@ package org.apache.openjpa.jdbc.meta.strats;
 import java.sql.*;
 import java.util.*;
 
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.*;
 import org.apache.openjpa.jdbc.meta.*;
 import org.apache.openjpa.jdbc.schema.*;
@@ -109,14 +110,10 @@ public class HandlerHandlerMapTableFieldStrategy
         field.mapJoin(adapt, true);
         _kio = new ColumnIO();
         List columns = key.getValueInfo().getColumns(); 
-        if (columns != null && columns.size() > 0) {
-            // MapKeyColumn is used
-            _kcols = HandlerStrategies.map(key, "key", _kio, adapt);
-        } else {
-            DBDictionary dict = field.getMappingRepository().getDBDictionary();
-            _kcols = HandlerStrategies.map(key, 
-                    dict.getValidColumnName("key", field.getTable()), _kio, adapt);
-        }
+        DBDictionary dict = field.getMappingRepository().getDBDictionary();
+        DBIdentifier colName = dict.getValidColumnName(DBIdentifier.newColumn("key"), field.getTable());
+        _kcols = HandlerStrategies.map(key, colName.getName(), _kio, adapt);
+
         _vio = new ColumnIO();
         _vcols = HandlerStrategies.map(val, "value", _vio, adapt);
         field.mapPrimaryKey(adapt);

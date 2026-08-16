@@ -22,6 +22,7 @@ import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Iterator;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -41,6 +42,7 @@ import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.ChangeTracker;
 import org.apache.openjpa.util.InternalException;
@@ -62,6 +64,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
 
     private boolean _orderInsert = false;
     private boolean _orderUpdate = false;
+    private boolean _uni1MFK = false;
 
     protected ClassMapping[] getIndependentElementMappings(boolean traverse) {
         return field.getElementMapping().getIndependentTypeMappings();
@@ -106,7 +109,16 @@ public abstract class RelationToManyInverseKeyFieldStrategy
     }
 
     public void map(boolean adapt) {
-        field.getValueInfo().assertNoSchemaComponents(field, !adapt);
+        OpenJPAConfiguration conf = field.getRepository().getConfiguration();
+        boolean isNonDefaultMappingAllowed = field.getRepository().
+            getMetaDataFactory().getDefaults().isNonDefaultMappingAllowed(conf);
+        FieldMapping mapped = field.getMappedByMapping();
+
+        // JPA 2.0 allows non-default mapping: Uni-/1-M/@JoinColumn ==> foreign key strategy
+        // Bi-/1-M/@JoinColumn should result in exception 
+        if (!isNonDefaultMappingAllowed || mapped != null) {
+            field.getValueInfo().assertNoSchemaComponents(field, !adapt);
+        }
         field.getKeyMapping().getValueInfo().assertNoSchemaComponents
             (field.getKey(), !adapt);
 
@@ -116,7 +128,6 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             throw new MetaDataException(_loc.get("not-elem-relation", field));
 
         // check for named inverse
-        FieldMapping mapped = field.getMappedByMapping();
         FieldMappingInfo finfo = field.getMappingInfo();
         ValueMappingInfo vinfo = elem.getValueInfo();
         boolean criteria = vinfo.getUseClassCriteria();
@@ -144,10 +155,20 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             	field.setOrderColumnIO(finfo.getColumnIO());
             }
             return;
+        } else { 
+            if (field.getValueInfo().getColumns().size() > 0 && 
+                field.getAccessType() == FieldMetaData.ONE_TO_MANY) {
+                _uni1MFK = true;
+            }
         }
 
         // map inverse foreign key in related table
         ForeignKey fk = vinfo.getInverseTypeJoin(elem, field.getName(), adapt);
+        if (_uni1MFK) {
+            Column[] locals = fk.getColumns();
+            for (int i = 0; i < locals.length; i++)
+                locals[i].setUni1MFK(true);
+        }
         elem.setForeignKey(fk);
         elem.setColumnIO(vinfo.getColumnIO());
         elem.setColumns(elem.getTypeMapping().getPrimaryKeyColumns());
@@ -207,9 +228,13 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             if (Proxies.isOwner(proxy, sm, field.getIndex()))
                 ct = proxy.getChangeTracker();
         }
+        Column order = field.getOrderColumn();
 
         // if no fine-grained change tracking then just delete and reinsert
-        if (ct == null || !ct.isTracking()) {
+        // if no fine-grained change tracking or if an item was removed
+        // from an ordered collection, delete and reinsert
+        if (ct == null || !ct.isTracking() ||
+            (order != null && !ct.getRemoved().isEmpty())) {
             delete(sm, store, rm);
             insert(sm, rm, obj);
             return;
@@ -229,7 +254,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         int seq = ct.getNextSequence();
         for (Iterator itr = add.iterator(); itr.hasNext(); seq++)
             updateInverse(ctx, itr.next(), rel, rm, sm, seq);
-        if (field.getOrderColumn() != null)
+        if (order != null)
             ct.setNextSequence(seq);
     }
 

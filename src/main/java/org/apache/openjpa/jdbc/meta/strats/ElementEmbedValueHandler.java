@@ -25,8 +25,10 @@ import org.apache.openjpa.lib.util.*;
 import org.apache.openjpa.kernel.*;
 import org.apache.openjpa.util.*;
 import org.apache.openjpa.jdbc.meta.*;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.*;
 import org.apache.openjpa.jdbc.schema.*;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
 
 /**
  * <p>Handler for embedded objects as elements of a collection or map.  For
@@ -50,7 +52,17 @@ public class ElementEmbedValueHandler
     private int _nullIdx = -1;
     private boolean _synthetic = false;
 
+    /**
+     * @deprecated
+     */
     public Column[] map(ValueMapping vm, String name, ColumnIO io,
+        boolean adapt) {
+        DBDictionary dict = vm.getMappingRepository().getDBDictionary();
+        DBIdentifier colName = DBIdentifier.newColumn(name, dict != null ? dict.delimitAll() : false);
+        return map(vm, colName, io, adapt);
+    }
+    
+    public Column[] map(ValueMapping vm, DBIdentifier name, ColumnIO io,
         boolean adapt) {
         LinkedList cols = new LinkedList();
         LinkedList args = new LinkedList();
@@ -110,10 +122,6 @@ public class ElementEmbedValueHandler
     public Object toObjectValue(ValueMapping vm, Object val,
         OpenJPAStateManager sm, JDBCStore store, JDBCFetchConfiguration fetch)
         throws SQLException {
-        if (sm == null)
-            throw new InvalidStateException(_loc.get("cant-project-owned",
-                vm));
-
         // check null indicator first
         if (_nullIdx != -1) {
             Object nval;

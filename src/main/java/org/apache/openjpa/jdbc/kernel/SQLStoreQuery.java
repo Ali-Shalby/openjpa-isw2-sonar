@@ -27,14 +27,11 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.meta.QueryResultMapping;
@@ -349,7 +346,7 @@ public class SQLStoreQuery
             for (Integer key : paramOrder) {
                 if (!userParams.containsKey(key)) 
                     throw new UserException(_loc.get("uparam-missing", 
-                        sql, key, userParams));
+                        key, sql, userParams));
                 result[idx++] = userParams.get(key);
             }
             // modify original JPA-style SQL to proper SQL
@@ -376,8 +373,9 @@ public class SQLStoreQuery
             tok.wordChars('0', '9');
             tok.wordChars('?', '?');
 
-            StringBuffer buf = new StringBuffer(sql.length());
-            for (int ttype; (ttype = tok.nextToken()) != StreamTokenizer.TT_EOF;) {
+            StringBuilder buf = new StringBuilder(sql.length());
+            for (int ttype; (ttype = tok.nextToken()) !=
+                    StreamTokenizer.TT_EOF;) {
                 switch (ttype) {
                     case StreamTokenizer.TT_WORD:
                         // a token is a positional parameter if it starts with

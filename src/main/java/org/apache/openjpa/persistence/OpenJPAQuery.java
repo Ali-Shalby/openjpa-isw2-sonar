@@ -21,11 +21,12 @@ package org.apache.openjpa.persistence;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
+
 import javax.persistence.FlushModeType;
-import javax.persistence.Query;
 import javax.persistence.TemporalType;
+import javax.persistence.TypedQuery;
 
 import org.apache.openjpa.kernel.QueryFlushModes;
 import org.apache.openjpa.kernel.QueryHints;
@@ -38,8 +39,7 @@ import org.apache.openjpa.kernel.QueryOperations;
  * @author Abe White
  * @published
  */
-public interface OpenJPAQuery
-    extends Query {
+public interface OpenJPAQuery<X> extends TypedQuery<X> {
 
     /**
      * Hint key for specifying the number of rows to optimize for.
@@ -79,7 +79,7 @@ public interface OpenJPAQuery
     /**
      * Whether to ignore changes in the current transaction.
      */
-    public OpenJPAQuery setIgnoreChanges(boolean ignore);
+    public OpenJPAQuery<X>setIgnoreChanges(boolean ignore);
 
     /**
      * Return the candidate collection, or <code>null</code> if an
@@ -90,7 +90,7 @@ public interface OpenJPAQuery
     /**
      * Set a collection of candidates.
      */
-    public OpenJPAQuery setCandidateCollection(Collection coll);
+    public OpenJPAQuery<X> setCandidateCollection(Collection coll);
 
     /**
      * Query result element type.
@@ -100,7 +100,7 @@ public interface OpenJPAQuery
     /**
      * Query result element type.
      */
-    public OpenJPAQuery setResultClass(Class type);
+    public OpenJPAQuery<X> setResultClass(Class type);
 
     /**
      * Whether subclasses are included in the query results.
@@ -110,7 +110,7 @@ public interface OpenJPAQuery
     /**
      * Whether subclasses are included in the query results.
      */
-    public OpenJPAQuery setSubclasses(boolean subs);
+    public OpenJPAQuery<X> setSubclasses(boolean subs);
 
     /**
      * Return the 0-based start index for the returned results.
@@ -126,7 +126,7 @@ public interface OpenJPAQuery
     /**
      * Compile the query.
      */
-    public OpenJPAQuery compile();
+    public OpenJPAQuery<X> compile();
 
     /**
      * Whether this query has positional parameters.
@@ -134,12 +134,10 @@ public interface OpenJPAQuery
     public boolean hasPositionalParameters();
 
     /**
-     * The positional parameters for the query; empty list if none or
+     * The positional parameters for the query; empty array if none or
      * if query uses named parameters.
-     * Note: This method signature was changed in 2.0 to return a List
-     * instead of Object[] to match the JPA 2.0 spec.
      */
-    public List getPositionalParameters();
+    public Object[] getPositionalParameters();
 
     /**
      * The named parameters for the query; empty map if none or
@@ -150,17 +148,17 @@ public interface OpenJPAQuery
     /**
      * Set parameters.
      */
-    public OpenJPAQuery setParameters(Map params);
+    public OpenJPAQuery<X> setParameters(Map params);
 
     /**
      * Set parameters.
      */
-    public OpenJPAQuery setParameters(Object... params);
+    public OpenJPAQuery<X> setParameters(Object... params);
 
     /**
      * Close all open query results.
      */
-    public OpenJPAQuery closeAll();
+    public OpenJPAQuery<X>closeAll();
 
     /**
      * Returns a description of the commands that will be sent to
@@ -171,29 +169,29 @@ public interface OpenJPAQuery
      */
     public String[] getDataStoreActions(Map params);
 
-    public OpenJPAQuery setMaxResults(int maxResult);
+    public OpenJPAQuery<X> setMaxResults(int maxResult);
 
-    public OpenJPAQuery setFirstResult(int startPosition);
+    public OpenJPAQuery<X> setFirstResult(int startPosition);
 
-    public OpenJPAQuery setHint(String hintName, Object value);
+    public OpenJPAQuery<X> setHint(String hintName, Object value);
 
-    public OpenJPAQuery setParameter(String name, Object value);
+    public OpenJPAQuery<X> setParameter(String name, Object value);
 
-    public OpenJPAQuery setParameter(String name, Date value,
+    public OpenJPAQuery<X> setParameter(String name, Date value,
         TemporalType temporalType);
 
-    public OpenJPAQuery setParameter(String name, Calendar value,
+    public OpenJPAQuery<X> setParameter(String name, Calendar value,
         TemporalType temporalType);
 
-    public OpenJPAQuery setParameter(int position, Object value);
+    public OpenJPAQuery<X> setParameter(int position, Object value);
 
-    public OpenJPAQuery setParameter(int position, Date value,
+    public OpenJPAQuery<X> setParameter(int position, Date value,
         TemporalType temporalType);
 
-    public OpenJPAQuery setParameter(int position, Calendar value,
+    public OpenJPAQuery<X> setParameter(int position, Calendar value,
         TemporalType temporalType);
 
-    public OpenJPAQuery setFlushMode(FlushModeType flushMode);
+    public OpenJPAQuery<X> setFlushMode(FlushModeType flushMode);
 
     /**
      * Return the current flush mode.
@@ -235,27 +233,34 @@ public interface OpenJPAQuery
      * @deprecated cast to {@link QueryImpl} instead. This
      * method pierces the published-API boundary, as does the SPI cast.
      */
-    public OpenJPAQuery addFilterListener(
+    public OpenJPAQuery<X> addFilterListener(
         org.apache.openjpa.kernel.exps.FilterListener listener);
 
     /**
      * @deprecated cast to {@link QueryImpl} instead. This
      * method pierces the published-API boundary, as does the SPI cast.
      */
-    public OpenJPAQuery removeFilterListener(
+    public OpenJPAQuery<X> removeFilterListener(
         org.apache.openjpa.kernel.exps.FilterListener listener);
 
     /**
      * @deprecated cast to {@link QueryImpl} instead. This
      * method pierces the published-API boundary, as does the SPI cast.
      */
-    public OpenJPAQuery addAggregateListener(
+    public OpenJPAQuery<X> addAggregateListener(
         org.apache.openjpa.kernel.exps.AggregateListener listener);
 
     /**
      * @deprecated cast to {@link QueryImpl} instead. This
      * method pierces the published-API boundary, as does the SPI cast.
      */
-    public OpenJPAQuery removeAggregateListener(
+    public OpenJPAQuery<X> removeAggregateListener(
         org.apache.openjpa.kernel.exps.AggregateListener listener);
+    
+    /**
+     * Gets hints supported by this query.
+     * 
+     * @since 2.0.0
+     */
+    public Set<String> getSupportedHints();
 }

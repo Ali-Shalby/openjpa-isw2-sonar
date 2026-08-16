@@ -34,6 +34,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -49,6 +50,7 @@ import org.apache.openjpa.enhance.StateManager;
 import org.apache.openjpa.event.LifecycleEvent;
 import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.AccessCode;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FetchGroup;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -106,6 +108,7 @@ public class StateManagerImpl
     private static final int FLAG_VERSION_CHECK = 2 << 14;
     private static final int FLAG_VERSION_UPDATE = 2 << 15;
     private static final int FLAG_DETACHING = 2 << 16;
+    private static final int FLAG_EMBED_DEREF = 2 << 17;
 
     private static final Localizer _loc = Localizer.forPackage
         (StateManagerImpl.class);
@@ -148,8 +151,10 @@ public class StateManagerImpl
 
     // information about the owner of this instance, if it is embedded
     private StateManagerImpl _owner = null;
+    // for embeddable object from query result
+    private Object _ownerId = null;
     private int _ownerIndex = -1;
-    private List _mappedByIdFields = null;
+    private List<FieldMetaData> _mappedByIdFields = null;
     
     private transient ReentrantLock _instanceLock = null;
 
@@ -167,6 +172,53 @@ public class StateManagerImpl
 
         if (_meta.getIdentityType() == ClassMetaData.ID_UNKNOWN)
             throw new UserException(_loc.get("meta-unknownid", _meta));
+    }
+
+    /**
+     * Create a new StateManager instance based on the StateManager provided. A
+     * new PersistenceCapable instance will be created and associated with the
+     * new StateManager. All fields will be copied into the ne PC instance as
+     * well as the dirty, loaded, and flushed bitsets.
+     * 
+     * @param sm A statemanager instance which will effectively be cloned.
+     */
+    public StateManagerImpl(StateManagerImpl sm) {
+        this(sm, sm.getPCState());
+    }
+
+    /**
+     * Create a new StateManager instance, optionally overriding the state
+     * (FLUSHED, DELETED, etc) of the underlying PersistenceCapable instance).
+     * 
+     * @param sm
+     *            A statemanager instance which will effectively be cloned.
+     * @param newState
+     *            The new state of the underlying persistence capable object.
+     */
+    public StateManagerImpl(StateManagerImpl sm, PCState newState) { 
+        this(sm.getId(), sm.getMetaData(), sm.getBroker());
+
+        PersistenceCapable origPC = sm.getPersistenceCapable();
+        _pc = origPC.pcNewInstance(sm, false);
+        
+        int[] fields = new int[sm.getMetaData().getFields().length];
+        for (int i = 0; i < fields.length; i++) {
+            fields[i] = i;
+        }
+        _pc.pcCopyFields(origPC, fields);
+        _pc.pcReplaceStateManager(this);
+        _state = newState;
+
+        // clone the field bitsets. 
+        _dirty=(BitSet)sm.getDirty().clone();
+        _loaded = (BitSet)sm.getLoaded().clone();
+        _flush = (BitSet) sm.getFlushed().clone();
+        _version = sm.getVersion();
+        
+        _oid = sm.getObjectId(); 
+        _id = sm.getId();
+        
+        // more data may need to be copied. 
     }
 
     /**
@@ -309,7 +361,7 @@ public class StateManagerImpl
                 if (mappedByIdValue != null) { 
                     if (!ApplicationIds.isIdSet(_id, _meta, mappedByIdValue)) {
                         if (_mappedByIdFields == null)
-                            _mappedByIdFields = new ArrayList();
+                            _mappedByIdFields = new ArrayList<FieldMetaData>();
                         _mappedByIdFields.add(fmds[i]);
                     }
                 }
@@ -355,10 +407,10 @@ public class StateManagerImpl
     public boolean isIntercepting() {
         if (getMetaData().isIntercepting())
             return true;
-        if (getMetaData().getAccessType() != ClassMetaData.ACCESS_FIELD
+        // TODO:JRB Intercepting 
+        if (AccessCode.isProperty(getMetaData().getAccessType())
             && _pc instanceof DynamicPersistenceCapable)
             return true;
-
         return false;
     }
 
@@ -366,12 +418,11 @@ public class StateManagerImpl
      * Fire the given lifecycle event to all listeners.
      */
     private boolean fireLifecycleEvent(int type) {
-        if (type == LifecycleEvent.AFTER_PERSIST 
-        && _broker.getConfiguration().getCallbackOptionsInstance()
-                  .getPostPersistCallbackImmediate())
+        if (type == LifecycleEvent.AFTER_PERSIST
+                && _broker.getConfiguration().getCallbackOptionsInstance().getPostPersistCallbackImmediate()) {
             fetchObjectId();
-        return _broker.fireLifecycleEvent(getManagedInstance(), null,
-            _meta, type);
+        }
+        return _broker.fireLifecycleEvent(getManagedInstance(), null, _meta, type);
     }
 
     public void load(FetchConfiguration fetch) {
@@ -426,8 +477,13 @@ public class StateManagerImpl
         return _ownerIndex;
     }
 
+    public void setOwner(Object oid) {
+        _ownerId = oid;
+    }
+
     public boolean isEmbedded() {
-        return _owner != null;
+        // _owner may not be set if embed object is from query result
+        return _owner != null || _state instanceof ENonTransState;
     }
 
     public boolean isFlushed() {
@@ -513,6 +569,8 @@ public class StateManagerImpl
         StateManagerImpl sm = this;
         while (sm.getOwner() != null)
             sm = (StateManagerImpl) sm.getOwner();
+        if (sm.isEmbedded() && sm.getOwner() == null)
+            return sm._ownerId;
         return sm._oid;
     }
 
@@ -593,8 +651,10 @@ public class StateManagerImpl
      */
     private boolean assignField(int field, boolean preFlushing) {
         OpenJPAStateManager sm = this;
-        while (sm.isEmbedded())
+        while (sm != null && sm.isEmbedded())
             sm = sm.getOwner();
+        if (sm == null)
+            return false;
         if (!sm.isNew() || sm.isFlushed() || sm.isDeleted())
             return false;
 
@@ -1005,7 +1065,7 @@ public class StateManagerImpl
             boolean wasFlushed = isFlushed();
             boolean wasDeleted = isDeleted();
             boolean needPostUpdate = !(wasNew && !wasFlushed)
-					&& (ImplHelper.getUpdateFields(this) != null);
+                    && (ImplHelper.getUpdateFields(this) != null);
 
             // all dirty fields were flushed
             _flush.or(_dirty);
@@ -1288,6 +1348,18 @@ public class StateManagerImpl
                 _broker.addDereferencedDependent(this);
         }
     }
+    
+    void setDereferencedEmbedDependent(boolean deref) {
+        if (!deref && (_flags & FLAG_EMBED_DEREF) > 0) {
+            _flags &= ~FLAG_EMBED_DEREF;
+        } else if (deref && (_flags & FLAG_EMBED_DEREF) == 0) {
+            _flags |= FLAG_EMBED_DEREF;
+        }
+    }
+    
+    public boolean getDereferencedEmbedDependent() {
+        return ((_flags & FLAG_EMBED_DEREF) == 0 ? false : true);
+    }
 
     ///////////
     // Locking
@@ -1461,6 +1533,9 @@ public class StateManagerImpl
 
     public Object fetchObjectId() {
         try {
+            if (hasGeneratedKey() && _state instanceof PNewState && 
+                _oid == null) 
+                return _oid;
             assignObjectId(true);
             if (_oid == null || !_broker.getConfiguration().
                 getCompatibilityInstance().getCopyObjectIds())
@@ -1472,6 +1547,15 @@ public class StateManagerImpl
         } catch (RuntimeException re) {
             throw translate(re);
         }
+    }
+    
+    private boolean hasGeneratedKey() {
+        FieldMetaData[] pkFields = _meta.getPrimaryKeyFields();
+        for (int i = 0; i < pkFields.length; i++) {
+            if (pkFields[i].getValueStrategy() == ValueStrategies.AUTOASSIGN)
+                return true;
+        }
+        return false;
     }
 
     public Object getPCPrimaryKey(Object oid, int field) {
@@ -1545,6 +1629,11 @@ public class StateManagerImpl
         dirty(field, null, true);
     }
 
+    private boolean isEmbeddedNotUpdatable() {
+        // embeddable object returned from query result is not uptable
+        return (_owner == null && _ownerId != null);
+    }
+
     /**
      * Make the given field dirty.
      *
@@ -1569,8 +1658,13 @@ public class StateManagerImpl
             }
 
             if (isEmbedded()) {
-                // notify owner of change
-                _owner.dirty(_ownerIndex, Boolean.TRUE, loadFetchGroup);
+                if (isEmbeddedNotUpdatable())
+                    throw new UserException(_loc.get
+                        ("cant-update-embed-in-query-result")).setFailedObject
+                        (getManagedInstance());
+                else
+                    // notify owner of change
+                    _owner.dirty(_ownerIndex, Boolean.TRUE, loadFetchGroup);
             }
 
             // is this a direct mutation of an sco field?
@@ -1730,12 +1824,14 @@ public class StateManagerImpl
             case JavaTypes.COLLECTION:
                 return mgr.newCollectionProxy(fmd.getProxyType(),
                     fmd.getElement().getDeclaredType(),
-                    init instanceof Comparator ? (Comparator) init : null);
+                    init instanceof Comparator ? (Comparator) init : null,
+                        _broker.getConfiguration().getCompatibilityInstance().getAutoOff());
             case JavaTypes.MAP:
                 return mgr.newMapProxy(fmd.getProxyType(),
                     fmd.getKey().getDeclaredType(),
                     fmd.getElement().getDeclaredType(),
-                    init instanceof Comparator ? (Comparator) init : null);
+                    init instanceof Comparator ? (Comparator) init : null,
+                        _broker.getConfiguration().getCompatibilityInstance().getAutoOff());
         }
         return null;
     }
@@ -2917,10 +3013,8 @@ public class StateManagerImpl
                 continue;
 
             if (fmds[i].getCascadePersist() == ValueMetaData.CASCADE_IMMEDIATE
-                || fmds[i].getKey().getCascadePersist()
-                == ValueMetaData.CASCADE_IMMEDIATE
-                || fmds[i].getElement().getCascadePersist()
-                == ValueMetaData.CASCADE_IMMEDIATE) {
+             || fmds[i].getKey().getCascadePersist() == ValueMetaData.CASCADE_IMMEDIATE
+             || fmds[i].getElement().getCascadePersist() == ValueMetaData.CASCADE_IMMEDIATE) {
                 _single.storeObjectField(i, fetchField(i, false));
                 _single.persist(call);
                 _single.clear();
@@ -2949,10 +3043,8 @@ public class StateManagerImpl
             if (len > 0) {
                 if (fetch == null)
                     fetch = _broker.getFetchConfiguration();
-                if (!_broker.getStoreManager().load(this, fields, fetch,
-                    lockLevel, sdata)) {
-                    throw new ObjectNotFoundException(_loc.get("del-instance",
-                        _meta.getDescribedType(), _oid)).
+                if (!_broker.getStoreManager().load(this, fields, fetch, lockLevel, sdata)) {
+                    throw new ObjectNotFoundException(_loc.get("del-instance", _meta.getDescribedType(), _oid)).
                         setFailedObject(getManagedInstance());
                 }
                 ret = true;
@@ -2963,7 +3055,7 @@ public class StateManagerImpl
             // we do this even if no fields were loaded -- could be that this
             // method is being called after a field is set)... some instances
             // might not have version info, in which case this gets called
-            // mutiple times; that should be ok too
+            // multiple times; that should be ok too
             if (_loadVersion == null) {
                 syncVersion(sdata);
                 ret = ret || _loadVersion != null;
@@ -3043,7 +3135,7 @@ public class StateManagerImpl
         _fm = store;
         pc.pcProvideField(field);
         // Retaining original FM because of the possibility of reentrant calls
-        _fm = beforeFM;
+        if (beforeFM != null) _fm = beforeFM;
     }
 
     /**
@@ -3055,7 +3147,7 @@ public class StateManagerImpl
         _fm = load;
         pc.pcReplaceField(field);
         // Retaining original FM because of the possibility of reentrant calls
-        _fm = beforeFM;
+        if (beforeFM != null) _fm = beforeFM;
     }
 
     /**
@@ -3202,8 +3294,7 @@ public class StateManagerImpl
      * broker.
      */
     protected RuntimeException translate(RuntimeException re) {
-        RuntimeExceptionTranslator trans = _broker.
-            getInstanceExceptionTranslator();
+        RuntimeExceptionTranslator trans = _broker.getInstanceExceptionTranslator();
         return (trans == null) ? re : trans.translate(re);
     }
 
@@ -3240,8 +3331,7 @@ public class StateManagerImpl
     void writePC(ObjectOutputStream oos, PersistenceCapable pc)
         throws IOException {
         if (!Serializable.class.isAssignableFrom(_meta.getDescribedType()))
-            throw new NotSerializableException(
-                _meta.getDescribedType().getName());
+            throw new NotSerializableException(_meta.getDescribedType().getName());
 
         oos.writeObject(pc);
     }
@@ -3285,7 +3375,7 @@ public class StateManagerImpl
         return pc;
     }
     
-    public List getMappedByIdFields() {
+    public List<FieldMetaData> getMappedByIdFields() {
         return _mappedByIdFields;
     }
 }

@@ -21,6 +21,7 @@ package org.apache.openjpa.jdbc.kernel.exps;
 import java.util.Map;
 
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
@@ -103,8 +104,14 @@ class MatchesExpression
             buf.append(" LIKE ").appendValue(str, col);
 
             // escape out characters by using the database's escape sequence
-            if (_escape != null)
-                buf.append(" ESCAPE '").append(_escape).append("'");
+            DBDictionary dict = ctx.store.getDBDictionary();
+            if (_escape != null) {
+                if (_escape.equals("\\")) 
+                    buf.append(" ESCAPE '").append(dict.searchStringEscape).append("'");
+                else
+                    buf.append(" ESCAPE '").append(_escape).append("'");
+            }
+            
         }
         sel.append(buf, state.joins);
     }
@@ -121,7 +128,7 @@ class MatchesExpression
     private static String replaceEscape(String str, String from, String to,
         String escape) {
         String[] parts = Strings.split(str, from, Integer.MAX_VALUE);
-        StringBuffer repbuf = new StringBuffer();
+        StringBuilder repbuf = new StringBuilder();
         for (int i = 0; i < parts.length; i++) {
             if (i > 0) {
                 // if the previous part ended with an escape character, then

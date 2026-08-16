@@ -20,6 +20,7 @@ package org.apache.openjpa.slice.jdbc;
 
 import java.io.InputStream;
 import java.io.Reader;
+import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.Array;
@@ -36,18 +37,36 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Calendar;
 
+import org.apache.openjpa.lib.util.ConcreteClassGenerator;
+
 /**
- * A virtual PreparedStaement that delegates to a set of actual PreparedStatements.
+ * A virtual PreparedStaement that delegates to a set of actual
+ * PreparedStatements.
  * 
  * @author Pinaki Poddar 
  *
  */
-class DistributedPreparedStatement extends DistributedTemplate<PreparedStatement>
-		implements PreparedStatement {
+public abstract class DistributedPreparedStatement 
+    extends DistributedTemplate<PreparedStatement> 
+    implements PreparedStatement {
 
-	DistributedPreparedStatement(DistributedConnection c) {
+    static final Constructor<DistributedPreparedStatement> concreteImpl;
+    static {
+        try {
+            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DistributedPreparedStatement.class, 
+                    DistributedConnection.class);
+        } catch (Exception e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+    
+	public DistributedPreparedStatement(DistributedConnection c) {
 		super(c);
 	}
+	
+    public static DistributedPreparedStatement newInstance(DistributedConnection conn) {
+        return ConcreteClassGenerator.newInstance(concreteImpl, conn);
+    }
 
 	public void clearParameters() throws SQLException {
 		for (PreparedStatement s : this)
@@ -62,7 +81,7 @@ class DistributedPreparedStatement extends DistributedTemplate<PreparedStatement
 	}
 
 	public ResultSet executeQuery() throws SQLException {
-		DistributedResultSet mrs = new DistributedResultSet();
+		DistributedResultSet mrs = DistributedResultSet.newInstance();
 		for (PreparedStatement t : this)
 			mrs.add(t.executeQuery());
 		return mrs;
@@ -94,7 +113,7 @@ class DistributedPreparedStatement extends DistributedTemplate<PreparedStatement
 			t.setAsciiStream(arg0, arg1, arg2);
 	}
 
-	public void setBigDecimal(int arg0, BigDecimal arg1) throws SQLException {
+    public void setBigDecimal(int arg0, BigDecimal arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setBigDecimal(arg0, arg1);
 	}
@@ -141,7 +160,8 @@ class DistributedPreparedStatement extends DistributedTemplate<PreparedStatement
 			t.setDate(arg0, arg1);
 	}
 
-	public void setDate(int arg0, Date arg1, Calendar arg2) throws SQLException {
+    public void setDate(int arg0, Date arg1, Calendar arg2) throws SQLException
+    {
 		for (PreparedStatement t : this)
 			t.setDate(arg0, arg1, arg2);
 	}
@@ -171,7 +191,7 @@ class DistributedPreparedStatement extends DistributedTemplate<PreparedStatement
 			t.setNull(arg0, arg1);
 	}
 
-	public void setNull(int arg0, int arg1, String arg2) throws SQLException {
+    public void setNull(int arg0, int arg1, String arg2) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setNull(arg0, arg1, arg2);
 	}
@@ -181,7 +201,7 @@ class DistributedPreparedStatement extends DistributedTemplate<PreparedStatement
 			t.setObject(arg0, arg1);
 	}
 
-	public void setObject(int arg0, Object arg1, int arg2) throws SQLException {
+    public void setObject(int arg0, Object arg1, int arg2) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setObject(arg0, arg1, arg2);
 	}
@@ -218,7 +238,7 @@ class DistributedPreparedStatement extends DistributedTemplate<PreparedStatement
 				t.setTime(arg0, arg1, arg2);
 	 }
 	
-	 public void setTimestamp(int arg0, Timestamp arg1) throws SQLException {
+     public void setTimestamp(int arg0, Timestamp arg1) throws SQLException {
 			for (PreparedStatement t : this)
 				t.setTimestamp(arg0, arg1);
 	 }

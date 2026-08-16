@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -49,7 +50,6 @@ public class InMemoryExpressionFactory
     implements ExpressionFactory {
 
     private static final Value NULL = new Null();
-    private static final Value CURRENT_DATE = new CurrentDate();
     private static final Object UNIQUE = new Object();
 
     // list of unbound variables in this query
@@ -493,16 +493,16 @@ public class InMemoryExpressionFactory
         return NULL;
     }
 
-    public Value getCurrentDate() {
-        return CURRENT_DATE;
+    public <T extends Date> Value getCurrentDate(Class<T> dateType) {
+        return new CurrentDate(dateType);
     }
 
-    public Value getCurrentTime() {
-        return CURRENT_DATE;
+    public  <T extends Date> Value getCurrentTime(Class<T> dateType) {
+        return new CurrentDate(dateType);
     }
 
-    public Value getCurrentTimestamp() {
-        return CURRENT_DATE;
+    public <T extends Date> Value getCurrentTimestamp(Class<T> dateType) {
+        return new CurrentDate(dateType);
     }
 
     public Parameter newParameter(Object name, Class type) {
@@ -524,6 +524,10 @@ public class InMemoryExpressionFactory
 
     public Arguments newArgumentList(Value val1, Value val2) {
         return new Args(val1, val2);
+    }
+    
+    public Arguments newArgumentList(Value... values) {
+        return new Args(values);
     }
 
     public Value newUnboundVariable(String name, Class type) {
@@ -787,5 +791,9 @@ public class InMemoryExpressionFactory
 
     public Value nullIfExpression(Value val1, Value val2) {
         return new NullIf((Val) val1, (Val) val2);
+    }
+
+    public Value newFunction(String functionName, Class<?> resultType, Value... args) {
+        throw new AbstractMethodError();
     }
 }

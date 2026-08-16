@@ -342,9 +342,9 @@ public class PrimaryRow
             		super.setObject(col, val, metaType, overrideDefault);
             	} else if (!isDefaultValue(val)) {
             		throw new InvalidStateException(_loc.get("diff-values",
-            				new Object[]{ col.getFullName(),
-            				(prev == null) ? null : prev.getClass(), prev,
-            				(val == null) ? null : val.getClass(), val })).
+            				new Object[]{ col.getFullDBIdentifier().getName(),
+                            (prev == null) ? null : prev.getClass(), prev,
+                            (val == null) ? null : val.getClass(), val })).
             				setFatal(true);
             	} else {
             	    // since not allow to update and the new value is 0 or null,
@@ -361,8 +361,8 @@ public class PrimaryRow
      * is a default value or was not set and the column is not a primary key.
      */
     boolean allowsUpdate(Column col, Object old, Object cur) {
-    	return !col.isPrimaryKey() && col.isImplicitRelation()
-    	   && (isDefaultValue(old));
+    	return ((!col.isPrimaryKey() && col.isImplicitRelation()) ||
+    	   col.isUni1MFK()) && (isDefaultValue(old));
     }
     
     boolean isDefaultValue(Object val) {

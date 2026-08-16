@@ -180,7 +180,7 @@ public class DelegatingBroker
         }
     }
     
-    public Map<String, String> getProperties() {
+    public Map<String,Object> getProperties() {
         try {
             return _broker.getProperties();
         } catch (RuntimeException re) {
@@ -825,6 +825,14 @@ public class DelegatingBroker
             throw translate(re);
         }
     }
+    
+    public Collection<Object> getTransactionListeners() {
+        try {
+            return _broker.getTransactionListeners();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
 
     public int getTransactionListenerCallbackMode() {
         try {
@@ -1410,5 +1418,4 @@ public class DelegatingBroker
     public void setCachePreparedQuery(boolean flag) {
         _broker.setCachePreparedQuery(flag);
     }
-
 }

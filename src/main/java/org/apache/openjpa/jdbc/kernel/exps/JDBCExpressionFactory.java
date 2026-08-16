@@ -19,6 +19,7 @@
 package org.apache.openjpa.jdbc.kernel.exps;
 
 import java.io.Serializable;
+import java.util.Date;
 
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
@@ -49,13 +50,8 @@ public class JDBCExpressionFactory
     implements ExpressionFactory, Serializable {
 
     private static final Val NULL = new Null();
-    private static final Val CURRENT_DATE = new CurrentDate(JavaSQLTypes.DATE);
-    private static final Val CURRENT_TIME = new CurrentDate(JavaSQLTypes.TIME);
-    private static final Val CURRENT_TIMESTAMP =
-        new CurrentDate(JavaSQLTypes.TIMESTAMP);
 
-    private static final Localizer _loc = Localizer.forPackage
-        (JDBCExpressionFactory.class);
+    private static final Localizer _loc = Localizer.forPackage(JDBCExpressionFactory.class);
 
     private final ClassMapping _type;
     private final SelectConstructor _cons = new SelectConstructor();
@@ -167,7 +163,8 @@ public class JDBCExpressionFactory
     }
 
     public Expression not(Expression exp) {
-        if (HasContainsExpressionVisitor.hasContains(exp))
+        if (!(exp instanceof IsNotEmptyExpression) &&
+            HasContainsExpressionVisitor.hasContains(exp))
             return new NotContainsExpression((Exp) exp);
         return new NotExpression((Exp) exp);
     }
@@ -219,9 +216,12 @@ public class JDBCExpressionFactory
         String single, String multi, String esc) {
         if (!(v2 instanceof Const))
             throw new UserException(_loc.get("const-only", "matches"));
-        return new MatchesExpression((Val) v1, (Const) v2, single, multi,
-            esc != null ? esc : _type.getMappingRepository().
-                getDBDictionary().searchStringEscape);
+        if (esc == null && _type.getMappingRepository().
+                getDBDictionary().requiresSearchStringEscapeForLike == true) { 
+            esc = _type.getMappingRepository().
+                getDBDictionary().searchStringEscape;
+        }        
+        return new MatchesExpression((Val) v1, (Const) v2, single, multi, esc);
     }
 
     public Subquery newSubquery(ClassMetaData candidate, boolean subs,
@@ -259,16 +259,16 @@ public class JDBCExpressionFactory
         return NULL;
     }
 
-    public Value getCurrentDate() {
-        return CURRENT_DATE;
+    public <T extends Date> Value getCurrentDate(Class<T> dateType) {
+        return new CurrentDate(dateType);
     }
 
-    public Value getCurrentTime() {
-        return CURRENT_TIME;
+    public <T extends Date> Value getCurrentTime(Class<T> dateType) {
+        return  new CurrentDate(dateType);
     }
 
-    public Value getCurrentTimestamp() {
-        return CURRENT_TIMESTAMP;
+    public <T extends Date> Value getCurrentTimestamp(Class<T> dateType) {
+        return  new CurrentDate(dateType);
     }
 
     public Parameter newParameter(Object name, Class type) {
@@ -292,6 +292,17 @@ public class JDBCExpressionFactory
 
     public Arguments newArgumentList(Value v1, Value v2) {
         return new Args((Val) v1, (Val) v2);
+    }
+    
+    public Arguments newArgumentList(Value... vs) {
+        if (vs == null)
+           return new Args(null);
+        Val[] vals = new Val[vs.length];
+        int i = 0;
+        for (Value v : vs) {
+            vals[i++] = (Val)v;
+        }
+        return new Args(vals);
     }
 
     public Value newUnboundVariable(String name, Class type) {
@@ -432,18 +443,36 @@ public class JDBCExpressionFactory
             "gmv" + _getMapValueAlias++);
     }
 
+    private Value getLiteralRawString(Value val) {
+        if (val instanceof Lit) {
+            Lit lit = (Lit) val;
+            StringBuilder value = new StringBuilder();
+            int pType = lit.getParseType(); 
+            if (pType == Literal.TYPE_SQ_STRING ||
+                pType == Literal.TYPE_STRING)
+                value.append("'").append(lit.getValue().toString()).append("'");
+            else if (pType == Literal.TYPE_BOOLEAN) {
+                if ((Boolean) lit.getValue())
+                    value.append("1");
+                else
+                    value.append("0");
+            } else if (pType == Literal.TYPE_ENUM) {
+                lit.setRaw(true);
+                return val;
+            } else
+                value.append(lit.getValue().toString());
+            lit.setValue(new Raw(value.toString()));
+            return lit;
+        }
+        return val;
+    }
+
     public Value simpleCaseExpression(Value caseOperand, Expression[] exp,
             Value val1) {
         Exp[] exps = new Exp[exp.length];
         for (int i = 0; i < exp.length; i++)
             exps[i] = (Exp) exp[i];
-        if (val1 instanceof Lit) {
-            Lit val = (Lit) val1;
-            StringBuffer value = new StringBuffer(val.getValue().toString());
-            if (val.getParseType() == Literal.TYPE_SQ_STRING)
-                value.insert(0, "'").append("'");
-            val.setValue(new Raw(value.toString()));
-        }
+        val1 = getLiteralRawString(val1);
         return new SimpleCaseExpression((Val) caseOperand, exps,
             (Val) val1);
     }
@@ -453,61 +482,36 @@ public class JDBCExpressionFactory
         Exp[] exps = new Exp[exp.length];
         for (int i = 0; i < exp.length; i++)
             exps[i] = (Exp) exp[i];
+        val = getLiteralRawString(val);
         return new GeneralCaseExpression(exps, (Val) val);
     }
 
     public Expression whenCondition(Expression exp, Value val) {
+        val = getLiteralRawString(val);
         return new WhenCondition((Exp) exp, (Val) val);
     }
 
     public Expression whenScalar(Value val1, Value val2) {
-        if (val1 instanceof Lit) {
-            Lit val = (Lit) val1;
-            StringBuffer value = new StringBuffer(val.getValue().toString());
-            if (val.getParseType() == Literal.TYPE_SQ_STRING)
-                value.insert(0, "'").append("'");
-            val.setValue(new Raw(value.toString()));
-        }
-        if (val2 instanceof Lit) {
-            Lit val = (Lit) val2;
-            StringBuffer value = new StringBuffer(val.getValue().toString());
-            if (val.getParseType() == Literal.TYPE_SQ_STRING)
-                value.insert(0, "'").append("'");
-            val.setValue(new Raw(value.toString()));
-        }
+        val1 = getLiteralRawString(val1);
+        val2 = getLiteralRawString(val2);
         return new WhenScalar((Val) val1, (Val) val2);
     }
 
     public Value coalesceExpression(Value[] vals) {;
         Object[] values = new Val[vals.length];
         for (int i = 0; i < vals.length; i++) {
-            if (vals[i] instanceof Lit) {
-                Lit val = (Lit) vals[i];
-                StringBuffer value = new StringBuffer(val.getValue().toString());
-                if (val.getParseType() == Literal.TYPE_SQ_STRING)
-                    value.insert(0, "'").append("'");
-                val.setValue(new Raw(value.toString()));
-            }
-            values[i] = vals[i];
+            values[i] = getLiteralRawString(vals[i]);
         }
         return new CoalesceExpression((Val[]) values);
     }
 
     public Value nullIfExpression(Value val1, Value val2) {
-        if (val1 instanceof Lit) {
-            Lit val = (Lit) val1;
-            StringBuffer value = new StringBuffer(val.getValue().toString());
-            if (val.getParseType() == Literal.TYPE_SQ_STRING)
-                value.insert(0, "'").append("'");
-            val.setValue(new Raw(value.toString()));
-        }
-        if (val2 instanceof Lit) {
-            Lit val = (Lit) val2;
-            StringBuffer value = new StringBuffer(val.getValue().toString());
-            if (val.getParseType() == Literal.TYPE_SQ_STRING)
-                value.insert(0, "'").append("'");
-            val.setValue(new Raw(value.toString()));
-        }
+        val1 = getLiteralRawString(val1);
+        val2 = getLiteralRawString(val2);
         return new NullIfExpression((Val) val1, (Val) val2);
+    }
+    
+    public Value newFunction(String functionName, Class<?> resultType, Value... args) {
+        return new DatastoreFunction(functionName, resultType, newArgumentList(args));
     }
 }

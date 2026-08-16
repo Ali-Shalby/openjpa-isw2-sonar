@@ -25,14 +25,16 @@ import java.util.LinkedList;
 import java.util.ListIterator;
 
 import org.apache.commons.lang.ObjectUtils;
-import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.jdbc.kernel.JDBCStoreQuery;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
-import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
+import org.apache.openjpa.jdbc.meta.Strategy;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
-import org.apache.openjpa.jdbc.meta.strats.HandlerRelationMapTableFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.HandlerCollectionTableFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.HandlerHandlerMapTableFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.LRSMapFieldStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Schemas;
@@ -43,9 +45,9 @@ import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
-import org.apache.openjpa.kernel.StateManagerImpl;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.kernel.exps.CandidatePath;
+import org.apache.openjpa.kernel.exps.Context;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -71,19 +73,20 @@ public class PCPath
     private static final int UNBOUND_VAR = 2;
     private static final int UNACCESSED_VAR = 3;
     private static final int XPATH = 4;
+    private static final int OBJECT_PATH = 5;
 
     private static final Localizer _loc = Localizer.forPackage(PCPath.class);
 
     private final ClassMapping _candidate;
     private ClassMapping _class = null;
     private boolean _key = false;
-    private boolean _keyPath = false;
     private int _type = PATH;
     private String _varName = null;
     private Class _cast = null;
     private boolean _cid = false;
     private FieldMetaData _xmlfield = null;
-    private FieldMetaData _mapfield = null;
+    private boolean _keyPath = false;
+    private String _schemaAlias = null;
 
     /**
      * Return a path starting with the 'this' ptr.
@@ -101,10 +104,12 @@ public class PCPath
 
         PCPath other = var.getPCPath();
         Action action = new Action();
+        action.var = var.getName();
         if (other == null) {
             _type = UNBOUND_VAR;
             action.op = Action.UNBOUND_VAR;
             action.data = var;
+            _schemaAlias = var.getName();
         } else {
             // bound variable; copy path
             _type = UNACCESSED_VAR;
@@ -113,6 +118,8 @@ public class PCPath
 
             action.op = Action.VAR;
             action.data = var.getName();
+            _schemaAlias = other._schemaAlias;
+            _correlationVar = other._correlationVar;
         }
         _actions.add(action);
         _cast = var.getType(); // initial type is var type
@@ -133,6 +140,23 @@ public class PCPath
         _varName = sub.getCandidateAlias();
     }
 
+    public void setSchemaAlias(String schemaAlias) {
+        if (_schemaAlias == null) 
+            _schemaAlias = schemaAlias;
+    }
+
+    public String getSchemaAlias() {
+        return _schemaAlias;
+    }
+    
+    public void setSubqueryContext(Context context, String correlationVar) {
+        Action action = lastFieldAction();
+        if (action == null)
+            return;
+        action.context = context;
+        _correlationVar = correlationVar;
+    }
+    
     /**
      * Set the path as a binding of the given variable.
      */
@@ -192,7 +216,7 @@ public class PCPath
     }
     
     public String getXPath() {
-        StringBuffer xpath = new StringBuffer();
+        StringBuilder xpath = new StringBuilder();
         Action action;
         Iterator itr = _actions.iterator();
         
@@ -210,7 +234,7 @@ public class PCPath
         // we build the remaining xpath that follows the root element.
         while (itr.hasNext()) {
             action = (Action) itr.next();
-            if (((XMLMetaData) action.data).getXmlname() != null)                 
+            if (((XMLMetaData) action.data).getXmlname() != null)
                 xpath.append(((XMLMetaData) action.data).getXmlname());
             else
                 xpath.append("*");
@@ -220,11 +244,11 @@ public class PCPath
         return xpath.toString();
     }
     
-    public String getPath() {
+    public String getPCPathString() {
         if (_actions == null)
             return (_varName == null) ? "" : _varName + ".";
 
-        StringBuffer path = new StringBuffer();
+        StringBuilder path = new StringBuilder();
         Action action;
         for (Iterator itr = _actions.iterator(); itr.hasNext();) {
             action = (Action) itr.next();
@@ -246,14 +270,16 @@ public class PCPath
         if (pstate.field == null)
             return _class;
         if (_key) {
-            if (pstate.field.getKey().getValueMappedBy() != null)
-                return _class;
             if (pstate.field.getKey().getTypeCode() == JavaTypes.PC)
                 return pstate.field.getKeyMapping().getTypeMapping();
             return null;
         }
-        if (pstate.field.getElement().getTypeCode() == JavaTypes.PC)
+        if (pstate.field.getElement().getTypeCode() == JavaTypes.PC) {
+            if (pstate.field.isElementCollection() &&
+                pstate.field.getElement().isEmbedded())
+                pstate.isEmbedElementColl = true;
             return pstate.field.getElementMapping().getTypeMapping();
+        }
         if (pstate.field.getTypeCode() == JavaTypes.PC)
             return pstate.field.getTypeMapping();
         return null;
@@ -274,7 +300,9 @@ public class PCPath
      * The columns used by this path.
      */
     private Column[] calculateColumns(PathExpState pstate) {
-        if (_key) {
+        if (_key ||
+            (_keyPath && pstate.field.getKey() != null &&
+                !pstate.field.getKey().isEmbedded())) {
             if (!pstate.joinedRel 
                 && pstate.field.getKey().getValueMappedBy() != null)
                 joinRelation(pstate, _key, false, false);
@@ -290,6 +318,16 @@ public class PCPath
                 case JavaTypes.ARRAY:
                 case JavaTypes.COLLECTION:
                     ValueMapping elem = pstate.field.getElementMapping();
+                    if (pstate.field.isElementCollection() && pstate.field.getElement().isEmbedded()) {
+                        Strategy strategy = pstate.field.getStrategy();
+                        if (strategy instanceof HandlerCollectionTableFieldStrategy) {
+                            return ((HandlerCollectionTableFieldStrategy) strategy).
+                                getElementColumns(elem.getTypeMapping());
+                        } else if (strategy instanceof HandlerHandlerMapTableFieldStrategy) {
+                            return ((HandlerHandlerMapTableFieldStrategy) strategy).
+                            getValueColumns(elem.getTypeMapping());
+                        }
+                    }
                     if (pstate.joinedRel && elem.getTypeCode() == JavaTypes.PC)
                         return elem.getTypeMapping().getPrimaryKeyColumns();
                     if (elem.getColumns().length > 0)
@@ -362,17 +400,38 @@ public class PCPath
         if (_cid)
             return;
 
-        _mapfield = last();
-        // change the last action to a get key
-        Action action = (Action) _actions.getLast();
-        action.op = Action.GET_KEY;
+        // replace the last field action to a get key
+        Action action = lastFieldAction();
+        Action key = new Action();
+        key.op = Action.GET_KEY;
+        key.data = action.data;
+        int pos = _actions.indexOf(action);
+        _actions.remove(action);
+        _actions.add(pos, key);
         _cast = null;
         _key = true;
+        _type = PATH;
+    }
+
+    private void checkObjectPathInheritanceTypeJoined(PathExpState pstate) {
+        // if this mapping is in InheritanceType.JOINED,
+        // then add joins
+         ClassMapping base = _class;
+         while (base.getJoinablePCSuperclassMapping() != null)
+             base = base.getJoinablePCSuperclassMapping();
+         if (base != _class) {
+             ClassMapping from = _class;
+             ClassMapping to = base;
+             _type = OBJECT_PATH;
+             for (; from != null && from != to; from = from.getJoinablePCSuperclassMapping()) {
+                 pstate.joins = from.joinSuperclass(pstate.joins, false);
+             }
+         }
     }
 
     public FieldMetaData last() {
         Action act = lastFieldAction();
-        return (act == null || act.op == Action.GET_KEY) ? null : isXPath() ?
+        return (act == null) ? null : isXPath() ?
             _xmlfield : (FieldMetaData) act.data;
     }
 
@@ -403,10 +462,8 @@ public class PCPath
         Action act = lastFieldAction();
         if (act != null && act.op == Action.GET_XPATH)
             return ((XMLMetaData) act.data).getType();
-        
-        FieldMetaData fld = act == null ? null :
-            act.op == Action.GET_KEY ? _mapfield :
-            (FieldMetaData) act.data;
+
+        FieldMetaData fld = (act == null) ? null : (FieldMetaData) act.data;
         boolean key = act != null && act.op == Action.GET_KEY;
         if (fld != null) {
             switch (fld.getDeclaredTypeCode()) {
@@ -442,6 +499,8 @@ public class PCPath
         boolean forceOuter = false;
         ClassMapping rel = _candidate;
 
+        sel.setSchemaAlias(_schemaAlias);
+
         // iterate to the final field
         ClassMapping owner;
         ClassMapping from, to;
@@ -449,14 +508,26 @@ public class PCPath
         Variable var;
         Iterator itr = (_actions == null) ? null : _actions.iterator();
         FieldMapping field = null;
+        Action prevaction = null;
+        boolean isCorrelatedPath = false;
+        boolean fromParentRootInSubselect = navigateFromParentRootInSubselect(sel);
+                
         while (itr != null && itr.hasNext()) {
             action = (Action) itr.next();
 
             // treat subqueries like variables for alias generation purposes
-            if (action.op == Action.VAR)
-                pstate.joins = pstate.joins.setVariable((String) action.data);
-            else if (action.op == Action.SUBQUERY)
+            if (action.op == Action.VAR) {
+                if (sel.getParent() != null && action.var != null &&
+                    prevaction != null && prevaction.data != null &&
+                    sel.ctx().getVariable(action.var) == null) {
+                    isCorrelatedPath = true;
+                    pstate.joins = pstate.joins.setCorrelatedVariable(action.var);
+                } else 
+                    pstate.joins = pstate.joins.setVariable((String) action.data);
+            }
+            else if (action.op == Action.SUBQUERY) {
                 pstate.joins = pstate.joins.setSubselect((String) action.data);
+            }
             else if (action.op == Action.UNBOUND_VAR) {
                 // unbound vars are cross-joined to the candidate table
                 var = (Variable) action.data;
@@ -464,27 +535,24 @@ public class PCPath
                 if (rel == null)
                 	throw new IllegalArgumentException(_loc.get(
                 	    "invalid-unbound-var", var.getName()).toString());
-                pstate.joins = pstate.joins.setVariable(var.getName());
-                pstate.joins = pstate.joins.crossJoin(_candidate.getTable(), 
+                	    
+                if (sel.getParent() != null && action.var != null &&
+                    sel.ctx().getVariable(action.var) == null) {
+                    //System.out.println("Correlated action var="+action.var);
+                    isCorrelatedPath = true;
+                    pstate.joins = pstate.joins.setCorrelatedVariable(var.getName());
+                } else                 
+                    pstate.joins = pstate.joins.setVariable(var.getName());
+
+                pstate.joins = pstate.joins.crossJoin(_candidate.getTable(),
                     rel.getTable());
+                if (!itr.hasNext() && isVariable()) {
+                    checkObjectPathInheritanceTypeJoined(pstate);
+                }
             } else {
                 // move past the previous field, if any
-                field = (action.op == Action.GET_XPATH) ?
-                    (FieldMapping) _xmlfield :
-                    (action.op == Action.GET_KEY) ? null :
-                    (FieldMapping) action.data;
-
-                // mark if the next traversal should go through
-                // the key rather than value
-                key = action.op == Action.GET_KEY;
-                forceOuter |= action.op == Action.GET_OUTER;
-
-                // if last action is get map key, use the previous field mapping
-                if (key && !itr.hasNext())
-                    field = pstate.field;
-
-                if (_keyPath)
-                    pstate.field = field;
+                field = (FieldMapping) ((action.op == Action.GET_XPATH) ?
+                    _xmlfield : action.data);
 
                 if (pstate.field != null) {
                     // if this is the second-to-last field and the last is
@@ -495,17 +563,26 @@ public class PCPath
                         pstate.cmpfield = field;
                         break;
                     }
+                    
+                    if (fromParentRootInSubselect) {
+                        isCorrelatedPath = true;
+                        pstate.joins = pstate.joins.setCorrelatedVariable(_schemaAlias);
+                        pstate.joins.setJoinContext(null);
+                    }
+                    
                     rel = traverseField(pstate, key, forceOuter, false);
                 }
 
+                // mark if the next traversal should go through
+                // the key rather than value
+                key = action.op == Action.GET_KEY;
+                forceOuter |= action.op == Action.GET_OUTER;
+                
+                if (key && itr.hasNext())
+                    _keyPath = true;
+
                 // get mapping for the current field
                 pstate.field = field;
-
-                if (key && itr.hasNext()) {
-                    // path navigation thru KEY
-                    _keyPath = true;
-                    continue;
-                }
 
                 owner = pstate.field.getDefiningMapping();
                 if (pstate.field.getManagement() 
@@ -535,18 +612,19 @@ public class PCPath
                         pstate.joins = from.joinSuperclass(pstate.joins, false);
                     }
                 }
-                // nothing more to do from here on as we encountered an xpath action
+                // nothing more to do from here on as we encountered an xpath
+                // action
                 if (action.op == Action.GET_XPATH)
                     break;
+            }
+            prevaction = action;
+            if (prevaction != null && prevaction.context != null) {
+                Context jCtx = JDBCStoreQuery.getThreadLocalContext(prevaction.context);
+                pstate.joins = pstate.joins.setJoinContext(jCtx);
             }
         }
         if (_varName != null)
             pstate.joins = pstate.joins.setVariable(_varName);
-
-        // if last action is key action, avoid redundant joins
-        if (key) {
-            return pstate;
-        }
 
         // if we're not comparing to null or doing an isEmpty, then
         // join into the data on the final field; obviously we can't do these
@@ -558,9 +636,56 @@ public class PCPath
         if ((flags & JOIN_REL) != 0)
             joinRelation(pstate, key, forceOuter || (flags & FORCE_OUTER) != 0,
                 false);
+        if (isCorrelatedPath) {
+            // check if there are joins that belong to parent
+            pstate.joins.moveJoinsToParent();
+        }
+        pstate.joins.setJoinContext(null);
+        
+        if (_actions == null) {
+            String subqAlias = findSubqAlias(sel);
+            pstate.joins = pstate.joins.setSubselect(subqAlias);
+            pstate.joins.setCorrelatedVariable(_schemaAlias);
+            checkObjectPathInheritanceTypeJoined(pstate);
+        }
+        
         return pstate;
     }
+    
+    private String findSubqAlias(Select sel) {
+        Select pSel = sel.getParent();
+        if (pSel == null)
+            return null;
+        Context pCtx = pSel.ctx();
+        if (pCtx.subquery == null)
+            return null;
+        if (pCtx.getSchema(_schemaAlias) != null)
+            return ((SubQ)pCtx.subquery).getCandidateAlias();
+        return findSubqAlias(pSel);
+    }
 
+    /**
+     * When a PCPath is in subselect, and it is simply a navigation
+     * from the parent root, the joins involved in this PCPath
+     * must happen in the main select.  
+     */
+    private boolean navigateFromParentRootInSubselect(Select sel) {
+        if (sel.getParent() == null)
+            return false;
+        Iterator itr = (_actions == null) ? null : _actions.iterator();
+
+        boolean hasVar = false;
+        boolean startsWithSubquery = false;
+        while (itr != null && itr.hasNext()) {
+            Action action = (Action) itr.next();
+            if (action.op == Action.VAR) 
+                hasVar = true;
+            else if (action.op == Action.SUBQUERY)
+                startsWithSubquery = true;
+        }
+        return !hasVar && !startsWithSubquery && sel.ctx().getSchema(_schemaAlias) == null;
+    }
+    
     /**
      * Return whether the given source field joins to the given target field.
      */
@@ -619,8 +744,8 @@ public class PCPath
             if (action.op != Action.GET && action.op != Action.GET_OUTER)
                 continue;
             try {
-                candidate = sm.fetchField(((FieldMapping)action.data).getIndex(), 
-                    true);
+                candidate = sm.fetchField(
+                        ((FieldMapping)action.data).getIndex(), true);
             } catch (ClassCastException cce) {
                 throw new RuntimeException(action.data + " not a field path");
             } finally {
@@ -644,7 +769,8 @@ public class PCPath
         public FieldMapping cmpfield = null;
         public Column[] cols = null;
         public boolean joinedRel = false;
-
+        public boolean isEmbedElementColl = false;
+        
         public PathExpState(Joins joins) {
             super(joins);
         }
@@ -720,27 +846,16 @@ public class PCPath
         selectColumns(sel, ctx, state, pks);
     }
 
-    private SQLBuffer getColumns(Select sel, ExpContext ctx, ExpState state) {
-        Column[] cols = getColumns(state);
-        SQLBuffer buf = new SQLBuffer(ctx.store.getDBDictionary());
-        for (int i = 0; i < cols.length; i++) {
-            buf.append(sel.getColumnAlias(cols[i], this));
-            if (i > 0)
-                buf.append(",");
-        }
-        return buf;
-    }
-
     public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
         boolean pks) {
+        sel.setSchemaAlias(_schemaAlias);
         ClassMapping mapping = getClassMapping(state);
         PathExpState pstate = (PathExpState) state;
-        if (mapping == null || !pstate.joinedRel) {
-            if (_keyPath)
-                sel.select(getColumns(sel, ctx, state), this);
-            else
-                sel.select(getColumns(state), pstate.joins);
-        }
+        if (_type != OBJECT_PATH && (mapping == null || !pstate.joinedRel ||
+            pstate.isEmbedElementColl))
+            sel.select(getColumns(state), pstate.joins);
+        else if (_key && pstate.field.getKey().isEmbedded())
+            selectEmbeddedMapKey(sel, ctx, state);
         else if (pks)
             sel.select(mapping.getPrimaryKeyColumns(), pstate.joins);
         else {
@@ -760,10 +875,7 @@ public class PCPath
         ClassMapping mapping = getClassMapping(state);
         PathExpState pstate = (PathExpState) state;
         if (mapping == null || !pstate.joinedRel)
-            if (_keyPath)
-                sel.groupBy(getColumns(sel, ctx, state));
-            else
-                sel.groupBy(getColumns(state), sel.outer(pstate.joins));
+            sel.groupBy(getColumns(state), sel.outer(pstate.joins));
         else {
             int subs = (_type == UNBOUND_VAR) ? Select.SUBS_JOINABLE
                 : Select.SUBS_ANY_JOINABLE;
@@ -774,11 +886,7 @@ public class PCPath
 
     public void orderBy(Select sel, ExpContext ctx, ExpState state, 
         boolean asc) {
-        if (_keyPath)
-            sel.orderBy(getColumns(sel, ctx, state), asc,
-                sel.outer(state.joins), false, this.getSelectAs());
-        else
-            sel.orderBy(getColumns(state), asc, sel.outer(state.joins), false);
+        sel.orderBy(getColumns(state), asc, sel.outer(state.joins), false);
     }
 
     public Object load(ExpContext ctx, ExpState state, Result res)
@@ -795,20 +903,11 @@ public class PCPath
             if (pks)
                 return mapping.getObjectId(ctx.store, res, null, true, 
                     pstate.joins);
-            if (_key) {
-                if (pstate.field.getKey().getValueMappedBy() != null) {
-                    Object obj =  res.load(mapping, ctx.store, ctx.fetch,
-                        pstate.joins);
-                    StateManagerImpl sm = (StateManagerImpl) 
-                        ((PersistenceCapable) obj).pcGetStateManager();
-                    obj = sm.fetch(_class.getField(pstate.field.getKey().
-                        getValueMappedBy()).getIndex());
-                    return obj;
-                }
-                else if (pstate.field.getKey().isEmbedded())
-                    return loadEmbeddedMapKey(ctx, state, res);
-            }
-
+            if (_key && pstate.field.getKey().isEmbedded())
+                return loadEmbeddedMapKey(ctx, state, res);
+            if (pstate.isEmbedElementColl)
+                return pstate.field.loadProjection(ctx.store, ctx.fetch, res,
+                    pstate.joins);
             return res.load(mapping, ctx.store, ctx.fetch, pstate.joins);
         }
 
@@ -817,9 +916,7 @@ public class PCPath
             // Map key is a java primitive type
             //    example: Map<Integer, Employee> emps
             ret = res.getObject(pstate.cols[0],
-                JavaSQLTypes.JDBC_DEFAULT, pstate.joins);
-        else if (_keyPath)
-            ret = res.getObject(this, JavaSQLTypes.JDBC_DEFAULT, pstate.joins);
+                null, pstate.joins);
         else
             ret = pstate.field.loadProjection(ctx.store, ctx.fetch, res, 
                 pstate.joins);
@@ -828,21 +925,31 @@ public class PCPath
         return ret;
     }
 
+    private void validateMapStrategy(Strategy strategy) {
+        if (strategy == null ||
+            !(strategy instanceof LRSMapFieldStrategy))
+            throw new RuntimeException("Invalid map field strategy:"+strategy);
+    }
+
+    private void selectEmbeddedMapKey(Select sel, ExpContext ctx,
+        ExpState state) {
+        PathExpState pstate = (PathExpState) state;
+        validateMapStrategy(pstate.field.getStrategy());
+        LRSMapFieldStrategy strategy = (LRSMapFieldStrategy)
+            pstate.field.getStrategy();
+        ClassMapping mapping = pstate.field.getKeyMapping().getTypeMapping();
+        strategy.selectKey(sel, mapping, null, ctx.store, ctx.fetch,
+            pstate.joins);
+    }
+
     private Object loadEmbeddedMapKey(ExpContext ctx, ExpState state,
         Result res) throws SQLException {
         PathExpState pstate = (PathExpState) state;
-        // consume keyProjection
-        PersistenceCapable pc = (PersistenceCapable) res.load(_candidate,
-            ctx.store, ctx.fetch, pstate.joins);
-        if (pstate.field.getStrategy() == null ||
-            !(pstate.field.getStrategy() instanceof
-                HandlerRelationMapTableFieldStrategy))
-            throw new RuntimeException("Invalid map field strategy");
-        HandlerRelationMapTableFieldStrategy strategy =
-            (HandlerRelationMapTableFieldStrategy) pstate.field.getStrategy();
-        return strategy
-            .loadKey((OpenJPAStateManager) pc.pcGetStateManager(),
-                ctx.store, ctx.fetch, res, pstate.joins);
+        validateMapStrategy(pstate.field.getStrategy());
+        LRSMapFieldStrategy strategy =
+            (LRSMapFieldStrategy) pstate.field.getStrategy();
+        return strategy.loadKey(null, ctx.store, ctx.fetch, res,
+            pstate.joins);
     }
 
     public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
@@ -866,11 +973,13 @@ public class PCPath
     public void appendTo(Select sel, ExpContext ctx, ExpState state, 
         SQLBuffer sql, int index) {
         Column col = getColumns(state)[index];
+        if (sel != null)
+            sel.setSchemaAlias(_schemaAlias);
 
         // if select is null, it means we are not aliasing columns
         // (e.g., during a bulk update)
         if (sel == null)
-            sql.append(col.getName());
+            sql.append(col.getIdentifier());
         else if (_type == XPATH)
             // if this is an xpath, append xpath string
             sql.append(getXPath());
@@ -902,7 +1011,7 @@ public class PCPath
         if (pstate.field == null)
             sql.append("1");
         else
-            pstate.field.appendIndex(sql, sel, pstate.joins);;
+            pstate.field.appendIndex(sql, sel, pstate.joins);
     }
 
     public void appendType(Select sel, ExpContext ctx, ExpState state, 
@@ -958,6 +1067,13 @@ public class PCPath
         else
             pstate.field.appendIsNotNull(sql, sel, pstate.joins);
     }
+    
+    public boolean isSubqueryPath() {
+        if (_actions != null && _actions.size() == 1 && 
+           ((Action)_actions.get(0)).op == Action.SUBQUERY)
+            return true;
+        return false;
+    }
 
     public int hashCode() {
         if (_actions == null)
@@ -997,6 +1113,8 @@ public class PCPath
 
         public int op = -1;
         public Object data = null;
+        public String var = null;
+        public Context context = null;
 
         public String toString() {
             return op + "|" + data;

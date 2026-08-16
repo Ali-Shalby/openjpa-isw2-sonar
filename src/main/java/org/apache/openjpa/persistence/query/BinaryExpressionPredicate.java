@@ -18,9 +18,6 @@
  */
 package org.apache.openjpa.persistence.query;
 
-import javax.persistence.Expression;
-import javax.persistence.Predicate;
-
 /**
  * Binary predicate combines two expressions with an operator. 
  * 
@@ -65,13 +62,20 @@ class BinaryExpressionPredicate extends AbstractVisitable
 	
 	public Predicate not() {
 		if (  _nop == null)
-			throw new UnsupportedOperationException(this.toString());
+            throw new UnsupportedOperationException(this.toString());
 		return new BinaryExpressionPredicate(_e1, _nop, _op, _e2);
 	}
 
 	public String asExpression(AliasContext ctx) {
-		return ((Visitable)_e1).asExpression(ctx) 
+		return asExpression((Visitable)_e1, ctx)  
 		     + SPACE + _op + SPACE
-		     + ((Visitable)_e2).asExpression(ctx);
+		     + asExpression((Visitable)_e2, ctx);
+	}
+	
+	String asExpression(Visitable v, AliasContext ctx) {
+		String result = v.asExpression(ctx);
+		if (v instanceof QueryDefinitionImpl)
+		    return "(" + result + ")";
+		return result;
 	}
 }

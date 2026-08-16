@@ -32,7 +32,6 @@ import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueMetaData;
-import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.UserException;
 
@@ -174,6 +173,7 @@ abstract class AttachStrategy
             case JavaTypes.LOCALE:
             case JavaTypes.OBJECT:
             case JavaTypes.OID:
+            case JavaTypes.ENUM:
                 val = fetchObjectField(i);
                 if (val == null && !nullLoaded)
                     return false;
@@ -265,21 +265,27 @@ abstract class AttachStrategy
      * Return a managed, possibly hollow reference for the given detached
      * object.
      */
-    protected Object getReference(AttachManager manager, Object toAttach,
-        OpenJPAStateManager sm, ValueMetaData vmd) {
+    protected Object getReference(AttachManager manager, Object toAttach, OpenJPAStateManager sm, ValueMetaData vmd) {
         if (toAttach == null)
             return null;
 
-        if (manager.getBroker().isNew(toAttach)
-            || manager.getBroker().isPersistent(toAttach)) {
+        if (manager.getBroker().isNew(toAttach)) {
+            // Check if toAttach is already mapped to a managed instance
+            PersistenceCapable pc = manager.getAttachedCopy(toAttach);
+            if (pc != null) {
+                return pc;
+            } else {
+                return toAttach;
+            }
+        } else if (manager.getBroker().isPersistent(toAttach)) {
             return toAttach;
         } else if (manager.getBroker().isDetached(toAttach)) {
             Object oid = manager.getDetachedObjectId(toAttach);
-            if (oid != null)
+            if (oid != null) {
                 return manager.getBroker().find(oid, false, null);
+            }
         }
-        throw new UserException(_loc.get("cant-cascade-attach", vmd))
-            .setFailedObject(toAttach);
+        throw new UserException(_loc.get("cant-cascade-attach", vmd)).setFailedObject(toAttach);
     }
 
     /**
@@ -318,7 +324,7 @@ abstract class AttachStrategy
      */
     protected Collection attachCollection(AttachManager manager,
         Collection orig, OpenJPAStateManager sm, FieldMetaData fmd) {
-        Collection coll = copyCollection(manager, orig, fmd);
+        Collection coll = copyCollection(manager, orig, fmd, sm);
         ValueMetaData vmd = fmd.getElement();
         if (!vmd.isDeclaredTypePC())
             return coll;
@@ -346,6 +352,40 @@ abstract class AttachStrategy
             throw new UserException(_loc.get("not-copyable", fmd));
         return coll;
     }
+    
+    /**
+     * Copies the given collection.
+     */
+    private Collection copyCollection(AttachManager manager, Collection orig,
+        FieldMetaData fmd, OpenJPAStateManager sm) {
+        if (orig == null)
+            throw new UserException(_loc.get("not-copyable", fmd));
+        try {
+            return copyCollection(manager, orig, fmd);
+        } catch (Exception e) {
+            Collection coll = (Collection) sm.newFieldProxy(fmd.getIndex());
+            coll.addAll(orig);
+            return coll;
+        }
+    }
+
+    /**
+     * Copies the given map.
+     */
+    private Map copyMap(AttachManager manager, Map orig,
+        FieldMetaData fmd, OpenJPAStateManager sm) {
+        if (orig == null)
+            throw new UserException(_loc.get("not-copyable", fmd));
+        try {
+            return manager.getProxyManager().copyMap(orig);
+        } catch (Exception e) {
+            Map map = (Map) sm.newFieldProxy(fmd.getIndex());
+            Set keys = orig.keySet();
+            for (Object key : keys) 
+                map.put(key, orig.get(key));
+            return map;
+        }
+    }
 
     /**
      * Returns an attached version of the <code>frml</code>
@@ -366,7 +406,7 @@ abstract class AttachStrategy
                 // if there's an incompatibility, just return a copy of frml
                 // (it's already copied if we attached it)
                 if (!equals(frmi.next(), toi.next(), pc))
-                    return (pc) ? frml : copyCollection(manager, frml, fmd);
+                    return (pc) ? frml : copyCollection(manager, frml, fmd, sm);
             }
 
             // just add the extra elements in frml to tol and return tol
@@ -376,7 +416,7 @@ abstract class AttachStrategy
         }
 
         // the lists are different; just make sure frml is copied and return it
-        return (pc) ? frml : copyCollection(manager, frml, fmd);
+        return (pc) ? frml : copyCollection(manager, frml, fmd, sm);
     }
 
     /**
@@ -421,7 +461,7 @@ abstract class AttachStrategy
      */
     protected Map attachMap(AttachManager manager, Map orig,
         OpenJPAStateManager sm, FieldMetaData fmd) {
-        Map map = manager.getProxyManager().copyMap(orig);
+        Map map = copyMap(manager, orig, fmd, sm);
         if (map == null)
             throw new UserException(_loc.get("not-copyable", fmd));
 

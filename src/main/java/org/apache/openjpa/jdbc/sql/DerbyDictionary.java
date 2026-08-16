@@ -20,9 +20,8 @@ package org.apache.openjpa.jdbc.sql;
 
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
+import java.util.EnumSet;
 import java.util.Set;
 
 import javax.sql.DataSource;
@@ -40,15 +39,17 @@ public class DerbyDictionary
      * the DataSource.
      */
     public boolean shutdownOnClose = true;
-
+    
     public DerbyDictionary() {
         platform = "Apache Derby";
         validationSQL = "VALUES(1)";
         stringLengthFunction = "LENGTH({0})";
         substringFunctionName = "SUBSTR";
+        toUpperCaseFunction = "UPPER(CAST({0} AS VARCHAR(" + varcharCastLength + ")))";
+        toLowerCaseFunction = "LOWER(CAST({0} AS VARCHAR(" + varcharCastLength + ")))";
 
         // Derby name length restriction has been relaxed 
-        // http://www.archivum.info/derby-dev@db.apache.org/2004-12/msg00270.html
+        //http://www.archivum.info/derby-dev@db.apache.org/2004-12/msg00270.html
         maxConstraintNameLength = 128;
         maxIndexNameLength = 128;
         maxColumnNameLength = 128;
@@ -59,6 +60,7 @@ public class DerbyDictionary
 
         allowsAliasInBulkClause = false;
         supportsDeferredConstraints = false;
+        supportsParameterInSelect = false;
         supportsSelectForUpdate = true;
         supportsDefaultDeleteAction = false;
         requiresCastForMathFunctions = true;
@@ -71,13 +73,48 @@ public class DerbyDictionary
             "BIGINT", "INTEGER",
         }));
         reservedWordSet.addAll(Arrays.asList(new String[]{
-            "ALIAS", "BIGINT", "BOOLEAN", "CALL", "CLASS",
-            "COPY", "DB2J_DEBUG", "EXECUTE", "EXPLAIN",
-            "FILE", "FILTER", "GETCURRENTCONNECTION", "INDEX",
-            "INSTANCEOF", "KEY", "METHOD", "NEW", "OFF", "OUT", "PROPERTIES",
-            "PUBLICATION", "RECOMPILE", "REFRESH", "RENAME",
-            "RUNTIMESTATISTICS", "STATEMENT", "STATISTICS",
-            "TIMING", "WAIT", "XML",
+            "BOOLEAN", "CALL", "ENDEXEC", "EXPLAIN", "FUNCTION",
+            "GET_CURRENT_CONNECTION", "INOUT", "LONGINT", "LTRIM", "NONE",
+            "NVARCHAR", "OFF", "OUT", "RTRIM", "SUBSTR", "XML", "XMLEXISTS",
+            "XMLPARSE", "XMLSERIALIZE",
+        }));
+
+        // reservedWordSet subset that CANNOT be used as valid column names
+        // (i.e., without surrounding them with double-quotes)
+        invalidColumnWordSet.addAll(Arrays.asList(new String[] {
+            "ADD", "ALL", "ALLOCATE", "ALTER", "AND", "ANY", "ARE", "AS", "ASC",
+            "ASSERTION", "AT", "AUTHORIZATION", "AVG", "BEGIN", "BETWEEN", 
+            "BIT", "BOOLEAN", "BOTH", "BY", "CALL", "CASCADE", "CASCADED", 
+            "CASE", "CAST", "CHAR", "CHARACTER", "CHARACTER_LENGTH", "CHECK",
+            "CLOSE", "COALESCE", "COLLATE", "COLLATION", "COLUMN", "COMMIT", "CONNECT",
+            "CONNECTION", "CONSTRAINT", "CONSTRAINTS", "CONTINUE", "CONVERT",
+            "CORRESPONDING", "CREATE", "CURRENT", "CURRENT_DATE", "CURRENT_ROLE",
+            "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR",
+            "DEALLOCATE", "DEC", "DECIMAL", "DECLARE", "DEFAULT", "DEFERRABLE",
+            "DEFERRED", "DELETE", "DESC", "DESCRIBE", "DIAGNOSTICS", 
+            "DISCONNECT", "DISTINCT", "DOUBLE", "DROP", "ELSE", "END", 
+            "END-EXEC", "ESCAPE", "EXCEPT", "EXCEPTION", "EXEC", "EXECUTE",
+            "EXISTS", "EXPLAIN", "EXTERNAL", "FALSE", "FETCH", "FIRST", "FLOAT",
+            "FOR", "FOREIGN", "FOUND", "FROM", "FULL", "FUNCTION", "GET", 
+            "GETCURRENTCONNECTION", "GLOBAL", "GO", "GOTO", "GRANT", "GROUP", "HAVING", "HOUR",
+            "IDENTITY", "IMMEDIATE", "IN", "INDICATOR", "INITIALLY", "INNER",
+            "INOUT", "INPUT", "INSENSITIVE", "INSERT", "INT", "INTEGER",
+            "INTERSECT", "INTO", "IS", "ISOLATION", "JOIN", "KEY", "LAST",
+            "LEADING", "LEFT", "LIKE", "LOWER", "LTRIM", "MATCH", "MAX", "MIN",
+            "MINUTE", "NATIONAL", "NATURAL", "NCHAR", "NEXT", "NO", "NONE", "NOT", 
+            "NULL", "NULLIF", "NUMERIC", "NVARCHAR", "OF", "ON", "ONLY", "OPEN",
+            "OPTION", "OR", "ORDER", "OUT", "OUTER", "OUTPUT", "OVER", "OVERLAPS", 
+            "PAD", "PARTIAL", "PREPARE", "PRESERVE", "PRIMARY", "PRIOR",
+            "PRIVILEGES", "PROCEDURE", "PUBLIC", "READ", "REAL", "REFERENCES",
+            "RELATIVE", "RESTRICT", "REVOKE", "RIGHT", "ROLLBACK", "ROWS",
+            "ROW_NUMBER", "RTRIM", "SCHEMA", "SCROLL", "SECOND", "SELECT", "SESSION_USER",
+            "SET", "SMALLINT", "SOME", "SPACE", "SQL", "SQLCODE", "SQLERROR",
+            "SQLSTATE", "SUBSTR", "SUBSTRING", "SUM", "SYSTEM_USER", "TABLE",
+            "TEMPORARY", "TIMEZONE_HOUR", "TIMEZONE_MINUTE", "TO", "TRAILING",
+            "TRANSACTION", "TRANSLATE", "TRANSLATION", "TRIM", "TRUE", "UNION",
+            "UNIQUE", "UNKNOWN", "UPDATE", "UPPER", "USER", "USING", "VALUES",
+            "VARCHAR", "VARYING", "VIEW", "WHENEVER", "WHERE", "WITH", "WORK",
+            "WRITE", "XML", "XMLEXISTS", "XMLPARSE", "XMLQUERY", "XMLSERIALIZE", "YEAR",
         }));
     }
 
@@ -113,10 +150,12 @@ public class DerbyDictionary
         int errorCode = ex.getErrorCode();
         if (errorStates.contains(errorState)) {
             recoverable = Boolean.FALSE;
-            if ((subtype == StoreException.LOCK || subtype == StoreException.QUERY) && errorCode < 30000) {
+            if ((subtype == StoreException.LOCK ||
+                    subtype == StoreException.QUERY) && errorCode < 30000) {
                 recoverable = Boolean.TRUE;
             }
         }
         return recoverable;
     }
+
 }

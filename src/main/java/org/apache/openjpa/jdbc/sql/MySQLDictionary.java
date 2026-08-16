@@ -24,8 +24,14 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier;
+import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -40,14 +46,18 @@ import org.apache.openjpa.jdbc.schema.Table;
 public class MySQLDictionary
     extends DBDictionary {
 
+    public static final String SELECT_HINT = "openjpa.hint.MySQLSelectHint";
+
+    public static final String DELIMITER_BACK_TICK = "`";
+    
     /**
      * The MySQL table type to use when creating tables; defaults to innodb.
      */
     public String tableType = "innodb";
 
     /**
-     * Whether to use clobs. Some older versions of MySQL do not handle
-     * clobs properly so we default to false here.
+     * Whether to use clobs; defaults to true. Set this to false if you have an
+     * old version of MySQL which does not handle clobs properly.
      */
     public boolean useClobs = true;
 
@@ -102,10 +112,33 @@ public class MySQLDictionary
             "TINYTEXT", "DOUBLE PRECISION", "ENUM", "SET", "DATETIME",
         }));
         reservedWordSet.addAll(Arrays.asList(new String[]{
-            "INT1", "INT2", "INT4", "FLOAT1", "FLOAT2", "FLOAT4",
             "AUTO_INCREMENT", "BINARY", "BLOB", "CHANGE", "ENUM", "INFILE",
-            "LOAD", "MEDIUMINT", "OPTION", "OUTFILE", "REPLACE",
-            "SET", "STARTING", "TEXT", "UNSIGNED", "ZEROFILL",
+            "INT1", "INT2", "INT4", "FLOAT1", "FLOAT2", "FLOAT4", "LOAD",
+            "MEDIUMINT", "OUTFILE", "REPLACE", "STARTING", "TEXT", "UNSIGNED", 
+            "ZEROFILL",
+        }));
+
+        // reservedWordSet subset that CANNOT be used as valid column names
+        // (i.e., without surrounding them with double-quotes)
+        invalidColumnWordSet.addAll(Arrays.asList(new String[]{
+            "ADD", "ALL", "ALTER", "AND", "AS", "ASC", "BETWEEN", "BINARY",
+            "BLOB", "BOTH", "BY", "CASCADE", "CASE", "CHANGE", "CHAR", 
+            "CHARACTER", "CHECK", "COLLATE", "COLUMN", "CONSTRAINT", "CONTINUE",
+            "CONVERT", "CREATE", "CROSS", "CURRENT_DATE", "CURRENT_TIME",
+            "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR", "DEC", "DECIMAL",
+            "DECLARE", "DEFAULT", "DELETE", "DESC", "DESCRIBE", "DISTINCT",
+            "DOUBLE", "DROP", "ELSE", "END-EXEC", "EXISTS", "FALSE", "FETCH",
+            "FLOAT", "FLOAT4", "FOR", "FOREIGN", "FROM", "GRANT", "GROUP",
+            "HAVING", "IN", "INFILE", "INNER", "INSENSITIVE", "INSERT", "INT",
+            "INT1", "INT2", "INT4", "INTEGER", "INTERVAL", "INTO", "IS", "JOIN",
+            "KEY", "LEADING", "LEFT", "LIKE", "LOAD", "MATCH", "MEDIUMINT",
+            "NATURAL", "NOT", "NULL", "NUMERIC", "ON", "OPTION", "OR", "ORDER",
+            "OUTER", "OUTFILE", "PRECISION", "PRIMARY", "PROCEDURE", "READ",
+            "REAL", "REFERENCES", "REPLACE", "RESTRICT", "REVOKE", "RIGHT",
+            "SCHEMA", "SELECT", "SET", "SMALLINT", "SQL", "SQLSTATE",
+            "STARTING", "TABLE", "THEN", "TO", "TRAILING", "TRUE", "UNION",
+            "UNIQUE", "UNSIGNED", "UPDATE", "USAGE", "USING", "VALUES",
+            "VARCHAR", "VARYING", "WHEN", "WHERE", "WITH", "WRITE", "ZEROFILL",
         }));
 
         // MySQL requires double-escape for strings
@@ -113,40 +146,52 @@ public class MySQLDictionary
 
         typeModifierSet.addAll(Arrays.asList(new String[] { "UNSIGNED",
             "ZEROFILL" }));
+
+        setLeadingDelimiter(DELIMITER_BACK_TICK);
+        setTrailingDelimiter(DELIMITER_BACK_TICK);
+        
+        fixedSizeTypeNameSet.remove("NUMERIC");
     }
 
+    @Override
     public void connectedConfiguration(Connection conn) throws SQLException {
         super.connectedConfiguration(conn);
 
         DatabaseMetaData metaData = conn.getMetaData();
-        // The product version looks like 4.1.3-nt
-        String productVersion = metaData.getDatabaseProductVersion();
-        // The driver version looks like mysql-connector-java-3.1.11 (...)
-        String driverVersion = metaData.getDriverVersion();
-
-        try {
-            int[] versions = getMajorMinorVersions(productVersion);
-            int maj = versions[0];
-            int min = versions[1];
-            if (maj < 4 || (maj == 4 && min < 1)) {
-                supportsSubselect = false;
-                allowsAliasInBulkClause = false;
+        int maj = 0;
+        int min = 0;
+        if (isJDBC3) {
+            maj = metaData.getDatabaseMajorVersion();
+            min = metaData.getDatabaseMinorVersion();
+        } else {
+            try {
+                // The product version looks like 4.1.3-nt or 5.1.30
+                String productVersion = metaData.getDatabaseProductVersion();
+                int[] versions = getMajorMinorVersions(productVersion);
+                maj = versions[0];
+                min = versions[1];
+            } catch (IllegalArgumentException e) {
+                // we don't understand the version format.
+                // That is ok. We just take the default values.
+                if (log.isWarnEnabled())
+                    log.warn(e.toString(), e);
             }
-            if (maj > 5 || (maj == 5 && min >= 1))
-                supportsXMLColumn = true;
-
-            versions = getMajorMinorVersions(driverVersion);
-            maj = versions[0];
-            if (maj < 5) {
-                driverDeserializesBlobs = true;
-            }
-        } catch (IllegalArgumentException e) {
-            // we don't understand the version format.
-            // That is ok. We just take the default values.
         }
+        if (maj < 4 || (maj == 4 && min < 1)) {
+            supportsSubselect = false;
+            allowsAliasInBulkClause = false;
+            supportsForeignKeysComposite = false;
+        }
+        if (maj > 5 || (maj == 5 && min >= 1))
+            supportsXMLColumn = true;
+
+        if (metaData.getDriverMajorVersion() < 5)
+            driverDeserializesBlobs = true;
     }
 
+    @Override
     public Connection decorate(Connection conn)  throws SQLException {
+        conn = super.decorate(conn);
         String driver = conf.getConnectionDriverName();
         if ("com.mysql.jdbc.ReplicationDriver".equals(driver))
             conn.setReadOnly(true);
@@ -156,7 +201,6 @@ public class MySQLDictionary
     private static int[] getMajorMinorVersions(String versionStr)
         throws IllegalArgumentException {
         int beginIndex = 0;
-        int endIndex = 0;
 
         versionStr = versionStr.trim();
         char[] charArr = versionStr.toCharArray();
@@ -167,15 +211,13 @@ public class MySQLDictionary
             }
         }
 
+        int endIndex = charArr.length;
         for (int i = beginIndex+1; i < charArr.length; i++) {
             if (charArr[i] != '.' && !Character.isDigit(charArr[i])) {
                 endIndex = i;
                 break;
             }
         }
-
-        if (endIndex < beginIndex)
-            throw new IllegalArgumentException();
 
         String[] arr = versionStr.substring(beginIndex, endIndex).split("\\.");
         if (arr.length < 2)
@@ -186,6 +228,7 @@ public class MySQLDictionary
         return new int[]{maj, min};
     }
 
+    @Override
     public String[] getCreateTableSQL(Table table) {
         String[] sql = super.getCreateTableSQL(table);
         if (!StringUtils.isEmpty(tableType))
@@ -193,11 +236,44 @@ public class MySQLDictionary
         return sql;
     }
 
+    @Override
     public String[] getDropIndexSQL(Index index) {
         return new String[]{ "DROP INDEX " + getFullName(index) + " ON "
             + getFullName(index.getTable(), false) };
     }
 
+    /**
+     * Return <code>ALTER TABLE &lt;table name&gt; DROP PRIMARY KEY</code>.
+     */
+    @Override
+    public String[] getDropPrimaryKeySQL(PrimaryKey pk) {
+        if (DBIdentifier.isNull(pk.getIdentifier()))
+            return new String[0];
+        return new String[]{ "ALTER TABLE "
+            + getFullName(pk.getTable(), false)
+            + " DROP PRIMARY KEY" };
+    }
+
+    /**
+     * Return <code>ALTER TABLE &lt;table name&gt; DROP FOREIGN KEY
+     * &lt;fk name&gt;</code>.
+     */
+    @Override
+    public String[] getDropForeignKeySQL(ForeignKey fk, Connection conn) {
+        if (DBIdentifier.isNull(fk.getIdentifier())) {
+            DBIdentifier fkName = fk.loadIdentifierFromDB(this,conn);
+            String[] retVal = (fkName == null) ?  new String[0] :
+                new String[]{ "ALTER TABLE "
+                + getFullName(fk.getTable(), false)
+                + " DROP FOREIGN KEY " + toDBName(fkName) };
+            return retVal;   
+        }
+        return new String[]{ "ALTER TABLE "
+            + getFullName(fk.getTable(), false)
+            + " DROP FOREIGN KEY " + toDBName(fk.getIdentifier()) };
+    }
+
+    @Override
     public String[] getAddPrimaryKeySQL(PrimaryKey pk) {
         String[] sql = super.getAddPrimaryKeySQL(pk);
 
@@ -207,31 +283,25 @@ public class MySQLDictionary
         String[] ret = new String[cols.length + sql.length];
         for (int i = 0; i < cols.length; i++) {
             ret[i] = "ALTER TABLE " + getFullName(cols[i].getTable(), false)
-                + " CHANGE " + cols[i].getName()
-                + " " + cols[i].getName() // name twice
+                + " CHANGE " + toDBName(cols[i].getIdentifier())
+                + " " + toDBName(cols[i].getIdentifier()) // name twice
                 + " " + getTypeName(cols[i]) + " NOT NULL";
         }
 
         System.arraycopy(sql, 0, ret, cols.length, sql.length);
         return ret;
     }
-
-    protected String getForeignKeyConstraintSQL(ForeignKey fk) {
-        // mysql does not support composite foreign keys
-        if (fk.getColumns().length > 1)
-            return null;
-        return super.getForeignKeyConstraintSQL(fk);
-    }
     
-    public String[] getDeleteTableContentsSQL(Table[] tables) {
+    @Override
+    public String[] getDeleteTableContentsSQL(Table[] tables,Connection conn) {
         // mysql >= 4 supports more-optimal delete syntax
         if (!optimizeMultiTableDeletes)
-            return super.getDeleteTableContentsSQL(tables);
+            return super.getDeleteTableContentsSQL(tables,conn);
         else {
-            StringBuffer buf = new StringBuffer(tables.length * 8);
+            StringBuilder buf = new StringBuilder(tables.length * 8);
             buf.append("DELETE FROM ");
             for (int i = 0; i < tables.length; i++) {
-                buf.append(tables[i].getFullName());
+                buf.append(toDBName(tables[i].getFullIdentifier()));
                 if (i < tables.length - 1)
                     buf.append(", ");
             }
@@ -239,6 +309,7 @@ public class MySQLDictionary
         }
     }
 
+    @Override
     protected void appendSelectRange(SQLBuffer buf, long start, long end,
         boolean subselect) {
         buf.append(" LIMIT ").appendValue(start).append(", ");
@@ -248,6 +319,7 @@ public class MySQLDictionary
             buf.appendValue(end - start);
     }
 
+    @Override
     protected Column newColumn(ResultSet colMeta)
         throws SQLException {
         Column col = super.newColumn(colMeta);
@@ -256,6 +328,7 @@ public class MySQLDictionary
         return col;
     }
 
+    @Override
     public Object getBlobObject(ResultSet rs, int column, JDBCStore store)
         throws SQLException {
         // if the user has set a get-blob strategy explicitly or the driver
@@ -268,6 +341,7 @@ public class MySQLDictionary
         return rs.getObject(column);
     }
 
+    @Override
     public int getPreferredType(int type) {
         if (type == Types.CLOB && !useClobs)
             return Types.LONGVARCHAR;
@@ -284,6 +358,7 @@ public class MySQLDictionary
      * @param lhsxml indicates whether the left operand maps to XML
      * @param rhsxml indicates whether the right operand maps to XML
      */
+    @Override
     public void appendXmlComparison(SQLBuffer buf, String op, FilterValue lhs,
         FilterValue rhs, boolean lhsxml, boolean rhsxml) {
         super.appendXmlComparison(buf, op, lhs, rhs, lhsxml, rhsxml);
@@ -310,5 +385,35 @@ public class MySQLDictionary
             append(",'/*/");
         val.appendTo(buf);
         buf.append("')");
+    }
+    
+    @Override
+    public int getBatchFetchSize(int batchFetchSize) {
+        return Integer.MIN_VALUE;
+    }
+
+    /**
+     * Check to see if we have set the {@link #SELECT_HINT} in the
+     * fetch configuration, and if so, append the MySQL hint after the
+     * "SELECT" part of the query.
+     */
+    @Override
+    public String getSelectOperation(JDBCFetchConfiguration fetch) {
+        Object hint = fetch == null ? null : fetch.getHint(SELECT_HINT);
+        String select = "SELECT";
+        if (hint != null)
+            select += " " + hint;
+        return select;
+    }
+    
+    @Override
+    protected Collection<String> getSelectTableAliases(Select sel) {
+        Set<String> result = new HashSet<String>();
+        List<String> selects = sel.getIdentifierAliases();
+        for (String s : selects) {
+            String tableAlias = s.substring(0, s.indexOf('.'));
+            result.add(tableAlias);
+        }
+        return result;
     }
 }

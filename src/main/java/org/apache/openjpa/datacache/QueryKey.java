@@ -266,7 +266,7 @@ public class QueryKey
         // Create a map for the given parameters, and convert the
         // parameter list into a map, using the query's parameter
         // declaration to determine ordering etc.
-        Map types = q.getParameterTypes();
+        Map types = q.getOrderedParameterTypes();
         Map map = new HashMap((int) (types.size() * 1.33 + 1));
         int idx = 0;
         for (Iterator iter = types.keySet().iterator(); iter.hasNext(); idx++)
@@ -429,7 +429,7 @@ public class QueryKey
     }
 
     public String toString() {
-        StringBuffer buf = new StringBuffer(255);
+        StringBuilder buf = new StringBuilder(1024);
         buf.append(super.toString()).
             append("[query:[").append(_query).append("]").
             append(",access path:").append(_accessPathClassNames).

@@ -22,17 +22,6 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
 
-import javax.persistence.CaseExpression;
-import javax.persistence.DomainObject;
-import javax.persistence.Expression;
-import javax.persistence.FetchJoinObject;
-import javax.persistence.OrderByItem;
-import javax.persistence.PathExpression;
-import javax.persistence.Predicate;
-import javax.persistence.QueryDefinition;
-import javax.persistence.SelectItem;
-import javax.persistence.Subquery;
-
 /**
  * Domain Object is a path expression over which query is evaluated.
  * Domain object acts as a proxy for a QueryDefinition via delegation.
@@ -74,7 +63,7 @@ public abstract class AbstractDomainObject extends AbstractPath
 	 * Also the joined path becomes a domain of the owning query.
 	 */
 	public DomainObject join(String attr) {
-		return _owner.addDomain(new JoinPath(this, PathOperator.INNER, attr));
+        return _owner.addDomain(new JoinPath(this, PathOperator.INNER, attr));
 	}
 	
 	/**
@@ -82,14 +71,14 @@ public abstract class AbstractDomainObject extends AbstractPath
 	 * Also the joined path becomes a domain of the owning query.
 	 */
 	public DomainObject leftJoin(String attr) {
-		return _owner.addDomain(new JoinPath(this, PathOperator.OUTER, attr));
+        return _owner.addDomain(new JoinPath(this, PathOperator.OUTER, attr));
 	}
 	
 	/**
 	 * Derives a path from this path by fetch joining the given field.
 	 */
 	public FetchJoinObject joinFetch(String attr) {
-		return _owner.addDomain(new FetchPath(this, PathOperator.FETCH_INNER, 
+        return _owner.addDomain(new FetchPath(this, PathOperator.FETCH_INNER, 
 			attr));
 	}
 
@@ -97,7 +86,7 @@ public abstract class AbstractDomainObject extends AbstractPath
 	 * Derives a path from this path by fetch joining the given field.
 	 */
 	public FetchJoinObject leftJoinFetch(String attr) {
-		return _owner.addDomain(new FetchPath(this, PathOperator.FETCH_OUTER, 
+        return _owner.addDomain(new FetchPath(this, PathOperator.FETCH_OUTER,
 			attr));
 	}
 

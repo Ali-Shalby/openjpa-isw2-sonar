@@ -18,6 +18,7 @@
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
+import org.apache.openjpa.jdbc.sql.Raw;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.Filters;
@@ -34,6 +35,8 @@ public class Lit
 
     private Object _val;
     private int _ptype;
+    private boolean _isRaw;
+    private Object _rawVal;
 
     /**
      * Constructor. Supply literal value.
@@ -41,9 +44,14 @@ public class Lit
     public Lit(Object val, int ptype) {
         _val = val;
         _ptype = ptype;
+        if (_ptype == Literal.TYPE_DATE || _ptype == Literal.TYPE_TIME ||
+            _ptype == Literal.TYPE_TIMESTAMP)
+            _isRaw = true;
     }
 
     public Class getType() {
+        if (_isRaw && _rawVal != null)
+            return Raw.class;
         return (_val == null) ? Object.class : _val.getClass();
     }
 
@@ -65,6 +73,18 @@ public class Lit
 
     public Object getValue(Object[] params) {
         return getValue();
+    }
+    
+    public boolean isRaw() {
+        return _isRaw;
+    }
+    
+    public void setRaw(boolean isRaw) {
+        _isRaw = isRaw;
+    }
+
+    public Object getRawValue() {
+        return _rawVal;
     }
 
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
@@ -98,7 +118,29 @@ public class Lit
         if (lstate.otherLength > 1)
             sql.appendValue(((Object[]) lstate.sqlValue)[index], 
                 lstate.getColumn(index));
-        else
-            sql.appendValue(lstate.sqlValue, lstate.getColumn(index));
+        else if (_isRaw) {
+            int parseType = getParseType();
+            if (parseType == Literal.TYPE_ENUM) { 
+                StringBuilder value = new StringBuilder();
+                boolean isOrdinal = false;
+                if (lstate.sqlValue instanceof Integer)
+                    isOrdinal = true;
+                if (!isOrdinal)
+                    value.append("'");
+                value.append(lstate.sqlValue);
+                if (!isOrdinal)
+                    value.append("'");
+                lstate.sqlValue = new Raw(value.toString());
+                _rawVal = lstate.sqlValue;
+            } else if (parseType == Literal.TYPE_DATE || parseType == Literal.TYPE_TIME ||
+                parseType == Literal.TYPE_TIMESTAMP) {
+                lstate.sqlValue = new Raw(_val.toString());
+                _rawVal = lstate.sqlValue;
+            } else {
+                lstate.sqlValue = new Raw(_val instanceof String ? "'"+_val+"'" : _val.toString());
+                _rawVal = lstate.sqlValue;
+            }
+        }
+        sql.appendValue(lstate.sqlValue, lstate.getColumn(index));
     }
 }

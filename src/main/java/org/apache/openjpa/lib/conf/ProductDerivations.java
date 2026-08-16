@@ -36,6 +36,7 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.MultiClassLoader;
 import org.apache.openjpa.lib.util.Services;
 
 /**
@@ -55,12 +56,15 @@ public class ProductDerivations {
     private static final Throwable[] _derivationErrors;
     private static String[] _prefixes;
     static {
-        ClassLoader l = AccessController.doPrivileged(
-            J2DoPrivHelper.getClassLoaderAction(ProductDerivation.class)); 
+        MultiClassLoader l = AccessController.doPrivileged(J2DoPrivHelper.newMultiClassLoaderAction());
+        l.addClassLoader(0, AccessController
+            .doPrivileged(J2DoPrivHelper.getClassLoaderAction(ProductDerivations.class)));
+        l.addClassLoader(1, AccessController.doPrivileged(J2DoPrivHelper.getContextClassLoaderAction()));
         _derivationNames = Services.getImplementors(ProductDerivation.class, l);
         _derivationErrors = new Throwable[_derivationNames.length];
         List<ProductDerivation> derivations =
             new ArrayList<ProductDerivation>(_derivationNames.length);
+        boolean errors = false; 
         for (int i = 0; i < _derivationNames.length; i++) {
             try {
                 ProductDerivation d = (ProductDerivation)
@@ -73,6 +77,7 @@ public class ProductDerivations {
                 if (t instanceof PrivilegedActionException)
                     t = ((PrivilegedActionException) t).getException();
                 _derivationErrors[i] = t;
+                errors = true;
             }
         }
 
@@ -86,11 +91,14 @@ public class ProductDerivations {
         }
 
         // if some derivations weren't instantiable, warn
+        if (errors)
+            System.err.println(_loc.get("bad-product-derivations",
+                ProductDerivations.class.getName()));
         for (int i = 0; i < _derivationErrors.length; i++) {
             if (_derivationErrors[i] == null)
                 continue;
-            System.err.println(_loc.get("bad-product-derivations",
-                ProductDerivations.class.getName()));
+            System.err.println(_derivationNames[i] + ":" +
+                    _derivationErrors[i]);
             break;
         }
 
@@ -99,16 +107,13 @@ public class ProductDerivations {
             derivations.toArray(new ProductDerivation[derivations.size()]);
 
         List<String> prefixes = new ArrayList<String>(2);
+        prefixes.add("openjpa");
         for (int i = 0; i < _derivations.length; i++) {
-            if (_derivations[i].getConfigurationPrefix() != null
-                && !"openjpa".equals(_derivations[i].getConfigurationPrefix()))
-                prefixes.add(_derivations[i].getConfigurationPrefix());
+            String prefix = _derivations[i].getConfigurationPrefix();
+            if (prefix != null && !"openjpa".equals(prefix))
+                prefixes.add(prefix);
         }
-        String[] prefixArray = new String[1 + prefixes.size()];
-        prefixArray[0] = "openjpa";
-        for (int i = 0; i < prefixes.size(); i++)
-            prefixArray[i + 1] = (String) prefixes.get(i);
-        setConfigurationPrefixes(prefixArray);
+        _prefixes = prefixes.toArray(new String[prefixes.size()]);
     }
 
     /**
@@ -261,7 +266,7 @@ public class ProductDerivations {
             loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
         ConfigurationProvider provider = null;
-        StringBuffer errs = null;
+        StringBuilder errs = null;
         // most specific to least
         Throwable err = null;
         for (int i = _derivations.length - 1; i >= 0; i--) {
@@ -271,7 +276,7 @@ public class ProductDerivations {
                     return provider;
             } catch (Throwable t) {
                 err = t;
-                errs = (errs == null) ? new StringBuffer() : errs.append("\n");
+                errs = (errs == null) ? new StringBuilder() : errs.append("\n");
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
@@ -296,7 +301,7 @@ public class ProductDerivations {
             loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
         ConfigurationProvider provider = null;
-        StringBuffer errs = null;
+        StringBuilder errs = null;
         Throwable err = null;
         // most specific to least
         for (int i = _derivations.length - 1; i >= 0; i--) {
@@ -306,7 +311,7 @@ public class ProductDerivations {
                     return provider;
             } catch (Throwable t) {
                 err = t;
-                errs = (errs == null) ? new StringBuffer() : errs.append("\n");
+                errs = (errs == null) ? new StringBuilder() : errs.append("\n");
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
@@ -343,7 +348,7 @@ public class ProductDerivations {
                 J2DoPrivHelper.getContextClassLoaderAction());
         
         ConfigurationProvider provider = null;
-        StringBuffer errs = null;
+        StringBuilder errs = null;
         String type = (globals) ? "globals" : "defaults";
         Throwable err = null;
         // most specific to least
@@ -355,7 +360,7 @@ public class ProductDerivations {
                    return provider;
             } catch (Throwable t) {
                 err = t;
-                errs = (errs == null) ? new StringBuffer() : errs.append("\n");
+                errs = (errs == null) ? new StringBuilder() : errs.append("\n");
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
@@ -366,7 +371,7 @@ public class ProductDerivations {
     /**
      * Thrown proper exception for given errors.
      */
-    private static void reportErrors(StringBuffer errs, String resource,
+    private static void reportErrors(StringBuilder errs, String resource,
         Throwable nested) {
         if (errs == null)
             return;
@@ -387,7 +392,7 @@ public class ProductDerivations {
     public static List<String> getFullyQualifiedAnchorsInPropertiesLocation(
         final String propertiesLocation) {
         List<String> fqAnchors = new ArrayList<String>();
-        StringBuffer errs = null;
+        StringBuilder errs = null;
         Throwable err = null;
         for (int i = _derivations.length - 1; i >= 0; i--) {
             try {
@@ -418,7 +423,7 @@ public class ProductDerivations {
                 }
             } catch (Throwable t) {
                 err = t;
-                errs = (errs == null) ? new StringBuffer() : errs.append("\n");
+                errs = (errs == null) ? new StringBuilder() : errs.append("\n");
                 errs.append(_derivations[i].getClass().getName() + ":" + t);
             }
         }
@@ -479,7 +484,7 @@ public class ProductDerivations {
      * Return a message about the status of each product derivation.
      */
     private static String derivationErrorsToString() {
-        StringBuffer buf = new StringBuffer();
+        StringBuilder buf = new StringBuilder();
         buf.append("ProductDerivations: ").append(_derivationNames.length);
         for (int i = 0; i < _derivationNames.length; i++) {
             buf.append("\n").append(i + 1).append(". ").

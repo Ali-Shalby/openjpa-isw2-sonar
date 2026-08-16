@@ -22,6 +22,7 @@ import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Iterator;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -105,46 +106,58 @@ public abstract class RelationToManyTableFieldStrategy
         FieldMapping mapped = field.getMappedByMapping();
         ValueMappingInfo vinfo = elem.getValueInfo();
         boolean criteria = vinfo.getUseClassCriteria();
+
+        OpenJPAConfiguration conf = field.getRepository().getConfiguration();
+        boolean isNonDefaultMappingAllowed = field.getRepository().
+            getMetaDataFactory().getDefaults().isNonDefaultMappingAllowed(conf);
+        // Bi-directional oneToMany relation with join table strategy
+        // ==> should not mapped in the owner's table
         if (mapped != null) {
-            if (mapped.getElement().getTypeCode() != JavaTypes.PC)
-                throw new MetaDataException(_loc.get("not-inv-relation-coll",
-                    field, mapped));
-            field.getMappingInfo().assertNoSchemaComponents(field, !adapt);
-            vinfo.assertNoSchemaComponents(elem, !adapt);
-            mapped.resolve(mapped.MODE_META | mapped.MODE_MAPPING);
+            if (!field.isBiMTo1JT()) {
+                if (mapped.getElement().getTypeCode() != JavaTypes.PC) {
+                    throw new MetaDataException(_loc.get("not-inv-relation-coll",
+                            field, mapped));
+                }
+                field.getMappingInfo().assertNoSchemaComponents(field, !adapt);
+                vinfo.assertNoSchemaComponents(elem, !adapt);
 
-            if (!mapped.isMapped() || mapped.isSerialized())
-                throw new MetaDataException(_loc.get("mapped-by-unmapped",
-                    field, mapped));
-
-            field.setJoinForeignKey(mapped.getElementMapping().
-                getForeignKey(field.getDefiningMapping()));
-            elem.setForeignKey(mapped.getJoinForeignKey());
-            elem.setUseClassCriteria(criteria);
-            field.setOrderColumn(mapped.getOrderColumn());
-            return;
+                mapped.resolve(mapped.MODE_META | mapped.MODE_MAPPING);
+                if (!mapped.isMapped() || mapped.isSerialized())
+                    throw new MetaDataException(_loc.get("mapped-by-unmapped",
+                            field, mapped));
+                field.setJoinForeignKey(mapped.getElementMapping().
+                        getForeignKey(field.getDefiningMapping()));
+                elem.setForeignKey(mapped.getJoinForeignKey());
+                elem.setUseClassCriteria(criteria);
+                field.setOrderColumn(mapped.getOrderColumn());
+                return;
+            }
         }
 
-        field.mapJoin(adapt, true);
-        if (elem.getTypeMapping().isMapped()) {
-            ForeignKey fk = vinfo.getTypeJoin(elem, "element", false, adapt);
-            elem.setForeignKey(fk);
-            elem.setColumnIO(vinfo.getColumnIO());
-        } else
-            RelationStrategies.mapRelationToUnmappedPC(elem, "element", adapt);
-        elem.setUseClassCriteria(criteria);
-        elem.mapConstraints("element", adapt);
+        if (mapped == null || field.isBiMTo1JT()) {
+            if (field.isBiMTo1JT())
+                field.setBi1MJoinTableInfo();
+            field.mapJoin(adapt, true);
+            if (elem.getTypeMapping().isMapped()) {
+                ForeignKey fk = vinfo.getTypeJoin(elem, "element", false, adapt);
+                elem.setForeignKey(fk);
+                elem.setColumnIO(vinfo.getColumnIO());
+            } else
+                RelationStrategies.mapRelationToUnmappedPC(elem, "element", adapt);
+            elem.setUseClassCriteria(criteria);
+            elem.mapConstraints("element", adapt);
 
-        FieldMappingInfo finfo = field.getMappingInfo();
-        Column orderCol = finfo.getOrderColumn(field, field.getTable(), adapt);
-        field.setOrderColumn(orderCol);
-        field.setOrderColumnIO(finfo.getColumnIO());
-        field.mapPrimaryKey(adapt);
+            FieldMappingInfo finfo = field.getMappingInfo();
+            Column orderCol = finfo.getOrderColumn(field, field.getTable(), adapt);
+            field.setOrderColumn(orderCol);
+            field.setOrderColumnIO(finfo.getColumnIO());
+            field.mapPrimaryKey(adapt);
+        }
     }
 
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
-        if (field.getMappedBy() == null)
+        if (field.getMappedBy() == null || field.isBiMTo1JT()) 
             insert(sm, rm, sm.fetchObject(field.getIndex()));
     }
 
@@ -162,7 +175,7 @@ public abstract class RelationToManyTableFieldStrategy
         StoreContext ctx = sm.getContext();
         Column order = field.getOrderColumn();
         boolean setOrder = field.getOrderColumnIO().isInsertable(order, false);
-        int idx = (setOrder && order != null) ? order.getBase() : 0;
+        int idx = 0;
         OpenJPAStateManager esm;
         for (Iterator itr = coll.iterator(); itr.hasNext(); idx++) {
             esm = RelationStrategies.getStateManager(itr.next(), ctx);
@@ -175,7 +188,7 @@ public abstract class RelationToManyTableFieldStrategy
 
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
-        if (field.getMappedBy() != null)
+        if (field.getMappedBy() != null && !field.isBiMTo1JT())
             return;
 
         Object obj = sm.fetchObject(field.getIndex());
@@ -186,8 +199,12 @@ public abstract class RelationToManyTableFieldStrategy
                 ct = proxy.getChangeTracker();
         }
 
-        // if no fine-grained change tracking then just delete and reinsert
-        if (ct == null || !ct.isTracking()) {
+        Column order = field.getOrderColumn();
+
+        // if no fine-grained change tracking or if an item was removed
+        // from an ordered collection, delete and reinsert
+        if (ct == null || !ct.isTracking() ||
+            (order != null && !ct.getRemoved().isEmpty())) {
             delete(sm, store, rm);
             insert(sm, rm, obj);
             return;
@@ -220,7 +237,6 @@ public abstract class RelationToManyTableFieldStrategy
                 field.getJoinColumnIO(), sm);
 
             int seq = ct.getNextSequence();
-            Column order = field.getOrderColumn();
             boolean setOrder = field.getOrderColumnIO().isInsertable(order,
                 false);
             for (Iterator itr = add.iterator(); itr.hasNext(); seq++) {

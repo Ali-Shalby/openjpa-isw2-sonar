@@ -20,6 +20,7 @@ package org.apache.openjpa.kernel;
 
 import java.util.BitSet;
 
+import org.apache.openjpa.datacache.DataCache;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 
@@ -34,19 +35,25 @@ public class PCDataImpl
     extends AbstractPCData {
 
     private final Object _oid;
-    private final Class _type;
+    private final Class<?> _type;
+    private final String _cache;
     private final Object[] _data;
     private final BitSet _loaded;
     private Object _version = null;
     private Object _impl = null;
     private Object[] _fieldImpl = null;
 
+    public PCDataImpl(Object oid, ClassMetaData meta) {
+        this(oid, meta, DataCache.NAME_DEFAULT);
+    }
+    
     /**
      * Constructor.
      */
-    public PCDataImpl(Object oid, ClassMetaData meta) {
+    public PCDataImpl(Object oid, ClassMetaData meta, String name) {
         _oid = oid;
         _type = meta.getDescribedType();
+        _cache = name;
 
         int len = meta.getFields().length;
         _data = new Object[len];
@@ -57,7 +64,7 @@ public class PCDataImpl
         return _oid;
     }
 
-    public Class getType() {
+    public Class<?> getType() {
         return _type;
     }
 
@@ -317,6 +324,10 @@ public class PCDataImpl
      * embedded instances. Returns a {@link PCDataImpl} by default.
      */
     public AbstractPCData newEmbeddedPCData(OpenJPAStateManager sm) {
-        return new PCDataImpl(sm.getId (), sm.getMetaData ());
+        return new PCDataImpl(sm.getId (), sm.getMetaData (), _cache);
 	}
+
+    public String getCache() {
+        return _cache;
+    }
 }
