@@ -39,6 +39,7 @@ import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.kernel.exps.Constant;
 import org.apache.openjpa.kernel.exps.Literal;
+import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.kernel.exps.Val;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.rop.EagerResultList;
@@ -49,7 +50,7 @@ import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
-import org.apache.openjpa.lib.util.concurrent.ReentrantLock;
+import java.util.concurrent.locks.ReentrantLock;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -1066,7 +1067,8 @@ public class QueryImpl
         for (Iterator it = getUpdates().entrySet().iterator();
             it.hasNext();) {
             Map.Entry e = (Map.Entry) it.next();
-            FieldMetaData fmd = (FieldMetaData) e.getKey();
+            Path path = (Path) e.getKey();
+            FieldMetaData fmd = (FieldMetaData) path.last();
 
             Object val;
             Object value = e.getValue();
@@ -1719,6 +1721,8 @@ public class QueryImpl
             rs = 37 * rs + ((query == null) ? 0 : query.hashCode());
             rs = 37 * rs + ((language == null) ? 0 : language.hashCode());
             rs = 37 * rs + ((storeKey == null) ? 0 : storeKey.hashCode());
+            if (subclasses)
+              rs++;
             return rs;
         }
 
@@ -1733,18 +1737,16 @@ public class QueryImpl
                 || !StringUtils.equals(key.query, query)
                 || !StringUtils.equals(key.language, language))
                 return false;
-
+            if (key.subclasses != subclasses)
+                return false;
             if (!ObjectUtils.equals(key.storeKey, storeKey))
                 return false;
 
             // allow either candidate type to be null because it might be
             // encoded in the query string, but if both are set then they
             // must be equal
-            if (candidateType != null && key.candidateType != null)
-                return candidateType == key.candidateType
-                    && subclasses == key.subclasses;
-
-            return true;
+            return key.candidateType == null || candidateType == null
+                || key.candidateType == candidateType;
         }
     }
 

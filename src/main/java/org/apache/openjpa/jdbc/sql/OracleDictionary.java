@@ -20,6 +20,7 @@ package org.apache.openjpa.jdbc.sql;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.security.AccessController;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Connection;
@@ -45,9 +46,9 @@ import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
-import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.lib.jdbc.DelegatingDatabaseMetaData;
 import org.apache.openjpa.lib.jdbc.DelegatingPreparedStatement;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.StoreException;
 
@@ -198,7 +199,7 @@ public class OracleDictionary
                 int release = Integer.parseInt(productVersion);
                 
                 // warn sql92
-                if (release == 8) {
+                if (release <= 8) {
                     if (joinSyntax == SYNTAX_SQL92 && log.isWarnEnabled())
                         log.warn(_loc.get("oracle-syntax"));
                     joinSyntax = SYNTAX_DATABASE;
@@ -206,7 +207,6 @@ public class OracleDictionary
                     timestampTypeName = "DATE"; // added oracle 9
                     supportsXMLColumn = false;
                 }
-                else 
                     // select of an xml column requires ".getStringVal()"
                     // suffix. eg. t0.xmlcol.getStringVal()
                     getStringVal = ".getStringVal()";
@@ -997,12 +997,14 @@ public class OracleDictionary
         }
     }
 
-    private static Clob getEmptyClob()
+    private Clob getEmptyClob()
         throws SQLException {
         if (EMPTY_CLOB != null)
             return EMPTY_CLOB;
         try {
-            return EMPTY_CLOB = (Clob) Class.forName("oracle.sql.CLOB").
+            return EMPTY_CLOB = (Clob) Class.forName("oracle.sql.CLOB",true, 
+                    AccessController.doPrivileged(J2DoPrivHelper
+                            .getContextClassLoaderAction())).
                 getMethod("empty_lob", new Class[0]).
                 invoke(null, new Object[0]);
         } catch (Exception e) {
@@ -1010,12 +1012,14 @@ public class OracleDictionary
         }
     }
 
-    private static Blob getEmptyBlob()
+    private Blob getEmptyBlob()
         throws SQLException {
         if (EMPTY_BLOB != null)
             return EMPTY_BLOB;
         try {
-            return EMPTY_BLOB = (Blob) Class.forName("oracle.sql.BLOB").
+            return EMPTY_BLOB = (Blob) Class.forName("oracle.sql.BLOB",true, 
+                    AccessController.doPrivileged(J2DoPrivHelper
+                            .getContextClassLoaderAction())).
                 getMethod("empty_lob", new Class[0]).
                 invoke(null, new Object[0]);
         } catch (Exception e) {

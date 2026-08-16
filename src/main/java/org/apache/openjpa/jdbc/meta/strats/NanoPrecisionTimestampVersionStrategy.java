@@ -16,29 +16,26 @@
  * specific language governing permissions and limitations
  * under the License.    
  */
-package org.apache.openjpa.jdbc.kernel.exps;
+package org.apache.openjpa.jdbc.meta.strats;
 
-import org.apache.openjpa.jdbc.sql.SQLBuffer;
-import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.lib.util.TimestampHelper;
 
 /**
- * Distinct the specified path.
+ * Uses a timestamp for optimistic versioning with nanosecond
+ * precision.
  *
- * @author Marc Prud'hommeaux
+ * @author Albert Lee
  */
-class Distinct
-    extends UnaryOp {
+public class NanoPrecisionTimestampVersionStrategy
+    extends TimestampVersionStrategy {
 
-    public Distinct(Val val) {
-        super(val, true);
+    public static final String ALIAS = "nano-timestamp";
+
+    public String getAlias() {
+        return ALIAS;
     }
 
-    public ExpState initialize(Select sel, ExpContext ctx, int flags) {
-        // join into related object if present
-        return initializeValue(sel, ctx, JOIN_REL);
-    }
-
-    protected String getOperator() {
-        return "DISTINCT";
+    protected Object nextVersion(Object version) {
+        return TimestampHelper.getNanoPrecisionTimestamp();
     }
 }

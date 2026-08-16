@@ -24,8 +24,8 @@ import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.Stack;
 import java.util.TreeSet;
@@ -452,6 +452,7 @@ public class JPQLExpressionBuilder
 
         // handle JOIN FETCH
         Set joins = null;
+        Set innerJoins = null;
 
         JPQLNode[] outers = root().findChildrenByID(JJTOUTERFETCHJOIN);
         for (int i = 0; outers != null && i < outers.length; i++)
@@ -459,13 +460,20 @@ public class JPQLExpressionBuilder
                 add(getPath(onlyChild(outers[i])).last().getFullName(false));
 
         JPQLNode[] inners = root().findChildrenByID(JJTINNERFETCHJOIN);
-        for (int i = 0; inners != null && i < inners.length; i++)
-            (joins == null ? joins = new TreeSet() : joins).
-                add(getPath(onlyChild(inners[i])).last().getFullName(false));
+        for (int i = 0; inners != null && i < inners.length; i++) {
+            String path = getPath(onlyChild(inners[i])).last()
+                .getFullName(false);
+            (joins == null ? joins = new TreeSet() : joins).add(path);
+            (innerJoins == null ? innerJoins = new TreeSet() : innerJoins).
+                add(path);
+        }
 
         if (joins != null)
             exps.fetchPaths = (String[]) joins.
                 toArray(new String[joins.size()]);
+        if (innerJoins != null)
+            exps.fetchInnerPaths = (String[]) innerJoins.
+                toArray(new String[innerJoins.size()]);
 
         return filter;
     }
@@ -506,7 +514,7 @@ public class JPQLExpressionBuilder
             else if (node.id == JJTINNERJOIN)
                 exp = addJoin(node, true, exp);
             else if (node.id == JJTINNERFETCHJOIN)
-                exp = addJoin(node, true, exp);
+                ; // we handle inner fetch joins in the evalFetchJoins() method
             else if (node.id == JJTOUTERFETCHJOIN)
                 ; // we handle outer fetch joins in the evalFetchJoins() method
             else
@@ -1151,7 +1159,7 @@ public class JPQLExpressionBuilder
         if (fmd == null)
             return;
 
-        Class type = path.isXPath() ? path.getType() : fmd.getType();
+        Class type = path.isXPath() ? path.getType() : fmd.getDeclaredType();
         if (type == null)
             return;
 
@@ -1314,8 +1322,11 @@ public class JPQLExpressionBuilder
                 Object value = field.get(null);
                 return factory.newLiteral(value, Literal.TYPE_UNKNOWN);
             } catch (NoSuchFieldException nsfe) {
-                throw parseException(EX_USER, "no-field",
-                    new Object[]{ className, fieldName }, nsfe);
+                if (node.inEnumPath)
+                    throw parseException(EX_USER, "no-field",
+                        new Object[]{ c.getName(), fieldName }, nsfe);
+                else
+                    return getPath(node, false, true);
             } catch (Exception e) {
                 throw parseException(EX_USER, "unaccessible-field",
                     new Object[]{ className, fieldName }, e);
@@ -1355,8 +1366,8 @@ public class JPQLExpressionBuilder
         else if (val.getMetaData() != null)
             path = newPath(val, val.getMetaData());
         else
-            throw parseException(EX_USER, "path-no-meta",
-                new Object[]{ assemble(node), null }, null);
+            throw parseException(EX_USER, "path-invalid",
+                new Object[]{ assemble(node), name }, null);
 
         // walk through the children and assemble the path
         boolean allowNull = !inner;
@@ -1548,10 +1559,12 @@ public class JPQLExpressionBuilder
         JPQLNode[] children;
         String text;
         boolean not = false;
+        boolean inEnumPath = false;
 
         public JPQLNode(JPQL parser, int id) {
             this.id = id;
             this.parser = parser;
+            this.inEnumPath = parser.inEnumPath;
         }
 
         public void jjtOpen() {
@@ -1561,12 +1574,12 @@ public class JPQLExpressionBuilder
         }
 
         JPQLNode[] findChildrenByID(int id) {
-            Collection set = new HashSet();
+            Collection<JPQLNode> set = new LinkedHashSet<JPQLNode>();
             findChildrenByID(id, set);
-            return (JPQLNode[]) set.toArray(new JPQLNode[set.size()]);
+            return set.toArray(new JPQLNode[set.size()]);
         }
 
-        private void findChildrenByID(int id, Collection set) {
+        private void findChildrenByID(int id, Collection<JPQLNode> set) {
             for (int i = 0; children != null && i < children.length; i++) {
                 if (children[i].id == id)
                     set.add(children[i]);

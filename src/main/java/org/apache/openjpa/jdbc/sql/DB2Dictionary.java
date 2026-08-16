@@ -60,14 +60,18 @@ public class DB2Dictionary
     public static final int db2ZOSV8xOrLater = 3;
     public static final int db2UDBV82OrLater = 4;
     public static final int db2ISeriesV5R4OrLater = 5;
-	private static final String forUpdate = "FOR UPDATE";
-    private static final String withRSClause = "WITH RS";
-    private static final String withRRClause = "WITH RR";
-    private static final String useKeepUpdateLockClause
+	protected static final String forUpdate = "FOR UPDATE";
+    protected static final String withURClause = "WITH UR";
+    protected static final String withCSClause = "WITH CS";
+    protected static final String withRSClause = "WITH RS";
+    protected static final String withRRClause = "WITH RR";
+    protected static final String useKeepShareLockClause
+        = "USE AND KEEP SHARE LOCKS";
+    protected static final String useKeepUpdateLockClause
         = "USE AND KEEP UPDATE LOCKS";
-    private static final String useKeepExclusiveLockClause
+    protected static final String useKeepExclusiveLockClause
         = "USE AND KEEP EXCLUSIVE LOCKS";
-    private static final String forReadOnlyClause = "FOR READ ONLY";
+    protected static final String forReadOnlyClause = "FOR READ ONLY";
     protected String databaseProductName = null;
     protected String databaseProductVersion = null;
     protected int maj = 0;
@@ -390,7 +394,8 @@ public class DB2Dictionary
 
     public boolean isDB2UDBV82OrLater() {
         boolean match = false;
-        if ((databaseProductVersion.indexOf("SQL") != -1
+        if (databaseProductName != null &&
+            (databaseProductVersion.indexOf("SQL") != -1
             || databaseProductName.indexOf("DB2/") != -1)
             && ((maj == 8 && min >= 2) || (maj >= 9)))
             match = true;
@@ -399,7 +404,8 @@ public class DB2Dictionary
 
     public boolean isDB2ZOSV8xOrLater() {
        boolean match = false;
-       if ((databaseProductVersion.indexOf("DSN") != -1
+       if (databaseProductName != null &&
+           (databaseProductVersion.indexOf("DSN") != -1
            || databaseProductName.indexOf("DB2/") == -1)
            && maj >= 8)
            match = true;
@@ -408,7 +414,8 @@ public class DB2Dictionary
 
     public boolean isDB2ISeriesV5R3OrEarlier() {
        boolean match = false;
-       if (databaseProductName.indexOf("AS") != -1
+       if (databaseProductName != null &&
+           databaseProductName.indexOf("AS") != -1
            && ((maj == 5 && min <=3) || maj < 5))
            match = true;
        return match;
@@ -416,7 +423,8 @@ public class DB2Dictionary
 
     public boolean isDB2ISeriesV5R4OrLater() {
        boolean match = false;
-       if (databaseProductName.indexOf("AS") != -1
+       if (databaseProductName != null &&
+           databaseProductName.indexOf("AS") != -1
            && (maj >=6 || (maj == 5 && min >=4)))
            match = true;
       return match;
@@ -424,9 +432,10 @@ public class DB2Dictionary
 
     public boolean isDB2UDBV81OrEarlier() {
         boolean match = false;
-        if ((databaseProductVersion.indexOf("SQL") != -1 
-           || databaseProductName.indexOf("DB2/") != -1) &&
-           ((maj == 8 && min <= 1) || maj < 8))
+        if (databaseProductName != null &&
+            (databaseProductVersion.indexOf("SQL") != -1 
+            || databaseProductName.indexOf("DB2/") != -1) &&
+            ((maj == 8 && min <= 1) || maj < 8))
             match = true;
         return match;
     }

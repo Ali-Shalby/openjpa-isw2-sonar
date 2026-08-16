@@ -61,7 +61,7 @@ public class JDBCFetchConfigurationImpl
     /**
      * Configurable JDBC state shared throughout a traversal chain.
      */
-    private static class JDBCConfigurationState implements Serializable {
+    protected static class JDBCConfigurationState implements Serializable {
         public int eagerMode = 0;
         public int subclassMode = 0;
         public int type = 0;
@@ -69,10 +69,11 @@ public class JDBCFetchConfigurationImpl
         public int size = 0;
         public int syntax = 0;
         public Set joins = null;
+        public Set fetchInnerJoins = null;
         public int isolationLevel = -1;
     }
 
-    private final JDBCConfigurationState _state;
+    protected final JDBCConfigurationState _state;
 
     public JDBCFetchConfigurationImpl() {
         this(null, null);
@@ -344,5 +345,38 @@ public class JDBCFetchConfigurationImpl
         if (!(conf instanceof JDBCConfiguration))
             return null;
         return (JDBCConfiguration) conf;
+    }
+
+    public Set getFetchInnerJoins() {
+        return (_state.fetchInnerJoins == null) ? Collections.EMPTY_SET
+            : _state.fetchInnerJoins;
+    }
+
+    public boolean hasFetchInnerJoin(String field) {
+        return _state.fetchInnerJoins != null &&
+            _state.fetchInnerJoins.contains(field);
+    }
+
+    public JDBCFetchConfiguration addFetchInnerJoin(String join) {
+        if (StringUtils.isEmpty(join))
+            throw new UserException(_loc.get("null-join"));
+        
+        lock();
+        try {
+            if (_state.fetchInnerJoins == null)
+                _state.fetchInnerJoins = new HashSet();
+            _state.fetchInnerJoins.add(join);
+        } finally {
+            unlock();
+        }
+        return this;
+    }
+
+    public JDBCFetchConfiguration addFetchInnerJoins(Collection joins) {
+        if (joins == null || joins.isEmpty())
+            return this;
+        for (Iterator itr = joins.iterator(); itr.hasNext();)
+            addFetchInnerJoin((String) itr.next());
+        return this;
     }
 }

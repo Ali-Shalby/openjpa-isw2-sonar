@@ -124,7 +124,7 @@ public class SchemaTool {
 
         _conf = conf;
         _action = action;
-        _ds = conf.getDataSource2(null);
+        _ds = ACTION_BUILD.equals(action) ? null : conf.getDataSource2(null);
         _log = conf.getLog(JDBCConfiguration.LOG_SCHEMA);
 
         // initialize this up-front; otherwise the dbdictionaryfactory might
@@ -986,6 +986,12 @@ public class SchemaTool {
      */
     public boolean createIndex(Index idx, Table table)
         throws SQLException {
+        // Informix will automatically create a unique index for the 
+        // primary key, so don't create another index again
+
+        if (!_dict.needsToCreateIndex(idx,table))
+            return false;
+
         int max = _dict.maxIndexesPerTable;
 
         int len = table.getIndexes().length;
@@ -1357,9 +1363,6 @@ public class SchemaTool {
     public static boolean run(JDBCConfiguration conf, String[] args,
         Options opts)
         throws IOException, SQLException {
-        if (opts.containsKey("help") || opts.containsKey("-help"))
-            return false;
-
         Flags flags = new Flags();
         flags.dropTables = opts.removeBooleanProperty
             ("dropTables", "dt", flags.dropTables);

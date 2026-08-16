@@ -54,6 +54,8 @@ public class Compatibility {
     private boolean _quotedNumbers = false;
     private boolean _nonOptimisticVersionCheck = false;
     private int _jpql = JPQL_STRICT;
+    private boolean _storeMapCollectionInEntityAsBlob = false;
+    private boolean _flushBeforeDetach = true; 
 
     /**
      * Whether to require exact identity value types when creating object
@@ -215,4 +217,56 @@ public class Compatibility {
         else
             throw new IllegalArgumentException(jpql);
     }
+
+    /**
+     * Whether if map and collection in entity are stored as blob.
+     * Defaults to <code>false</code>.
+     *
+     * @since 1.1.0 
+     */
+
+    public boolean getStoreMapCollectionInEntityAsBlob() {
+        return _storeMapCollectionInEntityAsBlob;
+    }
+
+    /**
+     * Whether if map and collection in entity are stored as blob.
+     * Defaults to <code>false</code>.
+     *
+     * @since 1.1.0 
+     */
+    public void setStoreMapCollectionInEntityAsBlob(boolean storeAsBlob) {
+        _storeMapCollectionInEntityAsBlob = storeAsBlob;
+    }
+    
+    /**
+     * Whether OpenJPA should flush changes before detaching or serializing an
+     * entity. In JPA this is usually false, but other persistence frameworks
+     * (ie JDO) may expect it to be true.
+     * <P>Prior to version 1.0.3 and 1.2.0 changes were always flushed.
+     * 
+     * @since 1.0.3
+     * @since 1.2.0
+     * @return true if changes should be flushed, otherwise false.
+     */
+    public boolean getFlushBeforeDetach() {
+        return _flushBeforeDetach;
+    }
+
+    /**
+     * Whether OpenJPA should flush changes before detaching or serializing an
+     * entity. In JPA this is usually false, but other persistence frameworks
+     * (ie JDO) may expect it to be true.
+     * <P>Prior to version 1.0.3 and 1.2.0 changes were always flushed.
+     * 
+     * @param beforeDetach if true changes will be flushed before detaching or 
+     * serializing an entity.
+     * 
+     * @since 1.0.3
+     * @since 1.2.0
+     */
+    public void setFlushBeforeDetach(boolean beforeDetach) {
+        _flushBeforeDetach = beforeDetach;
+    }
+
 }

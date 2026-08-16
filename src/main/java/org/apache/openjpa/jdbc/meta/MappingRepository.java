@@ -49,6 +49,7 @@ import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedBlobFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedByteArrayFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedCharArrayFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.MaxEmbeddedClobFieldStrategy;
+import org.apache.openjpa.jdbc.meta.strats.NanoPrecisionTimestampVersionStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneFieldStrategy;
@@ -80,6 +81,7 @@ import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
+import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -100,13 +102,6 @@ public class MappingRepository
 
     private static final Localizer _loc = Localizer.forPackage
         (MappingRepository.class);
-    private static final Map _handlers = new HashMap();
-
-    static {
-        // register default value handlers
-        _handlers.put("java.lang.Enum",
-            "org.apache.openjpa.jdbc.meta.strats.EnumValueHandler");
-    }
 
     private transient DBDictionary _dict = null;
     private transient MappingDefaults _defaults = null;
@@ -618,6 +613,8 @@ public class MappingRepository
             strat = NumberVersionStrategy.class;
         else if (TimestampVersionStrategy.ALIAS.equals(name))
             strat = TimestampVersionStrategy.class;
+        else if (NanoPrecisionTimestampVersionStrategy.ALIAS.equals(name))
+            strat = NanoPrecisionTimestampVersionStrategy.class;
         else if (StateComparisonVersionStrategy.ALIAS.equals(name))
             strat = StateComparisonVersionStrategy.class;
 
@@ -886,6 +883,9 @@ public class MappingRepository
      */
     protected FieldStrategy handlerCollectionStrategy(FieldMapping field, 
         ValueHandler ehandler, boolean installHandlers) {
+        if (getConfiguration().getCompatibilityInstance()
+            .getStoreMapCollectionInEntityAsBlob())
+            return null;
         if (installHandlers)
             field.getElementMapping().setHandler(ehandler);
         return new HandlerCollectionTableFieldStrategy();
@@ -898,6 +898,9 @@ public class MappingRepository
     protected FieldStrategy handlerMapStrategy(FieldMapping field, 
         ValueHandler khandler, ValueHandler vhandler, boolean krel, 
         boolean vrel,  boolean installHandlers) {
+        if (getConfiguration().getCompatibilityInstance()
+            .getStoreMapCollectionInEntityAsBlob())
+            return null;
         if (installHandlers) {
             field.getKeyMapping().setHandler(khandler);
             field.getElementMapping().setHandler(vhandler);
@@ -945,8 +948,6 @@ public class MappingRepository
             return null;
 
         Object strat = _defaults.getStrategy(val, type, adapting);
-        if (strat == null)
-            strat = _handlers.get(type.getName());
 
         // recurse on superclass so that, for example, a registered handler
         // for java.lang.Enum will work on all enums
@@ -1082,7 +1083,9 @@ public class MappingRepository
             case JavaTypes.OID:
                 return new ObjectIdValueHandler();
         }
-        if (val.isEmbeddedPC())
+        if (!getConfiguration().getCompatibilityInstance()
+            .getStoreMapCollectionInEntityAsBlob()
+            && val.isEmbeddedPC())
             return new ElementEmbedValueHandler();
         return null;
     }
@@ -1221,7 +1224,9 @@ public class MappingRepository
         switch (vfield.getTypeCode()) {
             case JavaTypes.DATE:
             case JavaTypes.CALENDAR:
-                return new TimestampVersionStrategy();
+                return (JavaVersions.VERSION >= 5) 
+                    ? new NanoPrecisionTimestampVersionStrategy()
+                    : new TimestampVersionStrategy();
             case JavaTypes.BYTE:
             case JavaTypes.INT:
             case JavaTypes.LONG:

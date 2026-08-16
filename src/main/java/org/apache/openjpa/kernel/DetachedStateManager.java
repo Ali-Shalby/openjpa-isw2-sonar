@@ -28,7 +28,7 @@ import java.util.Map;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.enhance.StateManager;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.concurrent.ReentrantLock;
+import java.util.concurrent.locks.ReentrantLock;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -48,6 +48,8 @@ import org.apache.openjpa.util.ImplHelper;
 public class DetachedStateManager
     extends AttachStrategy
     implements OpenJPAStateManager, Serializable {
+
+    private static final long serialVersionUID = 4112223665584731100L;
 
     private static final Localizer _loc = Localizer.forPackage
         (DetachedStateManager.class);
