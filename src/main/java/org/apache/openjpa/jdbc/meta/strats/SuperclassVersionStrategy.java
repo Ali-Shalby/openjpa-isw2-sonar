@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -28,16 +28,20 @@ import org.apache.openjpa.kernel.OpenJPAStateManager;
  * Version strategy that delegates to the suerpclass version.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class SuperclassVersionStrategy
     extends AbstractVersionStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
+    @Override
     public void afterLoad(OpenJPAStateManager sm, JDBCStore store) {
         vers.getClassMapping().getPCSuperclassMapping().getVersion().
             afterLoad(sm, store);
     }
 
+    @Override
     public boolean checkVersion(OpenJPAStateManager sm, JDBCStore store,
         boolean updateVersion)
         throws SQLException {
@@ -45,11 +49,13 @@ public class SuperclassVersionStrategy
             checkVersion(sm, store, updateVersion);
     }
 
+    @Override
     public int compareVersion(Object v1, Object v2) {
         return vers.getClassMapping().getPCSuperclassMapping().getVersion().
             compareVersion(v1, v2);
     }
 
+    @Override
     public Map getBulkUpdateValues() {
         return vers.getClassMapping().getPCSuperclassMapping().getVersion()
             .getBulkUpdateValues();

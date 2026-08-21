@@ -14,44 +14,49 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
 import java.util.BitSet;
 import java.util.Collection;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.util.Proxy;
 
 /**
- * 
- *
+ * Handles detaching instances.
  */
 public class DetachManagerLite {
-    public DetachManagerLite() {
+    private final boolean _detachProxies;
+    private final TransferFieldManager _tsm;
+
+    public DetachManagerLite(OpenJPAConfiguration conf) {
+        _detachProxies = conf.getDetachStateInstance().getDetachProxyFields();
+        _tsm = new TransferFieldManager();
     }
 
     /**
      * This method will detach all provided StateManagers in place.
-     * 
+     *
      * @param states
      *            The StateManagers to be detached.
      */
     public void detachAll(Collection<StateManagerImpl> states) {
-        TransferFieldManager fm = new TransferFieldManager();
+
         for (StateManagerImpl sm : states) {
             ClassMetaData cmd = sm.getMetaData();
             if (sm.isPersistent() && cmd.isDetachable()) {
                 PersistenceCapable pc = sm.getPersistenceCapable();
-                if(pc.pcIsDetached() == false){
+                if (!pc.pcIsDetached()) {
                     // Detach proxy fields.
                     BitSet loaded = sm.getLoaded();
                     for (FieldMetaData fmd : cmd.getProxyFields()) {
                         if (loaded.get(fmd.getIndex())) {
-                            detachProxyField(fmd, pc, sm, fm);
+                            detachProxyField(fmd, pc, sm, _tsm);
                         }
                     }
                     pc.pcReplaceStateManager(null);
@@ -62,7 +67,7 @@ public class DetachManagerLite {
 
     /**
      * Detach the provided proxy field.
-     * 
+     *
      * @param fmd
      *            The field to be detached.
      * @param pc
@@ -71,9 +76,10 @@ public class DetachManagerLite {
      *            The StateManagerImpl that the PersistenceCapable belongs to.
      */
     private void detachProxyField(FieldMetaData fmd, PersistenceCapable pc,
-            StateManagerImpl sm, TransferFieldManager fm) {
+        StateManagerImpl sm, TransferFieldManager fm) {
+
         int fieldIndex = fmd.getIndex();
-        if (fmd.isLRS() == true) {
+        if (fmd.isLRS()) {
             // need to null out LRS fields.
             nullField(fieldIndex, pc, sm, fm);
         } else {
@@ -81,6 +87,11 @@ public class DetachManagerLite {
             if (o instanceof Proxy) {
                 // Get unproxied object and replace
                 Proxy proxy = (Proxy) o;
+                if (!_detachProxies) {
+                    // Even if we're not detaching proxies, we need to remove the reference to the SM.
+                    proxy.setOwner(null, -1);
+                    return;
+                }
                 Object unproxied = proxy.copy(proxy);
                 fm.storeObjectField(fieldIndex, unproxied);
                 sm.replaceField(pc, fm, fieldIndex);
@@ -96,7 +107,7 @@ public class DetachManagerLite {
 
     /**
      * Private worker method that replaces the value at fieldIndex in sm with null.
-     * 
+     *
      * @param fieldIndex
      *            The index of the field to be nulled out.
      * @param pc

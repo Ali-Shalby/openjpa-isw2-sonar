@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -32,12 +32,12 @@ public interface FlushTransactionListener {
      *
      * @see TransactionEvent#BEFORE_FLUSH
      */
-    public void beforeFlush(TransactionEvent event);
+    void beforeFlush(TransactionEvent event);
 
     /**
      * Notification that a transaction has flushed all object changes.
      *
      * @see TransactionEvent#AFTER_FLUSH
      */
-    public void afterFlush(TransactionEvent event);
+    void afterFlush(TransactionEvent event);
 }

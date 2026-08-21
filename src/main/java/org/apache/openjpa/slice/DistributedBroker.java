@@ -14,33 +14,30 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice;
 
-import java.util.Map;
-
 import org.apache.openjpa.kernel.Broker;
+import org.apache.openjpa.slice.jdbc.TargetFetchConfiguration;
 
 /**
- * Extension to Broker to allow dynamically add/remove slices.
- * 
+ * Extension to Broker to allow access to {@link DistributedStoreManager virtual data store}.
+ * The broker manages a single persistence context like a normal {@link Broker}, but the
+ * context holds data from multiple databases.
+ *
  * @author Pinaki Poddar
  *
  */
 public interface DistributedBroker extends Broker {
     /**
-     * Adds the given slice with the given properties. This newly added slice
-     * will participate in the current and subsequent transaction.
-     * 
-     * @param name logical name of the to be added slice. Must be different from
-     * any currently available slices.
-     * @see DistributedConfiguration#getAvailableSliceNames()
-     * 
-     * @param properties key-value pair of configuration for the slice to be
-     * added. The keys must have openjpa.slice.&lt;name&gt;.* as prefix.
-     * 
-     * @see DistributedConfiguration#addSlice(String, Map)
+     * Gets the distributed store manager used by this receiver.
      */
-    Slice addSlice(String name, Map properties);
+    DistributedStoreManager getDistributedStoreManager();
+
+    /**
+     * Gets the covariant fetch configuration that is aware of targets.
+     */
+    @Override
+    TargetFetchConfiguration getFetchConfiguration();
 }

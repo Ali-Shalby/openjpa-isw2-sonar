@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -29,10 +29,10 @@ public interface LoadListener {
     /**
      * Invoked after state has been loaded into the instance.
      */
-    public void afterLoad(LifecycleEvent event);
+    void afterLoad(LifecycleEvent event);
 
     /**
      * Invoked after state has been refreshed.
      */
-    public void afterRefresh(LifecycleEvent event);
+    void afterRefresh(LifecycleEvent event);
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -25,15 +25,14 @@ import java.util.Collection;
  * Default {@link CollectionChangeTracker}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class CollectionChangeTrackerImpl
     extends AbstractChangeTracker
     implements CollectionChangeTracker {
 
-    private final Collection _coll;
-    private final boolean _dups;
-    private final boolean _order;
+    protected final Collection _coll;
+    protected final boolean _dups;
+    protected final boolean _order;
 
     /**
      * Constructor.
@@ -62,22 +61,26 @@ public class CollectionChangeTrackerImpl
      */
     public boolean isOrdered() {
         return _order;
-    } 
+    }
 
+    @Override
     public void added(Object elem) {
         super.added(elem);
     }
 
+    @Override
     public void removed(Object elem) {
         super.removed(elem);
     }
 
+    @Override
     protected int initialSequence() {
         if (_order)
             return _coll.size();
         return super.initialSequence();
     }
 
+    @Override
     protected void add(Object elem) {
         if (rem == null || !rem.remove(elem)) {
             // after a point it's inefficient to keep tracking
@@ -102,6 +105,7 @@ public class CollectionChangeTrackerImpl
         }
     }
 
+    @Override
     protected void remove(Object elem) {
         // if the collection contains multiple copies of the elem, we can't
         // use change tracking because some back-ends can't just delete a
@@ -121,6 +125,7 @@ public class CollectionChangeTrackerImpl
         }
     }
 
+    @Override
     protected void change(Object elem) {
         throw new InternalException();
     }

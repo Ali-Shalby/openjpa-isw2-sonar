@@ -14,15 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
 import java.util.Collection;
-import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Map;
-import java.util.LinkedHashMap;
 
 import org.xml.sax.SAXException;
 
@@ -30,7 +29,6 @@ import org.xml.sax.SAXException;
  * Helps serialize metadata objects to package and class elements.
  *
  * @author Abe White
- * @nojavadoc
  * @see CFMetaDataParser
  */
 public abstract class CFMetaDataSerializer extends XMLMetaDataSerializer {
@@ -53,25 +51,21 @@ public abstract class CFMetaDataSerializer extends XMLMetaDataSerializer {
 
     /**
      * Helper method to group objects by package.
-     * 
+     *
      * @return mapping of package name to a collection of objects in that
      *         package
      */
     protected Map<String, Collection<Object>> groupByPackage(
         Collection<Object> objs) throws SAXException {
         Map<String, Collection<Object>> packages =
-            new LinkedHashMap<String, Collection<Object>>();
+            new LinkedHashMap<>();
         String packageName;
         Collection<Object> packageObjs;
         Object obj;
-        for (Iterator<Object> itr = objs.iterator(); itr.hasNext();) {
-            obj = itr.next();
+        for (Object o : objs) {
+            obj = o;
             packageName = getPackage(obj);
-            packageObjs = packages.get(packageName);
-            if (packageObjs == null) {
-                packageObjs = new LinkedList<Object>();
-                packages.put(packageName, packageObjs);
-            }
+            packageObjs = packages.computeIfAbsent(packageName, k -> new LinkedList<>());
             packageObjs.add(obj);
         }
         return packages;
@@ -96,10 +90,10 @@ public abstract class CFMetaDataSerializer extends XMLMetaDataSerializer {
 
         // check other known packages
         String[] packages = CFMetaDataParser.PACKAGES;
-        for (int i = 0; i < packages.length; i++)
-            if (name.startsWith(packages[i])
-                && name.lastIndexOf('.') == packages[i].length() - 1)
-                return name.substring(packages[i].length());
+        for (String aPackage : packages)
+            if (name.startsWith(aPackage)
+                    && name.lastIndexOf('.') == aPackage.length() - 1)
+                return name.substring(aPackage.length());
         return name;
     }
 }

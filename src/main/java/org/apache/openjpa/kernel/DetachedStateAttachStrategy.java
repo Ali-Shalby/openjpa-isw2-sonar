@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -26,14 +26,13 @@ import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.ApplicationIds;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.OptimisticException;
-import org.apache.openjpa.util.ImplHelper;
 
 /**
  * Handles attaching instances with detached state.
  *
- * @nojavadoc
  * @author Marc Prud'hommeaux
  */
 class DetachedStateAttachStrategy
@@ -42,6 +41,7 @@ class DetachedStateAttachStrategy
     private static final Localizer _loc = Localizer.forPackage
         (DetachedStateAttachStrategy.class);
 
+    @Override
     protected Object getDetachedObjectId(AttachManager manager,
         Object toAttach) {
         if (toAttach == null)
@@ -69,12 +69,14 @@ class DetachedStateAttachStrategy
         }
     }
 
+    @Override
     protected void provideField(Object toAttach, StateManagerImpl sm,
         int field) {
         sm.provideField(ImplHelper.toPersistenceCapable(toAttach,
             sm.getContext().getConfiguration()), this, field);
     }
 
+    @Override
     public Object attach(AttachManager manager, Object toAttach,
         ClassMetaData meta, PersistenceCapable into, OpenJPAStateManager owner,
         ValueMetaData ownerMeta, boolean explicit) {
@@ -114,7 +116,7 @@ class DetachedStateAttachStrategy
             if (into == null) {
                 // we mark objects that were new on detach by putting an empty
                 // extra element in their detached state array
-                offset = meta.getIdentityType() == meta.ID_DATASTORE ? 1 : 0;
+                offset = meta.getIdentityType() == ClassMetaData.ID_DATASTORE ? 1 : 0;
                 boolean isNew = state.length == 3 + offset;
 
                 // attempting to attach an instance that has been deleted
@@ -144,7 +146,7 @@ class DetachedStateAttachStrategy
         manager.setAttachedCopy(pc, into);
         meta = sm.getMetaData();
         manager.fireBeforeAttach(pc, meta);
-        offset = meta.getIdentityType() == meta.ID_DATASTORE ? 1 : 0;
+        offset = meta.getIdentityType() == ClassMetaData.ID_DATASTORE ? 1 : 0;
 
         // assign the detached pc the same state manager as the object we're
         // copying into during the attach process

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -33,8 +33,17 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import javax.xml.parsers.SAXParser;
 
+import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
+import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.Localizer.Message;
+import org.apache.openjpa.lib.xml.Commentable;
+import org.apache.openjpa.lib.xml.DocTypeReader;
+import org.apache.openjpa.lib.xml.Location;
+import org.apache.openjpa.lib.xml.XMLFactory;
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
 import org.xml.sax.Locator;
@@ -42,22 +51,12 @@ import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 import org.xml.sax.ext.LexicalHandler;
 import org.xml.sax.helpers.DefaultHandler;
-import org.apache.openjpa.lib.log.Log;
-import org.apache.openjpa.lib.util.J2DoPrivHelper;
-import org.apache.openjpa.lib.util.JavaVersions;
-import org.apache.openjpa.lib.util.Localizer.Message;
-import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.xml.Commentable;
-import org.apache.openjpa.lib.xml.DocTypeReader;
-import org.apache.openjpa.lib.xml.Location;
-import org.apache.openjpa.lib.xml.XMLFactory;
 
 /**
  * Custom SAX parser used by the system to quickly parse metadata files.
  * Subclasses should handle the processing of the content.
  *
  * @author Abe White
- * @nojavadoc
  */
 public abstract class XMLMetaDataParser extends DefaultHandler
     implements LexicalHandler, MetaDataParser {
@@ -65,6 +64,10 @@ public abstract class XMLMetaDataParser extends DefaultHandler
     private static final Localizer _loc = Localizer.forPackage
         (XMLMetaDataParser.class);
     private static boolean _schemaBug;
+
+    private static final String OPENJPA_NAMESPACE = "http://openjpa.apache.org/ns/orm";
+    protected int _extendedNamespace = 0;
+    protected int _openjpaNamespace = 0;
 
     static {
         try {
@@ -107,6 +110,16 @@ public abstract class XMLMetaDataParser extends DefaultHandler
     private int _ignore = Integer.MAX_VALUE;
 
     private boolean _parsing = false;
+
+    private boolean _overrideContextClassloader = true;
+
+    public boolean getOverrideContextClassloader() {
+        return _overrideContextClassloader;
+    }
+
+    public void setOverrideContextClassloader(boolean overrideCCL) {
+        _overrideContextClassloader = overrideCCL;
+    }
 
     /*
      * Whether the parser is currently parsing.
@@ -264,31 +277,36 @@ public abstract class XMLMetaDataParser extends DefaultHandler
     /**
      * Classloader to use for class name resolution.
      */
+    @Override
     public void setClassLoader(ClassLoader loader) {
         _loader = loader;
     }
 
+    @Override
     public List getResults() {
         if (_results == null)
             return Collections.emptyList();
         return _results;
     }
 
+    @Override
     public void parse(String rsrc) throws IOException {
         if (rsrc != null)
             parse(new ResourceMetaDataIterator(rsrc, _loader));
     }
 
+    @Override
     public void parse(URL url) throws IOException {
         if (url != null)
             parse(new URLMetaDataIterator(url));
     }
 
+    @Override
     public void parse(File file) throws IOException {
         if (file == null)
             return;
-        if (!(AccessController.doPrivileged(J2DoPrivHelper
-            .isDirectoryAction(file))).booleanValue())
+        if (!AccessController.doPrivileged(J2DoPrivHelper
+                .isDirectoryAction(file)))
             parse(new FileMetaDataIterator(file));
         else {
             String suff = (_suffix == null) ? "" : _suffix;
@@ -297,16 +315,19 @@ public abstract class XMLMetaDataParser extends DefaultHandler
         }
     }
 
+    @Override
     public void parse(Class cls, boolean topDown) throws IOException {
         String suff = (_suffix == null) ? "" : _suffix;
         parse(new ClassMetaDataIterator(cls, suff, topDown), !topDown);
     }
 
+    @Override
     public void parse(Reader xml, String sourceName) throws IOException {
         if (xml != null && (sourceName == null || !parsed(sourceName)))
             parseNewResource(xml, sourceName);
     }
 
+    @Override
     public void parse(MetaDataIterator itr) throws IOException {
         parse(itr, false);
     }
@@ -359,43 +380,75 @@ public abstract class XMLMetaDataParser extends DefaultHandler
                 _log.trace(_loc.get("parser-schema-bug"));
             schemaSource = null;
         }
-        boolean validating = _validating && (getDocType() != null 
+        boolean validating = _validating && (getDocType() != null
             || schemaSource != null);
 
         // parse the metadata with a SAX parser
         try {
             setParsing(true);
             _sourceName = sourceName;
-            SAXParser parser = XMLFactory.getSAXParser(validating, true);
-            Object schema = null;
-            if (validating) {
-                schema = schemaSource;
-                if (schema == null && getDocType() != null)
-                    xml = new DocTypeReader(xml, getDocType());
+
+            SAXParser parser = null;
+            boolean overrideCL = _overrideContextClassloader;
+            ClassLoader oldLoader = null;
+            ClassLoader newLoader = null;
+
+            try {
+                if (overrideCL) {
+                    oldLoader =
+                        (ClassLoader) AccessController.doPrivileged(J2DoPrivHelper.getContextClassLoaderAction());
+                    newLoader = XMLMetaDataParser.class.getClassLoader();
+                    AccessController.doPrivileged(J2DoPrivHelper.setContextClassLoaderAction(newLoader));
+
+                    if (_log != null && _log.isTraceEnabled()) {
+                        _log.trace(_loc.get("override-contextclassloader-begin", oldLoader, newLoader));
+                    }
+                }
+
+                parser = XMLFactory.getSAXParser(validating, true);
+                Object schema = null;
+                if (validating) {
+                    schema = schemaSource;
+                    if (schema == null && getDocType() != null)
+                        xml = new DocTypeReader(xml, getDocType());
+                }
+
+                if (_parseComments || _lh != null)
+                    parser.setProperty
+                        ("http://xml.org/sax/properties/lexical-handler", this);
+
+                if (schema != null) {
+                    parser.setProperty
+                        ("http://java.sun.com/xml/jaxp/properties/schemaLanguage",
+                            "http://www.w3.org/2001/XMLSchema");
+                    parser.setProperty
+                        ("http://java.sun.com/xml/jaxp/properties/schemaSource",
+                            schema);
+                }
+
+                InputSource is = new InputSource(xml);
+                if (_systemId && sourceName != null)
+                    is.setSystemId(sourceName);
+                parser.parse(is, this);
+                finish();
+            } catch (SAXException se) {
+                IOException ioe = new IOException(se.toString(), se);
+                throw ioe;
+            } finally {
+                if (overrideCL) {
+                    // Restore the old ContextClassloader
+                    try {
+                        if (_log != null && _log.isTraceEnabled()) {
+                            _log.trace(_loc.get("override-contextclassloader-end", newLoader, oldLoader));
+                        }
+                        AccessController.doPrivileged(J2DoPrivHelper.setContextClassLoaderAction(oldLoader));
+                    } catch (Throwable t) {
+                        if (_log != null && _log.isWarnEnabled()) {
+                            _log.warn(_loc.get("restore-contextclassloader-failed"));
+                        }
+                    }
+                }
             }
-
-            if (_parseComments || _lh != null)
-                parser.setProperty
-                    ("http://xml.org/sax/properties/lexical-handler", this);
-
-            if (schema != null) {
-                parser.setProperty
-                    ("http://java.sun.com/xml/jaxp/properties/schemaLanguage",
-                        "http://www.w3.org/2001/XMLSchema");
-                parser.setProperty
-                    ("http://java.sun.com/xml/jaxp/properties/schemaSource",
-                        schema);
-            }
-
-            InputSource is = new InputSource(xml);
-            if (_systemId && sourceName != null)
-                is.setSystemId(sourceName);
-            parser.parse(is, this);
-            finish();
-        } catch (SAXException se) {
-            IOException ioe = new IOException(se.toString());
-            JavaVersions.initCause(ioe, se);
-            throw ioe;
         } finally {
             reset();
         }
@@ -409,20 +462,17 @@ public abstract class XMLMetaDataParser extends DefaultHandler
         if (!_caching)
             return false;
         if (_parsed == null)
-            _parsed = new HashMap<ClassLoader, Set<String>>();
+            _parsed = new HashMap<>();
 
         ClassLoader loader = currentClassLoader();
-        Set<String> set = _parsed.get(loader);
-        if (set == null) {
-            set = new HashSet<String>();
-            _parsed.put(loader, set);
-        }
+        Set<String> set = _parsed.computeIfAbsent(loader, k -> new HashSet<>());
         boolean added = set.add(src);
         if (!added && _log != null && _log.isTraceEnabled())
             _log.trace(_loc.get("already-parsed", src));
         return !added;
     }
 
+    @Override
     public void clear() {
         if (_log != null && _log.isTraceEnabled())
             _log.trace(_loc.get("clear-parser", this));
@@ -430,30 +480,48 @@ public abstract class XMLMetaDataParser extends DefaultHandler
             _parsed.clear();
     }
 
+    @Override
     public void error(SAXParseException se) throws SAXException {
         throw getException(se.toString());
     }
 
+    @Override
     public void fatalError(SAXParseException se) throws SAXException {
         throw getException(se.toString());
     }
 
+    @Override
     public void setDocumentLocator(Locator locator) {
         _location.setLocator(locator);
     }
 
+    @Override
     public void startElement(String uri, String name, String qName,
         Attributes attrs) throws SAXException {
         _depth++;
-        if (_depth <= _ignore)
+        if (_depth <= _ignore){
+            if (uri.equals(OPENJPA_NAMESPACE)) {
+                _extendedNamespace++;
+                _openjpaNamespace++;
+            }
             if (!startElement(qName, attrs))
                 ignoreContent(true);
+        }
     }
 
+    @Override
     public void endElement(String uri, String name, String qName)
         throws SAXException {
-        if (_depth < _ignore)
+        if (_depth < _ignore) {
             endElement(qName);
+            _extendedNamespace = (_extendedNamespace > 0) ? _extendedNamespace - 1 : 0;
+            _openjpaNamespace = (_openjpaNamespace > 0) ? _openjpaNamespace - 1 : 0;
+        }
+        else if (_depth ==_ignore) {
+            _extendedNamespace = (_extendedNamespace > 0) ? _extendedNamespace - 1 : 0;
+            _openjpaNamespace = (_openjpaNamespace > 0) ? _openjpaNamespace - 1 : 0;
+        }
+
         _text = null;
         if (_comments != null)
             _comments.clear();
@@ -462,6 +530,7 @@ public abstract class XMLMetaDataParser extends DefaultHandler
         _depth--;
     }
 
+    @Override
     public void characters(char[] ch, int start, int length) {
         if (_parseText && _depth <= _ignore) {
             if (_text == null)
@@ -470,42 +539,49 @@ public abstract class XMLMetaDataParser extends DefaultHandler
         }
     }
 
+    @Override
     public void comment(char[] ch, int start, int length) throws SAXException {
         if (_parseComments && _depth <= _ignore) {
             if (_comments == null)
-                _comments = new ArrayList<String>(3);
+                _comments = new ArrayList<>(3);
             _comments.add(String.valueOf(ch, start, length));
         }
         if (_lh != null)
             _lh.comment(ch, start, length);
     }
 
+    @Override
     public void startCDATA() throws SAXException {
         if (_lh != null)
             _lh.startCDATA();
     }
 
+    @Override
     public void endCDATA() throws SAXException {
         if (_lh != null)
             _lh.endCDATA();
     }
 
+    @Override
     public void startDTD(String name, String publicId, String systemId)
         throws SAXException {
         if (_lh != null)
             _lh.startDTD(name, publicId, systemId);
     }
 
+    @Override
     public void endDTD() throws SAXException {
         if (_lh != null)
             _lh.endDTD();
     }
 
+    @Override
     public void startEntity(String name) throws SAXException {
         if (_lh != null)
             _lh.startEntity(name);
     }
 
+    @Override
     public void endEntity(String name) throws SAXException {
         if (_lh != null)
             _lh.endEntity(name);

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.ant;
 
@@ -25,7 +25,6 @@ import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.Properties;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl;
 import org.apache.openjpa.jdbc.meta.PropertiesReverseCustomizer;
@@ -37,6 +36,7 @@ import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.util.CodeFormat;
 import org.apache.openjpa.lib.util.Files;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.tools.ant.types.EnumeratedAttribute;
 
 /**
@@ -46,6 +46,7 @@ import org.apache.tools.ant.types.EnumeratedAttribute;
  * <li><code>package</code></li>
  * <li><code>directory</code></li>
  * <li><code>useSchemaName</code></li>
+ * <li><code>useSchemaElement</code></li>
  * <li><code>useForeignKeyName</code></li>
  * <li><code>nullableAsObject</code></li>
  * <li><code>blobAsObject</code></li>
@@ -105,6 +106,13 @@ public class ReverseMappingToolTask
     }
 
     /**
+     * Set whether to use the schema name in generated files
+     */
+    public void setUseSchemaElement(boolean useSchemaElement) {
+    	flags.useSchemaElement = useSchemaElement;
+    }
+
+    /**
      * Set whether to use foreign key names to name relations.
      */
     public void setUseForeignKeyName(boolean useForeignKeyName) {
@@ -131,7 +139,7 @@ public class ReverseMappingToolTask
      * relations instead of untyped collections.
      */
     public void setUseGenericCollections(boolean useGenericCollections) {
-        flags.useGenericCollections = useGenericCollections; 
+        flags.useGenericCollections = useGenericCollections;
     }
 
     /**
@@ -228,7 +236,7 @@ public class ReverseMappingToolTask
     public void setAccessType(AccessType accessType) {
         flags.accessType = accessType.getValue();
     }
-    
+
     /**
      * Set a customizer class to use.
      */
@@ -247,23 +255,25 @@ public class ReverseMappingToolTask
         return flags.format;
     }
 
+    @Override
     protected ConfigurationImpl newConfiguration() {
         return new JDBCConfigurationImpl();
     }
 
+    @Override
     protected void executeOn(String[] files)
         throws Exception {
         ClassLoader loader = getClassLoader();
-        if (!StringUtils.isEmpty(dirName))
+        if (!StringUtil.isEmpty(dirName))
             flags.directory = Files.getFile(dirName, loader);
-        if (!StringUtils.isEmpty(typeMap))
+        if (!StringUtil.isEmpty(typeMap))
             flags.typeMap = Configurations.parseProperties(typeMap);
 
         // load customizer properties
         Properties customProps = new Properties();
         File propsFile = Files.getFile(customizerProperties, loader);
-        if (propsFile != null && (AccessController.doPrivileged(
-            J2DoPrivHelper.existsAction(propsFile))).booleanValue()) {
+        if (propsFile != null && AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(propsFile))) {
             FileInputStream fis = null;
             try {
                 fis = AccessController.doPrivileged(
@@ -277,7 +287,7 @@ public class ReverseMappingToolTask
         // create and configure customizer
         JDBCConfiguration conf = (JDBCConfiguration) getConfiguration();
         flags.customizer = (ReverseCustomizer) Configurations.
-            newInstance(customizerClass, conf, null,
+            newInstance(customizerClass, conf, (String)null,
                 AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(
                         ReverseCustomizer.class)));
@@ -290,6 +300,7 @@ public class ReverseMappingToolTask
     public static class Level
         extends EnumeratedAttribute {
 
+        @Override
         public String[] getValues() {
             return new String[]{
                 "package",
@@ -302,6 +313,7 @@ public class ReverseMappingToolTask
     public static class AccessType
         extends EnumeratedAttribute {
 
+        @Override
         public String[] getValues() {
             return new String[]{
                 "field",

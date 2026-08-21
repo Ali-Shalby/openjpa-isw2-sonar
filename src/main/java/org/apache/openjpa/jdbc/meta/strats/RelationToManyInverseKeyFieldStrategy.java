@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -44,6 +44,7 @@ import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.util.ChangeTracker;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
@@ -59,6 +60,9 @@ import org.apache.openjpa.util.Proxy;
 public abstract class RelationToManyInverseKeyFieldStrategy
     extends StoreCollectionFieldStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage
         (RelationToManyInverseKeyFieldStrategy.class);
 
@@ -66,14 +70,17 @@ public abstract class RelationToManyInverseKeyFieldStrategy
     private boolean _orderUpdate = false;
     private boolean _uni1MFK = false;
 
+    @Override
     protected ClassMapping[] getIndependentElementMappings(boolean traverse) {
         return field.getElementMapping().getIndependentTypeMappings();
     }
 
+    @Override
     protected ForeignKey getJoinForeignKey(ClassMapping elem) {
         return field.getElementMapping().getForeignKey(elem);
     }
 
+    @Override
     protected void selectElement(Select sel, ClassMapping elem,
         JDBCStore store, JDBCFetchConfiguration fetch, int eagerMode,
         Joins joins) {
@@ -81,6 +88,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             store, fetch, eagerMode, joins);
     }
 
+    @Override
     protected Object loadElement(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res, Joins joins)
         throws SQLException {
@@ -90,24 +98,27 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         return res.load(elem, store, fetch, joins);
     }
 
+    @Override
     protected Joins join(Joins joins, ClassMapping elem) {
         ValueMapping vm = field.getElementMapping();
         ForeignKey fk = vm.getForeignKey(elem);
         ClassMapping owner = field.getDefiningMapping();
         while (fk.getPrimaryKeyTable() != owner.getTable()) {
             joins = owner.joinSuperclass(joins, false);
-            owner = owner.getJoinablePCSuperclassMapping(); 
+            owner = owner.getJoinablePCSuperclassMapping();
             if (owner == null)
                 throw new InternalException();
         }
-        return joins.joinRelation(field.getName(), fk, elem, 
+        return joins.joinRelation(field.getName(), fk, elem,
             vm.getSelectSubclasses(), true, true);
     }
 
+    @Override
     protected Joins joinElementRelation(Joins joins, ClassMapping elem) {
         return joinRelation(joins, false, false);
     }
 
+    @Override
     public void map(boolean adapt) {
         OpenJPAConfiguration conf = field.getRepository().getConfiguration();
         boolean isNonDefaultMappingAllowed = field.getRepository().
@@ -115,7 +126,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         FieldMapping mapped = field.getMappedByMapping();
 
         // JPA 2.0 allows non-default mapping: Uni-/1-M/@JoinColumn ==> foreign key strategy
-        // Bi-/1-M/@JoinColumn should result in exception 
+        // Bi-/1-M/@JoinColumn should result in exception
         if (!isNonDefaultMappingAllowed || mapped != null) {
             field.getValueInfo().assertNoSchemaComponents(field, !adapt);
         }
@@ -132,8 +143,9 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         ValueMappingInfo vinfo = elem.getValueInfo();
         boolean criteria = vinfo.getUseClassCriteria();
         if (mapped != null) {
-            mapped.resolve(mapped.MODE_META | mapped.MODE_MAPPING);
-            if (!(mapped.getStrategy() instanceof RelationFieldStrategy))
+            mapped.resolve(MetaDataModes.MODE_META | MetaDataModes.MODE_MAPPING);
+            if (!(mapped.getStrategy() instanceof RelationFieldStrategy
+               || mapped.getHandler() instanceof UntypedPCValueHandler))
                 throw new MetaDataException(_loc.get("not-inv-relation",
                     field, mapped));
             vinfo.assertNoSchemaComponents(elem, !adapt);
@@ -145,9 +157,9 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             elem.setUseClassCriteria(criteria);
 
             ForeignKey fk = mapped.getForeignKey();
-            /** Foreign key may be null if declared type of the mapped field is 
+            /** Foreign key may be null if declared type of the mapped field is
              * abstract and under table-per-class inheritance strategy will have
-             * no mapped table.  
+             * no mapped table.
              */
             if (fk != null) {
             	field.setOrderColumn(finfo.getOrderColumn(field,
@@ -155,8 +167,8 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             	field.setOrderColumnIO(finfo.getColumnIO());
             }
             return;
-        } else { 
-            if (field.getValueInfo().getColumns().size() > 0 && 
+        } else {
+            if (field.getValueInfo().getColumns().size() > 0 &&
                 field.getAccessType() == FieldMetaData.ONE_TO_MANY) {
                 _uni1MFK = true;
             }
@@ -166,8 +178,9 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         ForeignKey fk = vinfo.getInverseTypeJoin(elem, field.getName(), adapt);
         if (_uni1MFK) {
             Column[] locals = fk.getColumns();
-            for (int i = 0; i < locals.length; i++)
-                locals[i].setUni1MFK(true);
+            for (Column local : locals) {
+                local.setUni1MFK(true);
+            }
         }
         elem.setForeignKey(fk);
         elem.setColumnIO(vinfo.getColumnIO());
@@ -181,6 +194,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         field.setOrderColumnIO(finfo.getColumnIO());
     }
 
+    @Override
     public void initialize() {
         Column order = field.getOrderColumn();
         _orderInsert = field.getOrderColumnIO().isInsertable(order, false);
@@ -196,6 +210,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         }
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         if (field.getMappedBy() == null || _orderInsert || _orderUpdate)
@@ -216,6 +231,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             updateInverse(sm.getContext(), itr.next(), rel, rm, sm, idx);
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         if (field.getMappedBy() != null && !_orderInsert && !_orderUpdate)
@@ -246,8 +262,9 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         StoreContext ctx = store.getContext();
         if (field.getMappedBy() == null) {
             Collection rem = ct.getRemoved();
-            for (Iterator itr = rem.iterator(); itr.hasNext();)
-                updateInverse(ctx, itr.next(), rel, rm, null, 0);
+            for (Object o : rem) {
+                updateInverse(ctx, o, rel, rm, null, 0);
+            }
         }
 
         Collection add = ct.getAdded();
@@ -258,6 +275,7 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             ct.setNextSequence(seq);
     }
 
+    @Override
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         if (field.getMappedBy() != null)
@@ -267,7 +285,15 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         ValueMapping elem = field.getElementMapping();
         ColumnIO io = elem.getColumnIO();
         ForeignKey fk = elem.getForeignKey();
-        if (!elem.getUseClassCriteria() && io.isAnyUpdatable(fk, true)) { 
+
+        //OJ-2603: Don't null an FK which is also a PK in the referencing object.
+        boolean containsPK = false;
+        Column[] cols = fk.getColumns();
+        for (int i = 0; i < cols.length && !containsPK; i++){
+            containsPK= cols[i].isPrimaryKey();
+        }
+
+        if (!elem.getUseClassCriteria() && io.isAnyUpdatable(fk, true) && !containsPK) {
             assertInversable();
             Row row = rm.getAllRows(fk.getTable(), Row.ACTION_UPDATE);
             row.setForeignKey(fk, io, null);
@@ -284,8 +310,9 @@ public abstract class RelationToManyInverseKeyFieldStrategy
         StoreContext ctx = store.getContext();
         Collection objs = toCollection(sm.fetchObject(field.getIndex()));
         if (objs != null && !objs.isEmpty())
-            for (Iterator itr = objs.iterator(); itr.hasNext();)
-                updateInverse (ctx, itr.next(), rel, rm, sm, 0);
+            for (Object obj : objs) {
+                updateInverse(ctx, obj, rel, rm, sm, 0);
+            }
     }
 
     /**
@@ -348,18 +375,20 @@ public abstract class RelationToManyInverseKeyFieldStrategy
             row.setInt(order, idx);
     }
 
+    @Override
     public Object toDataStoreValue(Object val, JDBCStore store) {
         ClassMapping cm = field.getElementMapping().getTypeMapping();
         return cm.toDataStoreValue(val, cm.getPrimaryKeyColumns(), store);
     }
 
+    @Override
     public Joins join(Joins joins, boolean forceOuter) {
         ValueMapping elem = field.getElementMapping();
         ClassMapping[] clss = elem.getIndependentTypeMappings();
         if (clss.length != 1)
             throw RelationStrategies.unjoinable(elem);
         if (forceOuter)
-            return joins.outerJoinRelation(field.getName(), 
+            return joins.outerJoinRelation(field.getName(),
                 elem.getForeignKey(clss[0]), clss[0],
                 elem.getSelectSubclasses(), true, true);
         return joins.joinRelation(field.getName(), elem.getForeignKey(clss[0]),

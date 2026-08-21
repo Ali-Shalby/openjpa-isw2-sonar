@@ -14,27 +14,29 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 /**
  * Denotes a parameter in a query.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class ParameterExpression extends ExpressionImpl {
-	private final String _name;
+	
+    private static final long serialVersionUID = 1L;
+    private final String _name;
 	public ParameterExpression(String name) {
 		_name = ":" + name;
 	}
-	
+
 	@Override
 	public String asExpression(AliasContext ctx) {
 		return _name;
 	}
-	
+
 	@Override
 	public String asProjection(AliasContext ctx) {
 		return _name;

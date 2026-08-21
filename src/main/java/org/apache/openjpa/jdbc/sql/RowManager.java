@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -37,7 +37,7 @@ public interface RowManager {
      * The action must be one of {@link Row#ACTION_INSERT},
      * {@link Row#ACTION_UPDATE}, {@link Row#ACTION_DELETE}.
      */
-    public Row getRow(Table table, int action, OpenJPAStateManager sm,
+    Row getRow(Table table, int action, OpenJPAStateManager sm,
         boolean create);
 
     /**
@@ -50,13 +50,13 @@ public interface RowManager {
      * row does not have restrict-action foreign keys. Otherwise use both
      * a delete and then an insert to perform the update.
      */
-    public Row getSecondaryRow(Table table, int action);
+    Row getSecondaryRow(Table table, int action);
 
     /**
      * Flush the secondary row; after flushing the row is available for reuse.
      * It will retain all previously set values.
      */
-    public void flushSecondaryRow(Row row)
+    void flushSecondaryRow(Row row)
         throws SQLException;
 
     /**
@@ -64,11 +64,11 @@ public interface RowManager {
      * all rows of the given table. The action must be one of
      * {@link Row#ACTION_UPDATE}, {@link Row#ACTION_DELETE}.
      */
-    public Row getAllRows(Table table, int action);
+    Row getAllRows(Table table, int action);
 
     /**
      * Flush the logical row.
      */
-    public void flushAllRows(Row row)
+    void flushAllRows(Row row)
         throws SQLException;
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -30,7 +30,6 @@ import java.sql.Types;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl;
-import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
@@ -45,7 +44,6 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.GeneralException;
-import serp.util.Strings;
 
 /**
  * Factory that uses an XML schema definition stored in a database table
@@ -91,6 +89,7 @@ public class TableSchemaFactory
      * @deprecated Use {@link #setTable}. Retained for
      * backwards-compatible auto-configuration.
      */
+    @Deprecated
     public void setTableName(String name) {
         setTable(name);
     }
@@ -131,18 +130,22 @@ public class TableSchemaFactory
         return _conf;
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = (JDBCConfiguration) conf;
         _log = _conf.getLog(JDBCConfiguration.LOG_SCHEMA);
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
         buildTable();
     }
-    
+
+    @Override
     public synchronized SchemaGroup readSchema() {
         String schema = null;
         try {
@@ -164,6 +167,7 @@ public class TableSchemaFactory
         return parser.getSchemaGroup();
     }
 
+    @Override
     public void storeSchema(SchemaGroup schema) {
         XMLSchemaSerializer ser = new XMLSchemaSerializer(_conf);
         ser.addAll(schema);
@@ -235,7 +239,7 @@ public class TableSchemaFactory
             DBDictionary dict = _conf.getDBDictionaryInstance();
             stmnt = conn.prepareStatement("INSERT INTO "
                 + dict.getFullName(_pkColumn.getTable(), false)
-                + " (" + dict.getColumnDBName(_pkColumn) + ", " + 
+                + " (" + dict.getColumnDBName(_pkColumn) + ", " +
                 dict.getColumnDBName(_schemaColumn) + ") VALUES (?, ?)");
             dict.setInt(stmnt, 1, 1, _pkColumn);
             dict.setNull(stmnt, 2, _schemaColumn.getType(), _schemaColumn);
@@ -461,6 +465,7 @@ public class TableSchemaFactory
         final String[] arguments = opts.setFromCmdLine(args);
         boolean ret = Configurations.runAgainstAllAnchors(opts,
             new Configurations.Runnable() {
+            @Override
             public boolean run(Options opts) throws Exception {
                 JDBCConfiguration conf = new JDBCConfigurationImpl();
                 try {
@@ -470,8 +475,11 @@ public class TableSchemaFactory
                 }
             }
         });
-        if (!ret)
+        if (!ret) {
+            // START - ALLOW PRINT STATEMENTS
             System.out.println(_loc.get("sch-usage"));
+            // STOP - ALLOW PRINT STATEMENTS
+        }
     }
 
     /**

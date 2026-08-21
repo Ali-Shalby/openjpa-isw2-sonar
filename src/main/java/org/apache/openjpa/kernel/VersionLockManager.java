@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -31,12 +31,14 @@ public class VersionLockManager
 
     private boolean _versionCheckOnReadLock = true;
     private boolean _versionUpdateOnWriteLock = true;
+    private boolean _refreshing = false;
 
     /**
      * Returns the given instance's lock level, assuming that the state's
      * lock object is a number. If the given instance is embedded, traverses
      * to its owner. Override if lock is not stored as a number.
      */
+    @Override
     public int getLockLevel(OpenJPAStateManager sm) {
         while (sm.getOwner() != null)
             sm = sm.getOwner();
@@ -55,6 +57,7 @@ public class VersionLockManager
     /**
      * Nulls given instance's lock object.
      */
+    @Override
     public void release(OpenJPAStateManager sm) {
         sm.setLock(null);
     }
@@ -65,12 +68,24 @@ public class VersionLockManager
      * is not new, and is not already locked at a higher level. After
      * locking, calls {@link #setLockLevel} with the given level.
      */
+    @Override
     public void lock(OpenJPAStateManager sm, int level, int timeout,
         Object sdata) {
-        lock(sm, level, timeout, sdata, true);
+        commonLock(sm, level, timeout, sdata, !_refreshing);
     }
-    
-    public void lock(OpenJPAStateManager sm, int level, int timeout,
+
+    @Override
+    public void refreshLock(OpenJPAStateManager sm, int level, int timeout,
+            Object sdata) {
+    	try {
+        	_refreshing = true;
+    		commonLock(sm, level, timeout, sdata, false);
+    	} finally {
+        	_refreshing = false;
+    	}
+    }
+
+    private void commonLock(OpenJPAStateManager sm, int level, int timeout,
             Object sdata, boolean postLockVersionCheck) {
         if (level == LOCK_NONE)
             return;

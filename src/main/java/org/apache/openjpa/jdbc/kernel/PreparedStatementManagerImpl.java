@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -23,6 +23,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedList;
@@ -52,7 +53,7 @@ import org.apache.openjpa.util.OptimisticException;
  *
  * @author Abe White
  */
-public class PreparedStatementManagerImpl 
+public class PreparedStatementManagerImpl
     implements PreparedStatementManager {
 
     private final static Localizer _loc = Localizer
@@ -64,7 +65,7 @@ public class PreparedStatementManagerImpl
     protected transient Log _log = null;
 
     // track exceptions
-    protected final Collection _exceptions = new LinkedList();
+    protected final Collection<Exception> _exceptions = new LinkedList<>();
 
     /**
      * Constructor. Supply connection.
@@ -77,10 +78,12 @@ public class PreparedStatementManagerImpl
             _log = store.getConfiguration().getLog(JDBCConfiguration.LOG_JDBC);
     }
 
-    public Collection getExceptions() {
+    @Override
+    public Collection<Exception> getExceptions() {
         return _exceptions;
     }
 
+    @Override
     public void flush(RowImpl row) {
         try {
             if (!row.isFlushed())
@@ -100,7 +103,7 @@ public class PreparedStatementManagerImpl
     }
 
     /**
-     * Flush the given row immediately. 
+     * Flush the given row immediately.
      */
     protected void flushAndUpdate(RowImpl row)
     throws SQLException {
@@ -150,27 +153,28 @@ public class PreparedStatementManagerImpl
             }
         }
     }
-    
+
     private boolean hasGeneratedKey(ClassMapping meta) {
         FieldMapping[] pks = meta.getPrimaryKeyFieldMappings();
-        for (int i = 0; i < pks.length; i++) {
-            ClassMapping pkMeta = pks[i].getTypeMapping(); 
+        for (FieldMapping pk : pks) {
+            ClassMapping pkMeta = pk.getTypeMapping();
             if (pkMeta != null) {
                 return hasGeneratedKey(pkMeta);
-            } else if (pks[i].getValueStrategy() == ValueStrategies.AUTOASSIGN)
+            }
+            else if (pk.getValueStrategy() == ValueStrategies.AUTOASSIGN)
                 return true;
         }
         return false;
     }
 
-    /** 
+    /**
      * This method will only be called when there is auto assign columns.
      * If database supports getGeneratedKeys, the keys will be obtained
-     * from the result set associated with the stmnt. If not, a separate 
-     * sql to select the key will be issued from DBDictionary. 
+     * from the result set associated with the stmnt. If not, a separate
+     * sql to select the key will be issued from DBDictionary.
      */
-    protected List<Object> populateAutoAssignCols(PreparedStatement stmnt, 
-        Column[] autoAssign, DBIdentifier[] autoAssignColNames, RowImpl row) 
+    protected List<Object> populateAutoAssignCols(PreparedStatement stmnt,
+        Column[] autoAssign, DBIdentifier[] autoAssignColNames, RowImpl row)
         throws SQLException {
         List<Object> vals = null;
         if (_dict.supportsGetGeneratedKeys) {
@@ -181,27 +185,27 @@ public class PreparedStatementManagerImpl
         return vals;
     }
 
-    protected List<Object> populateAutoAssignCols(PreparedStatement stmnt, 
-        Column[] autoAssign, String[] autoAssignColNames, RowImpl row) 
+    protected List<Object> populateAutoAssignCols(PreparedStatement stmnt,
+        Column[] autoAssign, String[] autoAssignColNames, RowImpl row)
         throws SQLException {
-        return populateAutoAssignCols(stmnt, autoAssign, 
+        return populateAutoAssignCols(stmnt, autoAssign,
             DBIdentifier.toArray(autoAssignColNames, DBIdentifierType.COLUMN), row);
     }
-    
+
     protected void setObjectId(List vals, Column[] autoAssign,
-        String[] autoAssignColNames, RowImpl row) 
+        String[] autoAssignColNames, RowImpl row)
         throws SQLException{
         setObjectId(vals, autoAssign, DBIdentifier.toArray(autoAssignColNames, DBIdentifierType.COLUMN), row);
     }
-    
+
     protected void setObjectId(List vals, Column[] autoAssign,
-        DBIdentifier[] autoAssignColNames, RowImpl row) 
+        DBIdentifier[] autoAssignColNames, RowImpl row)
         throws SQLException{
         OpenJPAStateManager sm = row.getPrimaryKey();
         ClassMapping mapping = (ClassMapping) sm.getMetaData();
         Object val = null;
         for (int i = 0; i < autoAssign.length; i++) {
-            if (_dict.supportsGetGeneratedKeys && vals != null && 
+            if (_dict.supportsGetGeneratedKeys && vals != null &&
                 vals.size() > 0)
                 val = vals.get(i);
             else
@@ -217,17 +221,17 @@ public class PreparedStatementManagerImpl
      * This method will only be called when the database supports
      * getGeneratedKeys.
      */
-    protected List<Object> getGeneratedKeys(PreparedStatement stmnt, 
-        String[] autoAssignColNames) 
+    protected List<Object> getGeneratedKeys(PreparedStatement stmnt,
+        String[] autoAssignColNames)
         throws SQLException {
         return getGeneratedKeys(stmnt, DBIdentifier.toArray(autoAssignColNames, DBIdentifierType.COLUMN));
     }
 
-    protected List<Object> getGeneratedKeys(PreparedStatement stmnt, 
-        DBIdentifier[] autoAssignColNames) 
+    protected List<Object> getGeneratedKeys(PreparedStatement stmnt,
+        DBIdentifier[] autoAssignColNames)
         throws SQLException {
         ResultSet rs = stmnt.getGeneratedKeys();
-        List<Object> vals = new ArrayList<Object>();
+        List<Object> vals = new ArrayList<>();
         while (rs.next()) {
             for (int i = 0; i < autoAssignColNames.length; i++)
                 vals.add(rs.getObject(i + 1));
@@ -255,45 +259,50 @@ public class PreparedStatementManagerImpl
         return autoAssignColNames;
     }
 
+    @Override
     public void flush() {
     }
-    
+
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of executing update.
      */
-    protected int executeUpdate(PreparedStatement stmnt, String sql, 
+    protected int executeUpdate(PreparedStatement stmnt, String sql,
         RowImpl row) throws SQLException {
         return stmnt.executeUpdate();
     }
 
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of preparing statement.
      */
-    protected PreparedStatement prepareStatement(String sql) 
+    protected PreparedStatement prepareStatement(String sql)
         throws SQLException {
         return prepareStatement(sql, null);
-    }    
+    }
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of preparing statement.
      */
-    protected PreparedStatement prepareStatement(String sql, 
+    protected PreparedStatement prepareStatement(String sql,
         String[] autoAssignColNames)
         throws SQLException {
         // pass in AutoAssignColumn names
-        if (autoAssignColNames != null && _dict.supportsGetGeneratedKeys) 
+        if (autoAssignColNames != null && _dict.supportsGetGeneratedKeys)
             return _conn.prepareStatement(sql, autoAssignColNames);
         else
             return _conn.prepareStatement(sql);
     }
-    
+
     /**
-     * Provided the JDBC log category is logging warnings, this method will 
-     * log any SQL warnings that result from the execution of a SQL statement. 
+     * Provided the JDBC log category is logging warnings, this method will
+     * log any SQL warnings that result from the execution of a SQL statement.
      */
     protected void logSQLWarnings(PreparedStatement stmt) {
+        logSQLWarnings((Statement)stmt);
+    }
+
+    protected void logSQLWarnings(Statement stmt) {
         if (stmt != null && _log != null && _log.isTraceEnabled()) {
             try {
                 SQLWarning warn = stmt.getWarnings();

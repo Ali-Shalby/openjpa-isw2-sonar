@@ -18,7 +18,7 @@
  */
 package org.apache.openjpa.persistence;
 
-import static javax.persistence.GenerationType.AUTO;
+import static jakarta.persistence.GenerationType.AUTO;
 import static org.apache.openjpa.persistence.MetaDataTag.ACCESS;
 import static org.apache.openjpa.persistence.MetaDataTag.CACHEABLE;
 import static org.apache.openjpa.persistence.MetaDataTag.DATASTORE_ID;
@@ -62,8 +62,9 @@ import static org.apache.openjpa.persistence.MetaDataTag.PRE_UPDATE;
 import static org.apache.openjpa.persistence.MetaDataTag.QUERIES;
 import static org.apache.openjpa.persistence.MetaDataTag.QUERY;
 import static org.apache.openjpa.persistence.MetaDataTag.READ_ONLY;
-import static org.apache.openjpa.persistence.MetaDataTag.REPLICATED;
 import static org.apache.openjpa.persistence.MetaDataTag.SEQ_GENERATOR;
+import static org.apache.openjpa.persistence.MetaDataTag.STOREDPROCEDURE_QUERIES;
+import static org.apache.openjpa.persistence.MetaDataTag.STOREDPROCEDURE_QUERY;
 import static org.apache.openjpa.persistence.MetaDataTag.TYPE;
 import static org.apache.openjpa.persistence.MetaDataTag.VERSION;
 
@@ -85,56 +86,62 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.Stack;
 import java.util.TreeSet;
+import java.util.UUID;
 
-import javax.persistence.Access;
-import javax.persistence.AccessType;
-import javax.persistence.Basic;
-import javax.persistence.Cacheable;
-import javax.persistence.CascadeType;
-import javax.persistence.ElementCollection;
-import javax.persistence.Embeddable;
-import javax.persistence.Embedded;
-import javax.persistence.EmbeddedId;
-import javax.persistence.Entity;
-import javax.persistence.EntityListeners;
-import javax.persistence.ExcludeDefaultListeners;
-import javax.persistence.ExcludeSuperclassListeners;
-import javax.persistence.FetchType;
-import javax.persistence.FlushModeType;
-import javax.persistence.GeneratedValue;
-import javax.persistence.GenerationType;
-import javax.persistence.Id;
-import javax.persistence.IdClass;
-import javax.persistence.Lob;
-import javax.persistence.LockModeType;
-import javax.persistence.ManyToMany;
-import javax.persistence.ManyToOne;
-import javax.persistence.MapKey;
-import javax.persistence.MapKeyClass;
-import javax.persistence.MappedSuperclass;
-import javax.persistence.MapsId;
-import javax.persistence.NamedNativeQueries;
-import javax.persistence.NamedNativeQuery;
-import javax.persistence.NamedQueries;
-import javax.persistence.NamedQuery;
-import javax.persistence.OneToMany;
-import javax.persistence.OneToOne;
-import javax.persistence.OrderBy;
-import javax.persistence.PostLoad;
-import javax.persistence.PostPersist;
-import javax.persistence.PostRemove;
-import javax.persistence.PostUpdate;
-import javax.persistence.PrePersist;
-import javax.persistence.PreRemove;
-import javax.persistence.PreUpdate;
-import javax.persistence.QueryHint;
-import javax.persistence.SequenceGenerator;
-import javax.persistence.Version;
+import jakarta.persistence.Access;
+import jakarta.persistence.AccessType;
+import jakarta.persistence.Basic;
+import jakarta.persistence.Cacheable;
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.Convert;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.EmbeddedId;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
+import jakarta.persistence.ExcludeDefaultListeners;
+import jakarta.persistence.ExcludeSuperclassListeners;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.FlushModeType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.IdClass;
+import jakarta.persistence.Lob;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.MapKey;
+import jakarta.persistence.MapKeyClass;
+import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.MapsId;
+import jakarta.persistence.NamedNativeQueries;
+import jakarta.persistence.NamedNativeQuery;
+import jakarta.persistence.NamedQueries;
+import jakarta.persistence.NamedQuery;
+import jakarta.persistence.NamedStoredProcedureQueries;
+import jakarta.persistence.NamedStoredProcedureQuery;
+import jakarta.persistence.OneToMany;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.OrderBy;
+import jakarta.persistence.ParameterMode;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
+import jakarta.persistence.PostRemove;
+import jakarta.persistence.PostUpdate;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreRemove;
+import jakarta.persistence.PreUpdate;
+import jakarta.persistence.QueryHint;
+import jakarta.persistence.SequenceGenerator;
+import jakarta.persistence.StoredProcedureParameter;
+import jakarta.persistence.Version;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.event.BeanLifecycleCallbacks;
 import org.apache.openjpa.event.LifecycleCallbacks;
@@ -147,6 +154,7 @@ import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.AccessCode;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.DelegatingMetaDataFactory;
@@ -156,6 +164,7 @@ import org.apache.openjpa.meta.LifecycleMetaData;
 import org.apache.openjpa.meta.MetaDataFactory;
 import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.meta.MetaDataRepository;
+import org.apache.openjpa.meta.MultiQueryMetaData;
 import org.apache.openjpa.meta.Order;
 import org.apache.openjpa.meta.QueryMetaData;
 import org.apache.openjpa.meta.SequenceMetaData;
@@ -167,8 +176,8 @@ import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
+import static org.apache.openjpa.persistence.MetaDataTag.CONVERT;
 
-import serp.util.Strings;
 
 /**
  * Persistence annotation metadata parser. Currently does not parse
@@ -176,7 +185,6 @@ import serp.util.Strings;
  *
  * @author Abe White
  * @author Steve Kim
- * @nojavadoc
  */
 public class AnnotationPersistenceMetaDataParser
     implements MetaDataModes {
@@ -185,7 +193,7 @@ public class AnnotationPersistenceMetaDataParser
         (AnnotationPersistenceMetaDataParser.class);
 
     private static final Map<Class<?>, MetaDataTag> _tags =
-        new HashMap<Class<?>, MetaDataTag>();
+        new HashMap<>();
 
     static {
         _tags.put(Access.class, ACCESS);
@@ -204,6 +212,8 @@ public class AnnotationPersistenceMetaDataParser
         _tags.put(MapsId.class, MAPPED_BY_ID);
         _tags.put(NamedNativeQueries.class, NATIVE_QUERIES);
         _tags.put(NamedNativeQuery.class, NATIVE_QUERY);
+        _tags.put(NamedStoredProcedureQueries.class, STOREDPROCEDURE_QUERIES);
+        _tags.put(NamedStoredProcedureQuery.class, STOREDPROCEDURE_QUERY);
         _tags.put(NamedQueries.class, QUERIES);
         _tags.put(NamedQuery.class, QUERY);
         _tags.put(OrderBy.class, ORDER_BY);
@@ -224,6 +234,7 @@ public class AnnotationPersistenceMetaDataParser
         _tags.put(ElementType.class, ELEM_TYPE);
         _tags.put(ExternalValues.class, EXTERNAL_VALS);
         _tags.put(Externalizer.class, EXTERNALIZER);
+        _tags.put(Convert.class, CONVERT);
         _tags.put(Factory.class, FACTORY);
         _tags.put(FetchGroup.class, FETCH_GROUP);
         _tags.put(FetchGroups.class, FETCH_GROUPS);
@@ -235,7 +246,6 @@ public class AnnotationPersistenceMetaDataParser
         _tags.put(ManagedInterface.class, MANAGED_INTERFACE);
         _tags.put(ReadOnly.class, READ_ONLY);
         _tags.put(Type.class, TYPE);
-        _tags.put(Replicated.class, REPLICATED);
     }
 
     private final OpenJPAConfiguration _conf;
@@ -246,11 +256,11 @@ public class AnnotationPersistenceMetaDataParser
     private int _mode = MODE_NONE;
 
     // packages and their parse modes
-    private final Map<Package, Integer> _pkgs = new HashMap<Package, Integer>();
+    private final Map<Package, Integer> _pkgs = new HashMap<>();
 
     // the class we were invoked to parse
     protected Class<?> _cls = null;
-    protected Stack<Class<?>> _stack = new Stack<Class<?>>();
+    protected Stack<Class<?>> _stack = new Stack<>();
     private File _file = null;
 
     /**
@@ -473,6 +483,14 @@ public class AnnotationPersistenceMetaDataParser
                     if (isQueryMode() && (pkgMode & MODE_QUERY) == 0)
                         parseNamedQueries(pkg, (NamedQuery) anno);
                     break;
+                case STOREDPROCEDURE_QUERIES:
+                    if (isQueryMode())
+                        parseNamedStoredProcedureQueries(pkg, ((NamedStoredProcedureQueries) anno).value());
+                    break;
+                case STOREDPROCEDURE_QUERY:
+                    if (isQueryMode())
+                        parseNamedStoredProcedureQueries(pkg, ((NamedStoredProcedureQuery) anno));
+                    break;
                 case SEQ_GENERATOR:
                     if (isMappingOverrideMode() &&
                         (pkgMode & MODE_MAPPING) == 0)
@@ -520,7 +538,7 @@ public class AnnotationPersistenceMetaDataParser
         if (num == null)
             num = mode;
         else
-            num = num.intValue() | mode;
+            num = num | mode;
         _pkgs.put(pkg, num);
     }
 
@@ -534,12 +552,10 @@ public class AnnotationPersistenceMetaDataParser
         // setup defaults (ie: Basic fields).
         ClassMetaData m = getRepository().getCachedMetaData(_cls);
         if (m == null) {
-            if (!(AccessController.doPrivileged(J2DoPrivHelper.isAnnotationPresentAction(_cls, Entity.class)))
-                .booleanValue()
-                && !(AccessController.doPrivileged(J2DoPrivHelper.isAnnotationPresentAction(_cls, Embeddable.class)))
-                    .booleanValue()
-                && !(AccessController.doPrivileged(J2DoPrivHelper.isAnnotationPresentAction(_cls,
-                    MappedSuperclass.class))).booleanValue())
+            if (!AccessController.doPrivileged(J2DoPrivHelper.isAnnotationPresentAction(_cls, Entity.class))
+                && !AccessController.doPrivileged(J2DoPrivHelper.isAnnotationPresentAction(_cls, Embeddable.class))
+                && !AccessController.doPrivileged(J2DoPrivHelper.isAnnotationPresentAction(_cls,
+                    MappedSuperclass.class)))
                 return null;
         }
         // find / create metadata
@@ -559,7 +575,7 @@ public class AnnotationPersistenceMetaDataParser
                 meta.setEmbeddedOnly(true);
             else {
                 meta.setEmbeddedOnly(false);
-                if (!StringUtils.isEmpty(entity.name()))
+                if (!StringUtil.isEmpty(entity.name()))
                     meta.setTypeAlias(entity.name());
             }
         }
@@ -600,8 +616,13 @@ public class AnnotationPersistenceMetaDataParser
                         warnFlushMode(meta);
                     break;
                 case ID_CLASS:
-                    if (isMetaDataMode())
+                    if (isMetaDataMode()) {
+                    	Class<?> idClass = ((IdClass)anno).value();
+                    	if (!Serializable.class.isAssignableFrom(idClass)) {
+                    		_log.warn(_loc.get("id-class-not-serializable", idClass, _cls).toString());
+                    	}
                         meta.setObjectIdType(((IdClass) anno).value(), true);
+                    }
                     break;
                 case NATIVE_QUERIES:
                     if (isQueryMode() && (meta.getSourceMode() & MODE_QUERY)==0)
@@ -619,6 +640,14 @@ public class AnnotationPersistenceMetaDataParser
                 case QUERY:
                     if (isQueryMode() && (meta.getSourceMode() & MODE_QUERY)==0)
                         parseNamedQueries(_cls, (NamedQuery) anno);
+                    break;
+                case STOREDPROCEDURE_QUERIES:
+                    if (isQueryMode())
+                        parseNamedStoredProcedureQueries(_cls, ((NamedStoredProcedureQueries) anno).value());
+                    break;
+                case STOREDPROCEDURE_QUERY:
+                    if (isQueryMode())
+                        parseNamedStoredProcedureQueries(_cls, ((NamedStoredProcedureQuery) anno));
                     break;
                 case SEQ_GENERATOR:
                     if (isMappingOverrideMode())
@@ -647,9 +676,6 @@ public class AnnotationPersistenceMetaDataParser
                     if (isMetaDataMode())
                         parseManagedInterface(meta, (ManagedInterface) anno);
                     break;
-                case REPLICATED:
-                	meta.setReplicated(true);
-                	break;
                 case ACCESS:
                     if (isMetaDataMode())
                         parseAccess(meta, (Access)anno);
@@ -737,12 +763,18 @@ public class AnnotationPersistenceMetaDataParser
      */
     private ClassMetaData getMetaData() {
         ClassMetaData meta = getRepository().getCachedMetaData(_cls);
-        if (meta != null &&
-            ((isMetaDataMode() && (meta.getSourceMode() & MODE_META) != 0) ||
-                (isMappingMode() &&
-                    (meta.getSourceMode() & MODE_MAPPING) != 0))) {
-            if (_log.isWarnEnabled())
+        if (meta != null
+            && ((isMetaDataMode()
+                && (meta.getSourceMode() & MODE_META) != 0)
+                || (isMappingMode() && (meta.getSourceMode() & MODE_MAPPING) != 0) ) ) {
+            if (_log.isWarnEnabled()) {
                 _log.warn(_loc.get("dup-metadata", _cls.getName()));
+            }
+            if(_log.isTraceEnabled()) {
+                _log.trace(String.format(
+                    "MetaData originally obtained from file: %s under mode :%d with scope %s, and type :%d",
+                    meta.getSourceName(), meta.getSourceMode(), meta.getSourceScope(), meta.getSourceType()));
+            }
             return null;
         }
 
@@ -750,7 +782,8 @@ public class AnnotationPersistenceMetaDataParser
             meta = getRepository().addMetaData(_cls, getAccessCode(_cls));
             meta.setEnvClassLoader(_envLoader);
             meta.setSourceMode(MODE_NONE);
-            meta.setSource(getSourceFile(), SourceTracker.SRC_ANNOTATIONS);
+            meta.setSource(getSourceFile(), SourceTracker.SRC_ANNOTATIONS, getSourceFile() == null ? ""
+                : getSourceFile().getPath());
         }
         return meta;
     }
@@ -783,7 +816,7 @@ public class AnnotationPersistenceMetaDataParser
         while (cls.getEnclosingClass() != null)
             cls = cls.getEnclosingClass();
 
-        String rsrc = StringUtils.replace(cls.getName(), ".", "/");
+        String rsrc = StringUtil.replace(cls.getName(), ".", "/");
         ClassLoader loader = AccessController.doPrivileged(
             J2DoPrivHelper.getClassLoaderAction(cls));
         if (loader == null)
@@ -812,24 +845,29 @@ public class AnnotationPersistenceMetaDataParser
      * Parse @DataStoreId.
      */
     private void parseDataStoreId(ClassMetaData meta, DataStoreId id) {
+        parseDataStoreId(meta, id.strategy(), id.generator());
+    }
+
+    static void parseDataStoreId(ClassMetaData meta, GenerationType strategy,
+        String generator) {
         meta.setIdentityType(ClassMetaData.ID_DATASTORE);
 
-        int strat = getGeneratedValueStrategy(meta, id.strategy(),
-            id.generator());
+        int strat = getGeneratedValueStrategy(meta, strategy,
+            generator);
         if (strat != -1)
             meta.setIdentityStrategy(strat);
         else {
-            switch (id.strategy()) {
+            switch (strategy) {
                 case TABLE:
                 case SEQUENCE:
                     // technically we should have separate system table and
                     // sequence generators, but it's easier to just rely on
                     // the system org.apache.openjpa.Sequence setting for both
-                    if (StringUtils.isEmpty(id.generator()))
+                    if (StringUtil.isEmpty(generator))
                         meta.setIdentitySequenceName(
                             SequenceMetaData.NAME_SYSTEM);
                     else
-                        meta.setIdentitySequenceName(id.generator());
+                        meta.setIdentitySequenceName(generator);
                     break;
                 case AUTO:
                     meta.setIdentityStrategy(ValueStrategies.NATIVE);
@@ -838,7 +876,7 @@ public class AnnotationPersistenceMetaDataParser
                     meta.setIdentityStrategy(ValueStrategies.AUTOASSIGN);
                     break;
                 default:
-                    throw new UnsupportedException(id.strategy().toString());
+                    throw new UnsupportedException(strategy.toString());
             }
         }
     }
@@ -853,17 +891,24 @@ public class AnnotationPersistenceMetaDataParser
 
     /**
      * Parse @DataCache.
-     * 
+     *
      */
     private void parseDataCache(ClassMetaData meta, DataCache cache) {
-        if (cache.timeout() != Integer.MIN_VALUE) {
-            meta.setDataCacheTimeout(cache.timeout());
+        parseDataCache(meta, cache.enabled(), cache.name(), cache.timeout());
+    }
+
+    static void parseDataCache(ClassMetaData meta,
+            boolean enabled,
+            String name,
+            int timeout) {
+        if (timeout != Integer.MIN_VALUE) {
+            meta.setDataCacheTimeout(timeout);
         }
-        String cacheName = cache.name();
-        if (StringUtils.isEmpty(cacheName)) {
+        String cacheName = name;
+        if (StringUtil.isEmpty(cacheName)) {
             cacheName = org.apache.openjpa.datacache.DataCache.NAME_DEFAULT;
         }
-        meta.setDataCacheName(cache.enabled() ? cacheName : null);
+        meta.setDataCacheName(enabled ? cacheName : null);
     }
 
     private void parseManagedInterface(ClassMetaData meta,
@@ -879,7 +924,7 @@ public class AnnotationPersistenceMetaDataParser
         if (detached != null) {
             if (!detached.enabled())
                 meta.setDetachedState(null);
-            else if (StringUtils.isEmpty(detached.fieldName()))
+            else if (StringUtil.isEmpty(detached.fieldName()))
                 meta.setDetachedState(ClassMetaData.SYNTHETIC);
             else
                 meta.setDetachedState(detached.fieldName());
@@ -887,11 +932,10 @@ public class AnnotationPersistenceMetaDataParser
             Field[] fields = (Field[]) AccessController.doPrivileged(
                 J2DoPrivHelper.getDeclaredFieldsAction(
                     meta.getDescribedType()));
-            for (int i = 0; i < fields.length; i++)
-                if ((AccessController.doPrivileged(J2DoPrivHelper
-                    .isAnnotationPresentAction(fields[i], DetachedState.class)))
-                    .booleanValue())
-                    meta.setDetachedState(fields[i].getName());
+            for (Field field : fields)
+                if (AccessController.doPrivileged(J2DoPrivHelper
+                        .isAnnotationPresentAction(field, DetachedState.class)))
+                    meta.setDetachedState(field.getName());
         }
     }
 
@@ -906,12 +950,12 @@ public class AnnotationPersistenceMetaDataParser
         for (Class<?> cls : classes) {
             if (!_conf.getCallbackOptionsInstance().getAllowsDuplicateListener()) {
                 if (listenerColl == null)
-                    listenerColl = new ArrayList<Class<?>>();
-                if (listenerColl.contains(cls)) 
+                    listenerColl = new ArrayList<>();
+                if (listenerColl.contains(cls))
                     continue;
                 listenerColl.add(cls);
             }
-            
+
             parsed = parseCallbackMethods(cls, parsed, true, true,
                 getRepository());
         }
@@ -934,16 +978,15 @@ public class AnnotationPersistenceMetaDataParser
             throw new IllegalArgumentException("cls cannot be null");
 
         // first sort / filter based on inheritance
-        Set<Method> methods = new TreeSet<Method>(MethodComparator.
+        Set<Method> methods = new TreeSet<>(MethodComparator.
             getInstance());
 
         int mods;
         Class<?> sup = cls;
         MethodKey key;
-        Set<MethodKey> seen = new HashSet<MethodKey>();
+        Set<MethodKey> seen = new HashSet<>();
         do {
-            for (Method m : (Method[]) AccessController.doPrivileged(
-                J2DoPrivHelper.getDeclaredMethodsAction(sup))) {
+            for (Method m : (Method[]) AccessController.doPrivileged(J2DoPrivHelper.getDeclaredMethodsAction(sup))) {
                 mods = m.getModifiers();
                 if (Modifier.isStatic(mods) || Modifier.isFinal(mods) ||
                     Object.class.equals(m.getDeclaringClass()))
@@ -974,18 +1017,18 @@ public class AnnotationPersistenceMetaDataParser
                     callbacks = (Collection<LifecycleCallbacks>[])
                         new Collection[LifecycleEvent.ALL_EVENTS.length];
 
-                for (int i = 0; i < events.length; i++) {
-                    int e = events[i];
+                for (int e : events) {
                     if (callbacks[e] == null)
-                        callbacks[e] = new ArrayList<LifecycleCallbacks>(3);
+                        callbacks[e] = new ArrayList<>(3);
                     MetaDataParsers.validateMethodsForSameCallback(cls,
-                        callbacks[e], m, tag, conf, repos.getLog());
+                            callbacks[e], m, tag, conf, repos.getLog());
                     if (listener) {
                         callbacks[e].add(new BeanLifecycleCallbacks(cls, m,
-                            false));
-                    } else {
+                                false));
+                    }
+                    else {
                         callbacks[e].add(new MethodLifecycleCallbacks(m,
-                            false));
+                                false));
                     }
                 }
             }
@@ -1024,54 +1067,84 @@ public class AnnotationPersistenceMetaDataParser
      * If FetchGroup A includes FetchGroup B, then a bi-link is set between
      * A and B. Both A and B must be declared in the same Class.
      * <br>
-     * Call {@link #parseFetchAttribute(ClassMetaData,
-     * org.apache.openjpa.meta.FetchGroup, FetchAttribute) only after the
+     * Call {@link #parseFetchAttribute(ClassMetaData, org.apache.openjpa.meta.FetchGroup, FetchAttributeImpl)}
+     * only after the
      * bi-links have been established, because a field f will not only add the
-     * fetch group A which explictly includes f to its custom fetch groups but
+     * fetch group A which explicitly includes f to its custom fetch groups but
      * also will also add any fetch group B that includes A.
      */
-    private void parseFetchGroups(ClassMetaData meta, FetchGroup... groups) {
-        org.apache.openjpa.meta.FetchGroup fg;
-        for (FetchGroup group : groups) {
-            if (StringUtils.isEmpty(group.name()))
-                throw new MetaDataException(_loc.get("unnamed-fg", meta));
+    static void parseFetchGroups(ClassMetaData meta, FetchGroup... groups) {
+       FetchGroupImpl[] fetchGroupImpls = new FetchGroupImpl[groups.length];
+       for (int i = 0; i < groups.length; i++) {
+           FetchAttribute[] fetchAttributes = groups[i].attributes();
+           FetchAttributeImpl[] fetchAttributeImpls= null;
+           if (fetchAttributes != null && fetchAttributes.length > 0) {
+               fetchAttributeImpls = new FetchAttributeImpl[fetchAttributes.length];
+               for (int j = 0; j < fetchAttributes.length; j++) {
+                   fetchAttributeImpls[j] =
+                           new FetchAttributeImpl(fetchAttributes[j].name(), fetchAttributes[j].recursionDepth());
+               }
+           }
+           fetchGroupImpls[i] = new FetchGroupImpl(groups[i].name(), groups[i].postLoad());
+           if (fetchAttributeImpls != null) {
+               fetchGroupImpls[i].setAttributes(fetchAttributeImpls);
+           }
+           if (groups[i].fetchGroups() != null) {
+               fetchGroupImpls[i].setFetchGroups(groups[i].fetchGroups());
+           }
+       }
 
-            fg = meta.addDeclaredFetchGroup(group.name());
-            if (group.postLoad())
-                fg.setPostLoad(true);
-            for (String s : group.fetchGroups()) {
-                fg.addDeclaredInclude(s);
-            }
-        }
-        // Add the parent-child style bi-links between fetch groups in a
-        // separate pass.
-        for (FetchGroup group:groups) {
-        	fg = meta.getFetchGroup(group.name());
-        	String[] includedFetchGropNames = fg.getDeclaredIncludes();
-        	for (String includedFectchGroupName:includedFetchGropNames) {
-        		org.apache.openjpa.meta.FetchGroup child =
-        	    meta.getFetchGroup(includedFectchGroupName);
-        		if (child == null)
-                    throw new UserException(_loc.get("missing-included-fg",
-                            meta.getDescribedType().getName(), fg.getName(),
-                            includedFectchGroupName));
-        		child.addContainedBy(fg);
-        	}
-        }
-
-        for (FetchGroup group : groups) {
-            fg = meta.getFetchGroup(group.name());
-            for (FetchAttribute attr : group.attributes())
-                parseFetchAttribute(meta, fg, attr);
-        }
+       parseFetchGroups(meta, fetchGroupImpls);
     }
+
+   /**
+    * Parse fetch group input for the FetchGroup and FetchGroups annotations
+    * as well as for the fetch-group and fetch-groups XML metadata
+    * @param meta
+    * @param groups
+    */
+   static void parseFetchGroups(ClassMetaData meta, FetchGroupImpl... groups) {
+       org.apache.openjpa.meta.FetchGroup fg;
+       for (FetchGroupImpl group : groups) {
+           if (StringUtil.isEmpty(group.name()))
+               throw new MetaDataException(_loc.get("unnamed-fg", meta));
+
+           fg = meta.addDeclaredFetchGroup(group.name());
+           if (group.postLoad())
+               fg.setPostLoad(true);
+           for (String s : group.fetchGroups()) {
+               fg.addDeclaredInclude(s);
+           }
+       }
+       // Add the parent-child style bi-links between fetch groups in a
+       // separate pass.
+       for (FetchGroupImpl group:groups) {
+           fg = meta.getFetchGroup(group.name());
+           String[] includedFetchGropNames = fg.getDeclaredIncludes();
+           for (String includedFectchGroupName:includedFetchGropNames) {
+               org.apache.openjpa.meta.FetchGroup child =
+               meta.getFetchGroup(includedFectchGroupName);
+               if (child == null)
+                   throw new UserException(_loc.get("missing-included-fg",
+                           meta.getDescribedType().getName(), fg.getName(),
+                           includedFectchGroupName));
+               child.addContainedBy(fg);
+           }
+       }
+
+       for (FetchGroupImpl group : groups) {
+           fg = meta.getFetchGroup(group.name());
+           for (FetchAttributeImpl attr : group.attributes())
+               parseFetchAttribute(meta, fg, attr);
+       }
+   }
 
 
     /**
      * Set a field's fetch group.
      */
-    private void parseFetchAttribute(ClassMetaData meta,
-        org.apache.openjpa.meta.FetchGroup fg, FetchAttribute attr) {
+    private static void parseFetchAttribute(ClassMetaData meta,
+        org.apache.openjpa.meta.FetchGroup fg, FetchAttributeImpl attr) {
         FieldMetaData field = meta.getDeclaredField(attr.name());
         if (field == null
             || field.getManagement() != FieldMetaData.MANAGE_PERSISTENT)
@@ -1100,8 +1173,8 @@ public class AnnotationPersistenceMetaDataParser
         fmd.setExplicit(true);
 
         AnnotatedElement el = (AnnotatedElement) member;
-        boolean lob = (AccessController.doPrivileged(J2DoPrivHelper
-            .isAnnotationPresentAction(el, Lob.class))).booleanValue();
+        boolean lob = AccessController.doPrivileged(J2DoPrivHelper
+                .isAnnotationPresentAction(el, Lob.class));
         if (isMetaDataMode()) {
             switch (pstrat) {
                 case BASIC:
@@ -1216,8 +1289,7 @@ public class AnnotationPersistenceMetaDataParser
                     break;
                 case EXTERNAL_VALS:
                     if (isMetaDataMode())
-                        fmd.setExternalValues(Strings.join(((ExternalValues)
-                            anno).value(), ","));
+                        fmd.setExternalValues(StringUtil.join(((ExternalValues) anno).value(), ","));
                     break;
                 case EXTERNALIZER:
                     if (isMetaDataMode())
@@ -1258,6 +1330,10 @@ public class AnnotationPersistenceMetaDataParser
                         fmd.setTypeOverride(toOverrideType(((Type) anno).
                             value()));
                     break;
+                case CONVERT:
+                    if (isMetaDataMode() && !((Convert) anno).disableConversion())
+                        fmd.setConverter(((Convert) anno).converter());
+                    break;
                 default:
                     throw new UnsupportedException(_loc.get("unsupported", fmd,
                         anno.toString()));
@@ -1289,7 +1365,7 @@ public class AnnotationPersistenceMetaDataParser
     /**
      * Convert the given class to its OpenJPA type override equivalent.
      */
-    private static Class<?> toOverrideType(Class<?> cls) {
+    public static Class<?> toOverrideType(Class<?> cls) {
         return (cls == Entity.class)
             ? org.apache.openjpa.enhance.PersistenceCapable.class : cls;
     }
@@ -1330,17 +1406,27 @@ public class AnnotationPersistenceMetaDataParser
                     // technically we should have separate system table and
                     // sequence generators, but it's easier to just rely on
                     // the system org.apache.openjpa.Sequence setting for both
-                    if (StringUtils.isEmpty(generator))
+                    if (StringUtil.isEmpty(generator))
                         fmd.setValueSequenceName(SequenceMetaData.NAME_SYSTEM);
                     else
                         fmd.setValueSequenceName(generator);
                     break;
-                case AUTO:
-                    fmd.setValueSequenceName(SequenceMetaData.NAME_SYSTEM);
-                    break;
                 case IDENTITY:
                     fmd.setValueStrategy(ValueStrategies.AUTOASSIGN);
                     break;
+                case AUTO:
+                    if (fmd.getType() != UUID.class) {
+                        fmd.setValueSequenceName(SequenceMetaData.NAME_SYSTEM);
+                        return;
+                    }
+                case UUID:
+                    if (fmd.getType() == UUID.class) {
+                        fmd.setValueStrategy(ValueStrategies.UUID_JPA);
+                        return;
+                    } else if (fmd.getType() == String.class) {
+                        fmd.setValueStrategy(ValueStrategies.UUID_TYPE4_CANON);
+                        return;
+                    }
                 default:
                     throw new UnsupportedException(strategy.toString());
             }
@@ -1354,7 +1440,7 @@ public class AnnotationPersistenceMetaDataParser
      */
     private static int getGeneratedValueStrategy(Object context,
         GenerationType strategy, String generator) {
-        if (strategy != AUTO || StringUtils.isEmpty(generator))
+        if (strategy != AUTO || StringUtil.isEmpty(generator))
             return -1;
 
         if (Generator.UUID_HEX.equals(generator))
@@ -1452,7 +1538,7 @@ public class AnnotationPersistenceMetaDataParser
         if (!anno.optional())
             fmd.setNullValue(FieldMetaData.NULL_EXCEPTION);
 
-        if (isMappingOverrideMode() && !StringUtils.isEmpty(anno.mappedBy()))
+        if (isMappingOverrideMode() && !StringUtil.isEmpty(anno.mappedBy()))
             fmd.setMappedBy(anno.mappedBy());
         if (anno.targetEntity() != void.class)
             fmd.setTypeOverride(anno.targetEntity());
@@ -1493,7 +1579,7 @@ public class AnnotationPersistenceMetaDataParser
         }
 
         fmd.setInDefaultFetchGroup(anno.fetch() == FetchType.EAGER);
-        if (isMappingOverrideMode() && !StringUtils.isEmpty(anno.mappedBy()))
+        if (isMappingOverrideMode() && !StringUtil.isEmpty(anno.mappedBy()))
             fmd.setMappedBy(anno.mappedBy());
         if (anno.targetEntity() != void.class)
             fmd.getElement().setDeclaredType(anno.targetEntity());
@@ -1510,16 +1596,16 @@ public class AnnotationPersistenceMetaDataParser
             case JavaTypes.ARRAY:
             case JavaTypes.COLLECTION:
             case JavaTypes.MAP:
-                if (JavaTypes.maybePC(fmd.getElement()))
+                if (fmd.getDeclaredType() == Properties.class || JavaTypes.maybePC(fmd.getElement()))
                     break;
                 // no break
             default:
                 throw new MetaDataException(_loc.get("bad-meta-anno", fmd,
-                    "OneToMany"));
+                    "ManyToMany"));
         }
 
         fmd.setInDefaultFetchGroup(anno.fetch() == FetchType.EAGER);
-        if (isMappingOverrideMode() && !StringUtils.isEmpty(anno.mappedBy()))
+        if (isMappingOverrideMode() && !StringUtil.isEmpty(anno.mappedBy()))
             fmd.setMappedBy(anno.mappedBy());
         if (anno.targetEntity() != void.class)
             fmd.getElement().setDeclaredType(anno.targetEntity());
@@ -1532,7 +1618,7 @@ public class AnnotationPersistenceMetaDataParser
      */
     private void parseMapKey(FieldMetaData fmd, MapKey anno) {
         String name = anno.name();
-        if (StringUtils.isEmpty(name))
+        if (StringUtil.isEmpty(name))
             fmd.getKey().setValueMappedBy(ValueMetaData.MAPPED_BY_PK);
         else
             fmd.getKey().setValueMappedBy(name);
@@ -1604,7 +1690,7 @@ public class AnnotationPersistenceMetaDataParser
                     "Persistent"));
         }
 
-        if (!StringUtils.isEmpty(anno.mappedBy()))
+        if (!StringUtil.isEmpty(anno.mappedBy()))
             fmd.setMappedBy(anno.mappedBy());
         fmd.setInDefaultFetchGroup(anno.fetch() == FetchType.EAGER);
         if (!anno.optional())
@@ -1631,7 +1717,9 @@ public class AnnotationPersistenceMetaDataParser
             throw new MetaDataException(_loc.get("bad-meta-anno", fmd,
                 "PersistentCollection"));
 
-        if (!StringUtils.isEmpty(anno.mappedBy()))
+        fmd.setPersistentCollection(true);
+
+        if (!StringUtil.isEmpty(anno.mappedBy()))
             fmd.setMappedBy(anno.mappedBy());
         fmd.setInDefaultFetchGroup(anno.fetch() == FetchType.EAGER);
         if (anno.elementType() != void.class)
@@ -1718,7 +1806,7 @@ public class AnnotationPersistenceMetaDataParser
             if (cascade == CascadeType.ALL || cascade == CascadeType.REMOVE)
                 vmd.setCascadeDelete(ValueMetaData.CASCADE_IMMEDIATE);
             if (cascade == CascadeType.ALL || cascade == CascadeType.PERSIST)
-                vmd.setCascadePersist(ValueMetaData.CASCADE_IMMEDIATE);
+                vmd.setCascadePersist(ValueMetaData.CASCADE_IMMEDIATE, false);
             if (cascade == CascadeType.ALL || cascade == CascadeType.MERGE)
                 vmd.setCascadeAttach(ValueMetaData.CASCADE_IMMEDIATE);
             if (cascade == CascadeType.ALL || cascade == CascadeType.DETACH)
@@ -1739,7 +1827,7 @@ public class AnnotationPersistenceMetaDataParser
     private void parseSequenceGenerator(AnnotatedElement el,
         SequenceGenerator gen) {
         String name = gen.name();
-        if (StringUtils.isEmpty(name))
+        if (StringUtil.isEmpty(name))
             throw new MetaDataException(_loc.get("no-seq-name", el));
 
         if (_log.isTraceEnabled())
@@ -1756,7 +1844,7 @@ public class AnnotationPersistenceMetaDataParser
         // create new sequence
         meta = getRepository().addSequenceMetaData(name);
         String seq = gen.sequenceName();
-        // Do not normalize the sequence name if it appears to be a plugin 
+        // Do not normalize the sequence name if it appears to be a plugin
         if (seq.indexOf('(') == -1){
             seq = normalizeSequenceName(seq);
         }
@@ -1770,7 +1858,7 @@ public class AnnotationPersistenceMetaDataParser
 
         // create plugin string from info
         String clsName, props;
-        if (StringUtils.isEmpty(seq)) {
+        if (StringUtil.isEmpty(seq)) {
             clsName = SequenceMetaData.IMPL_NATIVE;
             props = null;
         } else if (seq.indexOf('(') != -1) // plugin
@@ -1799,9 +1887,9 @@ public class AnnotationPersistenceMetaDataParser
     private void parseNamedQueries(AnnotatedElement el, NamedQuery... queries) {
         QueryMetaData meta;
         for (NamedQuery query : queries) {
-            if (StringUtils.isEmpty(query.name()))
+            if (StringUtil.isEmpty(query.name()))
                 throw new MetaDataException(_loc.get("no-query-name", el));
-            if (StringUtils.isEmpty(query.query()))
+            if (StringUtil.isEmpty(query.query()))
                 throw new MetaDataException(_loc.get("no-query-string",
                     query.name(), el));
 
@@ -1819,17 +1907,17 @@ public class AnnotationPersistenceMetaDataParser
                 continue;
             }
             meta = getRepository().addQueryMetaData(_cls, query.name());
-            meta.setQueryString(query.query());
             meta.setLanguage(JPQLParser.LANG_JPQL);
+            meta.setQueryString(query.query());
             for (QueryHint hint : query.hints())
                 meta.addHint(hint.name(), hint.value());
             LockModeType lmt = processNamedQueryLockModeType(query);
-            if (lmt != null) {
+            if (lmt != null && lmt != LockModeType.NONE) {
                 meta.addHint("openjpa.FetchPlan.ReadLockMode", lmt);
             }
 
             meta.setSource(getSourceFile(), (el instanceof Class) ? el : null,
-                SourceTracker.SRC_ANNOTATIONS);
+                SourceTracker.SRC_ANNOTATIONS, getSourceFile() == null ? "" : getSourceFile().getPath());
             if (isMetaDataMode())
                 meta.setSourceMode(MODE_META);
             else if (isMappingMode())
@@ -1840,19 +1928,20 @@ public class AnnotationPersistenceMetaDataParser
     }
 
     /**
-     * A private worker method that calculates the lock mode for an individual NamedQuery. If the NamedQuery is 
+     * A private worker method that calculates the lock mode for an individual NamedQuery. If the NamedQuery is
      * configured to use the NONE lock mode(explicit or implicit), this method will promote the lock to a READ
-     * level lock. This was done to allow for JPA1 apps to function properly under a 2.0 runtime. 
+     * level lock. This was done to allow for JPA1 apps to function properly under a 2.0 runtime.
      */
     private LockModeType processNamedQueryLockModeType(NamedQuery query) {
         LockModeType lmt = query.lockMode();
         if (query.lockMode() != null) {
             String lm = _conf.getLockManager();
+            boolean optimistic = _conf.getOptimistic();
             if (lm != null) {
                 lm = lm.toLowerCase();
                 if (lm.contains("pessimistic")) {
-                    if (lmt == LockModeType.NONE) {
-                        if (_log.isWarnEnabled() == true) {
+                    if (lmt == LockModeType.NONE && !optimistic) {
+                        if (_log.isWarnEnabled()) {
                             _log.warn(_loc.get("override-named-query-lock-mode", new String[] { "annotation",
                                 query.name(), _cls.getName() }));
                         }
@@ -1871,10 +1960,10 @@ public class AnnotationPersistenceMetaDataParser
         NamedNativeQuery... queries) {
         QueryMetaData meta;
         for (NamedNativeQuery query : queries) {
-            if (StringUtils.isEmpty(query.name()))
+            if (StringUtil.isEmpty(query.name()))
                 throw new MetaDataException(_loc.get("no-native-query-name",
                     el));
-            if (StringUtils.isEmpty(query.query()))
+            if (StringUtil.isEmpty(query.query()))
                 throw new MetaDataException(_loc.get("no-native-query-string",
                     query.name(), el));
 
@@ -1891,21 +1980,21 @@ public class AnnotationPersistenceMetaDataParser
             }
 
             meta = getRepository().addQueryMetaData(null, query.name());
-            meta.setQueryString(query.query());
             meta.setLanguage(QueryLanguages.LANG_SQL);
+            meta.setQueryString(query.query());
             Class<?> res = query.resultClass();
             if (ImplHelper.isManagedType(getConfiguration(), res))
                 meta.setCandidateType(res);
             else if (!void.class.equals(res))
                 meta.setResultType(res);
 
-            if (!StringUtils.isEmpty(query.resultSetMapping()))
+            if (!StringUtil.isEmpty(query.resultSetMapping()))
                 meta.setResultSetMappingName(query.resultSetMapping());
             for (QueryHint hint : query.hints())
                 meta.addHint(hint.name(), hint.value());
 
             meta.setSource(getSourceFile(), (el instanceof Class) ? el : null,
-                SourceTracker.SRC_ANNOTATIONS);
+                SourceTracker.SRC_ANNOTATIONS, getSourceFile() == null ? "" : getSourceFile().getPath());
             if (isMetaDataMode())
                 meta.setSourceMode(MODE_META);
             else if (isMappingMode())
@@ -1934,6 +2023,7 @@ public class AnnotationPersistenceMetaDataParser
             _method = m;
         }
 
+        @Override
         public int hashCode() {
             int code = 46 * 12 + _method.getName().hashCode();
             for (Class<?> param : _method.getParameterTypes())
@@ -1941,6 +2031,7 @@ public class AnnotationPersistenceMetaDataParser
             return code;
         }
 
+        @Override
         public boolean equals(Object o) {
             if (!(o instanceof MethodKey))
                 return false;
@@ -1962,6 +2053,7 @@ public class AnnotationPersistenceMetaDataParser
             return INSTANCE;
         }
 
+        @Override
         public int compare(Method m1, Method m2) {
             Class<?> c1 = m1.getDeclaringClass();
             Class<?> c2 = m2.getDeclaringClass();
@@ -1969,14 +2061,101 @@ public class AnnotationPersistenceMetaDataParser
                 if (c1.isAssignableFrom(c2))
                     return -1;
                 else
-					return 1;
-			}
-			int compare = m1.getName ().compareTo (m2.getName ());
-			if (compare == 0)
-				return m1.hashCode () - m2.hashCode ();
-			return compare;
-		}
-	}
+                    return 1;
+            }
+            int compare = m1.getName().compareTo(m2.getName ());
+            if (compare != 0) {
+                return compare;
+            }
+
+            Class<?>[] params1 = m1.getParameterTypes();
+            Class<?>[] params2 = m2.getParameterTypes();
+            compare = params1.length - params2.length;
+            if (compare != 0) {
+                return compare;
+            }
+
+            // Just using the Method#hashCode() is not enough as it only contains
+            // the hash of the class + the hash of the NAME of the method...
+            // Thus if they have the same number of parameters, we need to compare them all
+            for (int i = 0; i < params1.length; i++) {
+                compare = params1[i].hashCode() - params2[i].hashCode();
+                if (compare != 0) {
+                    return compare;
+                }
+            }
+
+            return 0;
+        }
+    }
+
+    /**
+     * An internal class used to mimic the FetchGroup annotation.
+     * This is needed to process the fetch-group element in xml
+     * metadata with common code for the annotation.
+     */
+    static class FetchGroupImpl {
+        private String name = "";
+        private boolean postLoad = false;
+        private FetchAttributeImpl[] attributes = {};
+        private String[] fetchGroups = {};
+
+        FetchGroupImpl(String name, boolean postLoad)
+        {
+            this.name = name;
+            this.postLoad = postLoad;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public boolean postLoad() {
+            return postLoad;
+        }
+
+        public FetchAttributeImpl[] attributes() {
+            return attributes;
+        }
+
+        public String[] fetchGroups() {
+            return fetchGroups;
+        }
+
+
+        public void setAttributes(FetchAttributeImpl[] attributes) {
+            this.attributes = attributes;
+        }
+
+        public void setFetchGroups(String[] fetchGroups) {
+            this.fetchGroups = fetchGroups;
+        }
+    }
+
+    /**
+     * An internal class used to mimic the FetchAttribute annotation.
+     * This is needed to process the fetch-attribute element in xml
+     * metadata with common code for the annotation.
+     */
+    static class FetchAttributeImpl {
+        private String name = "";
+        private int recursionDepth = Integer.MIN_VALUE;
+
+        public FetchAttributeImpl(String name, int recursionDepth) {
+            this.name = name;
+            this.recursionDepth = recursionDepth;
+        }
+
+        public String name() {
+            return name;
+        }
+
+        public int recursionDepth() {
+            return recursionDepth;
+        }
+
+
+    }
 
     protected String normalizeSequenceName(String seqName) {
         return seqName;
@@ -1988,6 +2167,76 @@ public class AnnotationPersistenceMetaDataParser
 
     protected String normalizeCatalogName(String catName) {
         return catName;
+    }
+
+
+    protected MultiQueryMetaData.Parameter.Mode toKernelParameterMode(ParameterMode mode) {
+        switch (mode) {
+            case IN : return MultiQueryMetaData.Parameter.Mode.IN;
+            case OUT: return MultiQueryMetaData.Parameter.Mode.OUT;
+            case INOUT: return MultiQueryMetaData.Parameter.Mode.INOUT;
+            case REF_CURSOR: return MultiQueryMetaData.Parameter.Mode.CURSOR;
+            default : return MultiQueryMetaData.Parameter.Mode.IN;
+        }
+    }
+
+    protected void addSourceInfo(AnnotatedElement el, QueryMetaData meta) {
+        meta.setSource(getSourceFile(), (el instanceof Class) ? el : null,
+                SourceTracker.SRC_ANNOTATIONS, getSourceFile() == null ? "" : getSourceFile().getPath());
+        if (isMetaDataMode())
+            meta.setSourceMode(MODE_META);
+        else if (isMappingMode())
+            meta.setSourceMode(MODE_MAPPING);
+        else
+            meta.setSourceMode(MODE_QUERY);
+    }
+
+    protected void addHints(QueryMetaData meta, QueryHint...hints) {
+        for (QueryHint hint : hints)
+            meta.addHint(hint.name(), hint.value());
+
+    }
+
+    private void parseNamedStoredProcedureQueries(AnnotatedElement el, NamedStoredProcedureQuery... procs) {
+        for (NamedStoredProcedureQuery proc : procs) {
+            if (StringUtil.isEmpty(proc.name()))
+                throw new MetaDataException(_loc.get("stored-proc-no-name", el));
+            if (StringUtil.isEmpty(proc.procedureName()))
+                throw new MetaDataException(_loc.get("stored-proc-no-dbname", el));
+
+            // Query metadata name
+            MultiQueryMetaData meta = new MultiQueryMetaData(_cls, proc.name(), proc.procedureName(), false);
+            QueryMetaData existing = getRepository().addQueryMetaData(meta);
+            if (existing != null && existing.getDefiningType() != meta.getDefiningType()) {
+                getLog().warn(_loc.get("dup-query", meta.getName(), el, existing.getDefiningType()));
+            }
+
+            // Important: The query string is the name of the database stored procedure
+            meta.setQueryString(proc.procedureName());
+
+            // For each mapping name/result class, add a component metadata
+            // The spec restricts that either ResultMappingName or ResultClasses be specified, but not both.
+            // This is relevant because the order of mapping must match the order in which the
+            // components are returned
+            Class<?>[] resultClasses = proc.resultClasses();
+            String[] resultSetMappings = proc.resultSetMappings();
+            if (resultClasses.length > 0 && resultSetMappings.length > 0)
+                throw new MetaDataException(_loc.get("stored-proc-both-mapping", el));
+            for (Class<?> res : resultClasses) {
+                meta.addComponent(res);
+            }
+            for (String mapping : resultSetMappings) {
+                meta.addComponent(mapping);
+            }
+            StoredProcedureParameter[] params = proc.parameters();
+            for (StoredProcedureParameter param : params) {
+                MultiQueryMetaData.Parameter p = new MultiQueryMetaData.Parameter(
+                        param.name(), param.type(), toKernelParameterMode(param.mode()));
+                meta.registerParameter(p);
+            }
+            addHints(meta, proc.hints());
+            addSourceInfo(el, meta);
+        }
     }
 }
 

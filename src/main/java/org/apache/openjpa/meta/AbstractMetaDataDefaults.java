@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -22,24 +22,20 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.openjpa.enhance.PCRegistry;
-import org.apache.openjpa.enhance.Reflection;
 import org.apache.openjpa.lib.log.Log;
-import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UserException;
 
 /**
  * Abstract implementation provides a set of generic utilities for detecting
- * persistence meta-data of Field/Member. Also provides bean-style properties 
- * such as access style or identity type to be used by default when such 
+ * persistence meta-data of Field/Member. Also provides bean-style properties
+ * such as access style or identity type to be used by default when such
  * information is not derivable from available meta-data.
  *
  * @author Abe White
@@ -79,6 +75,7 @@ public abstract class AbstractMetaDataDefaults
      * The default access type for base classes with ACCESS_UNKNOWN.
      * ACCESS_FIELD by default.
      */
+    @Override
     public int getDefaultAccessType() {
         return _access;
     }
@@ -92,21 +89,23 @@ public abstract class AbstractMetaDataDefaults
     }
 
     /**
-     * The default identity type for unmapped classes without primary 
+     * The default identity type for unmapped classes without primary
      * key fields. ID_UNKNOWN by default.
      */
+    @Override
     public int getDefaultIdentityType() {
         return _identity;
     }
 
     /**
-     * The default identity type for unmapped classes without primary 
+     * The default identity type for unmapped classes without primary
      * key fields. ID_UNKNOWN by default.
      */
     public void setDefaultIdentityType(int identity) {
         _identity = identity;
     }
 
+    @Override
     public int getCallbackMode() {
         return _callback;
     }
@@ -122,10 +121,12 @@ public abstract class AbstractMetaDataDefaults
             _callback &= ~mode;
     }
 
+    @Override
     public boolean getCallbacksBeforeListeners(int type) {
         return false;
     }
 
+    @Override
     public boolean isDeclaredInterfacePersistent() {
         return _interface;
     }
@@ -134,6 +135,7 @@ public abstract class AbstractMetaDataDefaults
         _interface = pers;
     }
 
+    @Override
     public boolean isDataStoreObjectIdFieldUnwrapped() {
         return _unwrapped;
     }
@@ -146,14 +148,17 @@ public abstract class AbstractMetaDataDefaults
         return _ignore;
     }
 
+    @Override
     public void setIgnoreNonPersistent(boolean ignore) {
         _ignore = ignore;
     }
 
+    @Override
     public void populate(ClassMetaData meta, int access) {
         populate(meta, access, false);
     }
-    
+
+    @Override
     public void populate(ClassMetaData meta, int access, boolean ignoreTransient) {
         if (meta.getDescribedType() == Object.class)
             return;
@@ -182,11 +187,11 @@ public abstract class AbstractMetaDataDefaults
             Member member;
             FieldMetaData fmd;
             for (int i = 0; i < fieldNames.length; i ++) {
-            	String property = fieldNames[i];
-                member = getMemberByProperty(meta, property,
-                	AccessCode.UNKNOWN, true);
-                if (member == null) // transient or indeterminable access
-                	continue;
+                String property = fieldNames[i];
+                member = getMemberByProperty(meta, property, AccessCode.UNKNOWN, true);
+                if (member == null) { // transient or indeterminable access
+                    continue;
+                }
                 fmd = meta.addDeclaredField(property, fieldTypes[i]);
                 fmd.backingMember(member);
                 populate(fmd);
@@ -211,15 +216,14 @@ public abstract class AbstractMetaDataDefaults
     private void populateFromReflection(ClassMetaData meta, boolean ignoreTransient) {
         List<Member> members = getPersistentMembers(meta, ignoreTransient);
         boolean iface = meta.getDescribedType().isInterface();
-        // If access is mixed or if the default is currently unknown, 
-        // process all fields, otherwise only process members of the class  
-        // level default access type. 
-        
+        // If access is mixed or if the default is currently unknown,
+        // process all fields, otherwise only process members of the class
+        // level default access type.
+
         String name;
         boolean def;
         FieldMetaData fmd;
-        for (int i = 0; i < members.size(); i++) {
-            Member member = members.get(i);
+        for (Member member : members) {
             name = getFieldName(member);
             if (name == null || isReservedFieldName(name))
                 continue;
@@ -242,9 +246,9 @@ public abstract class AbstractMetaDataDefaults
     }
 
     protected void populate(FieldMetaData fmd) {
-    	
+
     }
-    
+
     /**
      * Return the list of fields in <code>meta</code> that use field access,
      * or <code>null</code> if a list of fields is unobtainable. An empty list
@@ -281,21 +285,27 @@ public abstract class AbstractMetaDataDefaults
      * the next letter lower-cased. For other methods, returns null.
      */
     public static String getFieldName(Member member) {
-        if (member instanceof Field)
+        if (member instanceof Field) {
             return member.getName();
-        if (member instanceof Method == false)
-        	return null;
+        }
+        if (!(member instanceof Method)) {
+            return null;
+        }
         Method method = (Method) member;
         String name = method.getName();
-        if (isNormalGetter(method))
-        	name = name.substring("get".length());
-        else if (isBooleanGetter(method))
-        	name = name.substring("is".length());
-        else
+        if (isNormalGetter(method)) {
+            name = name.substring("get".length());
+        }
+        else if (isBooleanGetter(method)) {
+            name = name.substring("is".length());
+        }
+        else {
             return null;
+        }
 
-        if (name.length() == 1)
+        if (name.length() == 1) {
             return name.toLowerCase();
+        }
         return Character.toLowerCase(name.charAt(0)) + name.substring(1);
     }
 
@@ -324,17 +334,19 @@ public abstract class AbstractMetaDataDefaults
      * <br>
      * Defining class is used instead of declaring class because this method
      * may be invoked during parsing phase when declaring metadata may not be
-     * available.  
+     * available.
      */
+    @Override
     public Member getBackingMember(FieldMetaData fmd) {
         if (fmd == null)
             return null;
         if (fmd.getBackingMember() != null)
-        	return fmd.getBackingMember();
+            return fmd.getBackingMember();
         return getMemberByProperty(fmd.getDeclaringMetaData(), fmd.getName(),
             fmd.getAccessType(), true);
     }
-    
+
+    @Override
     public Class<?> getUnimplementedExceptionType() {
         return UnsupportedOperationException.class;
     }
@@ -344,32 +356,34 @@ public abstract class AbstractMetaDataDefaults
      * user-defined.
      */
     protected static boolean isUserDefined(Class<?> cls) {
-        return cls != null && !cls.getName().startsWith("java.")
-            && !cls.getName().startsWith ("javax.");
-	}
-    
+        return cls != null
+                && !cls.getName().startsWith("java.")
+                && !cls.getName().startsWith ("javax.")
+                && !cls.getName().startsWith ("jakarta.");
+    }
+
     /**
      * Affirms if the given method matches the following signature
      * <code> public T getXXX() </code>
      * where T is any non-void type.
      */
     public static boolean isNormalGetter(Method method) {
-    	String methodName = method.getName();
-    	return startsWith(methodName, "get") 
-    	    && method.getParameterTypes().length == 0
-    	    && method.getReturnType() != void.class;
+        String methodName = method.getName();
+        return startsWith(methodName, "get")
+            && method.getParameterTypes().length == 0
+            && method.getReturnType() != void.class;
     }
-    
+
     /**
      * Affirms if the given method matches the following signature
      * <code> public boolean isXXX() </code>
      * <code> public Boolean isXXX() </code>
      */
     public static boolean isBooleanGetter(Method method) {
-    	String methodName = method.getName();
-    	return startsWith(methodName, "is") 
-    	    && method.getParameterTypes().length == 0
-    	    && isBoolean(method.getReturnType());
+        String methodName = method.getName();
+        return startsWith(methodName, "is")
+            && method.getParameterTypes().length == 0
+            && isBoolean(method.getReturnType());
     }
 
     /**
@@ -380,35 +394,35 @@ public abstract class AbstractMetaDataDefaults
      * <code> public T isXXX()</code> where T is boolean or Boolean.<br>
      */
     public static boolean isGetter(Method method, boolean includePrivate) {
-    	if (method == null)
-    		return false;
-    	int mods = method.getModifiers();
-    	if (!(Modifier.isPublic(mods) 
-    	      || Modifier.isProtected(mods)
-    	      || (Modifier.isPrivate(mods) && includePrivate))
-    	 || Modifier.isNative(mods) 
-    	 || Modifier.isStatic(mods))
-    		return false;
-    	return isNormalGetter(method) || isBooleanGetter(method);
+        if (method == null)
+            return false;
+        int mods = method.getModifiers();
+        if (!(Modifier.isPublic(mods)
+              || Modifier.isProtected(mods)
+              || (Modifier.isPrivate(mods) && includePrivate))
+         || Modifier.isNative(mods)
+         || Modifier.isStatic(mods))
+            return false;
+        return isNormalGetter(method) || isBooleanGetter(method);
     }
-    
+
     /**
      * Affirms if the given full string starts with the given head.
      */
     public static boolean startsWith(String full, String head) {
-        return full != null && head != null && full.startsWith(head) 
+        return full != null && head != null && full.startsWith(head)
             && full.length() > head.length();
     }
-    
+
     public static boolean isBoolean(Class<?> cls) {
-    	return cls == boolean.class || cls == Boolean.class;
+        return cls == boolean.class || cls == Boolean.class;
     }
-    
+
     public static List<String> toNames(List<? extends Member> members) {
-    	List<String> result = new ArrayList<String>();
-    	for (Member m : members)
-    		result.add(m.getName());
-    	return result;
+        List<String> result = new ArrayList<>();
+        for (Member m : members)
+            result.add(m.getName());
+        return result;
     }
 
 }

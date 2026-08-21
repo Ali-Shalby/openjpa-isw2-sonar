@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -27,6 +27,9 @@ import org.apache.openjpa.jdbc.meta.FieldMapping;
  */
 public class NoneFieldStrategy
     extends AbstractFieldStrategy {
+
+    
+    private static final long serialVersionUID = 1L;
 
     public static final String ALIAS = "none";
 
@@ -45,10 +48,12 @@ public class NoneFieldStrategy
     private NoneFieldStrategy() {
     }
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
 
+    @Override
     public void setFieldMapping(FieldMapping owner) {
     }
 }

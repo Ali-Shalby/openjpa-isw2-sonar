@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -34,6 +34,9 @@ import org.apache.openjpa.util.InvalidStateException;
  */
 public class NoneClassStrategy
     extends AbstractClassStrategy {
+
+    
+    private static final long serialVersionUID = 1L;
 
     public static final String ALIAS = "none";
 
@@ -55,23 +58,28 @@ public class NoneClassStrategy
     private NoneClassStrategy() {
     }
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
 
+    @Override
     public void setClassMapping(ClassMapping owner) {
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         throwFlushException(sm);
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         throwFlushException(sm);
     }
 
+    @Override
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         throwFlushException(sm);

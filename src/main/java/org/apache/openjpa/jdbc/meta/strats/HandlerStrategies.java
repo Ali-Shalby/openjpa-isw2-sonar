@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -64,9 +64,11 @@ public class HandlerStrategies {
         if (cols.length > 0 && cols[0].getTable() == null) {
             cols = vinfo.getColumns(vm, colName, cols,
                 vm.getFieldMapping().getTable(), adapt);
-            if (vinfo.isImplicitRelation())
-            	for (int i = 0; i < cols.length; i++)
-            		cols[i].setImplicitRelation(true);
+            if (vinfo.isImplicitRelation()) {
+                for (Column col : cols) {
+                    col.setImplicitRelation(true);
+                }
+            }
             ColumnIO mappedIO = vinfo.getColumnIO();
             vm.setColumns(cols);
             vm.setColumnIO(mappedIO);
@@ -85,8 +87,8 @@ public class HandlerStrategies {
 
     /**
      * Set the given value into the given row.
-     * Return false if the given value can not be set, for example, due to 
-     * null constraints on the columns. 
+     * Return false if the given value can not be set, for example, due to
+     * null constraints on the columns.
      */
     public static boolean set(ValueMapping vm, Object val, JDBCStore store,
         Row row, Column[] cols, ColumnIO io, boolean nullNone)
@@ -169,8 +171,9 @@ public class HandlerStrategies {
 
         val = toDataStoreValue(vm, val, cols, store);
         if (val == null)
-            for (int i = 0; i < cols.length; i++)
-                row.whereNull(cols[i]);
+            for (Column col : cols) {
+                row.whereNull(col);
+            }
         else if (cols.length == 1)
             where(row, cols[0], val);
         else {
@@ -219,8 +222,7 @@ public class HandlerStrategies {
         if (cols.length == 0)
             return null;
         if (cols.length == 1)
-            return res.getObject(cols[0], vm.getHandler().
-                getResultArgument(vm), joins);
+            return res.getObject(cols[0], vm.getHandler().getResultArgument(vm), joins);
 
         Object[] vals = new Object[cols.length];
         Object[] args = (Object[]) vm.getHandler().getResultArgument(vm);

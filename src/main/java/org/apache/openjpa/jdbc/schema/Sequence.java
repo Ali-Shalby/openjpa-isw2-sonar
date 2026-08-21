@@ -14,16 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
 import java.io.File;
 
-import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
-import org.apache.openjpa.lib.identifier.IdentifierUtil;
 import org.apache.openjpa.lib.meta.SourceTracker;
 
 /**
@@ -31,21 +29,21 @@ import org.apache.openjpa.lib.meta.SourceTracker;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public class Sequence
     extends ReferenceCounter
     implements Comparable<Sequence>, SourceTracker {
 
+    private static final long serialVersionUID = 1L;
     private DBIdentifier _name = DBIdentifier.NULL;
     private Schema _schema = null;
     private DBIdentifier _schemaName = DBIdentifier.NULL;
     private int _initial = 1;
     private int _increment = 1;
     private int _cache = 0;
-    private int _lineNum = 0;  
-    private int _colNum = 0;  
+    private int _lineNum = 0;
+    private int _colNum = 0;
     private QualifiedDBIdentifier _fullPath = null;
-    
+
     // keep track of source
     private File _source = null;
     private int _srcType = SRC_OTHER;
@@ -63,6 +61,7 @@ public class Sequence
      * @param schema the sequence schema
      * @deprecated
      */
+    @Deprecated
     public Sequence(String name, Schema schema) {
         this(DBIdentifier.newSequence(name), schema);
     }
@@ -95,7 +94,7 @@ public class Sequence
     public String getSchemaName() {
         return getSchemaIdentifier().getName();
     }
-    
+
     public DBIdentifier getSchemaIdentifier() {
         return _schemaName == null ? DBIdentifier.NULL : _schemaName;
     }
@@ -105,6 +104,7 @@ public class Sequence
      * whose schema object is not set.
      * @deprecated
      */
+    @Deprecated
     public void setSchemaName(String name) {
         setSchemaIdentifier(DBIdentifier.newSchema(name));
     }
@@ -120,6 +120,7 @@ public class Sequence
      * Return the name of the sequence.
      * @deprecated
      */
+    @Deprecated
     public String getName() {
         return getIdentifier().getName();
     }
@@ -133,6 +134,7 @@ public class Sequence
      * sequences that are not part of a schema.
      * @deprecated
      */
+    @Deprecated
     public void setName(String name) {
         setIdentifier(DBIdentifier.newSequence(name));
     }
@@ -149,6 +151,7 @@ public class Sequence
      * catalog separator.
      * @deprecated
      */
+    @Deprecated
     public String getFullName() {
         return getFullIdentifier().getName();
     }
@@ -206,14 +209,17 @@ public class Sequence
         _cache = cache;
     }
 
+    @Override
     public File getSourceFile() {
         return _source;
     }
 
+    @Override
     public Object getSourceScope() {
         return null;
     }
 
+    @Override
     public int getSourceType() {
         return _srcType;
     }
@@ -223,10 +229,12 @@ public class Sequence
         _srcType = srcType;
     }
 
+    @Override
     public String getResourceName() {
         return getFullIdentifier().getName();
     }
 
+    @Override
     public int compareTo(Sequence other) {
         DBIdentifier name = getIdentifier();
         DBIdentifier otherName = other.getIdentifier();
@@ -240,10 +248,12 @@ public class Sequence
         return name.compareTo(otherName);
     }
 
+    @Override
     public String toString() {
         return getFullIdentifier().getName();
     }
-    
+
+    @Override
     public int getLineNumber() {
         return _lineNum;
     }
@@ -252,6 +262,7 @@ public class Sequence
         _lineNum = lineNum;
     }
 
+    @Override
     public int getColNumber() {
         return _colNum;
     }

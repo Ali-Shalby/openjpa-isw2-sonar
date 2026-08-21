@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -25,7 +25,9 @@ import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
-import serp.util.Strings;
+import org.apache.openjpa.kernel.exps.Parameter;
+import org.apache.openjpa.lib.util.StringUtil;
+
 
 /**
  * Test if a string matches a regexp.
@@ -35,6 +37,8 @@ import serp.util.Strings;
 class MatchesExpression
     implements Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
     private final Const _const;
     private final String _single;
@@ -53,13 +57,15 @@ class MatchesExpression
         _escape = escape;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         ExpState s1 = _val.initialize(sel, ctx, 0);
         ExpState s2 = _const.initialize(sel, ctx, 0);
         return new BinaryOpExpState(sel.and(s1.joins, s2.joins), s1, s2);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _val.calculateValue(sel, ctx, bstate.state1, _const, bstate.state2);
@@ -101,41 +107,44 @@ class MatchesExpression
             // with '%' and '.' with '_'
             str = replaceEscape(str, _multi, "%", _escape);
             str = replaceEscape(str, _single, "_", _escape);
-            buf.append(" LIKE ").appendValue(str, col);
+            buf.append(" LIKE ").appendValue(str, col,
+                    _const instanceof Parameter ? (Parameter)_const : null);
 
             // escape out characters by using the database's escape sequence
             DBDictionary dict = ctx.store.getDBDictionary();
             if (_escape != null) {
-                if (_escape.equals("\\")) 
+                if (_escape.equals("\\"))
                     buf.append(" ESCAPE '").append(dict.searchStringEscape).append("'");
                 else
                     buf.append(" ESCAPE '").append(_escape).append("'");
             }
-            
+
         }
         sel.append(buf, state.joins);
     }
 
-    /** 
-     * Perform a string replacement with simplistic escape handing. 
-     *  
+    /**
+     * Perform a string replacement with simplistic escape handing.
+     *
      * @param  str      the source string
      * @param  from     the string to find
      * @param  to       the string to replace
      * @param  escape   the string to use to escape replacement
      * @return          the replaced string
      */
-    private static String replaceEscape(String str, String from, String to,
-        String escape) {
-        String[] parts = Strings.split(str, from, Integer.MAX_VALUE);
+    private static String replaceEscape(String str, String from, String to, String escape) {
+        String[] parts = StringUtil.split(str, from, Integer.MAX_VALUE);
         StringBuilder repbuf = new StringBuilder();
+
+        boolean same = from.equals(to);
+
         for (int i = 0; i < parts.length; i++) {
             if (i > 0) {
                 // if the previous part ended with an escape character, then
                 // escape the character and remove the previous escape;
                 // this doesn't support any double-escaping or other more
                 // sophisticated features
-                if (!from.equals(to) && parts[i - 1].endsWith(escape)) {
+                if (!same && parts[i - 1].endsWith(escape)) {
                     repbuf.setLength(repbuf.length() - 1);
                     repbuf.append(from);
                 } else
@@ -146,13 +155,15 @@ class MatchesExpression
         return repbuf.toString();
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _val.selectColumns(sel, ctx, bstate.state1, true);
         _const.selectColumns(sel, ctx, bstate.state2, true);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

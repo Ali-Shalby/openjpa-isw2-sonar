@@ -21,9 +21,9 @@ package org.apache.openjpa.persistence.criteria;
 
 /**
  * Defines a comparison style to be applied for query-by-example attribute comparison.
- * 
+ *
  * @author Pinaki Poddar
- * 
+ *
  * @since 2.0.0
  *
  */
@@ -33,63 +33,63 @@ public interface ComparisonStyle {
         CASE_INSENSITIVE, // compares ignoring case
         LIKE              // compares with LIKE() operator
     }
-    
+
     /**
      * Affirms if the attribute comparisons are OR'ed.
      * Defaults to false.
      */
     boolean isDisjunction();
-    
+
     /**
      * Sets whether the comparison to OR the attribute comparisons.
      */
     ComparisonStyle setDisjunction(boolean flag);
-    
+
     /**
      * Affirms if the null-valued attribute be excluded from comparison.
      * Defaults to true.
      */
     boolean excludeNull();
-    
+
     /**
      * Sets whether the comparison excludes null-valued attributes.
      */
     ComparisonStyle setExcludeNull(boolean flag);
-    
+
     /**
      * Affirms if the identity attribute be excluded from comparison.
      * Defaults to true.
      */
     boolean excludeIdentity();
-    
+
     /**
      * Sets whether the comparison excludes identity attribute.
      */
     ComparisonStyle setExcludeIdentity(boolean flag);
-    
+
     /**
      * Affirms if the version attribute be excluded from comparison.
      * Defaults to true.
      */
     boolean excludeVersion();
-    
+
     /**
      * Sets whether the comparison excludes version attribute.
      */
     ComparisonStyle setExcludeVersion(boolean flag);
-    
+
     /**
      * Affirms if the default-valued attribute be excluded from comparison.
      * Defaults to true.
      */
-    
+
     boolean excludeDefault();
 
     /**
      * Sets whether the comparison excludes default-valued attributes.
      */
     ComparisonStyle setExcludeDefault(boolean flag);
-    
+
     /**
      * Gets how string-valued attributes be compared.
      */
@@ -102,7 +102,7 @@ public interface ComparisonStyle {
 
     /**
      * Default implementation.
-     * 
+     *
      */
     static class Default implements ComparisonStyle {
         private boolean excludeDefault = true;
@@ -111,58 +111,70 @@ public interface ComparisonStyle {
         private boolean excludeVersion = true;
         private boolean disjunction = false;
         private StringComparisonMode stringMode = StringComparisonMode.EXACT;
-        
+
+        @Override
         public boolean excludeDefault() {
             return excludeDefault;
         }
 
+        @Override
         public boolean excludeNull() {
             return excludeNull;
         }
 
+        @Override
         public StringComparisonMode getStringComparsionMode() {
             return stringMode;
         }
 
+        @Override
         public boolean isDisjunction() {
             return disjunction;
         }
-        
+
+        @Override
         public ComparisonStyle setExcludeDefault(boolean flag) {
             excludeDefault = flag;
             return this;
         }
-        
+
+        @Override
         public ComparisonStyle setExcludeNull(boolean flag) {
             excludeNull = flag;
             return this;
         }
-        
+
+        @Override
         public ComparisonStyle setStringComparisonMode(StringComparisonMode mode) {
             stringMode = mode;
             return this;
         }
-        
+
+        @Override
         public ComparisonStyle setDisjunction(boolean flag) {
             disjunction = flag;
             return this;
         }
-        
+
+        @Override
         public boolean excludeIdentity() {
             return excludeIdentity;
-            
+
         }
-        
+
+        @Override
         public ComparisonStyle setExcludeIdentity(boolean flag) {
             excludeIdentity = flag;
             return this;
         }
-        
+
+        @Override
         public boolean excludeVersion() {
             return excludeVersion;
-            
+
         }
-        
+
+        @Override
         public ComparisonStyle setExcludeVersion(boolean flag) {
             excludeVersion = flag;
             return this;

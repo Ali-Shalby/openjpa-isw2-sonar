@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -24,10 +24,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Objects;
 
-import org.apache.commons.lang.ObjectUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.log.Log;
@@ -42,9 +40,8 @@ import org.apache.openjpa.util.InvalidStateException;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public class ForeignKey
-    extends Constraint {
+public class ForeignKey extends Constraint {
+    private static final long serialVersionUID = 1L;
 
     /**
      * Logical foreign key; links columns, but does not perform any action
@@ -75,7 +72,7 @@ public class ForeignKey
      */
     public static final int ACTION_DEFAULT = 5;
 
-    private static final Localizer _loc = 
+    private static final Localizer _loc =
         Localizer.forPackage(ForeignKey.class);
 
     private DBIdentifier _pkTableName = DBIdentifier.NULL;
@@ -165,6 +162,7 @@ public class ForeignKey
      * @param table the local table of the foreign key
      * @deprecated
      */
+    @Deprecated
     public ForeignKey(String name, Table table) {
         super(name, table);
     }
@@ -173,6 +171,7 @@ public class ForeignKey
         super(name, table);
     }
 
+    @Override
     public boolean isLogical() {
         return _delAction == ACTION_NONE;
     }
@@ -184,23 +183,23 @@ public class ForeignKey
      */
     public boolean isPrimaryKeyAutoAssigned() {
         if (_autoAssign != null)
-            return _autoAssign.booleanValue();
+            return _autoAssign;
         return isPrimaryKeyAutoAssigned(new ArrayList(3));
     }
 
     /**
-     * Helper to calculate whether this foreign key depends on auto-assigned 
+     * Helper to calculate whether this foreign key depends on auto-assigned
      * columns.  Recurses appropriately if the primary key columns this key
      * joins to are themselves members of a foreign key that is dependent on
-     * auto-assigned columns.  Caches calculated auto-assign value as a side 
+     * auto-assigned columns.  Caches calculated auto-assign value as a side
      * effect.
      *
      * @param seen track seen foreign keys to prevent infinite recursion in
      * the case of foreign key cycles
      */
     private boolean isPrimaryKeyAutoAssigned(List seen) {
-        if (_autoAssign != null) 
-            return _autoAssign.booleanValue();
+        if (_autoAssign != null)
+            return _autoAssign;
 
         Column[] cols = getPrimaryKeyColumns();
         if (cols.length == 0) {
@@ -208,8 +207,8 @@ public class ForeignKey
             return false;
         }
 
-        for (int i = 0; i < cols.length; i++) {
-            if (cols[i].isAutoAssigned()) {
+        for (Column column : cols) {
+            if (column.isAutoAssigned()) {
                 _autoAssign = Boolean.TRUE;
                 return true;
             }
@@ -217,12 +216,12 @@ public class ForeignKey
 
         ForeignKey[] fks = _pkTable.getForeignKeys();
         seen.add(this);
-        for (int i = 0; i < cols.length; i++) {
-            for (int j = 0; j < fks.length; j++) {
-                if (!fks[j].containsColumn(cols[i]))
+        for (Column col : cols) {
+            for (ForeignKey fk : fks) {
+                if (!fk.containsColumn(col))
                     continue;
-                if (!seen.contains(fks[j])
-                    && fks[j].isPrimaryKeyAutoAssigned(seen)) {
+                if (!seen.contains(fk)
+                        && fk.isPrimaryKeyAutoAssigned(seen)) {
                     _autoAssign = Boolean.TRUE;
                     return true;
                 }
@@ -237,6 +236,7 @@ public class ForeignKey
      * The name of the primary key table.
      * @deprecated
      */
+    @Deprecated
     public String getPrimaryKeyTableName() {
         return getPrimaryKeyTableIdentifier().getName();
     }
@@ -253,6 +253,7 @@ public class ForeignKey
      * key table name on foreign keys that have not already been joined.
      * @deprecated
      */
+    @Deprecated
     public void setPrimaryKeyTableName(String pkTableName) {
         setPrimaryKeyTableIdentifier(DBIdentifier.newTable(pkTableName));
     }
@@ -267,6 +268,7 @@ public class ForeignKey
      * The name of the primary key table's schema.
      * @deprecated
      */
+    @Deprecated
     public String getPrimaryKeySchemaName() {
         return getPrimaryKeySchemaIdentifier().getName();
     }
@@ -284,6 +286,7 @@ public class ForeignKey
      * joined.
      * @deprecated
      */
+    @Deprecated
     public void setPrimaryKeySchemaName(String pkSchemaName) {
         setPrimaryKeySchemaIdentifier(DBIdentifier.newSchema(pkSchemaName));
     }
@@ -298,6 +301,7 @@ public class ForeignKey
      * The name of the primary key column.
      * @deprecated
      */
+    @Deprecated
     public String getPrimaryKeyColumnName() {
         return getPrimaryKeyColumnIdentifier().getName();
     }
@@ -312,6 +316,7 @@ public class ForeignKey
      * joined.
      * @deprecated
      */
+    @Deprecated
     public void setPrimaryKeyColumnName(String pkColumnName) {
         setPrimaryKeyColumnIdentifier(DBIdentifier.newColumn(pkColumnName));
     }
@@ -522,8 +527,9 @@ public class ForeignKey
      */
     public void setJoins(Column[] cols, Column[] pkCols) {
         Column[] cur = getColumns();
-        for (int i = 0; i < cur.length; i++)
-            removeJoin(cur[i]);
+        for (Column column : cur) {
+            removeJoin(column);
+        }
 
         if (cols != null)
             for (int i = 0; i < cols.length; i++)
@@ -535,8 +541,9 @@ public class ForeignKey
      */
     public void setConstantJoins(Object[] consts, Column[] pkCols) {
         Column[] cur = getConstantPrimaryKeyColumns();
-        for (int i = 0; i < cur.length; i++)
-            removeJoin(cur[i]);
+        for (Column column : cur) {
+            removeJoin(column);
+        }
 
         if (consts != null)
             for (int i = 0; i < consts.length; i++)
@@ -548,8 +555,9 @@ public class ForeignKey
      */
     public void setConstantJoins(Column[] cols, Object[] consts) {
         Column[] cur = getConstantColumns();
-        for (int i = 0; i < cur.length; i++)
-            removeJoin(cur[i]);
+        for (Column column : cur) {
+            removeJoin(column);
+        }
 
         if (consts != null)
             for (int i = 0; i < consts.length; i++)
@@ -560,7 +568,7 @@ public class ForeignKey
      * Join a local column to a primary key column of another table.
      */
     public void join(Column local, Column toPK) {
-        if (!ObjectUtils.equals(local.getTable(), getTable()))
+        if (!Objects.equals(local.getTable(), getTable()))
             throw new InvalidStateException(_loc.get("table-mismatch",
                 local.getTable(), getTable()));
 
@@ -573,6 +581,7 @@ public class ForeignKey
         if (_joins == null)
             _joins = new LinkedHashMap();
         _joins.put(local, toPK);
+        local.addConstraint(this);
         if (_joinsPK == null)
             _joinsPK = new LinkedHashMap();
         _joinsPK.put(toPK, local);
@@ -580,7 +589,7 @@ public class ForeignKey
         // force re-cache
         _locals = null;
         _pks = null;
-        if (_autoAssign == Boolean.FALSE)
+        if (Boolean.FALSE.equals(_autoAssign))
             _autoAssign = null;
     }
 
@@ -629,6 +638,7 @@ public class ForeignKey
 
         if (_joins != null) {
             rem = _joins.remove(col);
+            col.removeConstraint(this);
             if (rem != null) {
                 _locals = null;
                 _pks = null;
@@ -667,7 +677,7 @@ public class ForeignKey
         if ((_joins == null || _joins.isEmpty())
             && (_constsPK == null || _constsPK.isEmpty()))
             _pkTable = null;
-        if (remd && _autoAssign == Boolean.TRUE)
+        if (remd && Boolean.TRUE.equals(_autoAssign))
             _autoAssign = null;
         return remd;
     }
@@ -684,11 +694,13 @@ public class ForeignKey
      */
     public void refColumns() {
         Column[] cols = getColumns();
-        for (int i = 0; i < cols.length; i++)
-            cols[i].ref();
+        for (Column column : cols) {
+            column.ref();
+        }
         cols = getConstantColumns();
-        for (int i = 0; i < cols.length; i++)
-            cols[i].ref();
+        for (Column col : cols) {
+            col.ref();
+        }
     }
 
     /**
@@ -696,11 +708,13 @@ public class ForeignKey
      */
     public void derefColumns() {
         Column[] cols = getColumns();
-        for (int i = 0; i < cols.length; i++)
-            cols[i].deref();
+        for (Column column : cols) {
+            column.deref();
+        }
         cols = getConstantColumns();
-        for (int i = 0; i < cols.length; i++)
-            cols[i].deref();
+        for (Column col : cols) {
+            col.deref();
+        }
     }
 
     /**
@@ -748,26 +762,26 @@ public class ForeignKey
      */
     public boolean hasNotNullColumns() {
       Column[] columns = getColumns();
-      for (int j = 0; j < columns.length; j++) {
-          if (columns[j].isNotNull()) {
-              return true;
-          }
-      }
+        for (Column column : columns) {
+            if (column.isNotNull()) {
+                return true;
+            }
+        }
       return false;
     }
-    
+
     private static boolean match(Column[] cols, Column[] fkCols) {
         if (cols.length != fkCols.length)
             return false;
-        for (int i = 0; i < fkCols.length; i++)
-            if (!hasColumn(cols, fkCols[i]))
+        for (Column fkCol : fkCols)
+            if (!hasColumn(cols, fkCol))
                 return false;
         return true;
     }
 
     private static boolean hasColumn(Column[] cols, Column col) {
-        for (int i = 0; i < cols.length; i++)
-            if (cols[i].getQualifiedPath().equals(col.getQualifiedPath()))
+        for (Column column : cols)
+            if (column.getQualifiedPath().equals(col.getQualifiedPath()))
                 return true;
         return false;
     }
@@ -776,15 +790,16 @@ public class ForeignKey
         if (vals.length != fkVals.length)
             return false;
         for (int i = 0; i < vals.length; i++)
-            if (!ObjectUtils.equals(vals[i], fkVals[i]))
+            if (!Objects.equals(vals[i], fkVals[i]))
                 return false;
         return true;
     }
-    
+
     /**
      * Return the name of the foreignkey constraint as defined in the database.
      * @deprecated
      */
+    @Deprecated
     public String loadNameFromDB(DBDictionary dbdict, Connection conn) {
         return loadIdentifierFromDB(dbdict, conn).getName();
     }
@@ -795,58 +810,58 @@ public class ForeignKey
         DBIdentifier retVal = DBIdentifier.NULL;
         try{
             Schema schema = getTable().getSchema();
-            ForeignKey[] fks = dbdict.getImportedKeys(conn.getMetaData(), 
-                DBIdentifier.newCatalog(conn.getCatalog()), schema.getIdentifier(), 
+            ForeignKey[] fks = dbdict.getImportedKeys(conn.getMetaData(),
+                DBIdentifier.newCatalog(conn.getCatalog()), schema.getIdentifier(),
                 getTable().getIdentifier(), conn, false);
-            for ( int i=0; i< fks.length; i++) {
-                Table localtable = schema.getTable(fks[i].getTableIdentifier());
+            for (ForeignKey fk : fks) {
+                Table localtable = schema.getTable(fk.getTableIdentifier());
                 Table pkTable = schema.getTable(
-                    fks[i].getPrimaryKeyTableIdentifier());
+                        fk.getPrimaryKeyTableIdentifier());
                 boolean addFK = false;
                 ForeignKey fkTemp = localtable.getForeignKey(
-                    fks[i].getIdentifier());
-                if( fkTemp == null) {
-                    addFK=true;
+                        fk.getIdentifier());
+                if (fkTemp == null) {
+                    addFK = true;
                     fkTemp = localtable.addForeignKey(
-                        fks[i].getIdentifier());
-                    fkTemp.setDeferred(fks[i].isDeferred());
-                    fkTemp.setDeleteAction(fks[i].getDeleteAction());
+                            fk.getIdentifier());
+                    fkTemp.setDeferred(fk.isDeferred());
+                    fkTemp.setDeleteAction(fk.getDeleteAction());
                 }
-                if (fks[i].getColumns() == null || fks[i].getColumns().length == 0) {
-                    // Singular column foreign key 
-                    if( ! fkTemp.containsColumn(
-                        localtable.getColumn(fks[i].getColumnIdentifier())))
-                    fkTemp.join(localtable.getColumn(fks[i].getColumnIdentifier()), 
-                        pkTable.getColumn(fks[i].getPrimaryKeyColumnIdentifier()));
-                } else {
+                if (fk.getColumns() == null || fk.getColumns().length == 0) {
+                    // Singular column foreign key
+                    if (!fkTemp.containsColumn(
+                            localtable.getColumn(fk.getColumnIdentifier())))
+                        fkTemp.join(localtable.getColumn(fk.getColumnIdentifier()),
+                                pkTable.getColumn(fk.getPrimaryKeyColumnIdentifier()));
+                }
+                else {
                     // Add the multi-column foreign key, joining local and pk columns in
                     // the temporary key
-                    Column[] locCols = fks[i].getColumns();
-                    Column[] pkCols = fks[i].getPrimaryKeyColumns();
+                    Column[] locCols = fk.getColumns();
+                    Column[] pkCols = fk.getPrimaryKeyColumns();
                     // Column counts must match
-                    if (locCols != null && pkCols != null & 
-                        locCols.length != pkCols.length) {
+                    if (locCols != null && pkCols != null &&
+                            locCols.length != pkCols.length) {
                         Log log = dbdict.getLog();
                         if (log.isTraceEnabled()) {
                             log.trace(_loc.get("fk-column-mismatch"));
                         }
                     }
                     for (int j = 0; j < locCols.length; j++) {
-                        if( ! fkTemp.containsColumn(
-                            localtable.getColumn(locCols[j].getIdentifier()))) {
-                            fkTemp.join(localtable.getColumn(locCols[j].getIdentifier()), 
-                                pkTable.getColumn(pkCols[j].getIdentifier()));
+                        if (!fkTemp.containsColumn(
+                                localtable.getColumn(locCols[j].getIdentifier()))) {
+                            fkTemp.join(localtable.getColumn(locCols[j].getIdentifier()),
+                                    pkTable.getColumn(pkCols[j].getIdentifier()));
                         }
                     }
                 }
-                if( equalsForeignKey(fkTemp))
-                {
-                    if(addFK)
+                if (equalsForeignKey(fkTemp)) {
+                    if (addFK)
                         localtable.removeForeignKey(fkTemp);
-                    retVal = fks[i].getIdentifier();
+                    retVal = fk.getIdentifier();
                     break;
                 }
-                if(addFK)
+                if (addFK)
                     localtable.removeForeignKey(fkTemp);
             }
         } catch(Exception ex){
@@ -880,9 +895,9 @@ public class ForeignKey
             join(keyCols[0], keyCols[1]);
         }
     }
-    
+
     /*
-     * Creates the local and primary key columns for a name-based fk. 
+     * Creates the local and primary key columns for a name-based fk.
      * @return Column[] element 0 is local column
      *                  element 1 is the primary key in another table.
      */
@@ -894,7 +909,7 @@ public class ForeignKey
             fkCol.setTableIdentifier(fk.getTableIdentifier());
             fkCol.setSchemaIdentifier(fk.getSchemaIdentifier());
         }
-        
+
         Column pkCol = null;
         if (!DBIdentifier.isEmpty(fk.getPrimaryKeyColumnIdentifier())) {
             pkCol = new Column();
@@ -904,13 +919,73 @@ public class ForeignKey
         }
         return new Column[] { fkCol, pkCol };
     }
-    
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        if (!super.equals(o)) return false;
+
+        ForeignKey that = (ForeignKey) o;
+
+        if (_seq != that._seq) return false;
+        if (_delAction != that._delAction) return false;
+        if (_upAction != that._upAction) return false;
+        if (_index != that._index) return false;
+        if (_pkTableName != null ? !_pkTableName.equals(that._pkTableName) : that._pkTableName != null) return false;
+        if (_pkSchemaName != null ? !_pkSchemaName.equals(that._pkSchemaName) : that._pkSchemaName != null) return false;
+        if (_pkColumnName != null ? !_pkColumnName.equals(that._pkColumnName) : that._pkColumnName != null) return false;
+        if (_joins != null ? !_joins.equals(that._joins) : that._joins != null) return false;
+        if (_joinsPK != null ? !_joinsPK.equals(that._joinsPK) : that._joinsPK != null) return false;
+        if (_consts != null ? !_consts.equals(that._consts) : that._consts != null) return false;
+        if (_constsPK != null ? !_constsPK.equals(that._constsPK) : that._constsPK != null) return false;
+        // Probably incorrect - comparing Object[] arrays with Arrays.equals
+        if (!Arrays.equals(_locals, that._locals)) return false;
+        // Probably incorrect - comparing Object[] arrays with Arrays.equals
+        if (!Arrays.equals(_pks, that._pks)) return false;
+        // Probably incorrect - comparing Object[] arrays with Arrays.equals
+        if (!Arrays.equals(_constVals, that._constVals)) return false;
+        // Probably incorrect - comparing Object[] arrays with Arrays.equals
+        if (!Arrays.equals(_constCols, that._constCols)) return false;
+        // Probably incorrect - comparing Object[] arrays with Arrays.equals
+        if (!Arrays.equals(_constValsPK, that._constValsPK)) return false;
+        // Probably incorrect - comparing Object[] arrays with Arrays.equals
+        if (!Arrays.equals(_constColsPK, that._constColsPK)) return false;
+        if (_pkTable != null ? !_pkTable.equals(that._pkTable) : that._pkTable != null) return false;
+        return _autoAssign != null ? _autoAssign.equals(that._autoAssign) : that._autoAssign == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = super.hashCode();
+        result = 31 * result + (_pkTableName != null ? _pkTableName.hashCode() : 0);
+        result = 31 * result + (_pkSchemaName != null ? _pkSchemaName.hashCode() : 0);
+        result = 31 * result + (_pkColumnName != null ? _pkColumnName.hashCode() : 0);
+        result = 31 * result + _seq;
+        result = 31 * result + (_joins != null ? _joins.hashCode() : 0);
+        result = 31 * result + (_joinsPK != null ? _joinsPK.hashCode() : 0);
+        result = 31 * result + (_consts != null ? _consts.hashCode() : 0);
+        result = 31 * result + (_constsPK != null ? _constsPK.hashCode() : 0);
+        result = 31 * result + _delAction;
+        result = 31 * result + _upAction;
+        result = 31 * result + _index;
+        result = 31 * result + Arrays.hashCode(_locals);
+        result = 31 * result + Arrays.hashCode(_pks);
+        result = 31 * result + Arrays.hashCode(_constVals);
+        result = 31 * result + Arrays.hashCode(_constCols);
+        result = 31 * result + Arrays.hashCode(_constValsPK);
+        result = 31 * result + Arrays.hashCode(_constColsPK);
+        result = 31 * result + (_pkTable != null ? _pkTable.hashCode() : 0);
+        result = 31 * result + (_autoAssign != null ? _autoAssign.hashCode() : 0);
+        return result;
+    }
+
     /*
-     * ForeignKey utility class which determines equality based upon the 
-     * non-column state of the keys.  
+     * ForeignKey utility class which determines equality based upon the
+     * non-column state of the keys.
      */
     public static class FKMapKey {
-        
+
         private ForeignKey _fk;
 
         public FKMapKey(ForeignKey fk) {
@@ -920,10 +995,12 @@ public class ForeignKey
             return _fk;
         }
 
+        @Override
         public int hashCode() {
             return getFk().getIdentifier() != null ? getFk().getIdentifier().hashCode() : getFk().hashCode();
         }
-        
+
+        @Override
         public boolean equals(Object fkObj) {
             if (fkObj == this) {
                 return true;

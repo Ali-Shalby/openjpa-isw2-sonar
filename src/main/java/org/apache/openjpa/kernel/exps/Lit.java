@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -30,6 +30,8 @@ class Lit
     extends Val
     implements Literal {
 
+    
+    private static final long serialVersionUID = 1L;
     private Object _val;
     private final int _ptype;
 
@@ -41,30 +43,37 @@ class Lit
         _ptype = ptype;
     }
 
+    @Override
     public Object getValue() {
         return _val;
     }
 
+    @Override
     public void setValue(Object val) {
         _val = val;
     }
 
+    @Override
     public int getParseType() {
         return _ptype;
     }
 
+    @Override
     public Object getValue(Object[] parameters) {
         return _val;
     }
 
+    @Override
     public Class getType() {
         return (_val == null) ? Object.class : _val.getClass();
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _val = Filters.convert(_val, type);
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         return _val;

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -22,7 +22,6 @@ package org.apache.openjpa.kernel.exps;
  * A query parameter.
  *
  * @author Abe White
- * @nojavadoc
  */
 public interface Parameter
     extends Value, Constant {
@@ -30,10 +29,10 @@ public interface Parameter
     /**
      * Set the index of this parameter.
      */
-    public void setIndex(int index);
+    void setIndex(int index);
 
     /**
      * Returns the key of the parameter.
      */
-    public Object getParameterKey();
+    Object getParameterKey();
 }

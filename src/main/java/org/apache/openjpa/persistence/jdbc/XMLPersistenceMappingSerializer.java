@@ -14,9 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
+
+import static org.apache.openjpa.meta.MetaDataModes.MODE_MAPPING;
 
 import java.sql.Types;
 import java.util.ArrayList;
@@ -25,11 +27,11 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import javax.persistence.EnumType;
-import javax.persistence.TemporalType;
+import java.util.Objects;
 
-import org.apache.commons.lang.StringUtils;
-import org.xml.sax.SAXException;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.TemporalType;
+
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.ClassMappingInfo;
@@ -38,6 +40,7 @@ import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.MappingInfo;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.jdbc.meta.QueryResultMapping;
+import org.apache.openjpa.jdbc.meta.QueryResultMapping.PCResult;
 import org.apache.openjpa.jdbc.meta.SequenceMapping;
 import org.apache.openjpa.jdbc.meta.ValueMappingImpl;
 import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
@@ -48,22 +51,23 @@ import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.lib.meta.SourceTracker;
+import org.apache.openjpa.lib.util.ClassUtil;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
-import static org.apache.openjpa.meta.MetaDataModes.MODE_MAPPING;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.meta.SequenceMetaData;
 import org.apache.openjpa.persistence.PersistenceStrategy;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataSerializer;
-import serp.util.Strings;
+import org.xml.sax.SAXException;
 
 /**
  * Serializes persistence mapping to XML.
  *
  * @since 0.4.0
  * @author Steve Kim
- * @nojavadoc
  */
 public class XMLPersistenceMappingSerializer
     extends XMLPersistenceMetaDataSerializer {
@@ -73,7 +77,7 @@ public class XMLPersistenceMappingSerializer
     private static final Map<ColType, String> _names;
 
     static {
-        _names = new EnumMap<ColType, String>(ColType.class);
+        _names = new EnumMap<>(ColType.class);
         _names.put(ColType.COL, "column");
         _names.put(ColType.JOIN, "join-column");
         _names.put(ColType.INVERSE, "inverse-join-column");
@@ -112,7 +116,7 @@ public class XMLPersistenceMappingSerializer
      */
     public void addQueryResultMapping(QueryResultMapping meta) {
         if (_results == null)
-            _results = new ArrayList<QueryResultMapping>();
+            _results = new ArrayList<>();
         _results.add(meta);
     }
 
@@ -126,16 +130,14 @@ public class XMLPersistenceMappingSerializer
     @Override
     public void addAll(MetaDataRepository repos) {
         super.addAll(repos);
-        for (QueryResultMapping res : ((MappingRepository) repos)
-            .getQueryResultMappings())
+        for (QueryResultMapping res : ((MappingRepository) repos).getQueryResultMappings())
             addQueryResultMapping(res);
     }
 
     @Override
     public boolean removeAll(MetaDataRepository repos) {
         boolean removed = super.removeAll(repos);
-        for (QueryResultMapping res : ((MappingRepository) repos)
-            .getQueryResultMappings())
+        for (QueryResultMapping res : ((MappingRepository) repos).getQueryResultMappings())
             removed |= removeQueryResultMapping(res);
         return removed;
     }
@@ -185,8 +187,7 @@ public class XMLPersistenceMappingSerializer
         throws SAXException {
         ClassMapping cls = (ClassMapping) mapping;
         ClassMappingInfo info = cls.getMappingInfo();
-        serializeTable(info.getTableName(), "table", Strings
-            .getClassName(mapping.getDescribedType()), null, 
+        serializeTable(info.getTableName(), "table", ClassUtil.getClassName(mapping.getDescribedType()), null,
             info.getUniques(info.getTableName()));
         for (String second : info.getSecondaryTableNames())
             serializeTable(second, "secondary-table", null, info,
@@ -232,7 +233,7 @@ public class XMLPersistenceMappingSerializer
             cols = (List<Column>) secondaryInfo.getSecondaryTableJoinColumns
                 (table);
 
-        boolean print = (cols != null && cols.size() > 0) || 
+        boolean print = (cols != null && cols.size() > 0) ||
             (uniques != null && uniques.length > 0);
         if (table != null
             && (defaultName == null || !defaultName.equals(table))) {
@@ -241,7 +242,16 @@ public class XMLPersistenceMappingSerializer
             if (index < 0)
                 addAttribute("name", table);
             else {
-                addAttribute("schema", table.substring(0, index));
+                Map<String, ClassMetaData> classMetaData = getClassMetaData();
+                Object[] keySet = null;
+                if(classMetaData != null)
+                {
+                    keySet = classMetaData.keySet().toArray();
+                }
+                if((keySet != null) && (keySet.length > 0) && classMetaData.get(keySet[0]).getUseSchemaElement())
+                {
+                    addAttribute("schema", table.substring(0, index));
+                }
                 addAttribute("name", table.substring(index + 1));
             }
         }
@@ -286,9 +296,9 @@ public class XMLPersistenceMappingSerializer
         for (int i = 0; i < cols.size(); i++) {
             col = cols.get(i);
             col2 = cols2.get(i);
-            if (!StringUtils.equals(col.getName(), col2.getName()))
+            if (!Objects.equals(col.getName(), col2.getName()))
                 return true;
-            if (!StringUtils.equals(col.getTypeName(), col2.getTypeName()))
+            if (!Objects.equals(col.getTypeName(), col2.getTypeName()))
                 return true;
             if (col.getSize() != col2.getSize())
                 return true;
@@ -442,6 +452,7 @@ public class XMLPersistenceMappingSerializer
     /**
      * Serialize order column.
      */
+    @Override
     protected void serializeOrderColumn(FieldMetaData fmd)
         throws SAXException {
         FieldMapping field = (FieldMapping) fmd;
@@ -459,7 +470,7 @@ public class XMLPersistenceMappingSerializer
                 addAttribute("column-definition", orderCol.getTypeName());
             startElement("order-column");
             endElement("order-column");
-        }        
+        }
     }
 
     /**
@@ -566,7 +577,7 @@ public class XMLPersistenceMappingSerializer
     }
 
     private void serializeUniqueConstraint(Unique unique) throws SAXException {
-        if (StringUtils.isNotEmpty(unique.getName())) {
+        if (StringUtil.isNotEmpty(unique.getName())) {
             addAttribute("name", unique.getName());
         }
         startElement("unique-constraint");
@@ -578,7 +589,7 @@ public class XMLPersistenceMappingSerializer
         }
         endElement("unique-constraint");
     }
-    
+
     @Override
     protected SerializationComparator newSerializationComparator() {
         return new MappingSerializationComparator();
@@ -613,7 +624,7 @@ public class XMLPersistenceMappingSerializer
                 continue;
 
             if (result == null)
-                result = new ArrayList<QueryResultMapping>(_results.size() - i);
+                result = new ArrayList<>(_results.size() - i);
             result.add(element);
         }
         return (result == null)
@@ -640,14 +651,14 @@ public class XMLPersistenceMappingSerializer
     private void serializeQueryResultMapping(QueryResultMapping meta)
         throws SAXException {
         if (!getSerializeAnnotations()
-            && meta.getSourceType() == meta.SRC_ANNOTATIONS)
+            && meta.getSourceType() == SourceTracker.SRC_ANNOTATIONS)
             return;
 
         addAttribute("name", meta.getName());
         startElement("sql-result-set-mapping");
         for (QueryResultMapping.PCResult pc : meta.getPCResults()) {
             addAttribute("entity-class", pc.getCandidateType().getName());
-            Object discrim = pc.getMapping(pc.DISCRIMINATOR);
+            Object discrim = pc.getMapping(PCResult.DISCRIMINATOR);
             if (discrim != null)
                 addAttribute("discriminator-column", discrim.toString());
 
@@ -672,7 +683,7 @@ public class XMLPersistenceMappingSerializer
     protected void serializeSequence(SequenceMetaData meta)
         throws SAXException {
         if (!getSerializeAnnotations()
-            && meta.getSourceType() == meta.SRC_ANNOTATIONS)
+            && meta.getSourceType() == SourceTracker.SRC_ANNOTATIONS)
             return;
         if (SequenceMapping.IMPL_VALUE_TABLE.equals(meta.getSequencePlugin())) {
             super.serializeSequence(meta);
@@ -691,11 +702,11 @@ public class XMLPersistenceMappingSerializer
                 addAttribute("schema", table.substring(0, dotIdx));
             }
         }
-        if (!StringUtils.isEmpty(seq.getPrimaryKeyColumn()))
+        if (!StringUtil.isEmpty(seq.getPrimaryKeyColumn()))
             addAttribute("pk-column-name", seq.getPrimaryKeyColumn());
-        if (!StringUtils.isEmpty(seq.getSequenceColumn()))
+        if (!StringUtil.isEmpty(seq.getSequenceColumn()))
             addAttribute("value-column-name", seq.getSequenceColumn());
-        if (!StringUtils.isEmpty(seq.getPrimaryKeyValue()))
+        if (!StringUtil.isEmpty(seq.getPrimaryKeyValue()))
             addAttribute("pk-column-value", seq.getPrimaryKeyValue());
         if (seq.getAllocate() != 50 && seq.getAllocate() != -1)
             addAttribute("allocation-size", seq.getAllocate() + "");
@@ -726,6 +737,10 @@ public class XMLPersistenceMappingSerializer
     protected class MappingSerializationComparator
         extends SerializationComparator {
 
+        
+        private static final long serialVersionUID = 1L;
+
+        @Override
         protected int compareUnknown(Object o1, Object o2) {
             if (!(o1 instanceof QueryResultMapping))
                 return super.compareUnknown(o1, o2);

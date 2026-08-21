@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -32,16 +32,16 @@ public interface PreparedStatementManager {
     /**
      * Return the exceptions encountered during all flushes.
      */
-    public Collection getExceptions();
+    Collection getExceptions();
 
     /**
      * Flush the given row.
      */
-    public void flush(RowImpl row);
+    void flush(RowImpl row);
 
     /**
      * This method must be called after the last row has been
      * flushed, to flush any remaining statements.
      */
-    public void flush();
+    void flush();
 }

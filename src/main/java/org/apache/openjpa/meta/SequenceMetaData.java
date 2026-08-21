@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -23,7 +23,6 @@ import java.io.Serializable;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.SeqValue;
 import org.apache.openjpa.kernel.Seq;
 import org.apache.openjpa.lib.conf.Configurations;
@@ -32,6 +31,7 @@ import org.apache.openjpa.lib.meta.SourceTracker;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.lib.xml.Commentable;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.OpenJPAException;
@@ -45,6 +45,9 @@ import org.apache.openjpa.util.OpenJPAException;
 public class SequenceMetaData
     implements SourceTracker, MetaDataContext, Closeable, Commentable,
     Serializable {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Sequence name that means to use the system default sequence.
@@ -75,15 +78,15 @@ public class SequenceMetaData
 
     private MetaDataRepository _repos;
     private SequenceFactory _factory = null;
-    
+
     private final String _name;
     private int _type = Seq.TYPE_DEFAULT;
     private String _plugin = IMPL_NATIVE;
     private File _source = null;
     private Object _scope = null;
     private int _srcType = SRC_OTHER;
-    private int _lineNum = 0;  
-    private int _colNum = 0;  
+    private int _lineNum = 0;
+    private int _colNum = 0;
     private String[] _comments = null;
     private String _sequence = null;
     private int _increment = -1;
@@ -106,6 +109,7 @@ public class SequenceMetaData
     /**
      * The owning repository.
      */
+    @Override
     public MetaDataRepository getRepository() {
         return _repos;
     }
@@ -117,14 +121,17 @@ public class SequenceMetaData
         return _name;
     }
 
+    @Override
     public File getSourceFile() {
         return _source;
     }
 
+    @Override
     public Object getSourceScope() {
         return _scope;
     }
 
+    @Override
     public int getSourceType() {
         return _srcType;
     }
@@ -135,6 +142,7 @@ public class SequenceMetaData
         _srcType = srcType;
     }
 
+    @Override
     public int getLineNumber() {
         return _lineNum;
     }
@@ -143,6 +151,7 @@ public class SequenceMetaData
         _lineNum = lineNum;
     }
 
+    @Override
     public int getColNumber() {
         return _colNum;
     }
@@ -150,7 +159,8 @@ public class SequenceMetaData
     public void setColNumber(int colNum) {
         _colNum = colNum;
     }
-    
+
+    @Override
     public String getResourceName() {
         return _name;
     }
@@ -276,9 +286,18 @@ public class SequenceMetaData
             plugin.setString(_plugin);
             String clsName = plugin.getClassName();
 
-            Class cls = Class.forName(clsName, true,
-                AccessController.doPrivileged(
-                    J2DoPrivHelper.getClassLoaderAction(Seq.class)));
+            Class cls = null;
+            try {
+                cls = Class.forName(clsName, true,
+                    AccessController.doPrivileged(J2DoPrivHelper.getClassLoaderAction(Seq.class)));
+            } catch (ClassNotFoundException cnfe) {
+                // Target sequence type is loaded by the ClassLoader responsible for OpenJPA classes.
+                // This can happen if the custom sequence implementation is a class that belongs to
+                // a child ClassLoader - a situation that can easily happen in a JEE environment.
+                // Fall back to the envLoader to try load the class.
+                cls = Class.forName(clsName, true, envLoader);
+            }
+
             StringBuilder props = new StringBuilder();
             if (plugin.getProperties() != null)
                 props.append(plugin.getProperties());
@@ -314,6 +333,13 @@ public class SequenceMetaData
      * Set/Get the schema name
      */
     public void setSchema(String schema) {
+        // If the schema name is empty, check to see if a system
+        // level default exists and if so use it.
+        if (schema == null || "".equals(schema)){
+            String tmp = getRepository().getMetaDataFactory().getDefaults().getDefaultSchema();
+            schema = (tmp != null ? tmp : "");
+        }
+
         this._schema = schema;
     }
 
@@ -351,7 +377,7 @@ public class SequenceMetaData
         appendProperty(props, PROP_SCHEMA, wrapValue(_schema));
         appendProperty(props, PROP_CATALOG, wrapValue(_catalog));
     }
-    
+
     /**
      * Wraps property values that may contain spaces or other special characters
      * in double quotes so they are processed as a single valued argument.
@@ -368,7 +394,7 @@ public class SequenceMetaData
      * is null or empty string.
      */
     protected void appendProperty(StringBuilder props, String name, String val) {
-        if (StringUtils.isEmpty(val))
+        if (StringUtil.isEmpty(val))
             return;
         if (props.length() > 0)
             props.append(",");
@@ -389,6 +415,7 @@ public class SequenceMetaData
     /**
      * Close user sequence instance.
      */
+    @Override
     public void close() {
         if (_instance != null && !NAME_SYSTEM.equals(_name))
             try {
@@ -406,25 +433,27 @@ public class SequenceMetaData
     // Commentable
     ///////////////
 
+    @Override
     public String[] getComments() {
         return (_comments == null) ? EMPTY_COMMENTS : _comments;
     }
 
+    @Override
     public void setComments(String[] comments) {
         _comments = comments;
     }
-    
+
     /**
      * Allow facades to supply adapters from a spec sequence type to the
      * OpenJPA sequence type.
      */
-    public static interface SequenceFactory 
+    public interface SequenceFactory
         extends Serializable {
 
         /**
          * Transform the given class named in metadata into a sequence.
          */
-		public Seq toSequence (Class cls, String props)
+		Seq toSequence (Class cls, String props)
 			throws Exception;
 	}
 }

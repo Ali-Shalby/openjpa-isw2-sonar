@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -22,7 +22,6 @@ package org.apache.openjpa.lib.meta;
  * Filters metadata iteration based on resource name suffix.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class SuffixMetaDataFilter implements MetaDataFilter {
 
@@ -35,6 +34,7 @@ public class SuffixMetaDataFilter implements MetaDataFilter {
         _suffix = suffix;
     }
 
+    @Override
     public boolean matches(Resource rsrc) {
         String name = rsrc.getName();
         return name != null && name.endsWith(_suffix);

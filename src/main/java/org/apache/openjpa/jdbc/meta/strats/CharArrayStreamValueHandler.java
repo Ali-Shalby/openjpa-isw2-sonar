@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -36,11 +36,12 @@ import org.apache.openjpa.util.StoreException;
 /**
  * Handler for char array values.
  *
- * @nojavadoc
  */
 public class CharArrayStreamValueHandler
     extends AbstractValueHandler {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final CharArrayStreamValueHandler _instance =
         new CharArrayStreamValueHandler();
 
@@ -54,6 +55,8 @@ public class CharArrayStreamValueHandler
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public Column[] map(ValueMapping vm, String name, ColumnIO io,
         boolean adapt) {
         DBDictionary dict = vm.getMappingRepository().getDBDictionary();
@@ -70,6 +73,7 @@ public class CharArrayStreamValueHandler
         return new Column[]{ col };
     }
 
+    @Override
     public Object toDataStoreValue(ValueMapping vm, Object val,
         JDBCStore store) {
         if (val == null)
@@ -78,6 +82,7 @@ public class CharArrayStreamValueHandler
         return new Sized(new CharArrayReader(chars), chars.length);
     }
 
+    @Override
     public Object toObjectValue(ValueMapping vm, Object val) {
         if (val == null)
             return null;

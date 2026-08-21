@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
@@ -25,7 +25,7 @@ import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.Serializable;
 
-import javax.persistence.Query;
+import jakarta.persistence.Query;
 
 import org.apache.openjpa.util.ExceptionInfo;
 import org.apache.openjpa.util.Exceptions;
@@ -35,13 +35,12 @@ import org.apache.openjpa.util.StoreException;
  * Query timeout violation.
  *
  * @since 2.0.0
- * @nojavadoc
  */
-@SuppressWarnings("serial")
 public class QueryTimeoutException
-    extends javax.persistence.QueryTimeoutException
+    extends jakarta.persistence.QueryTimeoutException
     implements Serializable, ExceptionInfo {
 
+    private static final long serialVersionUID = 1L;
     private transient boolean _fatal = false;
     private transient Object _failed = null;
     private transient Throwable[] _nested = null;
@@ -49,7 +48,7 @@ public class QueryTimeoutException
     public QueryTimeoutException(String msg, Throwable[] nested, Object failed) {
         this(msg, nested, failed, false);
     }
-    
+
     public QueryTimeoutException(String msg, Throwable[] nested, Object failed, boolean fatal) {
         super(msg, nested == null ? null : nested[0], failed instanceof Query ? (Query)failed : null);
         _nested = nested;
@@ -57,43 +56,53 @@ public class QueryTimeoutException
         _fatal = fatal;
     }
 
+    @Override
     public int getType() {
         return STORE;
     }
 
+    @Override
     public int getSubtype() {
         return StoreException.QUERY;
     }
 
+    @Override
     public boolean isFatal() {
         return _fatal;
     }
 
+    @Override
     public Throwable getCause() {
         return PersistenceExceptions.getCause(_nested);
     }
 
+    @Override
     public Throwable[] getNestedThrowables() {
         return (_nested == null) ? Exceptions.EMPTY_THROWABLES : _nested;
     }
 
+    @Override
     public Object getFailedObject() {
         return _failed;
     }
 
+    @Override
     public String toString() {
         return Exceptions.toString(this);
     }
 
+    @Override
     public void printStackTrace() {
         printStackTrace(System.err);
     }
 
+    @Override
     public void printStackTrace(PrintStream out) {
         super.printStackTrace(out);
         Exceptions.printNestedThrowables(this, out);
     }
 
+    @Override
     public void printStackTrace(PrintWriter out) {
         super.printStackTrace(out);
         Exceptions.printNestedThrowables(this, out);

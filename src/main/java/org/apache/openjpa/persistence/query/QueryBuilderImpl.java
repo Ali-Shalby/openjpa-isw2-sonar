@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
@@ -24,41 +24,45 @@ import org.apache.openjpa.persistence.OpenJPAEntityManagerFactorySPI;
 
 /**
  * The factory for QueryDefinition.
- * 
- * 
+ *
+ *
  * @author Pinaki Poddar
  *
  */
 public class QueryBuilderImpl implements OpenJPAQueryBuilder {
 	private final OpenJPAEntityManagerFactorySPI _emf;
-	
+
 	public QueryBuilderImpl(OpenJPAEntityManagerFactorySPI emf) {
 		_emf = emf;
 	}
-	
+
 	/**
 	 * Creates a QueryDefinition without a domain.
 	 */
-	public QueryDefinition createQueryDefinition() {
+	@Override
+    public QueryDefinition createQueryDefinition() {
 		return new QueryDefinitionImpl(this);
 	}
 
 	/**
 	 * Creates a QueryDefinition with given class as domain.
 	 */
-	public DomainObject createQueryDefinition(Class root) {
+	@Override
+    public DomainObject createQueryDefinition(Class root) {
 		return new QueryDefinitionImpl(this).addRoot(root);
 	}
 
 	/**
-	 * Creates a QueryDefinition that can be used a correlated subquery 
+	 * Creates a QueryDefinition that can be used a correlated subquery
 	 * with the given path as domain.
 	 */
-	public DomainObject createSubqueryDefinition(PathExpression path) {
+	@Override
+    public DomainObject createSubqueryDefinition(PathExpression path) {
 		return new QueryDefinitionImpl(this).addSubqueryRoot(path);
 	}
-	
-	public String toJPQL(QueryDefinition query) {
+
+	@Override
+    public String toJPQL(QueryDefinition query) {
 		MetaDataRepository repos = _emf.getConfiguration()
 			.getMetaDataRepositoryInstance();
 		AliasContext ctx = new AliasContext(repos);
@@ -66,12 +70,14 @@ public class QueryBuilderImpl implements OpenJPAQueryBuilder {
             return ((AbstractDomainObject)query).getOwner().asExpression(ctx);
 		return ((QueryDefinitionImpl)query).asExpression(ctx);
 	}
-	
-	public QueryDefinition createQueryDefinition(String jpql) {
+
+	@Override
+    public QueryDefinition createQueryDefinition(String jpql) {
 		throw new UnsupportedOperationException();
 	}
-	
-	public QueryDefinition createQueryDefinition(Query jpql) {
-		throw new UnsupportedOperationException();		
+
+	@Override
+    public QueryDefinition createQueryDefinition(Query jpql) {
+		throw new UnsupportedOperationException();
 	}
 }

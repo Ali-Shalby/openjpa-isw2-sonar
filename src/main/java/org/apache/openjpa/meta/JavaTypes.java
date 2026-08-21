@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -24,6 +24,11 @@ import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.OffsetTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -35,12 +40,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.UUID;
 
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.lib.meta.CFMetaDataParser;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.MetaDataException;
-import serp.util.Strings;
 
 /**
  * Type constants for managed fields.
@@ -84,9 +90,19 @@ public class JavaTypes {
     public static final int INPUT_READER = 31;
     public static final int ENUM = 32;
 
+    // Java8 time API
+    public static final int LOCAL_DATE = 33;
+    public static final int LOCAL_TIME = 34;
+    public static final int LOCAL_DATETIME = 35;
+    public static final int OFFSET_TIME = 36;
+    public static final int OFFSET_DATETIME = 37;
+
+    public static final int UUID_OBJ = 38;
+
+
     private static final Localizer _loc = Localizer.forPackage(JavaTypes.class);
 
-    private static final Map<Class<?>, Integer> _typeCodes = new HashMap<Class<?>, Integer>();
+    private static final Map<Class<?>, Integer> _typeCodes = new HashMap<>();
 
     static {
         _typeCodes.put(String.class, STRING);
@@ -110,6 +126,15 @@ public class JavaTypes {
         _typeCodes.put(PersistenceCapable.class, PC_UNTYPED);
         _typeCodes.put(Properties.class, MAP);
         _typeCodes.put(Calendar.class, CALENDAR);
+
+        // Java8 time API
+        _typeCodes.put(LocalDate.class, LOCAL_DATE);
+        _typeCodes.put(LocalTime.class, LOCAL_TIME);
+        _typeCodes.put(LocalDateTime.class, LOCAL_DATETIME);
+        _typeCodes.put(OffsetTime.class, OFFSET_TIME);
+        _typeCodes.put(OffsetDateTime.class, OFFSET_DATETIME);
+
+        _typeCodes.put(UUID.class, UUID_OBJ);
     }
 
     /**
@@ -139,9 +164,10 @@ public class JavaTypes {
             }
         }
 
-        Integer code = (Integer) _typeCodes.get(type);
-        if (code != null)
-            return code.intValue();
+        Integer code = _typeCodes.get(type);
+        if (code != null) {
+            return code;
+        }
 
         // have to do this first to catch custom collection and map types;
         // on resolve we figure out if these custom types are
@@ -166,10 +192,10 @@ public class JavaTypes {
             return INPUT_STREAM;
         if (Enum.class.isAssignableFrom(type))
             return ENUM;
-            
+
         return OBJECT;
     }
- 
+
     /**
      * Check the given name against the same set of standard packages used
      * when parsing metadata.
@@ -190,6 +216,17 @@ public class JavaTypes {
     /**
      * Check the given name against the same set of standard packages used
      * when parsing metadata.
+     *
+     * @param mustExist Whether the supplied loader <b>must</b> be able to load the class. If true no attempt to use a
+     * different classloader will be made. If false the ClassResolver from the configuration will be used.
+     */
+    public static Class<?> classForName(String name, ClassMetaData context, ClassLoader loader, boolean mustExist) {
+        return classForName(name, context, context.getDescribedType(), null, loader, mustExist);
+    }
+
+    /**
+     * Check the given name against the same set of standard packages used
+     * when parsing metadata.
      */
     public static Class<?> classForName(String name, ValueMetaData context) {
         return classForName(name, context, null);
@@ -205,12 +242,37 @@ public class JavaTypes {
             context.getFieldMetaData().getDeclaringType(), context, loader);
     }
 
+     /**
+     * Try to load a class using the provided loader. Optionally tries the
+     * configuration's ClassResolver if the supplied loader cannot find the class.
+     *
+     * @param name Name of the class to load.
+     * @param loader ClassLoader to use. If null, the configuration's ClassResolver will be used.
+     * @param mustExist Whether the supplied loader <b>must</b> be able to load the class. If true no attempt to use a
+     *        different classloader will be made. If false the ClassResolver from the configuration will be used.
+     */
+    public static Class<?> classForName(String name, ValueMetaData context,
+            ClassLoader loader, boolean mustExist) {
+            return classForName(name,
+                context.getFieldMetaData().getDefiningMetaData(),
+                context.getFieldMetaData().getDeclaringType(), context, loader, mustExist);
+        }
+
+    /**
+     * OJ-758: Delegates to the final classForName.  This is needed
+     * to maintain the existing code path prior to OJ-758.
+     */
+    private static Class<?> classForName(String name, ClassMetaData meta,
+            Class<?> dec, ValueMetaData vmd, ClassLoader loader) {
+        return classForName(name, meta, dec, vmd,  loader, true);
+    }
+
     /**
      * Check the given name against the same set of standard packages used
      * when parsing metadata.
      */
-    private static Class<?> classForName(String name, ClassMetaData meta, Class<?> dec, ValueMetaData vmd, 
-        ClassLoader loader) {
+    private static Class<?> classForName(String name, ClassMetaData meta, Class<?> dec, ValueMetaData vmd,
+        ClassLoader loader, boolean mustExist) {
         // special case for PersistenceCapable and Object
         if ("PersistenceCapable".equals(name)
             || "javax.jdo.PersistenceCapable".equals(name)) // backwards compatibility
@@ -225,16 +287,28 @@ public class JavaTypes {
                 getClassLoader(dec, meta.getEnvClassLoader());
 
         // try the owner's package
-        String pkg = Strings.getPackageName(dec);
+        String pkg = ClassUtil.getPackageName(dec);
         Class<?> cls = CFMetaDataParser.classForName(name, pkg, runtime, loader);
         if (cls == null && vmd != null) {
             // try against this value type's package too
-            pkg = Strings.getPackageName(vmd.getDeclaredType());
+            pkg = ClassUtil.getPackageName(vmd.getDeclaredType());
             cls = CFMetaDataParser.classForName(name, pkg, runtime, loader);
         }
+
+        //OJ-758 start: If the class is still null, as a last/final attempt to
+        //load the class, check with the ClassResolver to get a loader
+        //and use it to attempt to load the class.
+        if (cls == null  && !mustExist){
+            loader = rep.getConfiguration().getClassResolverInstance().
+            getClassLoader(dec, meta.getEnvClassLoader());
+            cls = CFMetaDataParser.classForName(name, pkg, runtime, loader);
+        }
+        //OJ-758 end
+
         if (cls == null)
             throw new MetaDataException(_loc.get("bad-class", name,
                 (vmd == null) ? (Object) meta : (Object) vmd));
+
         return cls;
     }
 
@@ -272,20 +346,20 @@ public class JavaTypes {
                 if (val instanceof Byte)
                     return val;
                 if (val instanceof Number)
-                    return new Byte(((Number) val).byteValue());
+                    return ((Number) val).byteValue();
                 // no break
             case BYTE:
                 if (val instanceof String)
-                    return new Byte(val.toString());
+                    return Byte.valueOf((String)val);
                 return val;
             case CHAR:
             case CHAR_OBJ:
                 if (val instanceof Character)
                     return val;
                 if (val instanceof String)
-                    return new Character(val.toString().charAt(0));
+                    return val.toString().charAt(0);
                 if (val instanceof Number)
-                    return new Character((char) ((Number) val).intValue());
+                    return (char) ((Number) val).intValue();
                 return val;
             case DATE:
                 if (val instanceof String)
@@ -295,21 +369,21 @@ public class JavaTypes {
                 if (val instanceof Double)
                     return val;
                 if (val instanceof Number)
-                    return new Double(((Number) val).doubleValue());
+                    return ((Number) val).doubleValue();
                 // no break
             case DOUBLE:
                 if (val instanceof String)
-                    return new Double(val.toString());
+                    return Double.valueOf(val.toString());
                 return val;
             case FLOAT_OBJ:
                 if (val instanceof Float)
                     return val;
                 if (val instanceof Number)
-                    return new Float(((Number) val).floatValue());
+                    return ((Number) val).floatValue();
                 // no break
             case FLOAT:
                 if (val instanceof String)
-                    return new Float(val.toString());
+                    return Float.valueOf(val.toString());
                 return val;
             case INT_OBJ:
                 if (val instanceof Integer)
@@ -319,7 +393,7 @@ public class JavaTypes {
                 // no break
             case INT:
                 if (val instanceof String)
-                    return new Integer(val.toString());
+                    return Integer.valueOf(val.toString());
                 return val;
             case LONG_OBJ:
                 if (val instanceof Long)
@@ -329,7 +403,7 @@ public class JavaTypes {
                 // no break
             case LONG:
                 if (val instanceof String)
-                    return new Long(val.toString());
+                    return Long.valueOf(val.toString());
                 return val;
             case NUMBER:
                 if (val instanceof Number)
@@ -341,12 +415,17 @@ public class JavaTypes {
                 if (val instanceof Short)
                     return val;
                 if (val instanceof Number)
-                    return new Short(((Number) val).shortValue());
+                    return ((Number) val).shortValue();
                 // no break
             case SHORT:
                 if (val instanceof String)
-                    return new Short(val.toString());
+                    return Short.valueOf(val.toString());
                 return val;
+            case UUID_OBJ:
+                if (val instanceof String) {
+                    return UUID.fromString((String) val);
+                }
+                return (UUID) val;
             case STRING:
                 return val.toString();
             default:
@@ -402,22 +481,22 @@ public class JavaTypes {
      * Helper method to return the given array value as a collection.
      */
     @SuppressWarnings("unchecked")
-    public static List toList(Object val, Class<?> elem, boolean mutable) {
+    public static <T> List<T> toList(Object val, Class<T> elem, boolean mutable) {
         if (val == null)
             return null;
 
-        List l;
+        List<T> l;
         if (!elem.isPrimitive()) {
             // if an object array, use built-in list function
-            l = Arrays.asList((Object[]) val);
+            l = Arrays.asList((T[]) val);
             if (mutable)
-                l = new ArrayList(l);
+                l = new ArrayList<>(l);
         } else {
             // convert to list of wrapper objects
             int length = Array.getLength(val);
-            l = new ArrayList(length);
+            l = new ArrayList<>(length);
             for (int i = 0; i < length; i++)
-                l.add(Array.get(val, i));
+                l.add((T)Array.get(val, i));
         }
         return l;
     }
@@ -435,4 +514,31 @@ public class JavaTypes {
             Array.set(array, idx, itr.next ());
 		return array;
 	}
+
+    /**
+     * Determine whether or not the provided Object value is the default for the provided typeCode.
+     *
+     * For example: If o = Integer(0) and typeCode = JavaTypes.INT, this method will return true.
+     */
+    public static boolean isPrimitiveDefault(Object o, int typeCode) {
+        switch (typeCode) {
+            case BOOLEAN:
+                return ((Boolean) o).equals(Boolean.FALSE) ? true : false;
+            case BYTE:
+                return ((Byte) o) == 0 ? true : false;
+            case SHORT:
+                return ((Short) o) == 0 ? true : false;
+            case INT:
+                return ((Integer) o) == 0 ? true : false;
+            case LONG:
+                return ((Long) o) == 0L ? true : false;
+            case FLOAT:
+                return ((Float) o) == 0.0F ? true : false;
+            case CHAR:
+                return ((Character) o) == '\u0000' ? true : false;
+            case DOUBLE:
+                return ((Double) o) == 0.0d ? true : false;
+        }
+        return false;
+    }
 }

@@ -14,20 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
-import static org.apache.openjpa.persistence.query.ConditionalOperator.*;
+import static org.apache.openjpa.persistence.query.ConditionalOperator.AND;
+import static org.apache.openjpa.persistence.query.ConditionalOperator.OR;
 
 /**
  * Denotes (e1 AND e2) predicate.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class AndPredicate extends LogicalPredicate {
-	public AndPredicate(Predicate p1, Predicate p2) {
+	
+    private static final long serialVersionUID = 1L;
+
+    public AndPredicate(Predicate p1, Predicate p2) {
 		super(p1, AND, OR, p2);
 	}
 }

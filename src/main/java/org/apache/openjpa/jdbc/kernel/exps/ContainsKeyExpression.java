@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -30,6 +30,9 @@ import org.apache.openjpa.jdbc.sql.Select;
 class ContainsKeyExpression
     extends ContainsExpression {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Supply values to test.
      */
@@ -37,6 +40,7 @@ class ContainsKeyExpression
         super(val1, val2);
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         Val val1 = getValue1();
         if (val1 instanceof PCPath)

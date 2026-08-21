@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -32,7 +32,6 @@ import org.apache.openjpa.lib.util.J2DoPrivHelper;
  * Iterator over the metadata resource represented by a URL.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class URLMetaDataIterator implements MetaDataIterator {
 
@@ -46,10 +45,12 @@ public class URLMetaDataIterator implements MetaDataIterator {
         _url = url;
     }
 
+    @Override
     public boolean hasNext() {
         return _url != null && !_iterated;
     }
 
+    @Override
     public URL next() throws IOException {
         if (!hasNext())
             throw new IllegalStateException();
@@ -58,6 +59,7 @@ public class URLMetaDataIterator implements MetaDataIterator {
         return _url;
     }
 
+    @Override
     public InputStream getInputStream() throws IOException {
         if (!_iterated)
             throw new IllegalStateException();
@@ -71,16 +73,18 @@ public class URLMetaDataIterator implements MetaDataIterator {
         }
     }
 
+    @Override
     public File getFile() {
         if (!_iterated)
             throw new IllegalStateException();
         if (_url == null)
             return null;
         File file = new File(URLDecoder.decode(_url.getPath()));
-        return ((AccessController.doPrivileged(
-            J2DoPrivHelper.existsAction(file))).booleanValue()) ? file:null;
+        return (AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(file))) ? file:null;
     }
 
+    @Override
     public void close() {
     }
 }

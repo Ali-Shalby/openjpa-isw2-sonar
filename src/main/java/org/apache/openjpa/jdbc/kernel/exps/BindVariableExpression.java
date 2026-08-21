@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -38,6 +38,8 @@ import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 class BindVariableExpression
     extends EmptyExpression {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Variable _var;
 
     /**
@@ -54,19 +56,23 @@ class BindVariableExpression
         return _var;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         return _var.initialize(sel, ctx, 0);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         buf.append("1 = 1");
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _var.acceptVisit(visitor);

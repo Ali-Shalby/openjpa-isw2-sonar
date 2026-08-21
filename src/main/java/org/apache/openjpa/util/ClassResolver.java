@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -40,5 +40,5 @@ public interface ClassResolver {
      * was obtained; may be null if operating outside
      * the context of persistence environment
      */
-    public ClassLoader getClassLoader(Class<?> contextClass, ClassLoader envLoader);
+    ClassLoader getClassLoader(Class<?> contextClass, ClassLoader envLoader);
 }

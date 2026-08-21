@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
@@ -26,11 +26,10 @@ import java.sql.Statement;
  * the {@link Statement} SQL that caused the exception.
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
-@SuppressWarnings("serial")
 public class ReportingSQLException extends SQLException {
 
+    private static final long serialVersionUID = 1L;
     private final transient Statement _stmnt;
     private final SQLException _sqle;
     private final String       _sql;
@@ -56,10 +55,11 @@ public class ReportingSQLException extends SQLException {
     public String getSQL() {
         return _sql;
     }
-    
+
     /**
      * Returns the SQL state of the underlying {@link SQLException}.
      */
+    @Override
     public String getSQLState() {
         return _sqle.getSQLState();
     }
@@ -67,6 +67,7 @@ public class ReportingSQLException extends SQLException {
     /**
      * Returns the error code of the underlying {@link SQLException}.
      */
+    @Override
     public int getErrorCode() {
         return _sqle.getErrorCode();
     }
@@ -77,15 +78,15 @@ public class ReportingSQLException extends SQLException {
     public Statement getStatement() {
         return _stmnt;
     }
-    
+
     public int getIndexOfFirstFailedObject(){
         return indexOfFirstFailedObject;
     }
 
-    public void setIndexOfFirstFailedObject(int index){    
+    public void setIndexOfFirstFailedObject(int index){
         indexOfFirstFailedObject=index;
     }
-    
+
     private static String getExceptionMessage(SQLException sqle,
         Statement stmnt, String sql) {
         try {

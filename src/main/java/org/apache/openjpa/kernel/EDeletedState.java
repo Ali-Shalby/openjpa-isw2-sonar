@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -25,53 +25,61 @@ package org.apache.openjpa.kernel;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class EDeletedState
-    extends PCState {
+class EDeletedState extends PCState {
+    private static final long serialVersionUID = 1L;
 
+    @Override
     PCState commit(StateManagerImpl context) {
-        context.clearFields();
         return TRANSIENT;
     }
 
+    @Override
     PCState commitRetain(StateManagerImpl context) {
-        context.clearFields();
         return TRANSIENT;
     }
 
+    @Override
     PCState rollback(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState rollbackRestore(StateManagerImpl context) {
         context.restoreFields();
         return ENONTRANS;
     }
 
+    @Override
     PCState nontransactional(StateManagerImpl context) {
         return error("dirty", context);
     }
 
+    @Override
     PCState release(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     boolean isTransactional() {
         return true;
     }
 
+    @Override
     public boolean isPersistent() {
         return true;
     }
 
+    @Override
     boolean isDeleted() {
         return true;
     }
 
+    @Override
     boolean isDirty() {
         return true;
     }
-    
+
+    @Override
     public String toString() {
         return "Embedded-Deleted";
     }

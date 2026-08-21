@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -46,17 +46,17 @@ public interface RemoteCommitProvider
      * Set the "owning" remote event manager to notify when remote events
      * are received from remote sources.
      */
-    public void setRemoteCommitEventManager(RemoteCommitEventManager mgr);
+    void setRemoteCommitEventManager(RemoteCommitEventManager mgr);
 
     /**
      * Notifies other remote event managers in this JVM and on other machines
      * of changes to the cache. This method must not notify the
      * event manager associated with the broker that originated this commit.
      */
-    public void broadcast(RemoteCommitEvent event);
+    void broadcast(RemoteCommitEvent event);
 
     /**
      * Free the resources used by this provider.
      */
-    public void close();
+    @Override void close();
 }

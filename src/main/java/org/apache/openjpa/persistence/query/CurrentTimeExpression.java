@@ -23,32 +23,35 @@ import java.util.Date;
 
 /**
  * Denotes CURRENT_TIME(), CURRENT_DATE() and CURRENT_TIMESTAMP() expressions.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class CurrentTimeExpression extends ExpressionImpl {
-	private static enum Now {
+	
+    private static final long serialVersionUID = 1L;
+
+    private static enum Now {
 		CURRENT_DATE,
 		CURRENT_TIME,
 		CURRENT_TIMESTAMP
 	}
-	
+
 	private final Class _type;
 
 	public CurrentTimeExpression(Class operand) {
 		_type = operand;
 	}
-	
+
 	@Override
 	public String asExpression(AliasContext ctx) {
-		Now now = (_type == Date.class 
+		Now now = (_type == Date.class
 				? Now.CURRENT_DATE
 				: (_type == Time.class
                         ? Now.CURRENT_TIME : Now.CURRENT_TIMESTAMP));
 		return now.toString();
 	}
-	
+
 	@Override
 	public String asProjection(AliasContext ctx) {
 		throw new UnsupportedOperationException();

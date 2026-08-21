@@ -14,9 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
+
+import org.apache.openjpa.lib.util.collections.MapBackedSet;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -24,13 +26,10 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
-import org.apache.commons.collections.set.MapBackedSet;
-
 /**
  * Base class that provides utilities to change trackers.
  *
  * @author Abe White
- * @nojavadoc
  */
 public abstract class AbstractChangeTracker
     implements ChangeTracker {
@@ -77,10 +76,12 @@ public abstract class AbstractChangeTracker
         _autoOff = autoOff;
     }
 
+    @Override
     public boolean isTracking() {
         return _track;
     }
 
+    @Override
     public void startTracking() {
         _track = true;
         if (_seq == -1)
@@ -97,6 +98,7 @@ public abstract class AbstractChangeTracker
         return 0;
     }
 
+    @Override
     public void stopTracking() {
         _track = false;
         _seq = -1;
@@ -116,14 +118,17 @@ public abstract class AbstractChangeTracker
         _identity = null;
     }
 
+    @Override
     public Collection getAdded() {
         return (add == null) ? Collections.EMPTY_LIST : add;
     }
 
+    @Override
     public Collection getRemoved() {
         return (rem == null) ? Collections.EMPTY_LIST : rem;
     }
 
+    @Override
     public Collection getChanged() {
         return (change == null) ? Collections.EMPTY_LIST : change;
     }
@@ -173,10 +178,12 @@ public abstract class AbstractChangeTracker
      */
     protected abstract void change(Object val);
 
+    @Override
     public int getNextSequence() {
         return _seq;
     }
 
+    @Override
     public void setNextSequence(int seq) {
         _seq = seq;
     }
@@ -187,7 +194,7 @@ public abstract class AbstractChangeTracker
      */
     protected Set newSet() {
         if (_identity == Boolean.TRUE)
-            return MapBackedSet.decorate(new IdentityHashMap());
+            return MapBackedSet.mapBackedSet(new IdentityHashMap());
         return new HashSet();
     }
 
@@ -206,9 +213,9 @@ public abstract class AbstractChangeTracker
         else
             _identity = Boolean.FALSE;
 
-        add = switchStructure(add, _identity.booleanValue());
-        rem = switchStructure(rem, _identity.booleanValue());
-        change = switchStructure(change, _identity.booleanValue());
+        add = switchStructure(add, _identity);
+        rem = switchStructure(rem, _identity);
+        change = switchStructure(change, _identity);
     }
 
     /**
@@ -221,7 +228,7 @@ public abstract class AbstractChangeTracker
         if (identity && cur instanceof HashSet) {
             if (cur.isEmpty())
                 return null;
-            Set replace = MapBackedSet.decorate(new IdentityHashMap());
+            Set replace = MapBackedSet.mapBackedSet(new IdentityHashMap());
             replace.addAll(cur);
             return replace;
         }

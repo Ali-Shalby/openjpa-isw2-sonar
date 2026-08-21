@@ -14,20 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
-import org.apache.commons.lang.exception.NestableRuntimeException;
 
 /**
  * Exception type for parse errors.
  *
  * @author Abe White
- * @nojavadoc
  * @since 0.4.0
  */
-public class ParseException extends NestableRuntimeException {
+public class ParseException extends RuntimeException {
+
+    
+    private static final long serialVersionUID = 1L;
 
     public ParseException() {
     }

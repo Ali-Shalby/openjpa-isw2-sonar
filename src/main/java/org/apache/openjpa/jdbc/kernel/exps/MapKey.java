@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -34,6 +34,8 @@ import org.apache.openjpa.meta.ClassMetaData;
 public class MapKey
     extends AbstractVal {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _key;
     private ClassMetaData _meta = null;
     private Class _cast = null;
@@ -54,44 +56,51 @@ public class MapKey
         extends ExpState {
         public ExpState key;
         public ExpState val;
-    
+
         KeyExpState(ExpState key) {
             this.key = key;
         }
     }
 
+    @Override
     public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         KeyExpState estate = (KeyExpState) state;
         _key.appendTo(sel, ctx, estate.key, sql, index);
     }
 
+    @Override
     public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         KeyExpState estate = (KeyExpState) state;
         _key.calculateValue(sel, ctx, estate.key, other, otherState);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         KeyExpState estate = (KeyExpState) state;
         _key.groupBy(sel, ctx, estate.key);
     }
 
+    @Override
     public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         KeyExpState estate = (KeyExpState) state;
         _key.orderBy(sel, ctx, estate.key, asc);
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         ExpState key = _key.initialize(sel, ctx, flags);
         return new KeyExpState(key);
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
         KeyExpState estate = (KeyExpState) state;
@@ -99,36 +108,43 @@ public class MapKey
         return key;
     }
 
+    @Override
     public void select(Select sel, ExpContext ctx, ExpState state, boolean pks)
     {
         selectColumns(sel, ctx, state, pks);
     }
 
+    @Override
     public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         KeyExpState estate = (KeyExpState) state;
         _key.selectColumns(sel, ctx, estate.key, pks);
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public Class getType() {
         return _key.getType();
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
-        _meta = meta;        
+        _meta = meta;
     }
 
-    public Object toDataStoreValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public Object toDataStoreValue(Select sel, ExpContext ctx, ExpState state,
         Object val) {
         KeyExpState estate = (KeyExpState) state;
-        return _key.toDataStoreValue(sel, ctx, 
+        return _key.toDataStoreValue(sel, ctx,
             estate.key, val);
     }
 }

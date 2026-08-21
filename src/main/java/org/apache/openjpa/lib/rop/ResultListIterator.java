@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
@@ -28,7 +28,6 @@ import org.apache.openjpa.lib.util.Localizer;
  * the owning ResultList has been closed.
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class ResultListIterator extends AbstractListIterator {
 
@@ -47,30 +46,36 @@ public class ResultListIterator extends AbstractListIterator {
         return _rl;
     }
 
+    @Override
     public boolean hasNext() {
         if (_rl.isClosed())
             return false;
         return _li.hasNext();
     }
 
+    @Override
     public boolean hasPrevious() {
         return _li.hasPrevious();
     }
 
+    @Override
     public Object next() {
         if (_rl.isClosed())
             throw new NoSuchElementException(_loc.get("closed").getMessage());
         return _li.next();
     }
 
+    @Override
     public int nextIndex() {
         return _li.nextIndex();
     }
 
+    @Override
     public Object previous() {
         return _li.previous();
     }
 
+    @Override
     public int previousIndex() {
         return _li.previousIndex();
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -45,10 +45,10 @@ public class BeanLifecycleCallbacks
     /**
      * Constructor. Make the callback on an instance of the given type.
      *
-     * @arg whether another argunent is expected such as AfterDetach
+     * @param arg whether another argument is expected such as AfterDetach
      */
-    public BeanLifecycleCallbacks(Class cls, String method, boolean arg,
-        Class type) {
+    public BeanLifecycleCallbacks(Class<?> cls, String method, boolean arg,
+        Class<?> type) {
         this(cls, getMethod(cls, method, arg ? new Class[]{ Object.class,
             type } : new Class[]{ type }), arg);
     }
@@ -56,23 +56,24 @@ public class BeanLifecycleCallbacks
     /**
      * Constructor. Make the callback on an instance of the given type.
      */
-    public BeanLifecycleCallbacks(Class cls, Method method, boolean arg) {
+    public BeanLifecycleCallbacks(Class<?> cls, Method method, boolean arg) {
         super(method, arg);
         _listener = newListener(cls);
     }
-    
-    private Object newListener(Class cls) {
+
+    private Object newListener(Class<?> cls) {
         try {
             return AccessController.doPrivileged(
                 J2DoPrivHelper.newInstanceAction(cls));
         } catch (Throwable t) {
             if (t instanceof PrivilegedActionException)
-                t = ((PrivilegedActionException) t).getException();            
+                t = ((PrivilegedActionException) t).getException();
             throw new UserException(_loc.get("bean-constructor",
                 cls.getName()), t);
         }
     }
 
+    @Override
     public void makeCallback(Object obj, Object rel, int eventType)
         throws Exception {
         Method callback = getCallbackMethod();
@@ -85,13 +86,15 @@ public class BeanLifecycleCallbacks
             callback.invoke(_listener, new Object[]{ obj });
     }
 
+    @Override
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
         super.readExternal(in);
-        Class cls = (Class) in.readObject();
+        Class<?> cls = (Class<?>) in.readObject();
         _listener = newListener(cls);
     }
 
+    @Override
     public void writeExternal(ObjectOutput out)
         throws IOException {
         super.writeExternal(out);

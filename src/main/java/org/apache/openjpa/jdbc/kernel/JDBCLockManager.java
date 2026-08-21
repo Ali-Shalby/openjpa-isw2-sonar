@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -39,16 +39,16 @@ public interface JDBCLockManager
      * Return whether to issue the given select FOR UPDATE, depending on
      * the capabilities of the dictionary and the fetch configuration.
      */
-    public boolean selectForUpdate(Select sel, int lockLevel);
+    boolean selectForUpdate(Select sel, int lockLevel);
 
     /**
      * Notification that the given instance was loaded via a result set
      * produced by a FOR UPDATE select.
      */
-    public void loadedForUpdate(OpenJPAStateManager sm);
+    void loadedForUpdate(OpenJPAStateManager sm);
 
     /**
      * Return true if locking is not desired for relation fields.
      */
-    public boolean skipRelationFieldLock();
+    boolean skipRelationFieldLock();
 }

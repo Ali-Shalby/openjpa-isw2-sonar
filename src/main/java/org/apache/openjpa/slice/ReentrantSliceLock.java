@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice;
 
@@ -22,11 +22,12 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * A reentrant lock that lets a child to work with the parent's lock.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class ReentrantSliceLock extends ReentrantLock {
+    private static final long serialVersionUID = 1L;
 
     public ReentrantSliceLock() {
     }
@@ -34,23 +35,23 @@ public class ReentrantSliceLock extends ReentrantLock {
     public ReentrantSliceLock(boolean fair) {
         super(fair);
     }
-    
+
     /**
-     * Locks only for parent thread and let the child use parent's lock. 
+     * Locks only for parent thread and let the child use parent's lock.
      */
     @Override
     public void lock() {
-        if (Thread.currentThread() instanceof SliceThread) 
+        if (Thread.currentThread() instanceof SliceThread)
             return;
         super.lock();
     }
 
     /**
-     * Unlocks only if parent thread. 
+     * Unlocks only if parent thread.
      */
     @Override
     public void unlock() {
-        if (Thread.currentThread() instanceof SliceThread) 
+        if (Thread.currentThread() instanceof SliceThread)
             return;
         super.unlock();
     }

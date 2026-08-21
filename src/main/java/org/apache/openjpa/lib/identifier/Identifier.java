@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.identifier;
 
@@ -23,7 +23,7 @@ package org.apache.openjpa.lib.identifier;
  */
 public interface Identifier extends Comparable<Identifier>, Cloneable {
 
-    public String getName();
-    public void setName(String name);
-    public int length();
+    String getName();
+    void setName(String name);
+    int length();
 }

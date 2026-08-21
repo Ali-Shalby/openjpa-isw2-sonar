@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -99,7 +99,7 @@ public class Proxies {
          *   5) If 1.0 app or requested old 1.0 behavior
          *      5a) If detached, then do not unproxy and return as-is
          *      5b) Else, unproxy
-         * 
+         *
          * Original code -
          *   1) Runtime created proxy (!detachable), then unproxy
          *   2) No Proxy, then return as-is
@@ -107,8 +107,8 @@ public class Proxies {
          *   4) If detached, then return as-is <--- ERROR as EM.clear() marks
          *      entity as detached but doesn't remove any $proxy usage
          *   5) Else, unproxy
-         * 
-         *  if (detachable && (proxy == null || proxy.getOwner() == null 
+         *
+         *  if (detachable && (proxy == null || proxy.getOwner() == null
          *      || proxy.getOwner().isDetached()))
          *      return proxy;
          *
@@ -127,8 +127,15 @@ public class Proxies {
             ClassMetaData meta = null;          // if null, no proxies?
             boolean useDSFForUnproxy = false;   // default to false for old 1.0 behavior
 
-            // DetachedStateMnager has no context or metadata, so we can't get configuration settings
-            if (!proxy.getOwner().isDetached()) {
+            // Don't rely on sm.isDetached() method because if we are serializing an attached Entity
+            // the sm will still be a StateManagerImpl, but isDetached() will return true.
+
+            // Using a DetachedStateManager, so use the new flag since there is no context or
+            // metadata
+            if (sm instanceof DetachedStateManager) {
+                useDSFForUnproxy = ((DetachedStateManager) sm).getUseDSFForUnproxy();
+            } else{
+                // DetachedStateManager has no context or metadata, so we can't get configuration settings
                 Compatibility compat = null;
                 meta = sm.getMetaData();
                 if (meta != null) {
@@ -142,11 +149,8 @@ public class Proxies {
                     // new 2.0 behavior of using DetachedStateField to determine unproxy during serialization
                     useDSFForUnproxy = !compat.getIgnoreDetachedStateFieldForProxySerialization();
                 }
-            } else {
-                // Using a DetachedStateManager, so use the new flag since there is no context or metadata
-                useDSFForUnproxy = ((DetachedStateManager)sm).getUseDSFForUnproxy();
             }
-            
+
             if (useDSFForUnproxy) {
                 // use new 2.0 behavior
                 if ((meta != null) && (Boolean.TRUE.equals(meta.usesDetachedState()))) {

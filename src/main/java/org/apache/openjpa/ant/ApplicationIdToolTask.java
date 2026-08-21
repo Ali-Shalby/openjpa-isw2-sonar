@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ant;
 
@@ -98,15 +98,17 @@ public class ApplicationIdToolTask
         return flags.format;
     }
 
+    @Override
     protected ConfigurationImpl newConfiguration() {
         return new OpenJPAConfigurationImpl();
     }
 
+    @Override
     protected void executeOn(String[] files)
         throws IOException, ClassNotFoundException {
         flags.directory = (dirName == null) ? null
             : Files.getFile(dirName, getClassLoader());
         ApplicationIdTool.run((OpenJPAConfiguration) getConfiguration(), files,
             flags, getClassLoader ());
-	}
+    }
 }

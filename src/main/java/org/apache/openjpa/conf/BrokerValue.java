@@ -14,14 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.conf;
 
-import org.apache.openjpa.lib.conf.PluginValue;
-import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.FinalizingBrokerImpl;
+import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.lib.conf.PluginValue;
 import org.apache.openjpa.util.InternalException;
 
 /**
@@ -30,7 +30,7 @@ import org.apache.openjpa.util.InternalException;
  *
  * @since 0.9.7
  */
-public class BrokerValue 
+public class BrokerValue
     extends PluginValue {
 
     public static final String KEY = "BrokerImpl";
@@ -43,13 +43,14 @@ public class BrokerValue
         super(KEY, false);
         String[] aliases = new String[] {
             DEFAULT_ALIAS, FinalizingBrokerImpl.class.getName(),
-            NON_FINALIZING_ALIAS, BrokerImpl.class.getName(), 
+            NON_FINALIZING_ALIAS, BrokerImpl.class.getName(),
         };
         setAliases(aliases);
         setDefault(aliases[0]);
-        setString(aliases[0]);        
+        setString(aliases[0]);
     }
 
+    @Override
     public Object newInstance(String clsName, Class type, Configuration conf,
         boolean fatal) {
         getTemplateBroker(clsName, type, conf, fatal);

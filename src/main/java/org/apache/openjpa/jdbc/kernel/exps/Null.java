@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -29,22 +29,30 @@ import org.apache.openjpa.jdbc.sql.Select;
 public class Null
     extends Const {
 
+    
+    private static final long serialVersionUID = 1L;
+
+    @Override
     public Class getType() {
         return Object.class;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     public Object getValue(Object[] params) {
         return null;
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         sql.appendValue(null);
     }

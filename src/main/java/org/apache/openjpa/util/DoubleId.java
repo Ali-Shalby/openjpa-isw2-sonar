@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -23,13 +23,15 @@ package org.apache.openjpa.util;
  *
  * @author Abe White
  */
-public final class DoubleId 
+public final class DoubleId
     extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
     private final double key;
 
     public DoubleId(Class cls, Double key) {
-        this(cls, (key == null) ? 0D : key.doubleValue());
+        this(cls, (key == null) ? 0D : key);
     }
 
     public DoubleId(Class cls, String key) {
@@ -50,19 +52,23 @@ public final class DoubleId
         return key;
     }
 
+    @Override
     public Object getIdObject() {
-        return new Double(key);
+        return key;
     }
 
+    @Override
     public String toString() {
         return Double.toString(key);
     }
 
+    @Override
     protected int idHash() {
-        return (int) (Double.doubleToLongBits(key) 
+        return (int) (Double.doubleToLongBits(key)
             ^ (Double.doubleToLongBits(key) >>> 32));
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId o) {
         return key == ((DoubleId) o).key;
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -22,12 +22,15 @@ import org.apache.openjpa.kernel.StoreContext;
 
 /**
  * Find the index of one string within another.
+ * Index is 1-based.
  *
  * @author Abe White
  */
 class IndexOf
     extends Val {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
     private final Val _args;
 
@@ -40,13 +43,16 @@ class IndexOf
         _args = args;
     }
 
+    @Override
     public Class getType() {
         return int.class;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         Object str = _val.eval(candidate, orig, ctx, params);
@@ -55,12 +61,13 @@ class IndexOf
         if (arg instanceof Object[]) {
             Object[] args = (Object[]) arg;
             idx = str.toString().indexOf(args[0].toString(),
-                ((Number) args[1]).intValue());
+                ((Number) args[1]).intValue() - 1) + 1;
         } else
-            idx = str.toString().indexOf(arg.toString());
+            idx = str.toString().indexOf(arg.toString()) + 1;
         return idx;
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

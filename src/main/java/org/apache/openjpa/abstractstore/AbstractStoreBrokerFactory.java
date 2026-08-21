@@ -14,13 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.abstractstore;
 
 import java.security.AccessController;
 import java.util.Map;
-import java.util.Properties;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.AbstractBrokerFactory;
@@ -53,6 +52,9 @@ import org.apache.openjpa.util.UserException;
 public class AbstractStoreBrokerFactory
     extends AbstractBrokerFactory {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * The property name under which to name the concrete store manager
      * class for this runtime.
@@ -80,7 +82,7 @@ public class AbstractStoreBrokerFactory
             return factory;
 
         factory = newInstance(cp);
-        factory.pool(key, factory);
+        AbstractBrokerFactory.pool(key, factory);
         return factory;
     }
 
@@ -121,12 +123,14 @@ public class AbstractStoreBrokerFactory
         _platform = platform;
     }
 
+    @Override
     public Map<String,Object> getProperties() {
         Map<String,Object> props = super.getProperties();
         props.put("Platform", _platform);
         return props;
     }
 
+    @Override
     protected StoreManager newStoreManager() {
         return createStoreManager(_storeCls, _storeProps);
     }
@@ -136,7 +140,7 @@ public class AbstractStoreBrokerFactory
         AbstractStoreManager store =
             (AbstractStoreManager) Configurations.newInstance(cls,
                 AccessController.doPrivileged(J2DoPrivHelper
-                    .getClassLoaderAction(AbstractStoreManager.class))); 
+                    .getClassLoaderAction(AbstractStoreManager.class)));
         Configurations.configureInstance(store, null, props,
             PROP_ABSTRACT_STORE);
         if (store == null)

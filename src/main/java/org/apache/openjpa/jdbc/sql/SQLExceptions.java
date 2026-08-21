@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -22,8 +22,6 @@ import java.sql.SQLException;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.apache.openjpa.conf.OpenJPAConfiguration;
-import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.lib.util.Localizer.Message;
 import org.apache.openjpa.util.LockException;
 import org.apache.openjpa.util.OpenJPAException;
@@ -34,7 +32,6 @@ import org.apache.openjpa.util.StoreException;
  * the appropriate OpenJPA type.
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class SQLExceptions {
 
@@ -141,7 +138,7 @@ public class SQLExceptions {
         }
         return storeEx;
     }
-    
+
     /**
      * Returns an array of {@link SQLException} instances for the specified
      * exception.
@@ -150,7 +147,7 @@ public class SQLExceptions {
         if (se == null)
             return EMPTY_EXCEPS;
 
-        List<SQLException> errs = new LinkedList<SQLException>();
+        List<SQLException> errs = new LinkedList<>();
         while (se != null && !errs.contains(se)) {
             errs.add(se);
             se = se.getNextException();

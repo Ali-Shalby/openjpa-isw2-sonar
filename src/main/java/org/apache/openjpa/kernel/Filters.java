@@ -14,17 +14,25 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.math.RoundingMode;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.OffsetTime;
+import java.time.ZoneId;
+import java.time.temporal.Temporal;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -37,17 +45,16 @@ import org.apache.openjpa.kernel.exps.AggregateListener;
 import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.UserException;
-import serp.util.Strings;
 
 /**
  * Helper methods for dealing with query filters.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class Filters {
 
@@ -59,6 +66,8 @@ public class Filters {
     private static final int OP_MULTIPLY = 2;
     private static final int OP_DIVIDE = 3;
     private static final int OP_MOD = 4;
+    private static final int OP_POWER = 5;
+    private static final int OP_ROUND = 6;
 
     private static final Localizer _loc = Localizer.forPackage(Filters.class);
 
@@ -245,13 +254,13 @@ public class Filters {
             return true;
         return false;
     }
-    
+
     /**
      * Convert the given value to match the given (presumably a setter) method argument type.
-     *  
+     *
      * @param o given value
-     * @param method a presumably setter method 
-     * 
+     * @param method a presumably setter method
+     *
      * @return the same value if the method does not have one and only one input argument.
      */
     public static Object convertToMatchMethodArgument(Object o, Method method) {
@@ -264,9 +273,11 @@ public class Filters {
     public static Object convert(Object o, Class<?> type) {
         return convert(o, type, false);
     }
-    
+
     /**
      * Convert the given value to the given type.
+     * @param o the given value
+     * @param type the target type
      */
     public static Object convert(Object o, Class<?> type, boolean strictNumericConversion) {
         if (o == null)
@@ -284,62 +295,115 @@ public class Filters {
         // String to Integer
         boolean num = o instanceof Number;
         if (!num) {
-            if (type == String.class)
+            if (type == String.class) {
                 return o.toString();
-            else if (type == Boolean.class && o instanceof String) 
+            }
+            else if (type == Boolean.class && o instanceof String) {
                 return Boolean.valueOf(o.toString());
-            else if (type == Integer.class && o instanceof String)
+            }
+            else if (type == Integer.class && o instanceof String) {
                 try {
                     return new Integer(o.toString());
-                } catch (NumberFormatException e) {
-                    throw new ClassCastException(_loc.get("cant-convert", o,
-                        o.getClass(), type).getMessage());
                 }
+                catch (NumberFormatException e) {
+                    throw new ClassCastException(_loc.get("cant-convert", o, o.getClass(), type).getMessage());
+                }
+            }
             else if (type == Character.class) {
                 String str = o.toString();
-                if (str != null && str.length() == 1)
-                    return new Character(str.charAt(0));
-            } else if (Calendar.class.isAssignableFrom(type) &&
-                o instanceof Date) {
+                if (str != null && str.length() == 1) {
+                    return str.charAt(0);
+                }
+            }
+            else if (Calendar.class.isAssignableFrom(type) && o instanceof Date) {
                 Calendar cal = Calendar.getInstance();
                 cal.setTime((Date) o);
                 return cal;
-            } else if (Date.class.isAssignableFrom(type) &&
-                o instanceof Calendar) {
+            }
+            else if (Date.class.isAssignableFrom(type) && o instanceof Calendar) {
                 return ((Calendar) o).getTime();
-            } else if (Number.class.isAssignableFrom(type)) {
+            }
+            else if (Number.class.isAssignableFrom(type)) {
                 Integer i = null;
                 if (o instanceof Character) {
-                    i = Integer.valueOf((Character)o);
+                    i = Integer.valueOf((Character) o);
                 }
-                else if (o instanceof String && ((String) o).length() == 1)
-                    i = Integer.valueOf(((String)o));
+                else if (o instanceof String && ((String) o).length() == 1) {
+                    i = Integer.valueOf(((String) o));
+                }
 
                 if (i != null) {
-                    if (type == Integer.class)
+                    if (type == Integer.class) {
                         return i;
+                    }
                     num = true;
                 }
+            } else if (Temporal.class.isAssignableFrom(type)) {
+                // handling of Java8 time API.
+                if (LocalDate.class.equals(type)) {
+                    if (o instanceof java.sql.Date) {
+                        return ((java.sql.Date) o).toLocalDate();
+                    } else if (o instanceof java.util.Date) {
+                        return new java.sql.Date(((java.util.Date)o).getTime()).toLocalDate();
+                    } else if (o instanceof CharSequence) {
+                        return LocalDate.parse((CharSequence) o);
+                    }
+                } else if (LocalDateTime.class.equals(type)) {
+                    if (o instanceof java.sql.Timestamp) {
+                        return ((java.sql.Timestamp) o).toLocalDateTime();
+                    } else if (o instanceof java.util.Date) {
+                        return ((java.util.Date)o).toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
+                    } else if (o instanceof CharSequence) {
+                        return LocalDateTime.parse((CharSequence) o);
+                    }
+                } else if (LocalTime.class.equals(type)) {
+                    if (o instanceof java.sql.Time) {
+                        return ((java.sql.Time) o).toLocalTime();
+                    } else if (o instanceof java.util.Date) {
+                        return ((java.util.Date)o).toInstant().atZone(ZoneId.systemDefault()).toLocalTime();
+                    } else if (o instanceof CharSequence) {
+                        return LocalTime.parse((CharSequence) o);
+                    }
+                } else if (OffsetTime.class.equals(type)) {
+                    if (o instanceof java.sql.Time) {
+                        return ((java.sql.Time) o).toLocalTime().atOffset(OffsetDateTime.now().getOffset());
+                    } else if (o instanceof java.util.Date) {
+                        return ((java.util.Date)o).toInstant().atZone(ZoneId.systemDefault()).toOffsetDateTime().toOffsetTime();
+                    } else if (o instanceof CharSequence) {
+                        return OffsetTime.parse((CharSequence) o);
+                    }
+                } else if (OffsetDateTime.class.equals(type)) {
+                    if (o instanceof java.sql.Timestamp) {
+                        return ((java.sql.Timestamp) o).toInstant().atZone(ZoneId.systemDefault()).toOffsetDateTime();
+                    } else if (o instanceof java.util.Date) {
+                        return ((java.util.Date)o).toInstant().atZone(ZoneId.systemDefault()).toOffsetDateTime();
+                    } else if (o instanceof CharSequence) {
+                        return OffsetDateTime.parse((CharSequence) o);
+                    }
+                }
+
             } else if (o instanceof String && isJDBCTemporalSyntax(o.toString())) {
                 try {
                     Object temporal = parseJDBCTemporalSyntax(o.toString());
                     if (temporal != null && type.isAssignableFrom(temporal.getClass()))
                         return temporal;
                 } catch (IllegalArgumentException e) {
-                    
+
                 }
+            } else if (o instanceof String && type.isEnum()) {
+                return Enum.valueOf((Class<Enum>)type, o.toString());
             }
         }
-        if (!num)
-            throw new ClassCastException(_loc.get("cant-convert", o,
-                o.getClass(), type).getMessage());
+        if (!num) {
+            throw new ClassCastException(_loc.get("cant-convert", o, o.getClass(), type).getMessage());
+        }
 
         if (type == Integer.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
             return ((Number) o).intValue();
         } else if (type == Float.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
-            return new Float(((Number) o).floatValue());
+            return ((Number) o).floatValue();
         } else if (type == Double.class) {
-            return new Double(((Number) o).doubleValue());
+            return ((Number) o).doubleValue();
         } else if (type == Long.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
             return ((Number) o).longValue();
         } else if (type == BigDecimal.class) {
@@ -348,27 +412,30 @@ public class Filters {
             // does it handle infinity; we need to instead use the Double
             // and Float versions, despite wanting to cast it to BigDecimal
             double dval = ((Number) o).doubleValue();
-            if (Double.isNaN(dval) || Double.isInfinite(dval))
-                return new Double(dval);
-
+            if (Double.isNaN(dval) || Double.isInfinite(dval)) {
+                return dval;
+            }
             float fval = ((Number) o).floatValue();
-            if (Float.isNaN(fval) || Float.isInfinite(fval))
-                return new Float(fval);
+            if (Float.isNaN(fval) || Float.isInfinite(fval)) {
+                return fval;
+            }
 
             return new BigDecimal(o.toString());
         } else if (type == BigInteger.class) {
             return new BigInteger(o.toString());
         } else if (type == Short.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
-            return new Short(((Number) o).shortValue());
+            return ((Number) o).shortValue();
         } else if (type == Byte.class && allowNumericConversion(o.getClass(), type, strictNumericConversion)) {
-            return new Byte(((Number) o).byteValue());
+            return ((Number) o).byteValue();
+        } else if (type == Character.class) {
+            return (char) ((Number) o).intValue();
         } else if (!strictNumericConversion) {
             return ((Number) o).intValue();
         } else {
             throw new ClassCastException(_loc.get("cant-convert", o, o.getClass(), type).getMessage());
         }
     }
-    
+
     private static boolean allowNumericConversion(Class<?> actual, Class<?> target, boolean strict) {
         if (!strict || actual == target)
             return true;
@@ -414,6 +481,17 @@ public class Filters {
      */
     public static Object mod(Object o1, Class<?> c1, Object o2, Class<?> c2) {
         return op(o1, c1, o2, c2, OP_MOD);
+    }
+
+    /**
+     * Power the base to the exponent
+     */
+    public static Object power(Object o1, Class<?> c1, Object o2, Class<?> c2) {
+        return op(o1, c1, o2, c2, OP_POWER);
+    }
+
+    public static Object round(Object o1, Class<?> c1, Object o2, Class<?> c2) {
+        return op(o1, c1, o2, c2, OP_ROUND);
     }
 
     /**
@@ -482,6 +560,10 @@ public class Filters {
             case OP_MOD:
                 tot = n1 % n2;
                 break;
+            case OP_POWER:
+                return Math.pow(n1, n2);
+            case OP_ROUND:
+                tot = n1;
             default:
                 throw new InternalException();
         }
@@ -509,10 +591,15 @@ public class Filters {
             case OP_MOD:
                 tot = n1 % n2;
                 break;
-            default:
+            case OP_POWER:
+                return Math.pow(n1, n2);
+            case OP_ROUND:
+                BigDecimal bg = new BigDecimal(Float.toString(n1));
+                return bg.setScale(Math.toIntExact(Math.round(n2)), RoundingMode.HALF_EVEN).floatValue();
+        default:
                 throw new InternalException();
         }
-        return new Float(tot);
+        return tot;
     }
 
     /**
@@ -536,10 +623,16 @@ public class Filters {
             case OP_MOD:
                 tot = n1 % n2;
                 break;
+            case OP_POWER:
+                tot = Math.pow(n1, n2);
+                break;
+            case OP_ROUND:
+                BigDecimal bg = new BigDecimal(Double.toString(n1));
+                return bg.setScale(Math.toIntExact(Math.round(n2)), RoundingMode.HALF_EVEN).doubleValue();
             default:
                 throw new InternalException();
         }
-        return new Double(tot);
+        return tot;
     }
 
     /**
@@ -563,6 +656,10 @@ public class Filters {
             case OP_MOD:
                 tot = n1 % n2;
                 break;
+            case OP_POWER:
+                return Math.pow(n1, n2);
+            case OP_ROUND:
+                return n1;
             default:
                 throw new InternalException();
         }
@@ -585,6 +682,10 @@ public class Filters {
                 return n1.divide(n2, scale, BigDecimal.ROUND_HALF_UP);
             case OP_MOD:
                 throw new UserException(_loc.get("mod-bigdecimal"));
+            case OP_POWER:
+                return n1.pow(n2.intValue());
+            case OP_ROUND:
+                return n1.setScale(n2.intValue(), RoundingMode.HALF_EVEN);
             default:
                 throw new InternalException();
         }
@@ -603,6 +704,10 @@ public class Filters {
                 return n1.multiply(n2);
             case OP_DIVIDE:
                 return n1.divide(n2);
+            case OP_POWER:
+                return n1.pow(n2.intValue());
+            case OP_ROUND:
+                return n1;
             default:
                 throw new InternalException();
         }
@@ -632,7 +737,7 @@ public class Filters {
         char cur;
         int start = 0;
         boolean skipSpace = false;
-        List<String> results = new ArrayList<String>(6);
+        List<String> results = new ArrayList<>(6);
         for (int i = 0; i < dec.length(); i++) {
             cur = dec.charAt(i);
             if (cur == bad)
@@ -719,7 +824,7 @@ public class Filters {
                 case '\r':
                     if (c == split && !string && parenDepth == 0 && nonspace) {
                         if (exps == null)
-                            exps = new ArrayList<String>(expected);
+                            exps = new ArrayList<>(expected);
                         exps.add(str.substring(begin, pos).trim());
                         begin = pos + 1;
                         nonspace = false;
@@ -728,7 +833,7 @@ public class Filters {
                 default:
                     if (c == split && !string && parenDepth == 0) {
                         if (exps == null)
-                            exps = new ArrayList<String>(expected);
+                            exps = new ArrayList<>(expected);
                         exps.add(str.substring(begin, pos).trim());
                         begin = pos + 1;
                     }
@@ -759,7 +864,7 @@ public class Filters {
 
         // create set of base class metadatas in access path
         if (metas == null)
-            metas = new ArrayList<ClassMetaData>();
+            metas = new ArrayList<>();
         int last = metas.size();
 
         // for every element in the path of this executor, compare it
@@ -768,18 +873,19 @@ public class Filters {
         // at least it's n^2 of a small n...
         ClassMetaData meta;
         boolean add;
-        for (int i = 0; i < path.length; i++) {
+        for (ClassMetaData classMetaData : path) {
             add = true;
             for (int j = 0; add && j < last; j++) {
                 meta = metas.get(j);
 
-                if (meta.getDescribedType().isAssignableFrom(path[i].getDescribedType())) {
+                if (meta.getDescribedType().isAssignableFrom(classMetaData.getDescribedType())) {
                     // list already contains base class
                     add = false;
-                } else if (path[i].getDescribedType().isAssignableFrom(meta.getDescribedType())) {
+                }
+                else if (classMetaData.getDescribedType().isAssignableFrom(meta.getDescribedType())) {
                     // this element replaces its subclass
                     add = false;
-                    metas.set(j, path[i]);
+                    metas.set(j, classMetaData);
                 }
             }
 
@@ -787,7 +893,7 @@ public class Filters {
             // list and path element didn't replace a subclass in the
             // list, then add it now as a new base
             if (add)
-                metas.add(path[i]);
+                metas.add(classMetaData);
         }
         return metas;
     }
@@ -836,13 +942,13 @@ public class Filters {
 
         Exception cause = null;
         if (hint instanceof String) {
-            String[] clss = Strings.split((String) hint, ",", 0);
+            String[] clss = StringUtil.split((String) hint, ",", 0);
             AggregateListener[] aggs = new AggregateListener[clss.length];
             try {
                 for (int i = 0; i < clss.length; i++)
                     aggs[i] = (AggregateListener) AccessController.doPrivileged(
                         J2DoPrivHelper.newInstanceAction(
-                            Class.forName(clss[i], true, loader))); 
+                            Class.forName(clss[i], true, loader)));
                 return aggs;
             } catch (Exception e) {
                 if (e instanceof PrivilegedActionException)
@@ -869,7 +975,7 @@ public class Filters {
             try {
                 return (FilterListener) AccessController.doPrivileged(
                     J2DoPrivHelper.newInstanceAction(
-                        Class.forName((String) hint, true, loader))); 
+                        Class.forName((String) hint, true, loader)));
             } catch (Exception e) {
                 if (e instanceof PrivilegedActionException)
                     e = ((PrivilegedActionException) e).getException();
@@ -899,7 +1005,7 @@ public class Filters {
 
         Exception cause = null;
         if (hint instanceof String) {
-            String[] clss = Strings.split((String) hint, ",", 0);
+            String[] clss = StringUtil.split((String) hint, ",", 0);
             FilterListener[] filts = new FilterListener[clss.length];
             try {
                 for (int i = 0; i < clss.length; i++)
@@ -931,8 +1037,7 @@ public class Filters {
     /**
      * Set the value of the property named by the hint key.
      */
-    public static void hintToSetter(Object target, String hintKey,
-        Object value) {
+    public static void hintToSetter(Object target, String hintKey, Object value) {
         if (target == null || hintKey == null)
             return;
 
@@ -942,8 +1047,7 @@ public class Filters {
                 value = null;
             else {
                 try {
-                    value = Strings.parse((String) value,
-                        setter.getParameterTypes()[0]);
+                    value = StringUtil.parse((String) value, setter.getParameterTypes()[0]);
                 } catch (Exception e) {
                     throw new UserException(_loc.get("bad-setter-hint-arg",
                         hintKey, value, setter.getParameterTypes()[0])).
@@ -952,10 +1056,10 @@ public class Filters {
             }
         }
         Reflection.set(target, setter, value);
-	}
-    
+    }
+
     /**
-     * Parses the given string assuming it is a JDBC key expression. Extracts the 
+     * Parses the given string assuming it is a JDBC key expression. Extracts the
      * data portion and based on the key, calls static java.sql.Date/Time/Timestamp.valueOf(String)
      * method to convert to a java.sql.Date/Time/Timestamp instance.
      */
@@ -971,10 +1075,10 @@ public class Filters {
             return null;
         }
     }
-    
+
     /**
      * Affirms if the given String is enclosed in {}.
-     * 
+     *
      */
     public static boolean isJDBCTemporalSyntax(String s) {
         if (s != null) {
@@ -982,10 +1086,10 @@ public class Filters {
         }
         return s != null && s.startsWith("{") && s.endsWith("}");
     }
-    
+
     /**
      * Removes the first and last string if they are the terminal sequence in the given string.
-     * 
+     *
      * @param s a string to be examined
      * @param first the characters in the beginning of the given string
      * @param last the characters in the end of the given string
@@ -1003,29 +1107,34 @@ public class Filters {
         }
         return s;
     }
-    
+
     /**
      * Affirms if the given class is Data, Time or Timestamp.
      */
     public static boolean isTemporalType(Class<?> c) {
-        return c != null 
-            && (Date.class.isAssignableFrom(c) 
-             || Time.class.isAssignableFrom(c) 
+        return c != null
+            && (Date.class.isAssignableFrom(c)
+             || Time.class.isAssignableFrom(c)
              || Timestamp.class.isAssignableFrom(c)
-             || Calendar.class.isAssignableFrom(c));
+             || Calendar.class.isAssignableFrom(c)
+             || LocalDate.class == c  // java.time classes are final, so we can compare with ==
+             || LocalDateTime.class == c
+             || LocalTime.class == c
+             || OffsetTime.class ==c
+             || OffsetDateTime.class == c);
     }
-    
+
     public static Object getDefaultForNull(Class<?> nType) {
-        if (nType == Long.class) 
-            return new Long(0);
+        if (nType == Long.class)
+            return 0L;
         if (nType == Integer.class)
-            return new Integer(0);
-        if (nType == Double.class) 
-            return new Double(0.0);
-        if (nType == Float.class) 
-            return new Float(0.0);
-        if (nType == Short.class) 
-            return new Short((short)0);
+            return 0;
+        if (nType == Double.class)
+            return 0.0;
+        if (nType == Float.class)
+            return 0.0F;
+        if (nType == Short.class)
+            return (short) 0;
         return null;
     }
 

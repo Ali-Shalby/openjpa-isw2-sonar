@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -36,9 +36,9 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UserException;
 
@@ -47,13 +47,12 @@ import org.apache.openjpa.util.UserException;
  *
  * @author Abe White
  * @author Patrick Linskey
- * @nojavadoc
  */
 public class ResultPacker {
 
     private static final Localizer _loc = Localizer.forPackage
         (ResultPacker.class);
-    private static final Set _stdTypes = new HashSet();
+    private static final Set<Class<?>> _stdTypes = new HashSet<>();
 
     static {
         _stdTypes.add(Object[].class);
@@ -79,12 +78,12 @@ public class ResultPacker {
         _stdTypes.add(GregorianCalendar.class);
     }
 
-    private final Class _resultClass;
+    private final Class<?> _resultClass;
     private final String[] _aliases;
     private final Member[] _sets;
     private final Method _put;
-    private final Constructor _constructor;
-    
+    private final Constructor<?> _constructor;
+
     /**
      * Protected constructor to bypass this implementation but allow extension.
      */
@@ -99,7 +98,7 @@ public class ResultPacker {
     /**
      * Constructor for result class without a projection.
      */
-    public ResultPacker(Class candidate, String alias, Class resultClass) {
+    public ResultPacker(Class<?> candidate, String alias, Class<?> resultClass) {
         this(candidate, null, new String[]{ alias }, resultClass);
     }
 
@@ -110,18 +109,17 @@ public class ResultPacker {
      * @param aliases the alias for each projection value
      * @param resultClass the class to pack into
      */
-    public ResultPacker(Class[] types, String[] aliases, Class resultClass) {
+    public ResultPacker(Class<?>[] types, String[] aliases, Class<?> resultClass) {
         this(null, types, aliases, resultClass);
     }
 
     /**
      * Internal constructor.
      */
-    private ResultPacker(Class candidate, Class[] types, String[] aliases,
-        Class resultClass) {
+    private ResultPacker(Class<?> candidate, Class<?>[] types, String[] aliases, Class<?> resultClass) {
         _aliases = aliases;
-        if (candidate == resultClass 
-         ||(types != null && types.length == 1 && types[0] == resultClass) 
+        if (candidate == resultClass || isInterface(resultClass, candidate)
+         ||(types != null && types.length == 1 && types[0] == resultClass)
          || resultClass.isArray()) {
             _resultClass = resultClass;
             _sets = null;
@@ -135,7 +133,7 @@ public class ResultPacker {
             _constructor = null;
         } else if (!_stdTypes.contains(_resultClass = resultClass)) {
             // check for a constructor that matches the projection types
-            Constructor cons = null;
+            Constructor<?> cons = null;
             if (types != null && types.length > 0) {
                 try {
                     cons = _resultClass.getConstructor(types);
@@ -150,7 +148,7 @@ public class ResultPacker {
                 _put = findPut(methods);
                 _sets = new Member[aliases.length];
 
-                Class type;
+                Class<?> type;
                 for (int i = 0; i < _sets.length; i++) {
                     type = (types == null) ? candidate : types[i];
                     _sets[i] = findSet(aliases[i], type, fields, methods);
@@ -173,12 +171,23 @@ public class ResultPacker {
         }
     }
 
+    boolean isInterface(Class<?> intf, Class<?> actual) {
+        if (actual != null) {
+            Class<?>[] intfs = actual.getInterfaces();
+            for (Class<?> c : intfs) {
+                if (c == intf)
+                    return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Ensure that conversion is possible.
      */
-    private void assertConvertable(Class candidate, Class[] types,
-        Class resultClass) {
-        Class c = (types == null) ? candidate : types[0];
+    private void assertConvertable(Class<?> candidate, Class<?>[] types,
+        Class<?> resultClass) {
+        Class<?> c = (types == null) ? candidate : types[0];
         if ((types != null && types.length != 1) || (c != null
             && c != Object.class && !Filters.canConvert(c, resultClass, true)))
             throw new UserException(_loc.get("cant-convert-result",
@@ -189,7 +198,7 @@ public class ResultPacker {
      * Pack the given object into an instance of the query's result class.
      */
     public Object pack(Object result) {
-        if (_resultClass == result.getClass())
+        if (result == null || _resultClass == result.getClass())
             return result;
         // special cases for efficient basic types where we want to avoid
         // creating an array for call to general pack method below
@@ -198,7 +207,7 @@ public class ResultPacker {
         if (_resultClass == Object[].class)
             return new Object[]{ result };
         if (_resultClass == HashMap.class || _resultClass == Map.class) {
-            HashMap map = new HashMap(1, 1F);
+            HashMap<String,Object> map = new HashMap<>(1, 1F);
             map.put(_aliases[0], result);
             return map;
         }
@@ -239,7 +248,7 @@ public class ResultPacker {
         if (_resultClass == Object.class)
             return result[0];
         if (_resultClass == HashMap.class || _resultClass == Map.class) {
-            Map map = new HashMap(result.length);
+            Map<String,Object> map = new HashMap<>(result.length);
             for (int i = 0; i < _aliases.length; i++)
                 map.put(_aliases[i], result[i]);
             return map;
@@ -294,43 +303,43 @@ public class ResultPacker {
     /**
      * Return the set method for the given property.
      */
-    private static Member findSet(String alias, Class type, Field[] fields,
+    private static Member findSet(String alias, Class<?> type, Field[] fields,
         Method[] methods) {
-        if (StringUtils.isEmpty(alias))
+        if (StringUtil.isEmpty(alias))
             return null;
         if (type == Object.class)
             type = null;
 
         // check public fields first
         Field field = null;
-        for (int i = 0; i < fields.length; i++) {
+        for (Field item : fields) {
             // if we find a field with the exact name, either return it
             // if it's the right type or give up if it's not
-            if (fields[i].getName().equals(alias)) {
+            if (item.getName().equals(alias)) {
                 if (type == null
-                    || Filters.canConvert(type, fields[i].getType(), true))
-                    return fields[i];
+                        || Filters.canConvert(type, item.getType(), true))
+                    return item;
                 break;
             }
 
             // otherwise if we find a field with the right name but the
             // wrong case, record it and if we don't find an exact match
             // for a field or setter we'll use it
-            if (field == null && fields[i].getName().equalsIgnoreCase(alias)
-                && (type == null
-                || Filters.canConvert(type, fields[i].getType(), true)))
-                field = fields[i];
+            if (field == null && item.getName().equalsIgnoreCase(alias)
+                    && (type == null
+                    || Filters.canConvert(type, item.getType(), true)))
+                field = item;
         }
 
         // check setter methods
-        String setName = "set" + StringUtils.capitalize(alias);
+        String setName = "set" + StringUtil.capitalize(alias);
         Method method = null;
         boolean eqName = false;
-        Class[] params;
-        for (int i = 0; i < methods.length; i++) {
-            if (!methods[i].getName().equalsIgnoreCase(setName))
+        Class<?>[] params;
+        for (Method value : methods) {
+            if (!value.getName().equalsIgnoreCase(setName))
                 continue;
-            params = methods[i].getParameterTypes();
+            params = value.getParameterTypes();
             if (params.length != 1)
                 continue;
 
@@ -340,21 +349,22 @@ public class ResultPacker {
                 // don't find an exact type match later, we'll use it.  if
                 // the names are not an exact match, only record this setter
                 // if we haven't found any others that match at all
-                if (methods[i].getName().equals(setName)) {
+                if (value.getName().equals(setName)) {
                     eqName = true;
-                    method = methods[i];
-                } else if (method == null)
-                    method = methods[i];
-            } else
-            if (type == null || Filters.canConvert(type, params[0], true)) {
+                    method = value;
+                }
+                else if (method == null)
+                    method = value;
+            }
+            else if (type == null || Filters.canConvert(type, params[0], true)) {
                 // we found a setter with the right type; now see if the name
                 // is an exact match.  if so, return the setter.  if not,
                 // record the setter only if we haven't found a generic one
                 // with an exact name match
-                if (methods[i].getName().equals(setName))
-                    return methods[i];
+                if (value.getName().equals(setName))
+                    return value;
                 if (method == null || !eqName)
-                    method = methods[i];
+                    method = value;
             }
         }
 
@@ -370,15 +380,15 @@ public class ResultPacker {
      */
     private static Method findPut(Method[] methods) {
         Class<?>[] params;
-        for (int i = 0; i < methods.length; i++) {
-            if (!methods[i].getName().equals("put"))
+        for (Method method : methods) {
+            if (!method.getName().equals("put"))
                 continue;
 
-            params = methods[i].getParameterTypes();
+            params = method.getParameterTypes();
             if (params.length == 2
-                && params[0] == Object.class
-                && params[1] == Object.class)
-                return methods[i];
+                    && params[0] == Object.class
+                    && params[1] == Object.class)
+                return method;
         }
 		return null;
 	}

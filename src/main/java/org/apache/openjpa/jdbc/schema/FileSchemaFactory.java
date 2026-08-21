@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -26,6 +26,7 @@ import java.security.AccessController;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
+import org.apache.openjpa.lib.meta.MetaDataSerializer;
 import org.apache.openjpa.lib.util.Files;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.util.GeneralException;
@@ -62,25 +63,30 @@ public class FileSchemaFactory
      * @deprecated Use {@link #setFile}. Retained for
      * backwards-compatible auto-configuration.
      */
+    @Deprecated
     public void setFileName(String name) {
         setFile(name);
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = (JDBCConfiguration) conf;
         _loader = _conf.getClassResolverInstance().
             getClassLoader(getClass(), null);
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 
+    @Override
     public SchemaGroup readSchema() {
         URL url = AccessController.doPrivileged(
-            J2DoPrivHelper.getResourceAction(_loader, _fileName)); 
+            J2DoPrivHelper.getResourceAction(_loader, _fileName));
         if (url == null)
             return new SchemaGroup();
 
@@ -93,12 +99,13 @@ public class FileSchemaFactory
         return parser.getSchemaGroup();
     }
 
+    @Override
     public void storeSchema(SchemaGroup schema) {
         File file = Files.getFile(_fileName, _loader);
         XMLSchemaSerializer ser = new XMLSchemaSerializer(_conf);
         ser.addAll(schema);
         try {
-            ser.serialize(file, ser.PRETTY);
+            ser.serialize(file, MetaDataSerializer.PRETTY);
         } catch (IOException ioe) {
             throw new GeneralException(ioe);
         }

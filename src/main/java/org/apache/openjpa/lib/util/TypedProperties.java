@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -26,9 +26,11 @@ import java.util.Properties;
  * The internal representation of all data is kept in string form.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class TypedProperties extends Properties {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Default constructor.
@@ -155,6 +157,7 @@ public class TypedProperties extends Properties {
      *
      * @see Properties#setProperty(String,String)
      */
+    @Override
     public Object setProperty(String key, String val) {
         if (val == null)
             return remove(key);

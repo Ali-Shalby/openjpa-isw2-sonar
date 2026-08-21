@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -35,38 +35,47 @@ public abstract class AbstractTransactionListener
     protected void eventOccurred(TransactionEvent event) {
     }
 
+    @Override
     public void afterBegin(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeFlush(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterFlush(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeCommit(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterCommit(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterRollback(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterStateTransitions(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterCommitComplete(TransactionEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterRollbackComplete(TransactionEvent event) {
         eventOccurred(event);
     }

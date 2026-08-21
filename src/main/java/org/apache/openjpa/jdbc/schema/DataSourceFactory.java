@@ -14,23 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
-import java.lang.reflect.Constructor;
 import java.security.AccessController;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Iterator;
 import java.util.List;
 
 import javax.sql.DataSource;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.conf.Configurations;
@@ -42,10 +39,10 @@ import org.apache.openjpa.lib.jdbc.JDBCEventConnectionDecorator;
 import org.apache.openjpa.lib.jdbc.JDBCListener;
 import org.apache.openjpa.lib.jdbc.LoggingConnectionDecorator;
 import org.apache.openjpa.lib.log.Log;
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UserException;
@@ -56,14 +53,11 @@ import org.apache.openjpa.util.UserException;
  * to setup prepared statement caching.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class DataSourceFactory {
 
-    private static final Localizer _loc = Localizer.forPackage
-    	 (DataSourceFactory.class);
-    protected static Localizer _eloc = 
-    	Localizer.forPackage(DelegatingDataSource.class);
+    private static final Localizer _loc = Localizer.forPackage(DataSourceFactory.class);
+    protected static Localizer _eloc = Localizer.forPackage(DelegatingDataSource.class);
 
     /**
      * Create a datasource using the given configuration.
@@ -72,8 +66,8 @@ public class DataSourceFactory {
         boolean factory2) {
         String driver = (factory2) ? conf.getConnection2DriverName()
             : conf.getConnectionDriverName();
-        if (StringUtils.isEmpty(driver))
-            throw new UserException(_loc.get("no-driver", driver)).
+        if (StringUtil.isEmpty(driver))
+            throw new UserException(_loc.get("no-driver", conf)).
                 setFatal(true);
 
         ClassLoader loader = conf.getClassResolverInstance().
@@ -81,7 +75,7 @@ public class DataSourceFactory {
         String props = (factory2) ? conf.getConnection2Properties()
             : conf.getConnectionProperties();
         try {
-            Class driverClass;
+            Class<?> driverClass;
             try {
                 driverClass = Class.forName(driver, true, loader);
             } catch (ClassNotFoundException cnfe) {
@@ -118,7 +112,7 @@ public class DataSourceFactory {
                 return (DataSource) Configurations.newInstance(driver,
                     conf, props, AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
-                            DataSource.class))); 
+                            DataSource.class)));
             }
         }
         catch (OpenJPAException ke) {
@@ -142,26 +136,25 @@ public class DataSourceFactory {
         Log jdbcLog = conf.getLog(JDBCConfiguration.LOG_JDBC);
         Log sqlLog = conf.getLog(JDBCConfiguration.LOG_SQL);
 
-        DecoratingDataSource dds = DecoratingDataSource.
-            newDecoratingDataSource(ds);
+        DecoratingDataSource dds = new DecoratingDataSource(ds);
         try {
             // add user-defined decorators
-            List decorators = new ArrayList();
-            decorators.addAll(Arrays.asList(conf.
-                getConnectionDecoratorInstances()));
+            List<ConnectionDecorator> decorators = new ArrayList<>(Arrays.asList(conf.
+                    getConnectionDecoratorInstances()));
 
             // add jdbc events decorator
             JDBCEventConnectionDecorator ecd =
                 new JDBCEventConnectionDecorator();
             Configurations.configureInstance(ecd, conf, opts);
             JDBCListener[] listeners = conf.getJDBCListenerInstances();
-            for (int i = 0; i < listeners.length; i++)
-                ecd.addListener(listeners[i]);
+            for (JDBCListener listener : listeners) {
+                ecd.addListener(listener);
+            }
             decorators.add(ecd);
 
             // ask the DriverDataSource to provide any additional decorators
             if (ds instanceof DriverDataSource) {
-                List decs = ((DriverDataSource) ds).
+                List<ConnectionDecorator> decs = ((DriverDataSource) ds).
                     createConnectionDecorators();
                 if (decs != null)
                     decorators.addAll(decs);
@@ -198,11 +191,10 @@ public class DataSourceFactory {
         Connection conn = null;
 
         try {
-            // add the dictionary as a warning handler on the logging
-            // decorator
+            // add the dictionary as a warning handler on the logging decorator
             ConnectionDecorator cd;
-            for (Iterator itr = ds.getDecorators().iterator(); itr.hasNext();) {
-                cd = (ConnectionDecorator) itr.next();
+            for (ConnectionDecorator connectionDecorator : ds.getDecorators()) {
+                cd = connectionDecorator;
                 if (cd instanceof LoggingConnectionDecorator)
                     ((LoggingConnectionDecorator) cd).setWarningHandler(dict);
             }
@@ -212,8 +204,26 @@ public class DataSourceFactory {
             ConfiguringConnectionDecorator ccd =
                 new ConfiguringConnectionDecorator();
             ccd.setTransactionIsolation(conf.getTransactionIsolationConstant());
-            ccd.setQueryTimeout(conf.getQueryTimeout() == -1 
-                ? -1 : conf.getQueryTimeout() * 1000);
+
+            //OPENJPA-2517: Allow a jakarta.persistence.query.timeout to apply to all
+            //EM operations (not just Query operations).  Convert from milliseconds
+            //to seconds.  See DBDictionary.setQueryTimeout for similar conversions.
+            //DBDictionary.setQueryTimeout will log warnings for invalid values,
+            //therefore there is no need to do so again here.  Furthermore, there is no
+            //need to check for -1 here, ConfigurationConnectionDecorator checks for it.
+            int timeout = conf.getQueryTimeout();
+            if (dict.allowQueryTimeoutOnFindUpdate){
+                if (timeout > 0 && timeout < 1000) {
+                    // round up to 1 sec
+                    timeout = 1;
+                }
+                else if (timeout >= 1000){
+                    timeout = timeout/1000;
+                }
+            }
+
+            ccd.setQueryTimeout(timeout);
+
             Log log = conf.getLog(JDBCConfiguration.LOG_JDBC);
             if (factory2 || !conf.isConnectionFactoryModeManaged()) {
                 if (!dict.supportsMultipleNontransactionalResultSets)
@@ -233,7 +243,7 @@ public class DataSourceFactory {
 
             // allow the dbdictionary to decorate the connection further
             ds.addDecorator(dict);
-            
+
             // ensure dbdictionary to process connectedConfiguration()
             if (!factory2)
                 conn = ds.getConnection(conf.getConnectionUserName(), conf
@@ -244,7 +254,7 @@ public class DataSourceFactory {
 
             return ds;
         } catch (Exception e) {
-        	throw newConnectException(conf, factory2, e);
+            throw newConnectException(conf, factory2, e);
         } finally {
             if (conn != null)
                 try {
@@ -255,15 +265,15 @@ public class DataSourceFactory {
                 }
         }
     }
-    
-    static OpenJPAException newConnectException(JDBCConfiguration conf, 
-    		boolean factory2, Exception cause) {
-    	return new UserException(_eloc.get("poolds-null", factory2 
-          	  ? new Object[]{conf.getConnection2DriverName(), 
-          			         conf.getConnection2URL()}
-          	  : new Object[]{conf.getConnectionDriverName(),
-          		             conf.getConnectionURL()}),
-          		             cause).setFatal(true);
+
+    static OpenJPAException newConnectException(JDBCConfiguration conf,
+                                                boolean factory2, Exception cause) {
+        return new UserException(_eloc.get("poolds-null", factory2
+                ? new Object[]{conf.getConnection2DriverName(),
+                conf.getConnection2URL()}
+                : new Object[]{conf.getConnectionDriverName(),
+                conf.getConnectionURL()}),
+                cause).setFatal(true);
     }
 
     /**
@@ -278,7 +288,7 @@ public class DataSourceFactory {
         // also check if they are both blank strings
         if ("".equals(user) && "".equals(pass))
             return ds;
-        return DefaultsDataSource.newInstance(ds, user, pass);
+        return new DefaultsDataSource(ds, user, pass);
     }
 
     /**
@@ -293,19 +303,8 @@ public class DataSourceFactory {
     /**
      * A data source with pre-configured default user name and password.
      */
-    protected abstract static class DefaultsDataSource
+    private static class DefaultsDataSource
         extends DelegatingDataSource {
-
-        private static final Constructor<DefaultsDataSource> implClass;
-
-        static {
-            try {
-                implClass = ConcreteClassGenerator.getConcreteConstructor(DefaultsDataSource.class, 
-                        DataSource.class, String.class, String.class);
-            } catch (Exception e) {
-                throw new ExceptionInInitializerError(e);
-            }
-        }
 
         private final String _user;
         private final String _pass;
@@ -316,15 +315,13 @@ public class DataSourceFactory {
             _pass = pass;
         }
 
-        public static DefaultsDataSource newInstance(DataSource ds, String user, String pass) {
-            return ConcreteClassGenerator.newInstance(implClass, ds, user, pass);
-        }
-
+        @Override
         public Connection getConnection()
             throws SQLException {
             return super.getConnection(_user, _pass);
         }
 
+        @Override
         public Connection getConnection(String user, String pass)
             throws SQLException {
             return super.getConnection(user, pass);

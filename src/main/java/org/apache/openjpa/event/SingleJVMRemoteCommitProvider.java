@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
-import java.util.Iterator;
 import java.util.Set;
 
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap.ReferenceStrength;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashSet;
 
 /**
@@ -37,17 +37,17 @@ import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashSet;
 public class SingleJVMRemoteCommitProvider
     extends AbstractRemoteCommitProvider {
 
-    private static Set s_providers = new ConcurrentReferenceHashSet(
-        ConcurrentReferenceHashSet.HARD);
+    private static Set s_providers = new ConcurrentReferenceHashSet(ReferenceStrength.HARD);
 
     public SingleJVMRemoteCommitProvider() {
         s_providers.add(this);
     }
 
+    @Override
     public void broadcast(RemoteCommitEvent event) {
         SingleJVMRemoteCommitProvider provider;
-        for (Iterator iter = s_providers.iterator(); iter.hasNext();) {
-            provider = (SingleJVMRemoteCommitProvider) iter.next();
+        for (Object s_provider : s_providers) {
+            provider = (SingleJVMRemoteCommitProvider) s_provider;
 
             // don't notify this object -- this provider's factory
             // should not be notified of commits that originated
@@ -59,6 +59,7 @@ public class SingleJVMRemoteCommitProvider
         }
     }
 
+    @Override
     public void close() {
         s_providers.remove(this);
     }

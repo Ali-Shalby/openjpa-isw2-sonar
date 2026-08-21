@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -30,8 +30,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
+import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
@@ -40,6 +40,8 @@ import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.lib.util.StringUtil;
+import org.apache.openjpa.util.ExceptionInfo;
 import org.apache.openjpa.util.StoreException;
 
 /**
@@ -51,7 +53,7 @@ public class MySQLDictionary
     public static final String SELECT_HINT = "openjpa.hint.MySQLSelectHint";
 
     public static final String DELIMITER_BACK_TICK = "`";
-    
+
     /**
      * The MySQL table type to use when creating tables; defaults to innodb.
      */
@@ -69,17 +71,20 @@ public class MySQLDictionary
     public boolean driverDeserializesBlobs = false;
 
     /**
-     * Whether to inline multi-table bulk-delete operations into MySQL's 
-     * combined <code>DELETE FROM foo, bar, baz</code> syntax. 
+     * Whether to inline multi-table bulk-delete operations into MySQL's
+     * combined <code>DELETE FROM foo, bar, baz</code> syntax.
      * Defaults to false, since this may fail in the presence of InnoDB tables
      * with foreign keys.
-     * @see http://dev.mysql.com/doc/refman/5.0/en/delete.html
+     * @link http://dev.mysql.com/doc/refman/5.0/en/delete.html
      */
     public boolean optimizeMultiTableDeletes = false;
 
     public static final String tinyBlobTypeName = "TINYBLOB";
     public static final String mediumBlobTypeName = "MEDIUMBLOB";
     public static final String longBlobTypeName = "LONGBLOB";
+    public static final String tinyTextTypeName = "TINYTEXT";
+    public static final String mediumTextTypeName = "MEDIUMTEXT";
+    public static final String longTextTypeName = "LONGTEXT";
 
     public MySQLDictionary() {
         platform = "MySQL";
@@ -93,6 +98,8 @@ public class MySQLDictionary
         requiresTargetForDelete = true;
         supportsSelectStartIndex = true;
         supportsSelectEndIndex = true;
+
+        datePrecision = MICRO;
 
         concatenateFunction = "CONCAT({0},{1})";
 
@@ -120,43 +127,54 @@ public class MySQLDictionary
         reservedWordSet.addAll(Arrays.asList(new String[]{
             "AUTO_INCREMENT", "BINARY", "BLOB", "CHANGE", "ENUM", "INFILE",
             "INT1", "INT2", "INT4", "FLOAT1", "FLOAT2", "FLOAT4", "LOAD",
-            "MEDIUMINT", "OUTFILE", "REPLACE", "STARTING", "TEXT", "UNSIGNED", 
-            "ZEROFILL",
+            "MEDIUMINT", "OUTFILE", "REPLACE", "STARTING", "TEXT", "UNSIGNED",
+            "ZEROFILL", "INDEX",
         }));
 
         // reservedWordSet subset that CANNOT be used as valid column names
         // (i.e., without surrounding them with double-quotes)
-        invalidColumnWordSet.addAll(Arrays.asList(new String[]{
-            "ADD", "ALL", "ALTER", "AND", "AS", "ASC", "BETWEEN", "BINARY",
-            "BLOB", "BOTH", "BY", "CASCADE", "CASE", "CHANGE", "CHAR", 
-            "CHARACTER", "CHECK", "COLLATE", "COLUMN", "CONSTRAINT", "CONTINUE",
-            "CONVERT", "CREATE", "CROSS", "CURRENT_DATE", "CURRENT_TIME",
-            "CURRENT_TIMESTAMP", "CURRENT_USER", "CURSOR", "DEC", "DECIMAL",
-            "DECLARE", "DEFAULT", "DELETE", "DESC", "DESCRIBE", "DISTINCT",
-            "DOUBLE", "DROP", "ELSE", "END-EXEC", "EXISTS", "FALSE", "FETCH",
-            "FLOAT", "FLOAT4", "FOR", "FOREIGN", "FROM", "GRANT", "GROUP",
-            "HAVING", "IN", "INFILE", "INNER", "INSENSITIVE", "INSERT", "INT",
-            "INT1", "INT2", "INT4", "INTEGER", "INTERVAL", "INTO", "IS", "JOIN",
-            "KEY", "LEADING", "LEFT", "LIKE", "LOAD", "MATCH", "MEDIUMINT",
-            "NATURAL", "NOT", "NULL", "NUMERIC", "ON", "OPTION", "OR", "ORDER",
-            "OUTER", "OUTFILE", "PRECISION", "PRIMARY", "PROCEDURE", "READ",
-            "REAL", "REFERENCES", "REPLACE", "RESTRICT", "REVOKE", "RIGHT",
-            "SCHEMA", "SELECT", "SET", "SMALLINT", "SQL", "SQLSTATE",
-            "STARTING", "TABLE", "THEN", "TO", "TRAILING", "TRUE", "UNION",
-            "UNIQUE", "UNSIGNED", "UPDATE", "USAGE", "USING", "VALUES",
-            "VARCHAR", "VARYING", "WHEN", "WHERE", "WITH", "WRITE", "ZEROFILL",
+        // generated at 2021-05-02T15:40:16.383 via org.apache.openjpa.reservedwords.ReservedWordsIT
+        invalidColumnWordSet.addAll(Arrays.asList(new String[] {
+            "ADD", "ALL", "ALTER", "ANALYZE", "AND", "AS", "ASC", "ASENSITIVE", "BEFORE", "BETWEEN", "BIGINT", "BINARY",
+            "BLOB", "BOTH", "BY", "CALL", "CASCADE", "CASE", "CHANGE", "CHAR", "CHARACTER", "CHECK", "COLLATE", "COLUMN", "CONDITION",
+            "CONSTRAINT", "CONTINUE", "CONVERT", "CREATE", "CROSS", "CURRENT_DATE", "CURRENT_TIME", "CURRENT_TIMESTAMP", "CURRENT_USER",
+            "CURSOR", "DATABASE", "DATABASES", "DAY_HOUR", "DAY_MICROSECOND", "DAY_MINUTE", "DAY_SECOND", "DEC", "DECIMAL",
+            "DECLARE", "DEFAULT", "DELAYED", "DELETE", "DESC", "DESCRIBE", "DETERMINISTIC", "DISTINCT", "DISTINCTROW", "DIV",
+            "DOUBLE", "DROP", "DUAL", "EACH", "ELSE", "ELSEIF", "ENCLOSED", "END-EXEC", "ESCAPED", "EXISTS", "EXIT", "EXPLAIN",
+            "FALSE", "FETCH", "FLOAT", "FLOAT4", "FLOAT8", "FOR", "FORCE", "FOREIGN", "FROM", "FULLTEXT", "GENERATED", "GET",
+            "GRANT", "GROUP", "HAVING", "HIGH_PRIORITY", "HOUR_MICROSECOND", "HOUR_MINUTE", "HOUR_SECOND", "IF", "IGNORE",
+            "IN", "INDEX", "INFILE", "INNER", "INOUT", "INSENSITIVE", "INSERT", "INT", "INT1", "INT2", "INT3", "INT4", "INT8",
+            "INTEGER", "INTERVAL", "INTO", "IS", "ITERATE", "JOIN", "KEY", "KEYS", "KILL", "LEADING", "LEAVE", "LEFT", "LIKE",
+            "LIMIT", "LINES", "LOAD", "LOCALTIME", "LOCALTIMESTAMP", "LOCK", "LONG", "LONGBLOB", "LONGTEXT", "LOOP", "LOW_PRIORITY",
+            "MATCH", "MAXVALUE", "MEDIUMBLOB", "MEDIUMINT", "MEDIUMTEXT", "MIDDLEINT", "MINUTE_MICROSECOND", "MINUTE_SECOND",
+            "MOD", "MODIFIES", "NATURAL", "NO_WRITE_TO_BINLOG", "NOT", "NULL", "NUMERIC", "ON", "OPTIMIZE", "OPTION", "OPTIONALLY",
+            "OR", "ORDER", "OUT", "OUTER", "OUTFILE", "PARTITION", "PRECISION", "PRIMARY", "PROCEDURE", "PURGE", "RANGE", "READ",
+            "READS", "REAL", "REFERENCES", "REGEXP", "RELEASE", "RENAME", "REPEAT", "REPLACE", "REQUIRE", "RESIGNAL", "RESTRICT",
+            "RETURN", "REVOKE", "RIGHT", "RLIKE", "SCHEMA", "SCHEMAS", "SECOND_MICROSECOND", "SENSITIVE", "SEPARATOR", "SET",
+            "SHOW", "SIGNAL", "SMALLINT", "SPATIAL", "SPECIFIC", "SQL", "SQL_BIG_RESULT", "SQL_CALC_FOUND_ROWS", "SQL_SMALL_RESULT",
+            "SQLEXCEPTION", "SQLSTATE", "SQLWARNING", "SSL", "STARTING", "STRAIGHT_JOIN", "TABLE", "TERMINATED", "THEN", "TINYBLOB",
+            "TINYINT", "TINYTEXT", "TO", "TRAILING", "TRIGGER", "TRUE", "UNDO", "UNION", "UNIQUE", "UNLOCK", "UNSIGNED", "UPDATE",
+            "USAGE", "USE", "USING", "UTC_DATE", "UTC_TIME", "UTC_TIMESTAMP", "VALUES", "VARBINARY", "VARCHAR", "VARCHARACTER",
+            "VARYING", "WHEN", "WHERE", "WHILE", "WITH", "WRITE", "XOR", "YEAR_MONTH", "ZEROFILL",
+            // end generated.
+            // the following keywords used to be defined as reserved words in the past, but now seem to work
+            // we still add them for compat reasons
+            "INDEX", "SELECT"
         }));
+
+        requiresSearchStringEscapeForLike = true;
 
         // MySQL requires double-escape for strings
         searchStringEscape = "\\\\";
 
-        typeModifierSet.addAll(Arrays.asList(new String[] { "UNSIGNED",
-            "ZEROFILL" }));
+        typeModifierSet.addAll(Arrays.asList(new String[] { "UNSIGNED", "ZEROFILL" }));
 
         setLeadingDelimiter(DELIMITER_BACK_TICK);
         setTrailingDelimiter(DELIMITER_BACK_TICK);
-        
+
         fixedSizeTypeNameSet.remove("NUMERIC");
+
+        dateFractionDigits = 0;
     }
 
     @Override
@@ -188,11 +206,19 @@ public class MySQLDictionary
             allowsAliasInBulkClause = false;
             supportsForeignKeysComposite = false;
         }
-        if (maj > 5 || (maj == 5 && min >= 1))
+        if (maj > 5 || (maj == 5 && min >= 1)) {
             supportsXMLColumn = true;
+        }
+        if (maj > 5 || (maj == 5 && min >= 7)) {
+            // from this version on MySQL supports fractions of a second
+            timestampTypeName = "DATETIME{0}";
+            fixedSizeTypeNameSet.remove(timestampTypeName);
+            fractionalTypeNameSet.add(timestampTypeName);
+        }
 
-        if (metaData.getDriverMajorVersion() < 5)
+        if (metaData.getDriverMajorVersion() < 5) {
             driverDeserializesBlobs = true;
+        }
     }
 
     @Override
@@ -203,7 +229,7 @@ public class MySQLDictionary
             conn.setReadOnly(true);
         return conn;
     }
-    
+
     private static int[] getMajorMinorVersions(String versionStr)
         throws IllegalArgumentException {
         int beginIndex = 0;
@@ -237,7 +263,7 @@ public class MySQLDictionary
     @Override
     public String[] getCreateTableSQL(Table table) {
         String[] sql = super.getCreateTableSQL(table);
-        if (!StringUtils.isEmpty(tableType))
+        if (!StringUtil.isEmpty(tableType))
             sql[0] = sql[0] + " ENGINE = " + tableType;
         return sql;
     }
@@ -272,7 +298,7 @@ public class MySQLDictionary
                 new String[]{ "ALTER TABLE "
                 + getFullName(fk.getTable(), false)
                 + " DROP FOREIGN KEY " + toDBName(fkName) };
-            return retVal;   
+            return retVal;
         }
         return new String[]{ "ALTER TABLE "
             + getFullName(fk.getTable(), false)
@@ -297,7 +323,7 @@ public class MySQLDictionary
         System.arraycopy(sql, 0, ret, cols.length, sql.length);
         return ret;
     }
-    
+
     @Override
     public String[] getDeleteTableContentsSQL(Table[] tables,Connection conn) {
         // mysql >= 4 supports more-optimal delete syntax
@@ -339,8 +365,7 @@ public class MySQLDictionary
         throws SQLException {
         // if the user has set a get-blob strategy explicitly or the driver
         // does not automatically deserialize, delegate to super
-        if (useGetBytesForBlobs || useGetObjectForBlobs
-            || !driverDeserializesBlobs)
+        if (useGetBytesForBlobs || useGetObjectForBlobs || !driverDeserializesBlobs)
             return super.getBlobObject(rs, column, store);
 
         // most mysql drivers deserialize on getObject
@@ -349,14 +374,25 @@ public class MySQLDictionary
 
     @Override
     public int getPreferredType(int type) {
-        if (type == Types.CLOB && !useClobs)
+        if (type == Types.CLOB && !useClobs) {
             return Types.LONGVARCHAR;
+        }
+        else if (type == Types.TIME_WITH_TIMEZONE) {
+            // MySQL doesn't support SQL-2003 'WITH TIMEZONE' nor the respective JDBC types.
+            return Types.TIME;
+        }
+        else if (type == Types.TIMESTAMP_WITH_TIMEZONE) {
+            // MySQL doesn't support SQL-2003 'WITH TIMEZONE' nor the respective JDBC types.
+            return Types.TIMESTAMP;
+        }
+
         return super.getPreferredType(type);
     }
-    
+
+
     /**
      * Append XML comparison.
-     * 
+     *
      * @param buf the SQL buffer to write the comparison
      * @param op the comparison operation to perform
      * @param lhs the left hand side of the comparison
@@ -378,10 +414,10 @@ public class MySQLDictionary
         else
             rhs.appendTo(buf);
     }
-    
+
     /**
      * Append XML column value so that it can be used in comparisons.
-     * 
+     *
      * @param buf the SQL buffer to write the value
      * @param val the value to be written
      */
@@ -392,7 +428,7 @@ public class MySQLDictionary
         val.appendTo(buf);
         buf.append("')");
     }
-    
+
     @Override
     public int getBatchFetchSize(int batchFetchSize) {
         return Integer.MIN_VALUE;
@@ -411,10 +447,10 @@ public class MySQLDictionary
             select += " " + hint;
         return select;
     }
-    
+
     @Override
     protected Collection<String> getSelectTableAliases(Select sel) {
-        Set<String> result = new HashSet<String>();
+        Set<String> result = new HashSet<>();
         List<String> selects = sel.getIdentifierAliases();
         for (String s : selects) {
             String tableAlias = s.substring(0, s.indexOf('.'));
@@ -422,12 +458,12 @@ public class MySQLDictionary
         }
         return result;
     }
-    
+
     @Override
     protected int matchErrorState(Map<Integer,Set<String>> errorStates, SQLException ex) {
         int state = super.matchErrorState(errorStates, ex);
         // OPENJPA-1616 - Special case for MySQL not returning a SQLState for timeouts
-        if (state == StoreException.GENERAL && ex.getErrorCode() == 0 && ex.getSQLState() == null) {
+        if (state == ExceptionInfo.GENERAL && ex.getErrorCode() == 0 && ex.getSQLState() == null) {
             // look at the nested MySQL exception for more details
             SQLException sqle = ex.getNextException();
             if (sqle != null && sqle.toString().startsWith("com.mysql.jdbc.exceptions.MySQLTimeoutException")) {
@@ -459,8 +495,9 @@ public class MySQLDictionary
      */
     @Override
     public String getTypeName(Column col) {
-        if (col.getType() == Types.BLOB) {
-            if (col.getSize() == 0)   // unknown size
+        // handle blobs differently, if the DBItentifierType is NULL (e.g. no column definition is set).
+        if (col.getType() == Types.BLOB && col.getTypeIdentifier().getType() == DBIdentifierType.NULL) {
+            if (col.getSize() <= 0)   // unknown size
                 return blobTypeName;  // return old default of 64KB
             else if (col.getSize() <= 255)
                 return tinyBlobTypeName;
@@ -470,9 +507,34 @@ public class MySQLDictionary
                 return mediumBlobTypeName;
             else
                 return longBlobTypeName;
+        } else if (col.getType() == Types.CLOB && col.getTypeIdentifier().getType() == DBIdentifierType.NULL) {
+            if (col.getSize() <= 0)   // unknown size
+                return clobTypeName;  // return old default of 64KB
+            else if (col.getSize() <= 255)
+                return tinyTextTypeName;
+            else if (col.getSize() <= 65535)
+                return clobTypeName;  // old default of 64KB
+            else if (col.getSize() <= 16777215)
+                return mediumTextTypeName;
+            else
+                return longTextTypeName;
         } else {
             return super.getTypeName(col);
         }
+    }
+
+    @Override
+    public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
+        FilterValue start) {
+        buf.append("LOCATE(");
+        find.appendTo(buf);
+        buf.append(", ");
+        str.appendTo(buf);
+        if (start != null) {
+            buf.append(", ");
+            start.appendTo(buf);
+        }
+        buf.append(")");
     }
 }
 

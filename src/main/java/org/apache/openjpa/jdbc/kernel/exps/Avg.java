@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -23,8 +23,8 @@ package org.apache.openjpa.jdbc.kernel.exps;
  *
  * @author Abe White
  */
-class Avg
-    extends UnaryOp {
+class Avg extends NullableAggregateUnaryOp { // OPENJPA-1794
+    private static final long serialVersionUID = 1L;
 
     /**
      * Constructor. Provide the value to operate on.
@@ -33,12 +33,13 @@ class Avg
         super(val);
     }
 
+    @Override
     protected String getOperator() {
         return "AVG";
     }
 
+    @Override
     public boolean isAggregate() {
         return true;
     }
 }
-

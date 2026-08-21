@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -39,25 +39,31 @@ public class SQLFactoryImpl
         return _conf;
     }
 
+    @Override
     public Select newSelect() {
         return new SelectImpl(_conf);
     }
 
+    @Override
     public Union newUnion(int selects) {
         return new LogicalUnion(_conf, selects);
     }
 
+    @Override
     public Union newUnion(Select[] selects) {
         return new LogicalUnion(_conf, selects);
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = (JDBCConfiguration) conf;
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 }

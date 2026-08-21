@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -32,21 +32,21 @@ public interface Order
     /**
      * Token denoting to order by the element value.
      */
-    public static final String ELEMENT = "#element";
+    String ELEMENT = "#element";
 
     /**
      * Return the name of the orderable.
      */
-    public String getName();
+    String getName();
 
     /**
      * Order direction.
      */
-    public boolean isAscending();
+    boolean isAscending();
 
     /**
      * Return a comparator for ordering by this element, or null if
      * the ordering is done in the datastore.
      */
-    public Comparator getComparator ();
+    Comparator getComparator ();
 }

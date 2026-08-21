@@ -14,13 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Arrays;
+import java.util.Locale;
 
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -100,10 +101,12 @@ public class EmpressDictionary
         }));
     }
 
+    @Override
     public boolean isSystemIndex(String name, Table table) {
-        return name.toUpperCase().startsWith("SYS_");
+        return name.toUpperCase(Locale.ENGLISH).startsWith("SYS_");
     }
 
+    @Override
     public SQLBuffer toSelect(SQLBuffer selects, JDBCFetchConfiguration fetch,
         SQLBuffer from, SQLBuffer where, SQLBuffer group,
         SQLBuffer having, SQLBuffer order,
@@ -131,14 +134,16 @@ public class EmpressDictionary
         return buf;
     }
 
+    @Override
     public String[] getDropColumnSQL(Column column) {
         // empress wants dropped columns in the form: ALTER TABLE foo
         // DELETE columnToDrop
         return new String[]{ "ALTER TABLE "
-            + getFullName(column.getTable(), false) + " DELETE " + 
+            + getFullName(column.getTable(), false) + " DELETE " +
             getColumnDBName(column) };
     }
 
+    @Override
     public void setFloat(PreparedStatement stmnt, int idx, float val,
         Column col)
         throws SQLException {
@@ -146,16 +151,17 @@ public class EmpressDictionary
         // which can prove to be difficult to handle
         if (val == Float.POSITIVE_INFINITY) {
             val = Float.MAX_VALUE;
-            storageWarning(new Float(Float.POSITIVE_INFINITY),
-                new Float(val));
+            storageWarning(Float.POSITIVE_INFINITY,
+                    val);
         } else if (val == Float.NEGATIVE_INFINITY) {
             val = Float.MIN_VALUE + 1;
-            storageWarning(new Float(Float.NEGATIVE_INFINITY),
-                new Float(val));
+            storageWarning(Float.NEGATIVE_INFINITY,
+                    val);
         }
         super.setFloat(stmnt, idx, val, col);
     }
 
+    @Override
     public void setDouble(PreparedStatement stmnt, int idx, double val,
         Column col)
         throws SQLException {
@@ -163,12 +169,12 @@ public class EmpressDictionary
         // which can prove to be difficult to handle
         if (val == Double.POSITIVE_INFINITY) {
             val = Double.MAX_VALUE;
-            storageWarning(new Double(Double.POSITIVE_INFINITY),
-                new Double(val));
+            storageWarning(Double.POSITIVE_INFINITY,
+                    val);
         } else if (val == Double.NEGATIVE_INFINITY) {
             val = Double.MIN_VALUE + 1;
-            storageWarning(new Double(Double.NEGATIVE_INFINITY),
-                new Double(val));
+            storageWarning(Double.NEGATIVE_INFINITY,
+                    val);
         }
         super.setDouble(stmnt, idx, val, col);
     }

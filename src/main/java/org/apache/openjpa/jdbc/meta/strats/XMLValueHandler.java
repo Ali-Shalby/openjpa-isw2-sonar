@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -45,11 +45,15 @@ import org.apache.openjpa.util.InternalException;
  */
 public class XMLValueHandler
     extends AbstractValueHandler {
+    
+    private static final long serialVersionUID = 1L;
     private static final String PROXY_SUFFIX = "$proxy";
 
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public Column[] map(ValueMapping vm, String name, ColumnIO io,
         boolean adapt) {
         DBDictionary dict = vm.getMappingRepository().getDBDictionary();
@@ -69,10 +73,11 @@ public class XMLValueHandler
         return new Column[]{ col };
     }
 
+    @Override
     public Object toDataStoreValue(ValueMapping vm, Object val,
         JDBCStore store) {
         // check for null value.
-        if (val == null) 
+        if (val == null)
             return null;
         try {
             JAXBContext jc = JAXBContext.newInstance(
@@ -93,12 +98,18 @@ public class XMLValueHandler
         }
     }
 
+    @Override
     public Object toObjectValue(ValueMapping vm, Object val) {
         // check for null value.
-        if (val == null) 
+        if (val == null)
             return null;
         try {
-            String packageName = vm.getDeclaredType().getPackage().getName();
+            String className  = vm.getDeclaredType().getName();
+            int i = className.lastIndexOf('.');
+            String packageName = className;
+            if (i != -1) {
+                packageName = className.substring(0, i);
+            }
             JAXBContext jc = JAXBContext.newInstance(packageName);
             Unmarshaller u = jc.createUnmarshaller();
             return u.unmarshal(new StreamSource(new StringReader

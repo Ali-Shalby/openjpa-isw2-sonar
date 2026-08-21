@@ -23,9 +23,9 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import javax.persistence.TupleElement;
-import javax.persistence.criteria.CompoundSelection;
-import javax.persistence.criteria.Selection;
+import jakarta.persistence.TupleElement;
+import jakarta.persistence.criteria.CompoundSelection;
+import jakarta.persistence.criteria.Selection;
 
 import org.apache.openjpa.kernel.FillStrategy;
 import org.apache.openjpa.lib.util.Localizer;
@@ -34,9 +34,9 @@ import org.apache.openjpa.persistence.TupleImpl;
 
 /**
  * Implements selection terms that are composed of other selection terms.
- *  
+ *
  * @author Pinaki Poddar
- * 
+ *
  * @since 2.0.0
  *
  */
@@ -44,43 +44,45 @@ class CompoundSelections {
     private static Localizer _loc = Localizer.forPackage(CompoundSelections.class);
     /**
      * Gets the strategy to fill a given compound selection.
-     * 
+     *
      */
     static <X> FillStrategy<X> getFillStrategy(Selection<X> s) {
         if (s instanceof CompoundSelectionImpl) {
             return ((CompoundSelectionImpl<X>)s).getFillStrategy();
         } else {
-            return new FillStrategy.Assign<X>();
+            return new FillStrategy.Assign<>();
         }
     }
-    
+
     /**
      * Abstract implementation of a selection term composed of multiple selection terms.
      *
      */
     private abstract static class CompoundSelectionImpl<X> extends SelectionImpl<X> implements CompoundSelection<X> {
         private final List<Selection<?>> _args;
-        
+
         public CompoundSelectionImpl(Class<X> cls, Selection<?>...args) {
             super(cls);
 //            assertNoCompoundSelection(args);
             _args = args == null ? (List<Selection<?>>)Collections.EMPTY_LIST : Arrays.asList(args);
         }
-        
+
+        @Override
         public final boolean isCompoundSelection() {
             return true;
         }
-        
+
         /**
          * Return selection items composing a compound selection
          * @return list of selection items
          * @throws IllegalStateException if selection is not a compound
          *           selection
          */
+        @Override
         public final List<Selection<?>> getCompoundSelectionItems() {
             return Expressions.returnCopy(_args);
         }
-        
+
         void assertNoCompoundSelection(Selection<?>...args) {
             if (args == null)
                 return;
@@ -92,7 +94,7 @@ class CompoundSelections {
         }
 
         abstract FillStrategy<X> getFillStrategy();
-        
+
         @Override
         public StringBuilder asValue(AliasContext q) {
             StringBuilder buffer = new StringBuilder();
@@ -103,7 +105,7 @@ class CompoundSelections {
             }
             return buffer;
         }
-        
+
         @Override
         public StringBuilder asProjection(AliasContext q) {
             StringBuilder buffer = new StringBuilder();
@@ -115,7 +117,7 @@ class CompoundSelections {
             return buffer;
         }
     }
-    
+
     /**
      * A compound selection which is an array of its component terms.
      *
@@ -128,12 +130,13 @@ class CompoundSelections {
                 throw new IllegalArgumentException(cls + " is not an array. " + this + " needs an array");
             }
         }
-        
+
+        @Override
         public FillStrategy<X> getFillStrategy() {
-            return new FillStrategy.Array<X>(getJavaType());
+            return new FillStrategy.Array<>(getJavaType());
         }
     }
-    
+
     /**
      * A compound selection which is an instance constructed of its component terms.
      *
@@ -143,13 +146,14 @@ class CompoundSelections {
         private FillStrategy.NewInstance<X> strategy;
         public NewInstance(Class<X> cls, Selection<?>... selections) {
             super(cls, selections);
-            strategy = new FillStrategy.NewInstance<X>(findConstructor(cls, selections));
+            strategy = new FillStrategy.NewInstance<>(findConstructor(cls, selections));
         }
-        
+
+        @Override
         public FillStrategy<X> getFillStrategy() {
             return strategy;
         }
-        
+
         private Constructor<X> findConstructor(Class<X> cls, Selection<?>... selections) {
             Class<?>[] types = selections == null ? null : new Class[selections.length];
             if (selections != null) {
@@ -160,31 +164,32 @@ class CompoundSelections {
             try {
                 return cls.getConstructor(types);
             } catch (NoSuchMethodException e) {
-                throw new IllegalArgumentException(_loc.get("select-no-ctor", cls, 
+                throw new IllegalArgumentException(_loc.get("select-no-ctor", cls,
                     types == null ? "[]" : Arrays.toString(types)).getMessage());
             }
         }
-        
+
         @Override
         public StringBuilder asValue(AliasContext q) {
             return new StringBuilder("NEW ").append(getJavaType().getName()).append("(")
                .append(super.asValue(q)).append(")");
         }
     }
-    
+
     /**
      * A compound selection which is a Tuple composed of its component terms.
      *
      */
-    static class Tuple extends CompoundSelectionImpl<javax.persistence.Tuple> {
+    static class Tuple extends CompoundSelectionImpl<jakarta.persistence.Tuple> {
         public Tuple(final Selection<?>[] selections) {
-            super(javax.persistence.Tuple.class, selections);
+            super(jakarta.persistence.Tuple.class, selections);
         }
-        
-        public FillStrategy<javax.persistence.Tuple> getFillStrategy() {
+
+        @Override
+        public FillStrategy<jakarta.persistence.Tuple> getFillStrategy() {
             List<Selection<?>> terms = getCompoundSelectionItems();
             TupleFactory factory = new TupleFactory(terms.toArray(new TupleElement[terms.size()]));
-            return new FillStrategy.Factory<javax.persistence.Tuple>(factory, TupleImpl.PUT);
+            return new FillStrategy.Factory<>(factory, TupleImpl.PUT);
         }
     }
 
@@ -197,26 +202,27 @@ class CompoundSelections {
         public MultiSelection(Class<T> result, final Selection<?>[] selections) {
             super(result, selections);
         }
-        
+
+        @Override
         public FillStrategy<T> getFillStrategy() {
             Class<?> resultClass = getJavaType();
             List<Selection<?>> terms = getCompoundSelectionItems();
             FillStrategy<?> strategy = null;
-            if (javax.persistence.Tuple.class.isAssignableFrom(resultClass)) {
+            if (jakarta.persistence.Tuple.class.isAssignableFrom(resultClass)) {
                 TupleFactory factory = new TupleFactory(terms.toArray(new TupleElement[terms.size()]));
-                strategy = new FillStrategy.Factory<javax.persistence.Tuple>(factory,  TupleImpl.PUT);
+                strategy = new FillStrategy.Factory<>(factory,  TupleImpl.PUT);
            } else if (resultClass == Object.class) {
-               if (terms.size() > 1) { 
+               if (terms.size() > 1) {
                    resultClass = Object[].class;
-                   strategy = new FillStrategy.Array<Object[]>(Object[].class);
+                   strategy = new FillStrategy.Array<>(Object[].class);
                } else {
                    strategy = new FillStrategy.Assign();
                }
            } else {
-               strategy = resultClass.isArray() 
-                        ? new FillStrategy.Array(resultClass) 
+               strategy = resultClass.isArray()
+                        ? new FillStrategy.Array(resultClass)
                         : new FillStrategy.NewInstance(resultClass);
-           } 
+           }
             return (FillStrategy<T>)strategy;
         }
     }

@@ -14,18 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
+import org.apache.openjpa.jdbc.meta.ClassMapping;
 
 /**
  * Expression tree context.
- * 
+ *
  * @author Abe White
- * @nojavadoc
  */
 public class ExpContext {
 
@@ -42,12 +42,16 @@ public class ExpContext {
     /**
      * Fetch configuration.
      */
-    public JDBCFetchConfiguration fetch; 
+    public JDBCFetchConfiguration fetch;
+
+    public ClassMapping tpcMeta = null;
+
+    public boolean isVerticalStrat = false;
 
     public ExpContext() {
     }
 
-    public ExpContext(JDBCStore store, Object[] params, 
+    public ExpContext(JDBCStore store, Object[] params,
         JDBCFetchConfiguration fetch) {
         this.store = store;
         this.params = params;

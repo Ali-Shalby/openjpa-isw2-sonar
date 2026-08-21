@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -35,7 +35,7 @@ interface JDBCOrder
      * Whether the value is a member of the field's related type, rather than
      * columns of the field itself.
      */
-    public boolean isInRelation();
+    boolean isInRelation();
 
     /**
      * Order by this value.
@@ -43,8 +43,8 @@ interface JDBCOrder
      * @param elem if this value has independent mappings, the mapping
      * we're selecting
      */
-    public void order(Select sel, ClassMapping elem, Joins joins);
-    
-    public DBIdentifier getIdentifier();
+    void order(Select sel, ClassMapping elem, Joins joins);
+
+    DBIdentifier getIdentifier();
 
 }

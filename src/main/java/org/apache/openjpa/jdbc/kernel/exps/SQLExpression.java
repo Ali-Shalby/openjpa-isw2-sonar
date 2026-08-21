@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -27,14 +27,17 @@ package org.apache.openjpa.jdbc.kernel.exps;
  * &gt; 100\")"
  * </code>
  *
- * @nojavadoc
  * @deprecated Use {@link SQLEmbed} directly
  */
+@Deprecated
 public class SQLExpression
     extends SQLEmbed {
 
+    
+    private static final long serialVersionUID = 1L;
     public static final String TAG = "sqlExp";
 
+    @Override
     public String getTag() {
         return TAG;
     }

@@ -14,11 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
-import java.awt.*;
+import java.awt.Image;
 import java.beans.BeanDescriptor;
 import java.beans.BeanInfo;
 import java.beans.EventSetDescriptor;
@@ -45,17 +45,17 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.MissingResourceException;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.log.LogFactory;
 import org.apache.openjpa.lib.log.LogFactoryImpl;
@@ -67,7 +67,7 @@ import org.apache.openjpa.lib.util.MultiClassLoader;
 import org.apache.openjpa.lib.util.ParseException;
 import org.apache.openjpa.lib.util.Services;
 import org.apache.openjpa.lib.util.StringDistance;
-import serp.util.Strings;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * Default implementation of the {@link Configuration} interface.
@@ -106,8 +106,7 @@ public class ConfigurationImpl
 
     private static final String SEP = J2DoPrivHelper.getLineSeparator();
 
-    private static final Localizer _loc = Localizer.forPackage
-        (ConfigurationImpl.class);
+    private static final Localizer _loc = Localizer.forPackage(ConfigurationImpl.class);
 
     public ObjectValue logFactoryPlugin;
     public StringValue id;
@@ -117,15 +116,23 @@ public class ConfigurationImpl
     private Map _props = null;
     private boolean _globals = false;
     private String _auto = null;
-    private final List<Value> _vals = new ArrayList<Value>();
-    private Set<String> _supportedKeys;
-    
+    private final List<Value> _vals = new ArrayList<>();
+    private Set<String> _supportedKeys = new TreeSet<>();
+
     // property listener helper
     private PropertyChangeSupport _changeSupport = null;
 
     // cache descriptors
     private PropertyDescriptor[] _pds = null;
     private MethodDescriptor[] _mds = null;
+
+    // An additional (and optional) classloader to load custom plugins.
+    private ClassLoader _userCL;
+
+    //Ant task needs to defer the resource loading
+    //until the classpath setting is loaded properly
+    private boolean _deferResourceLoading = false;
+
 
     /**
      * Default constructor. Attempts to load default properties through
@@ -149,6 +156,9 @@ public class ConfigurationImpl
             "openjpa", LogFactoryImpl.class.getName(),
             "commons", "org.apache.openjpa.lib.log.CommonsLogFactory",
             "log4j", "org.apache.openjpa.lib.log.Log4JLogFactory",
+            "log4j2", "org.apache.openjpa.lib.log.Log4J2LogFactory",
+            "slf4j", "org.apache.openjpa.lib.log.SLF4JLogFactory",
+            "jul", "org.apache.openjpa.lib.log.JULLogFactory",
             "none", NoneLogFactory.class.getName(),
             "false", NoneLogFactory.class.getName(),
         };
@@ -158,7 +168,7 @@ public class ConfigurationImpl
         logFactoryPlugin.setInstantiatingGetter("getLogFactory");
 
         id = addString("Id");
-        
+
         if (loadGlobals)
             loadGlobals();
     }
@@ -169,7 +179,7 @@ public class ConfigurationImpl
      */
     public boolean loadGlobals() {
         MultiClassLoader loader = AccessController
-            .doPrivileged(J2DoPrivHelper.newMultiClassLoaderAction()); 
+            .doPrivileged(J2DoPrivHelper.newMultiClassLoaderAction());
         loader.addClassLoader(AccessController.doPrivileged(
             J2DoPrivHelper.getContextClassLoaderAction()));
         loader.addClassLoader(getClass().getClassLoader());
@@ -179,9 +189,14 @@ public class ConfigurationImpl
 
         // let system properties override other globals
         try {
-            fromProperties(new HashMap(
-                AccessController.doPrivileged(
-                    J2DoPrivHelper.getPropertiesAction())));
+            Properties systemProperties = AccessController.doPrivileged(
+                    J2DoPrivHelper.getPropertiesAction());
+            HashMap sysPropHM = null;
+            synchronized(systemProperties) {
+                // Prevent concurrent modification of systemProperties until HashMap ctor is completed.
+                sysPropHM = new HashMap(systemProperties);
+            }
+            fromProperties(sysPropHM);
         } catch (SecurityException se) {
             // security manager might disallow
         }
@@ -196,40 +211,49 @@ public class ConfigurationImpl
         return true;
     }
 
+    @Override
     public String getProductName() {
         return _product;
     }
 
+    @Override
     public void setProductName(String name) {
         _product = name;
     }
 
+    @Override
     public LogFactory getLogFactory() {
         if (logFactoryPlugin.get() == null)
             logFactoryPlugin.instantiate(LogFactory.class, this);
         return (LogFactory) logFactoryPlugin.get();
     }
 
+    @Override
     public void setLogFactory(LogFactory logFactory) {
         logFactoryPlugin.set(logFactory);
     }
 
+    @Override
     public String getLog() {
         return logFactoryPlugin.getString();
     }
 
+    @Override
     public void setLog(String log) {
         logFactoryPlugin.setString(log);
     }
 
+    @Override
     public Log getLog(String category) {
         return getLogFactory().getLog(category);
     }
 
+    @Override
     public String getId() {
         return id.get();
     }
-    
+
+    @Override
     public void setId(String id) {
         this.id.set(id);
     }
@@ -237,47 +261,60 @@ public class ConfigurationImpl
     /**
      * Returns the logging channel <code>openjpa.Runtime</code> by default.
      */
+    @Override
     public Log getConfigurationLog() {
         return getLog("openjpa.Runtime");
     }
 
+    @Override
     public Value[] getValues() {
         return (Value[]) _vals.toArray(new Value[_vals.size()]);
     }
 
     /**
      * Gets the registered Value for the given propertyName.
-     * 
-     * @param propertyName can be either fully-qualified name or the simple name
+     *
+     * @param property can be either fully-qualified name or the simple name
      * with which the value has been registered. A value may have multiple
      * equivalent names and this method searches with all equivalent names.
      */
+    @Override
     public Value getValue(String property) {
         if (property == null)
             return null;
 
         // search backwards so that custom values added after construction
         // are found quickly, since this will be the std way of accessing them
-        for (int i = _vals.size()-1; i >= 0; i--) { 
+        for (int i = _vals.size()-1; i >= 0; i--) {
             if (_vals.get(i).matches(property))
                 return _vals.get(i);
         }
         return null;
     }
 
+    @Override
     public void setReadOnly(int newState) {
         if (newState >= _readOnlyState) {
         	_readOnlyState = newState;
         }
     }
 
+    public boolean isDeferResourceLoading() {
+        return _deferResourceLoading;
+    }
+
+    public void setDeferResourceLoading(boolean deferResourceLoading) {
+        this._deferResourceLoading = deferResourceLoading;
+    }
+
+    @Override
     public void instantiateAll() {
         StringWriter errs = null;
         PrintWriter stack = null;
         String getterName;
         Method getter;
         Object getterTarget;
-        for(Value val : _vals) { 
+        for(Value val : _vals) {
             getterName = val.getInstantiatingGetter();
             if (getterName == null)
                 continue;
@@ -309,21 +346,25 @@ public class ConfigurationImpl
                 errs.toString()).getMessage());
     }
 
+    @Override
     public boolean isReadOnly() {
         return _readOnlyState==INIT_STATE_FROZEN;
     }
 
+    @Override
     public void addPropertyChangeListener(PropertyChangeListener listener) {
         if (_changeSupport == null)
             _changeSupport = new PropertyChangeSupport(this);
         _changeSupport.addPropertyChangeListener(listener);
     }
 
+    @Override
     public void removePropertyChangeListener(PropertyChangeListener listener) {
         if (_changeSupport != null)
             _changeSupport.removePropertyChangeListener(listener);
     }
 
+    @Override
     public void valueChanged(Value val) {
         if (_changeSupport == null && _props == null)
             return;
@@ -346,16 +387,21 @@ public class ConfigurationImpl
     /**
      * Closes all closeable values and plugins.
      */
+    @Override
     public final void close() {
         ProductDerivations.beforeClose(this);
-        
+
         preClose();
-        
+
         ObjectValue val;
-        for(Value v : _vals) { 
+        for(Value v : _vals) {
             if (v instanceof Closeable) {
-                try { ((Closeable)v).close(); }
-                catch (Exception e) {} 
+                try {
+                    ((Closeable)v).close();
+                }
+                catch (Exception e) {
+                    // noop
+                }
                 continue;
             }
 
@@ -371,12 +417,12 @@ public class ConfigurationImpl
             }
         }
     }
-    
+
     /**
-     * Invoked by final method {@link #close} after invoking the 
+     * Invoked by final method {@link #close} after invoking the
      * {@link ProductDerivation#beforeConfigurationClose} callbacks
      * but before performing internal close operations.
-     * 
+     *
      * @since 0.9.7
      */
     protected void preClose() {
@@ -386,39 +432,46 @@ public class ConfigurationImpl
     // BeanInfo implementation
     ///////////////////////////
 
+    @Override
     public BeanInfo[] getAdditionalBeanInfo() {
         return new BeanInfo[0];
     }
 
+    @Override
     public BeanDescriptor getBeanDescriptor() {
         return new BeanDescriptor(getClass());
     }
 
+    @Override
     public int getDefaultEventIndex() {
         return 0;
     }
 
+    @Override
     public int getDefaultPropertyIndex() {
         return 0;
     }
 
+    @Override
     public EventSetDescriptor[] getEventSetDescriptors() {
         return new EventSetDescriptor[0];
     }
 
+    @Override
     public Image getIcon(int kind) {
         return null;
     }
 
+    @Override
     public synchronized MethodDescriptor[] getMethodDescriptors() {
         if (_mds != null)
             return _mds;
 
         PropertyDescriptor[] pds = getPropertyDescriptors();
-        List<MethodDescriptor> descs = new ArrayList<MethodDescriptor>(); 
-        for (int i = 0; i < pds.length; i++) {
-            Method write = pds[i].getWriteMethod();
-            Method read = pds[i].getReadMethod();
+        List<MethodDescriptor> descs = new ArrayList<>();
+        for (PropertyDescriptor pd : pds) {
+            Method write = pd.getWriteMethod();
+            Method read = pd.getReadMethod();
             if (read != null && write != null) {
                 descs.add(new MethodDescriptor(write));
                 descs.add(new MethodDescriptor(read));
@@ -429,25 +482,22 @@ public class ConfigurationImpl
         return _mds;
     }
 
+    @Override
     public synchronized PropertyDescriptor[] getPropertyDescriptors() {
         if (_pds != null)
             return _pds;
 
         _pds = new PropertyDescriptor[_vals.size()];
-        
+
         List<String> failures = null;
         Value val;
         for (int i = 0; i < _vals.size(); i++) {
             val = (Value) _vals.get(i);
             try {
                 _pds[i] = getPropertyDescriptor(val);
-            } catch (MissingResourceException mre) {
+            } catch (MissingResourceException | IntrospectionException mre) {
                 if (failures == null)
-                    failures = new ArrayList<String>();
-                failures.add(val.getProperty());
-            } catch (IntrospectionException ie) {
-                if (failures == null)
-                    failures = new ArrayList<String>();
+                    failures = new ArrayList<>();
                 failures.add(val.getProperty());
             }
         }
@@ -469,7 +519,7 @@ public class ConfigurationImpl
         // set up property descriptor
         PropertyDescriptor pd;
         try {
-            pd = new PropertyDescriptor(Introspector.decapitalize(prop), 
+            pd = new PropertyDescriptor(Introspector.decapitalize(prop),
                 getClass());
         } catch (IntrospectionException ie) {
             // if there aren't any methods for this value(i.e., if it's a
@@ -486,9 +536,9 @@ public class ConfigurationImpl
 
         try {
             pd.setReadMethod(getClass().getMethod("get"
-                + StringUtils.capitalize(prop), (Class[]) null));
+                + StringUtil.capitalize(prop), (Class[]) null));
             pd.setWriteMethod(getClass().getMethod("set"
-                + StringUtils.capitalize(prop), new Class[]
+                + StringUtil.capitalize(prop), new Class[]
                 { pd.getReadMethod().getReturnType() }));
         } catch (Throwable t) {
             // if an error occurs, it might be because the value is a
@@ -502,7 +552,7 @@ public class ConfigurationImpl
         String cat = findLocalized(prop + "-cat", false, val.getScope());
         if (cat != null)
             pd.setValue(ATTRIBUTE_CATEGORY, cat);
-        
+
         pd.setValue(ATTRIBUTE_XML, toXMLName(prop));
 
         String order = findLocalized(prop + "-displayorder", false,
@@ -512,27 +562,27 @@ public class ConfigurationImpl
 
         // collect allowed values from alias keys, listed values, and
         // interface implementors
-        Collection<String> allowed = new TreeSet<String>();
+        Collection<String> allowed = new TreeSet<>();
         List<String> aliases = Collections.emptyList();
         if (val.getAliases() != null) {
             aliases = Arrays.asList(val.getAliases());
             for (int i = 0; i < aliases.size(); i += 2)
                 allowed.add(aliases.get(i));
         }
-        String[] vals = Strings.split(findLocalized(prop
+        String[] vals = StringUtil.split(findLocalized(prop
             + "-values", false, val.getScope()), ",", 0);
-        for (int i = 0; i < vals.length; i++)
-            if (!aliases.contains(vals[i]))
-                allowed.add(vals[i]);
+        for (String s : vals)
+            if (!aliases.contains(s))
+                allowed.add(s);
         try {
             Class<?> intf = Class.forName(findLocalized(prop
                 + "-interface", true, val.getScope()), false,
                 getClass().getClassLoader());
             pd.setValue(ATTRIBUTE_INTERFACE, intf.getName());
             String[] impls = Services.getImplementors(intf);
-            for (int i = 0; i < impls.length; i++)
-                if (!aliases.contains(impls[i]))
-                    allowed.add(impls[i]);
+            for (String impl : impls)
+                if (!aliases.contains(impl))
+                    allowed.add(impl);
         } catch (Throwable t) {
         }
         if (!allowed.isEmpty())
@@ -581,21 +631,19 @@ public class ConfigurationImpl
     /**
      * An internal method to retrieve properties, to support 2 public methods,
      * getAllProperties() and toProperties(boolean).
-     * 
+     *
      * @param storeDefaults
      *            whether or not to retrieve a property if its value is the
-     *            default value. This parameter is irrelevant if getAll is true.
-     * @param getAll
-     *            whether or not to get all of the properties
-     * @return
+     *            default value.
      */
+    @Override
     public Map toProperties(boolean storeDefaults) {
         // clone properties before making any modifications; we need to keep
         // the internal properties instance consistent to maintain equals and
         // hashcode contracts
         Map<String, String> clone;
         if (_props == null)
-            clone = new TreeMap<String, String>();
+            clone = new TreeMap<>();
         else if (_props instanceof Properties)
             clone = (Map) ((Properties) _props).clone();
         else
@@ -605,10 +653,11 @@ public class ConfigurationImpl
         // with default values, add values to properties
         if (_props == null || storeDefaults) {
             String str;
-            for (Value val : _vals) { 
+            for (Value val : _vals) {
+                // NOTE: Following was removed to hide Value.INVISIBLE properties, like connectionPassword
                 // if key in existing properties, we already know value is up to date
-//                if (_props != null && Configurations.containsProperty(val, _props) && val.isVisible())
-//                    continue;
+                //if (_props != null && Configurations.containsProperty(val, _props) && val.isVisible())
+                //    continue;
                 str = val.getString();
                 if ((str != null && (storeDefaults || !str.equals(val.getDefault()))))
                     setValue(clone, val);
@@ -618,7 +667,8 @@ public class ConfigurationImpl
         }
         return clone;
     }
-    
+
+    @Override
     public void fromProperties(Map map) {
         if (map == null || map.isEmpty())
             return;
@@ -650,7 +700,9 @@ public class ConfigurationImpl
             if (o == null)
                 continue;
             if (o instanceof String) {
-                if (!StringUtils.equals((String) o, val.getString()))
+                // OPENJPA-1830 Do not overwrite existing string values with "******"
+                if ((!Objects.equals((String) o, val.getString())) &&
+                        (!Objects.equals((String) o, Value.INVISIBLE)))
                     val.setString((String) o);
             } else {
                 ser &= o instanceof Serializable;
@@ -658,17 +710,18 @@ public class ConfigurationImpl
             }
             Configurations.removeProperty(val.getProperty(), remaining);
         }
-        
+
         // convention is to point product at a resource with the
         // <prefix>.properties System property; remove that property so we
         // we don't warn about it
         Configurations.removeProperty("properties", remaining);
+        Configurations.removeProperty("Id", remaining, map);
 
         // now warn if there are any remaining properties that there
         // is an unhandled prop, and remove the unknown properties
         Map.Entry entry;
-        for (Iterator itr = remaining.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
+        for (Object value : remaining.entrySet()) {
+            entry = (Map.Entry) value;
             Object key = entry.getKey();
             if (key != null) {
                 warnInvalidProperty((String) key);
@@ -680,44 +733,48 @@ public class ConfigurationImpl
         if (_props == null && ser)
             _props = map;
     }
-    
+
+    @Override
     public List<String> getPropertyKeys(String propertyName) {
         Value value = getValue(propertyName);
         return value == null ? Collections.EMPTY_LIST : value.getPropertyKeys();
     }
-    
+
     /**
      * Gets all known property keys.
      * The keys are harvested from the property names (including the equivalent names) of the registered values.
      * A key may be prefixed if the corresponding property name was without a prefix.
      * @see #fixPrefix(String)
-     * The Values that are {@linkplain Value#makePrivate() marked private} are filtered out. 
+     * The Values that are {@linkplain Value#makePrivate() marked private} are filtered out.
      */
+    @Override
     public Set<String> getPropertyKeys() {
-        if (_supportedKeys != null) 
-            return _supportedKeys;
-        
-        _supportedKeys = new TreeSet<String>();
-        for (Value val : _vals) {
-            if (val.isPrivate())
-                continue;
-            List<String> keys = val.getPropertyKeys();
-            for (String key : keys) {
-                _supportedKeys.add(fixPrefix(key));
+        synchronized (_supportedKeys) {
+            if (_supportedKeys.size() == 0) {
+                for (Value val : _vals) {
+                    if (val.isPrivate())
+                        continue;
+                    List<String> keys = val.getPropertyKeys();
+                    for (String key : keys) {
+                        _supportedKeys.add(fixPrefix(key));
+                    }
+                }
             }
         }
-        return _supportedKeys;
+        //OJ2257: Return a copy of _supportedKeys as calls to this method (e.g.
+        //BrokerImpl.getSupportedProperties()) may add to this set.
+        return new TreeSet<>(_supportedKeys);
     }
-    
+
     /**
-     * Adds a prefix <code>"openjpa."</code> to the given key, if necessary. A key is 
-     * considered without prefix if it starts neither of <code>"openjpa."</code>, 
-     * <code>"java."</code> and <code>"javax."</code>. 
+     * Adds a prefix <code>"openjpa."</code> to the given key, if necessary. A key is
+     * considered without prefix if it starts neither of <code>"openjpa."</code>,
+     * <code>"java."</code>, <code>"javax."</code> and {@code "jakarta."}.
      */
     String fixPrefix(String key) {
         return (key == null || hasKnownPrefix(key)) ? key : "openjpa."+key;
     }
-    
+
     boolean hasKnownPrefix(String key) {
         String[] prefixes = ProductDerivations.getConfigurationPrefixes();
         for (String prefix : prefixes) {
@@ -729,7 +786,7 @@ public class ConfigurationImpl
 
     /**
      * Adds <code>o</code> to <code>map</code> under key for <code>val</code>.
-     * Use this method instead of attempting to add the value directly because 
+     * Use this method instead of attempting to add the value directly because
      * this will account for the property prefix.
      */
     private void setValue(Map map, Value val) {
@@ -746,7 +803,7 @@ public class ConfigurationImpl
                 key = "openjpa." + val.getProperty();
             }
         }
-        Object external = val.isHidden() ? Value.INVISIBLE : 
+        Object external = val.isHidden() ? Value.INVISIBLE :
             val instanceof ObjectValue ? val.getString() : val.get();
         map.put(key, external);
     }
@@ -754,7 +811,7 @@ public class ConfigurationImpl
     /**
      * Look up the given value, testing all available prefixes and all possible
      * property names. Detects if the given map contains multiple keys that
-     * are equivalent names for the given value. 
+     * are equivalent names for the given value.
      */
     private Object findValue(Map map, Value val) {
         Object result = null;
@@ -777,8 +834,8 @@ public class ConfigurationImpl
      * Issue a warning that the specified property is not valid.
      */
     private void warnInvalidProperty(String propName) {
-        if (propName != null && 
-           (propName.startsWith("java.") || propName.startsWith("javax.persistence")|| propName.startsWith("sun."))) 
+        if (propName != null &&
+           (propName.startsWith("java.") || propName.startsWith("jakarta.persistence")|| propName.startsWith("sun.")))
             return;
         if (!isInvalidProperty(propName))
             return;
@@ -802,10 +859,11 @@ public class ConfigurationImpl
      */
     private Collection<String> newPropertyList() {
         String[] prefixes = ProductDerivations.getConfigurationPrefixes();
-        List<String> l = new ArrayList<String>(_vals.size() * prefixes.length);
-        for(Value v : _vals) { 
-            for (int j = 0; j < prefixes.length; j++)
-                l.add(prefixes[j] + "." + v.getProperty());
+        List<String> l = new ArrayList<>(_vals.size() * prefixes.length);
+        for(Value v : _vals) {
+            for (String prefix : prefixes) {
+                l.add(prefix + "." + v.getProperty());
+            }
         }
         return l;
     }
@@ -820,7 +878,7 @@ public class ConfigurationImpl
         // specific implementation of OpenJPA
         String[] prefixes = ProductDerivations.getConfigurationPrefixes();
         for (String prefix : prefixes) {
-            if (propName.toLowerCase().startsWith(prefix)
+            if (propName.toLowerCase(Locale.ENGLISH).startsWith(prefix)
                 && propName.length() > prefix.length() + 1
                 && propName.indexOf('.', prefix.length()) == prefix.length()
                 && propName.indexOf('.', prefix.length() + 1) == -1
@@ -840,8 +898,17 @@ public class ConfigurationImpl
      * <code>properties</code> value with the name of a resource.
      */
     public void setProperties(String resourceName) throws IOException {
-        ProductDerivations.load(resourceName, null, 
-            getClass().getClassLoader()).setInto(this);
+
+        if (!_deferResourceLoading) {
+            String anchor = null;
+            if (resourceName.indexOf("#") != -1) {
+                anchor = resourceName.substring(resourceName.lastIndexOf("#") + 1);
+                resourceName = resourceName.substring(0, resourceName.length() - anchor.length() - 1);
+            }
+
+            ProductDerivations.load(resourceName, anchor, getClass().getClassLoader()).setInto(this);
+        }
+
         _auto = resourceName;
     }
 
@@ -853,6 +920,7 @@ public class ConfigurationImpl
     public void setPropertiesFile(File file) throws IOException {
         ProductDerivations.load(file, null, getClass().getClassLoader()).
             setInto(this);
+        setDeferResourceLoading(false);
         _auto = file.toString();
     }
 
@@ -871,8 +939,9 @@ public class ConfigurationImpl
     /**
      * Performs an equality check based on equality of values.
      * {@link Value#equals(Object) Equality} of Values varies if the Value is
-     * {@link Value#isDynamic() dynamic}.  
+     * {@link Value#isDynamic() dynamic}.
      */
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -899,11 +968,12 @@ public class ConfigurationImpl
     /**
      * Computes hash code based on the hashCodes of the values.
      * {@link Value#hashCode() HashCode} of a Value varies if the Value is
-     * {@link Value#isDynamic() dynamic}.  
+     * {@link Value#isDynamic() dynamic}.
      */
+    @Override
     public int hashCode() {
         int hash = 0;
-        for(Value v : _vals) { 
+        for(Value v : _vals) {
         	hash += v.hashCode();
         }
         return hash;
@@ -911,8 +981,8 @@ public class ConfigurationImpl
 
     /**
      * Convert <code>propName</code> to a lowercase-with-hyphens-style string.
-     * This algorithm is only designed for mixes of uppercase and lowercase 
-     * letters and lone digits. A more sophisticated conversion should probably 
+     * This algorithm is only designed for mixes of uppercase and lowercase
+     * letters and lone digits. A more sophisticated conversion should probably
      * be handled by a proper parser generator or regular expressions.
      */
     public static String toXMLName(String propName) {
@@ -923,33 +993,34 @@ public class ConfigurationImpl
         for (int i = 0; i < propName.length(); i++) {
             c = propName.charAt(i);
 
-            // convert sequences of all-caps to downcase with dashes around 
+            // convert sequences of all-caps to downcase with dashes around
             // them. put a trailing cap that is followed by downcase into the
             // downcase word.
-            if (i != 0 && Character.isUpperCase(c) 
+            if (i != 0 && Character.isUpperCase(c)
                 && (Character.isLowerCase(propName.charAt(i-1))
                 || (i > 1 && i < propName.length() - 1
-                && Character.isUpperCase(propName.charAt(i-1)) 
+                && Character.isUpperCase(propName.charAt(i-1))
                 && Character.isLowerCase(propName.charAt(i+1)))))
                 buf.append('-');
-            
+
             // surround sequences of digits with dashes.
             if (i != 0
                 && ((!Character.isLetter(c) && Character.isLetter(propName
-                    .charAt(i - 1))) 
+                    .charAt(i - 1)))
                 || (Character.isLetter(c) && !Character.isLetter(propName
                     .charAt(i - 1)))))
                 buf.append('-');
-            
+
             buf.append(Character.toLowerCase(c));
         }
         return buf.toString();
     }
-    
+
     /**
      * Implementation of the {@link Externalizable} interface to read from
      * the properties written by {@link #writeExternal}.
      */
+    @Override
     @SuppressWarnings("unchecked")
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
@@ -962,6 +1033,7 @@ public class ConfigurationImpl
      * Implementation of the {@link Externalizable} interface to write
      * the properties returned by {@link #toProperties}.
      */
+    @Override
     public void writeExternal(ObjectOutput out) throws IOException {
         out.writeObject(toProperties(true));
         out.writeObject(_props);
@@ -972,6 +1044,7 @@ public class ConfigurationImpl
      * Uses {@link #toProperties} and {@link #fromProperties} to clone
      * configuration.
      */
+    @Override
     public Object clone() {
         try {
             Constructor cons = getClass().getConstructor
@@ -989,6 +1062,7 @@ public class ConfigurationImpl
         }
     }
 
+    @Override
     public boolean removeValue(Value val) {
         if (!_vals.remove(val))
             return false;
@@ -996,6 +1070,7 @@ public class ConfigurationImpl
         return true;
     }
 
+    @Override
     public <T extends Value> T addValue(T val) {
         _vals.add(val);
         val.addListener(this);
@@ -1082,5 +1157,15 @@ public class ConfigurationImpl
         PluginListValue val = new PluginListValue(property);
         addValue(val);
         return val;
+    }
+
+    @Override
+    public ClassLoader getUserClassLoader() {
+    	return _userCL;
+    }
+
+    @Override
+    public void setUserClassLoader(ClassLoader cl) {
+    	_userCL = cl;
     }
 }

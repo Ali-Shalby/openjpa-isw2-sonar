@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -26,14 +26,12 @@ import java.util.Properties;
 import java.util.zip.ZipFile;
 
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
-
-import serp.util.Strings;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * Iterator over directories in the classpath.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ClasspathMetaDataIterator extends MetaDataIteratorChain {
 
@@ -52,28 +50,29 @@ public class ClasspathMetaDataIterator extends MetaDataIteratorChain {
     public ClasspathMetaDataIterator(String[] dirs, MetaDataFilter filter)
         throws IOException {
         Properties props = AccessController.doPrivileged(
-            J2DoPrivHelper.getPropertiesAction()); 
+            J2DoPrivHelper.getPropertiesAction());
         String path = props.getProperty("java.class.path");
-        String[] tokens = Strings.split(path,
+        String[] tokens = StringUtil.split(path,
             props.getProperty("path.separator"), 0);
 
-        for (int i = 0; i < tokens.length; i++) {
-            if (dirs != null && dirs.length != 0 && !endsWith(tokens[i], dirs))
+        for (String token : tokens) {
+            if (dirs != null && dirs.length != 0 && !endsWith(token, dirs))
                 continue;
 
-            File file = new File(tokens[i]);
-            if (!(AccessController.doPrivileged(
-                J2DoPrivHelper.existsAction(file))).booleanValue())
+            File file = new File(token);
+            if (!AccessController.doPrivileged(
+                    J2DoPrivHelper.existsAction(file)))
                 continue;
             if (AccessController.doPrivileged(J2DoPrivHelper
-                .isDirectoryAction(file)).booleanValue())
+                    .isDirectoryAction(file)))
                 addIterator(new FileMetaDataIterator(file, filter));
-            else if (tokens[i].endsWith(".jar")) {
+            else if (token.endsWith(".jar")) {
                 try {
                     ZipFile zFile = AccessController
-                        .doPrivileged(J2DoPrivHelper.newZipFileAction(file));
+                            .doPrivileged(J2DoPrivHelper.newZipFileAction(file));
                     addIterator(new ZipFileMetaDataIterator(zFile, filter));
-                } catch (PrivilegedActionException pae) {
+                }
+                catch (PrivilegedActionException pae) {
                     throw (IOException) pae.getException();
                 }
             }
@@ -84,8 +83,8 @@ public class ClasspathMetaDataIterator extends MetaDataIteratorChain {
      * Return true if the given token ends with any of the given strings.
      */
     private static boolean endsWith(String token, String[] suffs) {
-        for (int i = 0; i < suffs.length; i++)
-            if (token.endsWith(suffs[i]))
+        for (String suff : suffs)
+            if (token.endsWith(suff))
                 return true;
         return false;
     }

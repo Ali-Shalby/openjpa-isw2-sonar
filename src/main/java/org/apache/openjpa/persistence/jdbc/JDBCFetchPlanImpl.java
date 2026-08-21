@@ -14,16 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
 import java.sql.ResultSet;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
 
-import javax.persistence.LockModeType;
+import jakarta.persistence.LockModeType;
 
 import org.apache.openjpa.jdbc.kernel.DelegatingJDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
@@ -40,7 +38,6 @@ import org.apache.openjpa.persistence.PersistenceExceptions;
  *
  * @since 0.4.0
  * @author Abe White
- * @nojavadoc
  */
 public class JDBCFetchPlanImpl
     extends FetchPlanImpl
@@ -49,39 +46,39 @@ public class JDBCFetchPlanImpl
     private DelegatingJDBCFetchConfiguration _fetch;
     static {
         registerHint(new String[]{"openjpa.FetchPlan.EagerFetchMode", "openjpa.jdbc.EagerFetchMode"},
-            new HintValueConverter.StringToInteger(new String[]{"none", "0", "join", "1", "parallel", "2"}, 
-                new int[]{EagerFetchModes.EAGER_NONE, EagerFetchModes.EAGER_NONE, 
+            new HintValueConverter.StringToInteger(new String[]{"none", "0", "join", "1", "parallel", "2"},
+                new int[]{EagerFetchModes.EAGER_NONE, EagerFetchModes.EAGER_NONE,
                           EagerFetchModes.EAGER_JOIN, EagerFetchModes.EAGER_JOIN,
                           EagerFetchModes.EAGER_PARALLEL,EagerFetchModes.EAGER_PARALLEL}),
-            new HintValueConverter.EnumToInteger(FetchMode.class, 
+            new HintValueConverter.EnumToInteger(FetchMode.class,
                 new int[]{EagerFetchModes.EAGER_NONE, EagerFetchModes.EAGER_JOIN, EagerFetchModes.EAGER_PARALLEL}));
-        registerHint(new String[]{"openjpa.JoinSyntax", "openjpa.jdbc.JoinSyntax","openjpa.FetchPlan.JoinSyntax"}, 
+        registerHint(new String[]{"openjpa.JoinSyntax", "openjpa.jdbc.JoinSyntax","openjpa.FetchPlan.JoinSyntax"},
             new HintValueConverter.EnumToInteger(JoinSyntax.class,
                 new int[]{JoinSyntaxes.SYNTAX_SQL92, JoinSyntaxes.SYNTAX_TRADITIONAL, JoinSyntaxes.SYNTAX_DATABASE}),
-            new HintValueConverter.StringToInteger(new String[]{"sql92", "0", "traditional", "1", "database", "2"}, 
-                new int[]{JoinSyntaxes.SYNTAX_SQL92, JoinSyntaxes.SYNTAX_SQL92, 
+            new HintValueConverter.StringToInteger(new String[]{"sql92", "0", "traditional", "1", "database", "2"},
+                new int[]{JoinSyntaxes.SYNTAX_SQL92, JoinSyntaxes.SYNTAX_SQL92,
                     JoinSyntaxes.SYNTAX_TRADITIONAL, JoinSyntaxes.SYNTAX_TRADITIONAL,
                     JoinSyntaxes.SYNTAX_DATABASE, JoinSyntaxes.SYNTAX_DATABASE}));
         registerHint(new String[]{"openjpa.FetchDirection", "openjpa.jdbc.FetchDirection",
-                "openjpa.FetchPlan.FetchDirection"}, 
+                "openjpa.FetchPlan.FetchDirection"},
                 new HintValueConverter.EnumToInteger(FetchDirection.class,
-                    new int[]{ResultSet.FETCH_FORWARD, ResultSet.FETCH_REVERSE, ResultSet.FETCH_UNKNOWN}),    
-                new HintValueConverter.StringToInteger(new String[]{"forward", String.valueOf(ResultSet.FETCH_FORWARD), 
-                                                       "reverse", String.valueOf(ResultSet.FETCH_REVERSE), 
-                                                       "unknown", String.valueOf(ResultSet.FETCH_UNKNOWN)}, 
-                    new int[]{ResultSet.FETCH_FORWARD, ResultSet.FETCH_FORWARD, 
+                    new int[]{ResultSet.FETCH_FORWARD, ResultSet.FETCH_REVERSE, ResultSet.FETCH_UNKNOWN}),
+                new HintValueConverter.StringToInteger(new String[]{"forward", String.valueOf(ResultSet.FETCH_FORWARD),
+                                                       "reverse", String.valueOf(ResultSet.FETCH_REVERSE),
+                                                       "unknown", String.valueOf(ResultSet.FETCH_UNKNOWN)},
+                    new int[]{ResultSet.FETCH_FORWARD, ResultSet.FETCH_FORWARD,
                         ResultSet.FETCH_REVERSE, ResultSet.FETCH_REVERSE,
                         ResultSet.FETCH_UNKNOWN, ResultSet.FETCH_UNKNOWN}));
-        registerHint(new String[]{"openjpa.FetchPlan.Isolation", "openjpa.jdbc.TransactionIsolation"}, 
-                new HintValueConverter.OpenJPAEnumToInteger(IsolationLevel.DEFAULT));    
+        registerHint(new String[]{"openjpa.FetchPlan.Isolation", "openjpa.jdbc.TransactionIsolation"},
+                new HintValueConverter.OpenJPAEnumToInteger(IsolationLevel.DEFAULT));
         registerHint(new String[]{"openjpa.FetchPlan.LRSSizeAlgorithm", "openjpa.FetchPlan.LRSSize",
-        "openjpa.jdbc.LRSSize"}, 
+        "openjpa.jdbc.LRSSize"},
         new HintValueConverter.OpenJPAEnumToInteger(LRSSizeAlgorithm.QUERY));
-        registerHint(new String[]{"openjpa.FetchPlan.ResultSetType", "openjpa.jdbc.ResultSetType"}, 
+        registerHint(new String[]{"openjpa.FetchPlan.ResultSetType", "openjpa.jdbc.ResultSetType"},
                 new HintValueConverter.OpenJPAEnumToInteger(ResultSetType.FORWARD_ONLY));
-        registerHint(new String[]{"openjpa.FetchPlan.SubclassFetchMode", "openjpa.jdbc.SubclassFetchMode"}, 
+        registerHint(new String[]{"openjpa.FetchPlan.SubclassFetchMode", "openjpa.jdbc.SubclassFetchMode"},
                 new HintValueConverter.OpenJPAEnumToInteger(FetchMode.NONE));
-        
+
 //        "openjpa.FetchPlan.FetchDirection"
 //        _hints.add("openjpa.FetchPlan.LockScope");
 //        _hints.add("openjpa.FetchPlan.LockTimeout");
@@ -106,99 +103,120 @@ public class JDBCFetchPlanImpl
         return _fetch;
     }
 
+    @Override
     public FetchMode getEagerFetchMode() {
         return FetchMode.fromKernelConstant(_fetch.getEagerFetchMode());
     }
 
+    @Override
     public JDBCFetchPlanImpl setEagerFetchMode(FetchMode mode) {
         _fetch.setEagerFetchMode(mode.toKernelConstant());
         return this;
     }
 
+    @Override
     public JDBCFetchPlan setEagerFetchMode(int mode) {
         _fetch.setEagerFetchMode(mode);
         return this;
     }
 
+    @Override
     public FetchMode getSubclassFetchMode() {
         return FetchMode.fromKernelConstant(_fetch.getSubclassFetchMode());
     }
 
+    @Override
     public JDBCFetchPlanImpl setSubclassFetchMode(FetchMode mode) {
         _fetch.setSubclassFetchMode(mode.toKernelConstant());
         return this;
     }
 
+    @Override
     public JDBCFetchPlan setSubclassFetchMode(int mode) {
         _fetch.setSubclassFetchMode(mode);
         return this;
     }
 
+    @Override
     public ResultSetType getResultSetType() {
         return ResultSetType.fromKernelConstant(_fetch.getResultSetType());
     }
 
+    @Override
     public JDBCFetchPlanImpl setResultSetType(ResultSetType type) {
         _fetch.setResultSetType(type.toKernelConstant());
         return this;
     }
 
+    @Override
     public JDBCFetchPlan setResultSetType(int mode) {
         _fetch.setResultSetType(mode);
         return this;
     }
 
+    @Override
     public FetchDirection getFetchDirection() {
         return FetchDirection.fromKernelConstant(_fetch.getFetchDirection());
     }
 
+    @Override
     public JDBCFetchPlanImpl setFetchDirection(FetchDirection direction) {
         _fetch.setFetchDirection(direction.toKernelConstant());
         return this;
     }
 
+    @Override
     public JDBCFetchPlan setFetchDirection(int direction) {
         _fetch.setFetchDirection(direction);
         return this;
     }
 
+    @Override
     public LRSSizeAlgorithm getLRSSizeAlgorithm() {
         return LRSSizeAlgorithm.fromKernelConstant(_fetch.getLRSSize());
     }
 
+    @Override
     public JDBCFetchPlanImpl setLRSSizeAlgorithm(
             LRSSizeAlgorithm lrsSizeAlgorithm) {
         _fetch.setLRSSize(lrsSizeAlgorithm.toKernelConstant());
         return this;
     }
 
+    @Override
     public int getLRSSize() {
         return _fetch.getLRSSize();
     }
 
+    @Override
     public JDBCFetchPlan setLRSSize(int lrsSizeMode) {
         _fetch.setLRSSize(lrsSizeMode);
         return this;
     }
 
+    @Override
     public JoinSyntax getJoinSyntax() {
         return JoinSyntax.fromKernelConstant(_fetch.getJoinSyntax());
     }
 
+    @Override
     public JDBCFetchPlanImpl setJoinSyntax(JoinSyntax syntax) {
         _fetch.setJoinSyntax(syntax.toKernelConstant());
         return this;
     }
 
+    @Override
     public JDBCFetchPlan setJoinSyntax(int syntax) {
         _fetch.setJoinSyntax(syntax);
         return this;
     }
 
+    @Override
     public IsolationLevel getIsolation() {
         return IsolationLevel.fromConnectionConstant(_fetch.getIsolation());
     }
 
+    @Override
     public JDBCFetchPlan setIsolation(IsolationLevel level) {
         _fetch.setIsolation(level.getConnectionConstant());
         return this;
@@ -342,5 +360,15 @@ public class JDBCFetchPlanImpl
     @Override
     public JDBCFetchPlan setQueryTimeout(int timeout) {
         return (JDBCFetchPlan) super.setQueryTimeout(timeout);
+    }
+
+    @Override
+    public boolean getIgnoreDfgForFkSelect() {
+        return _fetch.getIgnoreDfgForFkSelect();
+    }
+
+    @Override
+    public void setIgnoreDfgForFkSelect(boolean b) {
+        _fetch.setIgnoreDfgForFkSelect(b);
     }
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -35,35 +35,41 @@ import org.apache.openjpa.util.MetaDataException;
  * CLOB size.
  *
  * @author Abe White
- * @nojavadoc
  * @since 0.4.0
  */
 public class MaxEmbeddedClobFieldStrategy
     extends MaxEmbeddedLobFieldStrategy {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage
         (MaxEmbeddedClobFieldStrategy.class);
 
     private int _maxSize = 0;
 
+    @Override
     protected int getExpectedJavaType() {
         return JavaTypes.STRING;
     }
 
+    @Override
     protected void update(OpenJPAStateManager sm, Row row)
         throws SQLException {
-        String s = sm.fetchString(field.getIndex());
-        if (s == null || s.length() > _maxSize)
+        String s = (String) getValue(sm);
+        if (s == null)
             row.setNull(field.getColumns()[0], true);
         else
             row.setString(field.getColumns()[0], s);
     }
 
+    @Override
     protected Boolean isCustom(OpenJPAStateManager sm, JDBCStore store) {
         String s = sm.fetchString(field.getIndex());
         return (s != null && s.length() > _maxSize) ? null : Boolean.FALSE;
     }
 
+    @Override
     protected void putData(OpenJPAStateManager sm, ResultSet rs,
         DBDictionary dict)
         throws SQLException {
@@ -71,14 +77,25 @@ public class MaxEmbeddedClobFieldStrategy
         dict.putString(clob, sm.fetchString(field.getIndex()));
     }
 
+    @Override
     public void map(boolean adapt) {
         if (field.getTypeCode() != JavaTypes.STRING)
             throw new MetaDataException(_loc.get("not-clobstring", field));
         super.map(adapt);
     }
 
+    @Override
     public void initialize() {
         DBDictionary dict = field.getMappingRepository().getDBDictionary();
         _maxSize = dict.maxEmbeddedClobSize;
+    }
+
+    @Override
+    protected Object getValue(OpenJPAStateManager sm) {
+        String s = sm.fetchString(field.getIndex());
+        if (s == null || (s.length() > _maxSize && !field.getColumns()[0].isNotNull())) {
+            return null;
+        }
+        return s;
     }
 }

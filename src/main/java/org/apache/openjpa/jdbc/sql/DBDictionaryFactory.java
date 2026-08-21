@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -23,9 +23,11 @@ import java.security.PrivilegedActionException;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
+import java.util.Locale;
+import java.util.Objects;
+
 import javax.sql.DataSource;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl;
 import org.apache.openjpa.lib.conf.Configurations;
@@ -33,6 +35,7 @@ import org.apache.openjpa.lib.conf.PluginValue;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UserException;
 
@@ -51,7 +54,6 @@ import org.apache.openjpa.util.UserException;
  * </ul>
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class DBDictionaryFactory {
 
@@ -90,11 +92,16 @@ public class DBDictionaryFactory {
         try {
             conn = ds.getConnection();
             DatabaseMetaData meta = conn.getMetaData();
-            String dclass = dictionaryClassForString(meta
-                .getDatabaseProductName(), conf);
+            String dclass = dictionaryClassForString(meta.getDatabaseProductName(), conf);
             if (dclass == null)
-                dclass = dictionaryClassForString(getProtocol(meta.getURL()),
-                    conf);
+                dclass = dictionaryClassForString(getProtocol(meta.getURL()), conf);
+            if (dclass != null && dclass.contains("MySQL")) {
+                // MariaDB returns "MySQL" for product name, need to verify by looking at product version.
+                final String checkMariaDB = dictionaryClassForString(meta.getDatabaseProductVersion(), conf);
+                if (checkMariaDB != null) {
+                    dclass = checkMariaDB;
+                }
+            }
             if (dclass == null)
                 dclass = DBDictionary.class.getName();
             return newDBDictionary(conf, dclass, props, conn);
@@ -113,13 +120,13 @@ public class DBDictionaryFactory {
      * Returns the "jdbc:" protocol of the url parameter. Looks for the prefix
      * string up to the 3rd ':' or the 1st '@', '/' or '\', whichever comes
      * first.
-     * 
+     *
      * This method is package qualified so that TestDictionaryFactory class can
      * access and test this method behavior.
      */
     static String getProtocol(String url) {
         String protocol = null;
-        if (!StringUtils.isEmpty(url)) {
+        if (!StringUtil.isEmpty(url)) {
             if (url.startsWith("jdbc:")) {
                 int colonCount = 1;
                 int next = "jdbc:".length();
@@ -148,7 +155,7 @@ public class DBDictionaryFactory {
         String dclass, String props, Connection conn) {
         DBDictionary dict = null;
         try {
-            Class c = Class.forName(dclass, true,
+            Class<?> c = Class.forName(dclass, true,
                 AccessController.doPrivileged(
                     J2DoPrivHelper.getClassLoaderAction(
                         DBDictionary.class)));
@@ -158,7 +165,7 @@ public class DBDictionaryFactory {
             // if the dictionary was not found, make another attempt
             // at loading the dictionary using the current thread.
             try {
-                Class c = Thread.currentThread().getContextClassLoader().loadClass(dclass);
+                Class<?> c = Thread.currentThread().getContextClassLoader().loadClass(dclass);
                 dict = (DBDictionary) AccessController.doPrivileged(
                         J2DoPrivHelper.newInstanceAction(c));
             } catch (Exception e) {
@@ -210,11 +217,10 @@ public class DBDictionaryFactory {
     /**
      * Guess the dictionary class name to use based on the product string.
      */
-    private static String dictionaryClassForString(String prod
-        , JDBCConfiguration conf) {
-        if (StringUtils.isEmpty(prod))
+    static String dictionaryClassForString(String prod, JDBCConfiguration conf) {
+        if (StringUtil.isEmpty(prod))
             return null;
-        prod = prod.toLowerCase();
+        prod = prod.toLowerCase(Locale.ENGLISH);
 
         PluginValue dbdictionaryPlugin = ((JDBCConfigurationImpl) conf)
             .dbdictionaryPlugin;
@@ -225,6 +231,8 @@ public class DBDictionaryFactory {
             return dbdictionaryPlugin.unalias("sqlserver");
         if (prod.indexOf("jsqlconnect") != -1)
             return dbdictionaryPlugin.unalias("sqlserver");
+        if (prod.indexOf("mariadb") != -1)
+            return dbdictionaryPlugin.unalias("mariadb");
         if (prod.indexOf("mysql") != -1)
             return dbdictionaryPlugin.unalias("mysql");
         if (prod.indexOf("postgres") != -1)
@@ -259,32 +267,37 @@ public class DBDictionaryFactory {
             return CacheDictionary.class.getName();
         if (prod.indexOf("derby") != -1)
             return dbdictionaryPlugin.unalias("derby");
-        // test h2 in a special way, because there's a decent chance the string 
+        if (prod.indexOf("sapdb") != -1) {
+            return dbdictionaryPlugin.unalias("maxdb");
+        }
+        if (prod.indexOf("herddb") != -1) {
+            return dbdictionaryPlugin.unalias("herddb");
+        }
+        // test h2 in a special way, because there's a decent chance the string
         // h2 could appear in the URL of another database
-        if (prod.indexOf("jdbc:h2:") != -1)
+        if (prod.indexOf("jdbc:h2:") != -1 || prod.indexOf("h2 database") != -1) {
             return dbdictionaryPlugin.unalias("h2");
-        if (prod.indexOf("h2 database") != -1)
-            return dbdictionaryPlugin.unalias("h2");
+        }
         // test db2 last, because there's a decent chance this string could
         // appear in the URL of another database (like if the db is named
         // "testdb2" or something)
         if (prod.indexOf("db2") != -1 || prod.indexOf("as400") != -1)
             return dbdictionaryPlugin.unalias("db2");
+        if (prod.indexOf("soliddb") != -1)
+            return dbdictionaryPlugin.unalias("soliddb");
 
         // known dbs that we don't support
         if (prod.indexOf("cloudscape") != -1)
             return DBDictionary.class.getName();
         if (prod.indexOf("daffodil") != -1)
             return DBDictionary.class.getName();
-        if (prod.indexOf("sapdb") != -1)
-            return DBDictionary.class.getName();
         if (prod.indexOf("idb") != -1) // instantdb
             return DBDictionary.class.getName();
 
         String prodClassName = dbdictionaryPlugin.unalias(prod);
-        if (!StringUtils.equals(prod, prodClassName))
+        if (!Objects.equals(prod, prodClassName))
             return prodClassName;
-        
+
         // give up
         return null;
     }

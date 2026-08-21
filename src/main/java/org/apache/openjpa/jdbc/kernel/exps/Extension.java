@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -40,6 +40,8 @@ class Extension
     extends AbstractVal
     implements Val, Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final JDBCFilterListener _listener;
     private final Val _target;
     private final Val _arg;
@@ -58,22 +60,27 @@ class Extension
         _candidate = candidate;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
 
+    @Override
     public boolean isVariable() {
         return false;
     }
 
+    @Override
     public boolean isAggregate() {
         return false;
     }
 
+    @Override
     public Class getType() {
         if (_cast != null)
             return _cast;
@@ -89,10 +96,12 @@ class Extension
         return new Class[]{ _arg.getType() };
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _cast = type;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         // note that we tell targets and args to extensions that are sql
         // paths to go ahead and join to their related object (if any),
@@ -108,7 +117,7 @@ class Extension
             argState = _arg.initialize(sel, ctx, JOIN_REL);
         Joins j1 = (targetState == null) ? null : targetState.joins;
         Joins j2 = (argState == null) ? null : argState.joins;
-        return new ExtensionExpState(sel.and(j1, j2), targetState, 
+        return new ExtensionExpState(sel.and(j1, j2), targetState,
             argState);
     }
 
@@ -129,12 +138,14 @@ class Extension
         }
     }
 
-    public void select(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void select(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         sel.select(newSQLBuffer(sel, ctx, state), this);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         ExtensionExpState estate = (ExtensionExpState) state;
         if (_target != null)
@@ -143,11 +154,13 @@ class Extension
             _arg.selectColumns(sel, ctx, estate.argState, true);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         sel.groupBy(newSQLBuffer(sel, ctx, state));
     }
 
-    public void orderBy(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         sel.orderBy(newSQLBuffer(sel, ctx, state), asc, false, getSelectAs());
     }
@@ -159,13 +172,15 @@ class Extension
         return buf;
     }
 
-    public Object load(ExpContext ctx, ExpState state, Result res) 
+    @Override
+    public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
         return Filters.convert(res.getObject(this,
             JavaSQLTypes.JDBC_DEFAULT, null), getType());
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         ExtensionExpState estate = (ExtensionExpState) state;
         if (_target != null)
@@ -174,11 +189,13 @@ class Extension
             _arg.calculateValue(sel, ctx, estate.argState, null, null);
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         ExtensionExpState estate = (ExtensionExpState) state;
         FilterValue target = (_target == null) ? null
@@ -198,6 +215,7 @@ class Extension
         };
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter((Exp) this);
         if (_target != null)
@@ -211,11 +229,13 @@ class Extension
     // Exp implementation
     //////////////////////
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         return initialize(sel, ctx, 0);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
         calculateValue(sel, ctx, state, null, null);
         appendTo(sel, ctx, state, sql, 0);

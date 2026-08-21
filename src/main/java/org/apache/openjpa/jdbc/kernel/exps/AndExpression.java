@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -32,6 +32,8 @@ import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 class AndExpression
     implements Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Exp _exp1;
     private final Exp _exp2;
 
@@ -43,13 +45,15 @@ class AndExpression
         _exp2 = exp2;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         ExpState s1 = _exp1.initialize(sel, ctx, contains);
         ExpState s2 = _exp2.initialize(sel, ctx, contains);
         return new BinaryOpExpState(sel.and(s1.joins, s2.joins), s1, s2);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         boolean paren1 = _exp1 instanceof OrExpression;
@@ -68,13 +72,15 @@ class AndExpression
         sel.append(buf, state.joins);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _exp1.selectColumns(sel, ctx, bstate.state1, pks);
         _exp2.selectColumns(sel, ctx, bstate.state2, pks);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _exp1.acceptVisit(visitor);

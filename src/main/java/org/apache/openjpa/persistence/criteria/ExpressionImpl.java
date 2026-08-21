@@ -21,18 +21,18 @@ package org.apache.openjpa.persistence.criteria;
 
 import java.util.Collection;
 
-import javax.persistence.criteria.Expression;
-import javax.persistence.criteria.Predicate;
-import javax.persistence.criteria.CriteriaBuilder.In;
+import jakarta.persistence.criteria.CriteriaBuilder.In;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
 
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
 
 /**
  * Expression node for Criteria query.
  * Acts a bridge pattern to equivalent kernel representation.
- * 
+ *
  * @param <X> the type of the value this expression represents.
- * 
+ *
  * @author Pinaki Poddar
  * @since 2.0.0
  */
@@ -46,18 +46,20 @@ abstract class ExpressionImpl<X> extends SelectionImpl<X> implements Expression<
 
     /**
      * Creates a new expression of the given type. If the given type is same as this expression's type then
-     * returns the same instance. 
-     * May cause runtime cast failure if this expression's immutable type is not convertible to the given type. 
+     * returns the same instance.
+     * May cause runtime cast failure if this expression's immutable type is not convertible to the given type.
      */
+    @Override
     public <Y> Expression<Y> as(Class<Y> type) {
-       return type == getJavaType() ? (Expression<Y>)this : new Expressions.CastAs<Y>(type, this);
+       return type == getJavaType() ? (Expression<Y>)this : new Expressions.CastAs<>(type, this);
     }
 
     /**
      * Create a predicate to test whether this expression is a member of the given argument values.
      */
-   public Predicate in(Object... values) {
-        In<X> result = new Expressions.In<X>(this);
+   @Override
+public Predicate in(Object... values) {
+        In<X> result = new Expressions.In<>(this);
         for (Object v : values)
         	result.value((X)v);
         return result;
@@ -66,8 +68,9 @@ abstract class ExpressionImpl<X> extends SelectionImpl<X> implements Expression<
    /**
     * Create a predicate to test whether this expression is a member of the given argument expressions.
     */
+    @Override
     public Predicate in(Expression<?>... values) {
-        In<X> result = new Expressions.In<X>(this);
+        In<X> result = new Expressions.In<>(this);
         for (Expression<?> e : values)
         	result.value((Expression<? extends X>)e);
         return result;
@@ -76,8 +79,9 @@ abstract class ExpressionImpl<X> extends SelectionImpl<X> implements Expression<
     /**
      * Create a predicate to test whether this expression is a member of the given collection element values.
      */
+    @Override
     public Predicate in(Collection<?> values) {
-        In<X> result = new Expressions.In<X>(this);
+        In<X> result = new Expressions.In<>(this);
         for (Object e : values)
         	result.value((X)e);
         return result;
@@ -86,8 +90,9 @@ abstract class ExpressionImpl<X> extends SelectionImpl<X> implements Expression<
     /**
      * Create a predicate to test whether this expression is a member of the given expression representing a collection.
      */
+    @Override
     public Predicate in(Expression<Collection<?>> values) {
-        In<X> result = new Expressions.In<X>(this);
+        In<X> result = new Expressions.In<>(this);
         result.value((Expression<? extends X>)values);
         return result;
     }
@@ -95,6 +100,7 @@ abstract class ExpressionImpl<X> extends SelectionImpl<X> implements Expression<
     /**
      *  Create a predicate to test whether this expression is not null.
      */
+    @Override
     public Predicate isNotNull() {
     	return new Expressions.IsNotNull(this);
     }
@@ -102,10 +108,11 @@ abstract class ExpressionImpl<X> extends SelectionImpl<X> implements Expression<
     /**
      *  Create a predicate to test whether this expression is null.
      */
+    @Override
     public Predicate isNull() {
     	return new Expressions.IsNull(this);
     }
-    
+
     //  ------------------------------------------------------------------------------------
     //  Contract for bridge pattern to convert to an equivalent kernel representation.
     //  ------------------------------------------------------------------------------------
@@ -116,7 +123,7 @@ abstract class ExpressionImpl<X> extends SelectionImpl<X> implements Expression<
      * @return an equivalent kernel value
      */
     abstract org.apache.openjpa.kernel.exps.Value toValue(ExpressionFactory factory, CriteriaQueryImpl<?> q);
-    
+
     /**
      * Bridge contract to convert this facade expression to a kernel expression.
      * @param factory creates the kernel expression

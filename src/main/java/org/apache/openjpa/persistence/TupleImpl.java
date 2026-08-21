@@ -22,18 +22,18 @@ package org.apache.openjpa.persistence;
 import java.lang.reflect.Method;
 import java.util.List;
 
-import javax.persistence.Tuple;
-import javax.persistence.TupleElement;
+import jakarta.persistence.Tuple;
+import jakarta.persistence.TupleElement;
 
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.lib.util.Localizer;
 
 /**
  * Tuple holds a set of values corresponding to a set of {@link TupleElement}.
- * This implementation prefers index-based access. 
+ * This implementation prefers index-based access.
  * A Tuple instance is constructed by a TupleFactory.
  * The TupleElemets are shared across all the tuple instances.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
@@ -48,7 +48,7 @@ public class TupleImpl implements Tuple {
         } catch (Exception e) {
         }
     }
-    
+
     /**
      * Supply the factory that creates prototypes and holds the elements.
      */
@@ -56,21 +56,25 @@ public class TupleImpl implements Tuple {
         this.factory = factory;
         values = new Object[factory.getElements().size()];
     }
-    
+
+    @Override
     public <X> X get(TupleElement<X> tupleElement) {
         int i = factory.getIndex(tupleElement);
         return assertAndConvertType(""+i, values[i], tupleElement.getJavaType());
     }
 
+    @Override
     public <X> X get(String alias, Class<X> type) {
         Object val = values[factory.getIndex(alias)];
         return assertAndConvertType(alias, val, type);
     }
 
+    @Override
     public Object get(String alias) {
         return get(alias, null);
     }
 
+    @Override
     public <X> X get(int i, Class<X> type) {
         if (i >= values.length || i < 0) {
             throw new IllegalArgumentException(_loc.get("tuple-exceeded-size", i, values.length).getMessage());
@@ -79,14 +83,17 @@ public class TupleImpl implements Tuple {
         return assertAndConvertType(""+i, val, type);
     }
 
+    @Override
     public Object get(int i) {
         return get(i, null);
     }
 
+    @Override
     public Object[] toArray() {
         return values;
     }
 
+    @Override
     public List<TupleElement<?>> getElements() {
         return factory.getElements();
     }
@@ -98,7 +105,7 @@ public class TupleImpl implements Tuple {
     public void put(Integer key, Object value) {
         values[key] = value;
     }
-    
+
     /**
      * Assert that the given value is convertible to the given type and convert.
      * null type implies no conversion and a pure cast.
@@ -111,7 +118,7 @@ public class TupleImpl implements Tuple {
                 return (X) Filters.convert(value, type);
             }
         } catch (Exception e) {
-            throw new IllegalArgumentException(_loc.get("tuple-element-wrong-type", new Object[]{id, value, 
+            throw new IllegalArgumentException(_loc.get("tuple-element-wrong-type", new Object[]{id, value,
                 value.getClass().getName(), type.getName()}).getMessage());
         }
     }

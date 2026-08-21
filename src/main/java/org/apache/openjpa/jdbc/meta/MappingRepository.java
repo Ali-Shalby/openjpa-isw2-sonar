@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -24,7 +24,6 @@ import java.security.PrivilegedActionException;
 import java.sql.Types;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -88,7 +87,6 @@ import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
-import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -107,19 +105,22 @@ import org.apache.openjpa.util.UserException;
  */
 public class MappingRepository extends MetaDataRepository {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage
         (MappingRepository.class);
 
     private transient DBDictionary _dict = null;
     private transient MappingDefaults _defaults = null;
-    
+
     // object->queryresultmapping
-    private Map<Object, QueryResultMapping> _results = new HashMap<Object, QueryResultMapping>(); 
+    private Map<Object, QueryResultMapping> _results = new HashMap<>();
     private SchemaGroup _schema = null;
     private StrategyInstaller _installer = null;
 
     /**
-     * Default constructor.  Configure via 
+     * Default constructor.  Configure via
      * {@link org.apache.openjpa.lib.conf.Configurable}.
      */
     public MappingRepository() {
@@ -211,7 +212,7 @@ public class MappingRepository extends MetaDataRepository {
      * Return the query result mapping for the given name.
      */
     public QueryResultMapping getQueryResultMapping(Class<?> cls, String name, ClassLoader loader, boolean mustExist) {
-        QueryResultMapping res = null;
+        QueryResultMapping res;
         if (_locking) {
             synchronized (this) {
                 res = getQueryResultMappingInternal(cls, name, loader);
@@ -233,13 +234,13 @@ public class MappingRepository extends MetaDataRepository {
 
         // check cache
         Object key = getQueryResultKey(cls, name);
-        QueryResultMapping res = (QueryResultMapping) _results.get(key);
+        QueryResultMapping res = _results.get(key);
         if (res != null)
             return res;
 
         // get metadata for class, which will find results in metadata file
         if (cls != null && getMetaData(cls, envLoader, false) != null) {
-            res = (QueryResultMapping) _results.get(key);
+            res = _results.get(key);
             if (res != null)
                 return res;
         }
@@ -251,7 +252,7 @@ public class MappingRepository extends MetaDataRepository {
                     .getResultSetMappingScope(name, envLoader);
         // not in cache; load
         getMetaDataFactory().load(cls, MODE_META | MODE_MAPPING, envLoader);
-        return (QueryResultMapping) _results.get(key);
+        return _results.get(key);
     }
 
     /**
@@ -370,6 +371,7 @@ public class MappingRepository extends MetaDataRepository {
             mustExist);
     }
 
+    @Override
     public void clear() {
         if (_locking) {
             synchronized (this) {
@@ -384,6 +386,7 @@ public class MappingRepository extends MetaDataRepository {
         }
     }
 
+    @Override
     protected void prepareMapping(ClassMetaData meta) {
         // make sure superclass resolved first; resolving superclass may have
         // resolved this mapping
@@ -391,8 +394,8 @@ public class MappingRepository extends MetaDataRepository {
         ClassMapping sup = mapping.getPCSuperclassMapping();
         if (sup != null && (mapping.getResolve() & MODE_MAPPING) != 0)
             return;
-        
-        // if this mapping is not for a managed interface, ensure that if 
+
+        // if this mapping is not for a managed interface, ensure that if
         // we have an inheritance hierarchy there is a default strategy
         // applied to the root class
         if (!mapping.getDescribedType().isInterface() &&
@@ -400,10 +403,10 @@ public class MappingRepository extends MetaDataRepository {
             // if an inheritance strategy has not been set on this mapping
             // determine if needs one and if so, set it
             if (!hasInheritanceStrategy(mapping)) {
-                ClassMapping baseMapping = findBaseClassMapping(mapping); 
+                ClassMapping baseMapping = findBaseClassMapping(mapping);
                 if (baseMapping != null)
                     setDefaultInheritanceStrategy(baseMapping);
-            }            
+            }
         }
 
         // define superclass fields after mapping class, so we can tell whether
@@ -417,45 +420,55 @@ public class MappingRepository extends MetaDataRepository {
         mapping.resolveNonRelationMappings();
     }
 
+    @Override
     protected ClassMetaData newClassMetaData(Class<?> type) {
         return new ClassMapping(type, this);
     }
 
+    @Override
     protected ClassMetaData[] newClassMetaDataArray(int length) {
         return new ClassMapping[length];
     }
 
+    @Override
     protected FieldMetaData newFieldMetaData(String name, Class<?> type,
         ClassMetaData owner) {
         return new FieldMapping(name, type, (ClassMapping) owner);
     }
 
+    @Override
     protected FieldMetaData[] newFieldMetaDataArray(int length) {
         return new FieldMapping[length];
     }
 
+    @Override
     protected ClassMetaData newEmbeddedClassMetaData(ValueMetaData owner) {
         return new ClassMapping(owner);
     }
 
+    @Override
     protected ValueMetaData newValueMetaData(FieldMetaData owner) {
         return new ValueMappingImpl((FieldMapping) owner);
     }
 
+    @Override
     protected SequenceMetaData newSequenceMetaData(String name) {
         return new SequenceMapping(name, this);
     }
 
+    @Override
     protected Order newValueOrder(FieldMetaData owner, boolean asc) {
         return new JDBCValueOrder((FieldMapping) owner, asc);
     }
 
+    @Override
     protected Order newRelatedFieldOrder(FieldMetaData owner,
         FieldMetaData rel, boolean asc) {
         return new JDBCRelatedFieldOrder((FieldMapping) owner,
             (FieldMapping) rel, asc);
     }
 
+    @Override
     protected Order[] newOrderArray(int size) {
         return new JDBCOrder[size];
     }
@@ -546,8 +559,8 @@ public class MappingRepository extends MetaDataRepository {
                 strat = JavaTypes.classForName(name, cls,
                     AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
-                            ClassStrategy.class)));
-            ClassStrategy strategy = 
+                            ClassStrategy.class)), false);
+            ClassStrategy strategy =
                 (ClassStrategy) AccessController.doPrivileged(
                     J2DoPrivHelper.newInstanceAction(strat));
             Configurations.configureInstance(strategy, getConfiguration(),
@@ -579,7 +592,7 @@ public class MappingRepository extends MetaDataRepository {
         try {
             Class<?> c = JavaTypes.classForName(name, field,
                 AccessController.doPrivileged(
-                    J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)));
+                    J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)), false);
             if (FieldStrategy.class.isAssignableFrom(c)) {
                 FieldStrategy strat = (FieldStrategy)
                     AccessController.doPrivileged(
@@ -653,7 +666,7 @@ public class MappingRepository extends MetaDataRepository {
                     discrim.getClassMapping(),
                     AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
-                            DiscriminatorStrategy.class)));
+                            DiscriminatorStrategy.class)), false);
             DiscriminatorStrategy strategy = (DiscriminatorStrategy)
                 AccessController.doPrivileged(
                     J2DoPrivHelper.newInstanceAction(strat));
@@ -719,7 +732,7 @@ public class MappingRepository extends MetaDataRepository {
                     version.getClassMapping(),
                     AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(
-                            VersionStrategy.class)));
+                            VersionStrategy.class)), false);
         } catch (Exception e) {
             throw new MetaDataException(_loc.get("bad-version-strategy",
                 version.getClassMapping(), name), e);
@@ -781,7 +794,7 @@ public class MappingRepository extends MetaDataRepository {
             return instantiateClassStrategy((String) strat, cls);
         if (strat != null)
             return (ClassStrategy) strat;
-        
+
         // see if there is a declared hierarchy strategy
         ClassStrategy hstrat = null;
         for (ClassMapping base = cls; base != null && hstrat == null;) {
@@ -796,7 +809,7 @@ public class MappingRepository extends MetaDataRepository {
             && !cls.isManagedInterface()
             && Modifier.isAbstract(cls.getDescribedType().getModifiers()))
             return NoneClassStrategy.getInstance();
-        
+
         ClassMapping sup = cls.getMappedPCSuperclassMapping();
         if (sup == null)
             return new FullClassStrategy();
@@ -841,36 +854,62 @@ public class MappingRepository extends MetaDataRepository {
             return new HandlerFieldStrategy();
         }
 
-        if (field.isSerialized()) {
-            if (_dict.maxEmbeddedBlobSize != -1)
-                return new MaxEmbeddedBlobFieldStrategy();
-        } else {
-            // check for mapped strategy
-            Object strat = mappedStrategy(field, field.getType(), adapting);
-            if (strat instanceof FieldStrategy)
-                return (FieldStrategy) strat;
-            if (strat != null) {
+        // check for an explicitly mapped strategy
+        Object explicitStrat = mappedStrategy(field, field.getType(), adapting);
+        if (explicitStrat != null) {
+            if (explicitStrat instanceof FieldStrategy)
+                return (FieldStrategy) explicitStrat;
+            if (explicitStrat != null) {
                 if (installHandlers)
-                    field.setHandler((ValueHandler) strat);
+                    field.setHandler((ValueHandler) explicitStrat);
                 return new HandlerFieldStrategy();
+            }
+        }
+
+        if (field.isSerialized()) {
+            if (_dict.maxEmbeddedBlobSize != -1) {
+                handler = defaultHandler(field, adapting);
+                if (handler != null) {
+                    if (installHandlers)
+                        field.setHandler(handler);
+                }
+                return new MaxEmbeddedBlobFieldStrategy();
             }
         }
 
         // check for known field strategies
         if (!field.isSerialized() && (field.getType() == byte[].class
             || field.getType() == Byte[].class)) {
-            if (_dict.maxEmbeddedBlobSize != -1)
+            if (_dict.maxEmbeddedBlobSize != -1) {
+                handler = defaultHandler(field, adapting);
+                if (handler != null) {
+                    if (installHandlers)
+                        field.setHandler(handler);
+                }
                 return new MaxEmbeddedByteArrayFieldStrategy();
+            }
         } else if (!field.isSerialized()
             && (field.getType() == char[].class
             || field.getType() == Character[].class)) {
-            if (_dict.maxEmbeddedClobSize != -1 && isClob(field, false))
+            if (_dict.maxEmbeddedClobSize != -1 && isClob(field, false)) {
+                handler = defaultHandler(field, adapting);
+                if (handler != null) {
+                    if (installHandlers)
+                        field.setHandler(handler);
+                }
                 return new MaxEmbeddedCharArrayFieldStrategy();
+            }
         } else if (!field.isSerialized()) {
             FieldStrategy strat = defaultTypeStrategy(field, installHandlers,
                 adapting);
-            if (strat != null)
+            if (strat != null) {
+                handler = defaultHandler(field, adapting);
+                if (handler != null) {
+                    if (installHandlers)
+                        field.setHandler(handler);
+                }
                 return strat;
+            }
         }
 
         // check for default handler
@@ -930,7 +969,7 @@ public class MappingRepository extends MetaDataRepository {
                 if (ehandler == null)
                     ehandler = defaultHandler(elem);
                 if (ehandler != null)
-                    return handlerCollectionStrategy(field, ehandler, 
+                    return handlerCollectionStrategy(field, ehandler,
                         installHandlers);
                 if (elem.getTypeCode() == JavaTypes.PC
                     && !elem.isSerialized() && !elem.isEmbeddedPC()) {
@@ -948,10 +987,10 @@ public class MappingRepository extends MetaDataRepository {
                 ValueHandler vhandler = namedHandler(val);
                 if (vhandler == null)
                     vhandler = defaultHandler(val);
-                boolean krel = khandler == null 
+                boolean krel = khandler == null
                     && key.getTypeCode() == JavaTypes.PC
                     && !key.isSerialized() && !key.isEmbeddedPC();
-                boolean vrel = vhandler == null 
+                boolean vrel = vhandler == null
                     && val.getTypeCode() == JavaTypes.PC
                     && !val.isSerialized() && !val.isEmbeddedPC();
                 if (vrel && key.getValueMappedBy() != null) {
@@ -981,7 +1020,7 @@ public class MappingRepository extends MetaDataRepository {
      * Return the collection strategy for the given element handler, or null
      * if none.
      */
-    protected FieldStrategy handlerCollectionStrategy(FieldMapping field, 
+    protected FieldStrategy handlerCollectionStrategy(FieldMapping field,
         ValueHandler ehandler, boolean installHandlers) {
         // TODO: JPA 2.0 should ignore this flag and not to serialize
         if (getConfiguration().getCompatibilityInstance()
@@ -996,8 +1035,8 @@ public class MappingRepository extends MetaDataRepository {
      * Return the map strategy for the given key and value handlers / relations,
      * or null if none.
      */
-    protected FieldStrategy handlerMapStrategy(FieldMapping field, 
-        ValueHandler khandler, ValueHandler vhandler, boolean krel, 
+    protected FieldStrategy handlerMapStrategy(FieldMapping field,
+        ValueHandler khandler, ValueHandler vhandler, boolean krel,
         boolean vrel,  boolean installHandlers) {
         // TODO: JPA 2.0 should ignore this flag and not to serialize
         if (getConfiguration().getCompatibilityInstance()
@@ -1024,9 +1063,9 @@ public class MappingRepository extends MetaDataRepository {
         FieldMapping mapped = field.getMappedByMapping();
         if (mapped != null) {
             //bi-/M-1/JoinTable ==> join table strategy
-            if (isBiMTo1JT(field)) 
+            if (isBiMTo1JT(field))
                 return false;
-            if (mapped.getTypeCode() == JavaTypes.PC)
+            if (mapped.getTypeCode() == JavaTypes.PC || mapped.getTypeCode() == JavaTypes.PC_UNTYPED)
                 return true;
             if (mapped.getElement().getTypeCode() == JavaTypes.PC)
                 return false;
@@ -1042,54 +1081,63 @@ public class MappingRepository extends MetaDataRepository {
         ValueMapping elem = field.getElementMapping();
         boolean useInverseKeyMapping = DBIdentifier.isNull(info.getTableIdentifier()) && info.getColumns().isEmpty()
             && !elem.getValueInfo().getColumns().isEmpty();
-        
+
         // JPA 2.0: non-default mapping: uni-/1-M/JoinColumn ==> foreign key strategy
         if (isUni1ToMFK(field)) {
             return true;
         }
         return useInverseKeyMapping;
     }
-        
+
     public boolean isNonDefaultMappingAllowed() {
         OpenJPAConfiguration conf = getConfiguration();
         return getMetaDataFactory().getDefaults().isNonDefaultMappingAllowed(conf);
     }
-    
+
     public boolean isUniMTo1JT(FieldMapping field) {
-        if (isNonDefaultMappingAllowed() && 
+        if (isNonDefaultMappingAllowed() &&
             field.getAssociationType() == FieldMetaData.MANY_TO_ONE &&
-            hasJoinTable(field) && 
+            hasJoinTable(field) &&
             !isBidirectional(field))  {
-            field.getValueMapping().getValueInfo().setColumns(field.getElementMapping().getValueInfo().getColumns());
+            List<Column> cols = field.getElementMapping().getValueInfo().getColumns();
+            if (cols != null && cols.size() > 0) {
+                field.getValueMapping().getValueInfo().setColumns(cols);
+            }
             return true;
         }
         return false;
     }
 
     public boolean isUni1To1JT(FieldMapping field) {
-        if (isNonDefaultMappingAllowed() && 
-            field.getAssociationType() == FieldMetaData.ONE_TO_ONE && 
-            hasJoinTable(field) && 
+        if (isNonDefaultMappingAllowed() &&
+            field.getAssociationType() == FieldMetaData.ONE_TO_ONE &&
+            hasJoinTable(field) &&
             !isBidirectional(field)) {
-            field.getValueMapping().getValueInfo().setColumns(field.getElementMapping().getValueInfo().getColumns());
+            List<Column> cols = field.getElementMapping().getValueInfo().getColumns();
+            if (cols != null && cols.size() > 0) {
+                field.getValueMapping().getValueInfo().setColumns(cols);
+            }
             return true;
         }
         return false;
     }
 
     public boolean isBi1To1JT(FieldMapping field) {
-        if (isNonDefaultMappingAllowed() && 
-            field.getAssociationType() == FieldMetaData.ONE_TO_ONE && 
-            hasJoinTable(field) && 
+        if (isNonDefaultMappingAllowed() &&
+            field.getAssociationType() == FieldMetaData.ONE_TO_ONE &&
+            hasJoinTable(field) &&
             isBidirectional(field)) {
-            field.getValueMapping().getValueInfo().setColumns(field.getElementMapping().getValueInfo().getColumns());
+            List<Column> cols = field.getElementMapping().getValueInfo().getColumns();
+            if (cols != null && cols.size() > 0) {
+                field.getValueMapping().getValueInfo().setColumns(cols);
+            }
             return true;
         }
         return false;
     }
-    
+
     public boolean isUni1ToMFK(FieldMapping field) {
-        if (isNonDefaultMappingAllowed() && 
+        if (isNonDefaultMappingAllowed() &&
             field.getAssociationType() == FieldMetaData.ONE_TO_MANY &&
             hasJoinColumn(field) &&
             !isBidirectional(field)) {
@@ -1098,7 +1146,7 @@ public class MappingRepository extends MetaDataRepository {
         }
         return false;
     }
-    
+
     public boolean isBiMTo1JT(FieldMapping field) {
         FieldMapping mapped = field.getMappedByMapping();
         if (isNonDefaultMappingAllowed()) {
@@ -1126,9 +1174,9 @@ public class MappingRepository extends MetaDataRepository {
                     return null;
                 ClassMapping inverse = field.getValueMapping().getTypeMapping();
                 FieldMapping[] fmds = inverse.getFieldMappings();
-                for (int i = 0; i < fmds.length; i++) {
-                    if (field == fmds[i].getMappedByMapping()) 
-                        return fmds[i];
+                for (FieldMapping fmd : fmds) {
+                    if (field == fmd.getMappedByMapping())
+                        return fmd;
                 }
             }
         }
@@ -1152,12 +1200,12 @@ public class MappingRepository extends MetaDataRepository {
         }
         return null;
     }
-    
+
     public boolean hasJoinColumn(FieldMapping field) {
         boolean hasJoinColumn = (field.getValueInfo().getColumns().size() > 0 ? true : false);
         return hasJoinColumn;
     }
-    
+
     public boolean hasJoinTable(FieldMapping field) {
         boolean hasJoinTable = !DBIdentifier.isNull(field.getMappingInfo().getTableIdentifier()) ? true : false;
         return hasJoinTable;
@@ -1166,18 +1214,18 @@ public class MappingRepository extends MetaDataRepository {
     public boolean isBidirectional(FieldMapping field) {
         if (field.getMappedByMapping() != null) return true;
         int assoType = field.getAssociationType();
-        if (assoType == FieldMetaData.ONE_TO_ONE || 
+        if (assoType == FieldMetaData.ONE_TO_ONE ||
             assoType == FieldMetaData.MANY_TO_ONE) {
             ClassMapping inverse = field.getValueMapping().getTypeMapping();
             FieldMapping[] fmds = inverse.getFieldMappings();
-            for (int i = 0; i < fmds.length; i++) {
-                if (field == fmds[i].getMappedByMapping()) 
+            for (FieldMapping fmd : fmds) {
+                if (field == fmd.getMappedByMapping())
                     return true;
             }
         }
         return false;
     }
-    
+
     /**
      * Check the given value against mapped strategies.
      */
@@ -1204,7 +1252,7 @@ public class MappingRepository extends MetaDataRepository {
         try {
             Class<?> c = JavaTypes.classForName(name, val,
                 AccessController.doPrivileged(
-                    J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)));
+                    J2DoPrivHelper.getClassLoaderAction(FieldStrategy.class)),false);
             Object o = AccessController.doPrivileged(
                 J2DoPrivHelper.newInstanceAction(c));
             Configurations.configureInstance(o, getConfiguration(), props);
@@ -1231,7 +1279,7 @@ public class MappingRepository extends MetaDataRepository {
         try {
             Class<?> c = JavaTypes.classForName(name, val,
                 AccessController.doPrivileged(
-                    J2DoPrivHelper.getClassLoaderAction(ValueHandler.class)));
+                    J2DoPrivHelper.getClassLoaderAction(ValueHandler.class)),false);
             if (ValueHandler.class.isAssignableFrom(c)) {
                 ValueHandler vh = (ValueHandler) AccessController.doPrivileged(
                     J2DoPrivHelper.newInstanceAction(c));
@@ -1247,7 +1295,7 @@ public class MappingRepository extends MetaDataRepository {
                 val, name), e);
         }
     }
-    
+
     /**
      * Determine the default handler to use for the given value. Does
      * not take into account the named handler, if any.
@@ -1271,7 +1319,7 @@ public class MappingRepository extends MetaDataRepository {
         if (handler instanceof ValueHandler)
             return (ValueHandler) handler;
 
-        if (val.getType() == byte[].class 
+        if (val.getType() == byte[].class
             || val.getType() == Byte[].class) {
             if (_dict.maxEmbeddedBlobSize != -1)
                 warnMaxEmbedded(val, _dict.maxEmbeddedBlobSize);
@@ -1307,6 +1355,12 @@ public class MappingRepository extends MetaDataRepository {
             case JavaTypes.DATE:
             case JavaTypes.CALENDAR:
             case JavaTypes.LOCALE:
+            case JavaTypes.LOCAL_DATE:
+            case JavaTypes.LOCAL_TIME:
+            case JavaTypes.LOCAL_DATETIME:
+            case JavaTypes.OFFSET_TIME:
+            case JavaTypes.OFFSET_DATETIME:
+            case JavaTypes.UUID_OBJ:
                 return ImmutableValueHandler.getInstance();
             case JavaTypes.STRING:
                 if (isClob(val, true))
@@ -1314,7 +1368,7 @@ public class MappingRepository extends MetaDataRepository {
                 return ImmutableValueHandler.getInstance();
             case JavaTypes.PC:
                 if (!val.getTypeMapping().isMapped()
-                    && useUntypedPCHandler(val)) 
+                    && useUntypedPCHandler(val))
                     return UntypedPCValueHandler.getInstance();
                 break;
             case JavaTypes.PC_UNTYPED:
@@ -1335,8 +1389,8 @@ public class MappingRepository extends MetaDataRepository {
      */
     private boolean useUntypedPCHandler(ValueMapping val) {
         ClassMapping rel = val.getTypeMapping();
-        return rel.getIdentityType() == ClassMapping.ID_UNKNOWN
-            || (rel.getIdentityType() == ClassMapping.ID_APPLICATION
+        return rel.getIdentityType() == ClassMetaData.ID_UNKNOWN
+            || (rel.getIdentityType() == ClassMetaData.ID_APPLICATION
             && (rel.getPrimaryKeyFields().length == 0
             || (!rel.isOpenJPAIdentity() && Modifier.isAbstract
             (rel.getObjectIdType().getModifiers()))));
@@ -1463,9 +1517,7 @@ public class MappingRepository extends MetaDataRepository {
         switch (vfield.getTypeCode()) {
             case JavaTypes.DATE:
             case JavaTypes.CALENDAR:
-                return (JavaVersions.VERSION >= 5) 
-                    ? new NanoPrecisionTimestampVersionStrategy()
-                    : new TimestampVersionStrategy();
+                return new NanoPrecisionTimestampVersionStrategy();
             case JavaTypes.BYTE:
             case JavaTypes.INT:
             case JavaTypes.LONG:
@@ -1478,10 +1530,10 @@ public class MappingRepository extends MetaDataRepository {
                 return new NumberVersionStrategy();
             default:
                 throw new UserException(_loc.get("version-type-unsupported", vfield, vfield.getDeclaredType()));
-//                return NoneVersionStrategy.getInstance();
         }
     }
-    
+
+    @Override
     public void endConfiguration() {
         super.endConfiguration();
 
@@ -1493,15 +1545,15 @@ public class MappingRepository extends MetaDataRepository {
             ((Configurable) _schema).setConfiguration(conf);
             ((Configurable) _schema).startConfiguration();
             ((Configurable) _schema).endConfiguration();
-        }            
+        }
     }
-    
+
     /**
      * Finds the base class mapping for the specified mapping.  Loads all
      * persistent types if necessary, since all persistent subclasses of this
      * mapping may not have been resolved before this method is called.
      */
-    protected ClassMapping findBaseClassMapping(ClassMapping mapping) {        
+    protected ClassMapping findBaseClassMapping(ClassMapping mapping) {
         ClassMapping baseMapping = null;
         ClassMapping sup = mapping.getPCSuperclassMapping();
         if (sup == null) {
@@ -1510,20 +1562,20 @@ public class MappingRepository extends MetaDataRepository {
             if (mapping.getPCSubclasses().length > 0)
                 baseMapping = mapping;
             else {
-                // persistent subclasses may not have been resolved yet.  
-                // run through the persistent types to see if any of them 
+                // persistent subclasses may not have been resolved yet.
+                // run through the persistent types to see if any of them
                 // or their superclass is a subclass of this class.
-                Collection<Class<?>> classes = loadPersistentTypes(false, 
+                Collection<Class<?>> classes = loadPersistentTypes(false,
                         mapping.getEnvClassLoader());
                 Class<?> cls;
-                for (Iterator<Class<?>> itr = classes.iterator(); itr.hasNext();) {
-                    cls = itr.next();
+                for (Class<?> aClass : classes) {
+                    cls = aClass;
                     Class<?> supcl = cls.getSuperclass();
-                    while (supcl != null && 
-                           !supcl.getClass().equals(java.lang.Object.class)) {
+                    while (supcl != null &&
+                            !supcl.equals(Object.class)) {
                         if (!supcl.isInterface() &&
-                            supcl.equals(mapping.getDescribedType())) {
-                            baseMapping = mapping;    
+                                supcl.equals(mapping.getDescribedType())) {
+                            baseMapping = mapping;
                             break;
                         }
                         supcl = supcl.getSuperclass();
@@ -1535,7 +1587,7 @@ public class MappingRepository extends MetaDataRepository {
             // if the superclass is not a managed interface, find the root
             // superclass and get its mapping info
             ClassMapping supcm = sup;
-            while (supcm != null && 
+            while (supcm != null &&
                     !supcm.getDescribedType().isInterface() &&
                     !supcm.isEmbeddedOnly()) {
                 ClassMapping supcm2 = supcm.getPCSuperclassMapping();
@@ -1546,7 +1598,7 @@ public class MappingRepository extends MetaDataRepository {
         }
         return baseMapping;
     }
-   
+
     /**
      * If an inheritance strategy has not been set on this mapping, set it
      * to the default (flat).  This method should be called before strategies
@@ -1555,9 +1607,9 @@ public class MappingRepository extends MetaDataRepository {
     protected void setDefaultInheritanceStrategy(ClassMapping mapping) {
         ClassMappingInfo info = mapping.getMappingInfo();
         if (info != null && info.getHierarchyStrategy() == null)
-            info.setHierarchyStrategy(FlatClassStrategy.ALIAS);        
-    } 
-    
+            info.setHierarchyStrategy(FlatClassStrategy.ALIAS);
+    }
+
     /**
      * Determines whether an inhertance strategy has been set on the
      * specified mapping.
@@ -1566,6 +1618,6 @@ public class MappingRepository extends MetaDataRepository {
         ClassMappingInfo info = mapping.getMappingInfo();
         if (info != null && info.getHierarchyStrategy() != null)
             return true;
-        return false;        
+        return false;
     }
 }

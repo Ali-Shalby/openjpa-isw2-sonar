@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util.concurrent;
 
@@ -34,11 +34,11 @@ public interface ConcurrentMap extends Map {
      *
      * @return the removed entry, or null if map is empty
      */
-    public Map.Entry removeRandom();
+    Map.Entry removeRandom();
 
     /**
      * Iterate over map entries, beginning at an arbitrary
      * (not strictly random) entry.
      */
-    public Iterator randomEntryIterator();
+    Iterator randomEntryIterator();
 }

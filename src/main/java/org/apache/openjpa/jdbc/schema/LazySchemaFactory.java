@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -24,12 +24,10 @@ import java.sql.SQLException;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
-import org.apache.openjpa.jdbc.identifier.DBIdentifierUtil;
 import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
-import org.apache.openjpa.lib.identifier.IdentifierRule;
 
 /**
  * Factory that uses database metadata to construct the system schema.
@@ -39,16 +37,16 @@ import org.apache.openjpa.lib.identifier.IdentifierRule;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public class LazySchemaFactory
     extends SchemaGroup
     implements SchemaFactory, Configurable {
 
+    private static final long serialVersionUID = 1L;
     private transient JDBCConfiguration _conf = null;
     private transient Connection _conn = null;
     private transient DatabaseMetaData _meta = null;
     private transient SchemaGenerator _gen = null;
-    
+
     private boolean _indexes = false;
     private boolean _pks = false;
     private boolean _fks = false;
@@ -77,10 +75,12 @@ public class LazySchemaFactory
         _indexes = idx;
     }
 
+    @Override
     public SchemaGroup readSchema() {
         return this;
     }
 
+    @Override
     public void storeSchema(SchemaGroup schema) {
         // nothing to do
     }
@@ -88,6 +88,8 @@ public class LazySchemaFactory
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public Table findTable(String name) {
         if (name == null)
             return null;
@@ -100,6 +102,7 @@ public class LazySchemaFactory
         return findTable(QualifiedDBIdentifier.getPath(name));
     }
 
+    @Override
     public Table findTable(QualifiedDBIdentifier path) {
         if (path == null)
             return null;
@@ -115,18 +118,22 @@ public class LazySchemaFactory
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public Sequence findSequence(String name) {
         if (name == null)
             return null;
         return findSequence(DBIdentifier.newSequence(name));
     }
 
+    @Override
     public Sequence findSequence(DBIdentifier name) {
         if (name == null)
             return null;
         return findSequence(QualifiedDBIdentifier.getPath(name));
     }
-        
+
+    @Override
     public Sequence findSequence(QualifiedDBIdentifier name) {
         if (name == null)
             return null;
@@ -201,15 +208,18 @@ public class LazySchemaFactory
         }
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = (JDBCConfiguration) conf;
         _gen = new SchemaGenerator(_conf);
         _gen.setSchemaGroup(this);
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 }

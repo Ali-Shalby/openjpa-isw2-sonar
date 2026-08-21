@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ee;
 
 import javax.naming.Context;
 import javax.naming.InitialContext;
-import javax.transaction.TransactionManager;
+import jakarta.transaction.TransactionManager;
 
 /**
  * Implementation of the {@link ManagedRuntime} interface that uses JNDI to
@@ -52,6 +52,7 @@ public class JNDIManagedRuntime extends AbstractManagedRuntime
     /**
      * Return the cached TransactionManager instance.
      */
+    @Override
     public TransactionManager getTransactionManager() throws Exception {
 
         if (_tm == null) {
@@ -65,12 +66,14 @@ public class JNDIManagedRuntime extends AbstractManagedRuntime
         return _tm;
     }
 
+    @Override
     public void setRollbackOnly(Throwable cause)
         throws Exception {
         // there is no generic support for setting the rollback cause
         getTransactionManager().getTransaction().setRollbackOnly();
     }
 
+    @Override
     public Throwable getRollbackCause()
         throws Exception {
         // there is no generic support for setting the rollback cause

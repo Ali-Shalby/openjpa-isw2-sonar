@@ -22,12 +22,12 @@ package org.apache.openjpa.event;
  * @since 1.1.0
  */
 public interface PostDeleteListener {
-    
+
     /**
      * Receives notifications before an update is performed. Differs from
      * {@link DeleteListener#afterDelete(LifecycleEvent)} in that the latter
      * is called after the delete operation, whereas this is called after the
      * delete statements have been sent to the data store.
      */
-    public void afterDeletePerformed(LifecycleEvent event);
+    void afterDeletePerformed(LifecycleEvent event);
 }

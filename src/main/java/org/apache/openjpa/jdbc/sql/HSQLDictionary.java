@@ -14,10 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
+import java.lang.reflect.Field;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
@@ -25,30 +26,33 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Arrays;
+import java.util.Locale;
 
-import org.apache.commons.lang.StringUtils;
-import org.hsqldb.Trace;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.schema.Unique;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.ReferentialIntegrityException;
 
 /**
- * Dictionary for Hypersonic SQL database.
+ * Dictionary for HyperSQL (HSQLDB) database.
  */
-public class HSQLDictionary
-    extends DBDictionary {
+public class HSQLDictionary extends DBDictionary {
 
     /**
      * Sets whether HSQL should use "CREATED CACHED TABLE" rather than
      * "CREATE TABLE", which allows disk-based database operations.
      */
     public boolean cacheTables = false;
+
+    private int dbMajorVersion;
+    private int dbMinorVersion;
+    private int violation_of_unique_index_or_constraint;
 
     private SQLBuffer _oneBuffer = new SQLBuffer(this).append("1");
 
@@ -71,21 +75,13 @@ public class HSQLDictionary
         trimTrailingFunction = "RTRIM({0})";
         trimBothFunction = "LTRIM(RTRIM({0}))";
 
-        // HSQL 1.8.0 does support schema names in the table ("schema.table"),
-        // but doesn't support it for columns references ("schema.table.column")
-        useSchemaName = false;
         supportsSelectForUpdate = false;
         supportsSelectStartIndex = true;
         supportsSelectEndIndex = true;
-        rangePosition = RANGE_PRE_DISTINCT;
         supportsDeferredConstraints = false;
 
-        useGetObjectForBlobs = true;
-        blobTypeName = "VARBINARY";
-        doubleTypeName = "NUMERIC";
-
-        supportsNullTableForGetPrimaryKeys = true;
-        supportsNullTableForGetIndexInfo = true;
+        supportsNullTableForGetPrimaryKeys = false;
+        supportsNullTableForGetIndexInfo = false;
 
         requiresCastForMathFunctions = true;
         requiresCastForComparisons = true;
@@ -96,22 +92,96 @@ public class HSQLDictionary
             "SAVEPOINT", "TEMP", "TEXT", "TRIGGER", "TINYINT",
             "VARBINARY", "VARCHAR_IGNORECASE",
         }));
+
+        fixedSizeTypeNameSet.addAll(Arrays.asList(new String[]{
+            "TEXT"
+        }));
+        fixedSizeTypeNameSet.remove("NUMERIC");
+        fixedSizeTypeNameSet.remove("DECIMAL");
+
+        // reservedWordSet subset that CANNOT be used as valid column names
+        // (i.e., without surrounding them with double-quotes)
+        // generated at 2021-05-02T18:24:22.807 via org.apache.openjpa.reservedwords.ReservedWordsIT
+        invalidColumnWordSet.addAll(Arrays.asList(new String[] {
+            "ALL", "AND", "ANY", "AS", "AT", "BETWEEN", "BOTH", "BY", "CALL", "CASE", "CAST", "CHECK", "COALESCE", "CONSTRAINT",
+            "CONVERT", "CORRESPONDING", "CREATE", "CROSS", "CUBE", "DEFAULT", "DISTINCT", "DO", "DROP", "ELSE", "END-EXEC",
+            "EVERY", "EXCEPT", "EXISTS", "FETCH", "FOR", "FOREIGN", "FROM", "FULL", "GRANT", "GROUP", "GROUPING", "HAVING",
+            "IN", "INNER", "INTERSECT", "INTO", "IS", "JOIN", "LEADING", "LEFT", "LIKE", "NATURAL", "NOT", "NULLIF", "ON",
+            "OR", "ORDER", "OUTER", "PRIMARY", "REFERENCES", "RIGHT", "ROLLUP", "SELECT", "SET", "SOME", "SUM", "TABLE", "THEN",
+            "TO", "TRAILING", "TRIGGER", "UNION", "UNIQUE", "USING", "VALUES", "WHEN", "WHERE", "WITH",
+        }));
     }
 
+    /**
+     * Determine HSQLDB version and configure itself accordingly.
+     */
     @Override
-    public int getJDBCType(int metaTypeCode, boolean lob) {
-        int type = super.getJDBCType(metaTypeCode, lob);
-        switch (type) {
-            case Types.BIGINT:
-                if (metaTypeCode == JavaTypes.BIGINTEGER)
-                    return Types.NUMERIC;
-                break;
+    public void connectedConfiguration(Connection conn) throws SQLException {
+        super.connectedConfiguration(conn);
+
+        determineHSQLDBVersion(conn) ;
+
+        if (dbMajorVersion == 1) {
+            blobTypeName = "VARBINARY";
+            useGetObjectForBlobs = true;
+            rangePosition = RANGE_PRE_DISTINCT;
+            // HSQL 1.8.0 does support schema names in the table ("schema.table"),
+            // but doesn't support it for columns references ("schema.table.column")
+            useSchemaName = false;
         }
-        return type;
+        if (dbMajorVersion > 1 && dbMinorVersion > 0) {
+            nextSequenceQuery += " LIMIT 1";
+        }
+        String packageName;
+        String fieldName;
+        if (dbMajorVersion > 1) {
+            // default value for "X_23505"
+            violation_of_unique_index_or_constraint = 104;
+            packageName = "org.hsqldb.error.ErrorCode";
+            fieldName = "X_23505";
+        } else {
+            // default value for "VIOLATION_OF_UNIQUE_INDEX"
+            violation_of_unique_index_or_constraint = 9;
+            packageName = "org.hsqldb.Trace";
+            fieldName = "VIOLATION_OF_UNIQUE_INDEX";
+        }
+        if (dbMajorVersion > 2 || (dbMajorVersion == 2 && dbMinorVersion >= 4)) {
+            supportsUuidType = true;
+        }
+        try {
+            Class<?> cls = Class.forName(packageName);
+            Field fld = cls.getField(fieldName);
+            violation_of_unique_index_or_constraint = fld.getInt(null);
+        } catch (Exception e) {
+        }
     }
+
+    /**
+     * Determine HSQLDB version either by using JDBC 3 method or, if it
+     * is not available, by parsing the value returned by
+     * {@linkplain DatabaseMetaData#getDatabaseProductVersion()}.
+     */
+    protected void determineHSQLDBVersion(Connection con) throws SQLException {
+        DatabaseMetaData metaData = con.getMetaData();
+
+        if (isJDBC3) {
+            dbMajorVersion = metaData.getDatabaseMajorVersion();
+            dbMinorVersion = metaData.getDatabaseMinorVersion();
+        } else {
+            // String is like "2.0.0"
+            String productVersion = metaData.getDatabaseProductVersion();
+            String[] version = productVersion.split("\\.") ;
+            dbMajorVersion = Integer.parseInt(version[0]) ;
+            dbMinorVersion = Integer.parseInt(version[1]);
+        }
+    }
+
 
     @Override
     public int getPreferredType(int type) {
+        if (dbMajorVersion > 1) {
+            return super.getPreferredType(type);
+        }
         switch (type) {
             case Types.CLOB:
                 return Types.VARCHAR;
@@ -158,14 +228,14 @@ public class HSQLDictionary
         String pkStr;
         if (pk != null) {
             pkStr = getPrimaryKeyConstraintSQL(pk);
-            if (!StringUtils.isEmpty(pkStr))
+            if (!StringUtil.isEmpty(pkStr))
                 buf.append(", ").append(pkStr);
         }
 
         Unique[] unqs = table.getUniques();
         String unqStr;
-        for (int i = 0; i < unqs.length; i++) {
-            unqStr = getUniqueConstraintSQL(unqs[i]);
+        for (Unique unq : unqs) {
+            unqStr = getUniqueConstraintSQL(unq);
             if (unqStr != null)
                 buf.append(", ").append(unqStr);
         }
@@ -182,8 +252,9 @@ public class HSQLDictionary
         return super.getPrimaryKeyConstraintSQL(pk);
     }
 
+    @Override
     public boolean isSystemIndex(String name, Table table) {
-        return name.toUpperCase().startsWith("SYS_");
+        return name.toUpperCase(Locale.ENGLISH).startsWith("SYS_");
     }
 
     @Override
@@ -191,22 +262,27 @@ public class HSQLDictionary
         if (DBIdentifier.isNull(name)) {
             return false;
         }
-        return name.getName().toUpperCase().startsWith("SYS_");
+        return name.getName().toUpperCase(Locale.ENGLISH).startsWith("SYS_");
     }
 
     @Override
     protected String getSequencesSQL(String schemaName, String sequenceName) {
+        return getSequencesSQL(DBIdentifier.newSchema(schemaName), DBIdentifier.newSequence(sequenceName));
+    }
+
+    @Override
+    protected String getSequencesSQL(DBIdentifier schemaName, DBIdentifier sequenceName) {
         StringBuilder buf = new StringBuilder();
         buf.append("SELECT SEQUENCE_SCHEMA, SEQUENCE_NAME FROM ").
             append("INFORMATION_SCHEMA.SYSTEM_SEQUENCES");
-        if (schemaName != null || sequenceName != null)
+        if (!DBIdentifier.isNull(schemaName) || !DBIdentifier.isNull(sequenceName))
             buf.append(" WHERE ");
-        if (schemaName != null) {
+        if (!DBIdentifier.isNull(schemaName)) {
             buf.append("SEQUENCE_SCHEMA = ?");
-            if (sequenceName != null)
+            if (!DBIdentifier.isNull(sequenceName))
                 buf.append(" AND ");
         }
-        if (sequenceName != null)
+        if (!DBIdentifier.isNull(sequenceName))
             buf.append("SEQUENCE_NAME = ?");
         return buf.toString();
     }
@@ -227,6 +303,14 @@ public class HSQLDictionary
     @Override
     public Column[] getColumns(DatabaseMetaData meta, String catalog,
         String schemaName, String tableName, String columnName, Connection conn)
+        throws SQLException {
+        return getColumns(meta, DBIdentifier.newCatalog(catalog), DBIdentifier.newSchema(schemaName),
+            DBIdentifier.newTable(tableName), DBIdentifier.newColumn(columnName), conn);
+    }
+
+    @Override
+    public Column[] getColumns(DatabaseMetaData meta, DBIdentifier catalog,
+            DBIdentifier schemaName, DBIdentifier tableName, DBIdentifier columnName, Connection conn)
         throws SQLException {
         Column[] cols = super.getColumns(meta, catalog, schemaName, tableName,
             columnName, conn);
@@ -275,6 +359,13 @@ public class HSQLDictionary
     @Override
     protected void appendSelectRange(SQLBuffer buf, long start, long end,
         boolean subselect) {
+        if (dbMajorVersion > 1) {
+            if (start != 0)
+                buf.append(" OFFSET ").appendValue(start);
+            if (end != Long.MAX_VALUE)
+                buf.append(" LIMIT ").appendValue(end - start);
+            return;
+        }
         // HSQL doesn't parameters in range
         buf.append(" LIMIT ").append(String.valueOf(start)).append(" ");
         if (end == Long.MAX_VALUE)
@@ -286,16 +377,15 @@ public class HSQLDictionary
     @Override
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
         FilterValue start) {
-        buf.append("(LOCATE(");
+        buf.append("LOCATE(");
         find.appendTo(buf);
         buf.append(", ");
         str.appendTo(buf);
         if (start != null) {
-            buf.append(", (");
+            buf.append(", ");
             start.appendTo(buf);
-            buf.append(" + 1)");
         }
-        buf.append(") - 1)");
+        buf.append(")");
     }
 
     @Override
@@ -317,7 +407,7 @@ public class HSQLDictionary
         Object failed) {
         OpenJPAException ke = super.newStoreException(msg, causes, failed);
         if (ke instanceof ReferentialIntegrityException
-            && causes[0].getErrorCode() == -Trace.VIOLATION_OF_UNIQUE_INDEX) {
+            && causes[0].getErrorCode() == -violation_of_unique_index_or_constraint) {
             ((ReferentialIntegrityException) ke).setIntegrityViolation
                 (ReferentialIntegrityException.IV_UNIQUE);
         }

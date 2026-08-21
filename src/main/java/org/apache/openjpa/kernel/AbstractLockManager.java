@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
 import java.util.Collection;
-import java.util.Iterator;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.log.Log;
@@ -42,6 +41,7 @@ public abstract class AbstractLockManager
      */
     protected Log log;
 
+    @Override
     public void setContext(StoreContext ctx) {
         this.ctx = ctx;
         this.log = ctx.getConfiguration().getLog
@@ -55,32 +55,37 @@ public abstract class AbstractLockManager
     /**
      * Delegates to {@link LockManager#lock} with each element of the collection
      */
+    @Override
     public void lockAll(Collection sms, int level, int timeout,
         Object context) {
-        for (Iterator<?> itr = sms.iterator(); itr.hasNext();)
-            lock((OpenJPAStateManager) itr.next(), level, timeout, context);
+        for (Object sm : sms) {
+            lock((OpenJPAStateManager) sm, level, timeout, context);
+        }
     }
 
     /**
      * Does nothing by default.
      */
+    @Override
     public void beginTransaction() {
     }
 
     /**
      * Does nothing by default.
      */
+    @Override
     public void endTransaction() {
     }
 
     /**
      * Does nothing by default.
      */
+    @Override
     public void close () {
 	}
 
     /**
-     * Default not to skip relation field to maintain PessimisticLockManager semantics. 
+     * Default not to skip relation field to maintain PessimisticLockManager semantics.
      */
     public boolean skipRelationFieldLock() {
         return false;

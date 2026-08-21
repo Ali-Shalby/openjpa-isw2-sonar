@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -29,20 +29,20 @@ public interface DirtyListener {
     /**
      * Invoked before the first change is applied.
      */
-    public void beforeDirty(LifecycleEvent event);
+    void beforeDirty(LifecycleEvent event);
 
     /**
      * Invoked after the first change is applied.
      */
-    public void afterDirty(LifecycleEvent event);
+    void afterDirty(LifecycleEvent event);
 
     /**
      * Invoked before the first change is applied to a flushed instance.
      */
-    public void beforeDirtyFlushed(LifecycleEvent event);
+    void beforeDirtyFlushed(LifecycleEvent event);
 
     /**
      * Invoked after the first change is applied to a flushed instance.
      */
-    public void afterDirtyFlushed(LifecycleEvent event);
+    void afterDirtyFlushed(LifecycleEvent event);
 }

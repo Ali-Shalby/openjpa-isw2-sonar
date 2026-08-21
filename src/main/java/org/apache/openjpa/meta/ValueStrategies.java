@@ -14,14 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
-import org.apache.commons.collections.bidimap.TreeBidiMap;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.StringDistance;
+import org.apache.openjpa.lib.util.collections.TreeBidiMap;
 import org.apache.openjpa.util.MetaDataException;
 
 /**
@@ -77,6 +77,13 @@ public class ValueStrategies {
      */
     public static final int UUID_TYPE4_HEX = 8;
 
+    /**
+     * JPA 3.1 native UUID strategy
+     */
+    public static final int UUID_JPA = 9;
+
+    public static final int UUID_TYPE4_CANON = 10;
+
     private static final Localizer _loc = Localizer.forPackage
         (ValueStrategies.class);
 
@@ -93,6 +100,8 @@ public class ValueStrategies {
         _map.put("uuid-hex", UUID_HEX);
         _map.put("uuid-type4-string", UUID_TYPE4_STRING);
         _map.put("uuid-type4-hex", UUID_TYPE4_HEX);
+        _map.put("uuid-jpa", UUID_JPA);
+        _map.put("uuid-type4-canon", UUID_TYPE4_CANON);
     }
 
     /**

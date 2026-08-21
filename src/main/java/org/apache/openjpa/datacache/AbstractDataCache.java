@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
 
@@ -28,21 +28,21 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.event.RemoteCommitEvent;
 import org.apache.openjpa.event.RemoteCommitListener;
+import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.lib.util.concurrent.AbstractConcurrentEventManager;
 import org.apache.openjpa.util.GeneralException;
-import org.apache.openjpa.util.OpenJPAException;
 
-import serp.util.Strings;
 
 /**
  * Abstract {@link DataCache} implementation that provides various
@@ -52,16 +52,17 @@ import serp.util.Strings;
  * @author Patrick Linskey
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     implements DataCache, Configurable {
-	
-    protected CacheStatistics.Default stats = new CacheStatistics.Default();
+
+    private static final long serialVersionUID = 1L;
+
+    protected CacheStatisticsSPI _stats = new CacheStatisticsImpl();
 
     private static final BitSet EMPTY_BITSET = new BitSet(0);
 
     private static final Localizer s_loc = Localizer.forPackage(AbstractDataCache.class);
-    
+
 
     /**
      * The configuration set by the system.
@@ -76,23 +77,26 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     private String _name = null;
     private boolean _closed = false;
     private String _schedule = null;
-    protected Set<String> _includedTypes = new HashSet<String>();
-    protected Set<String> _excludedTypes = new HashSet<String>();
+    protected Set<String> _includedTypes = new HashSet<>();
+    protected Set<String> _excludedTypes = new HashSet<>();
+    protected boolean _evictOnBulkUpdate = true;
 
+    @Override
     public String getName() {
         return _name;
     }
 
+    @Override
     public void setName(String name) {
         _name = name;
     }
     public void setEnableStatistics(boolean enable){
-        if(enable == true){
-            stats.enable();
+        if(enable){
+            _stats.enable();
         }
     }
     public void getEnableStatistics(){
-        stats.isEnabled();
+        _stats.isEnabled();
     }
 
     public String getEvictionSchedule() {
@@ -102,7 +106,8 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     public void setEvictionSchedule(String s) {
         _schedule = s;
     }
-    
+
+    @Override
     public void initialize(DataCacheManager manager) {
         if (_schedule != null && !"".equals(_schedule)) {
             ClearableScheduler scheduler = manager.getClearableScheduler();
@@ -111,7 +116,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         }
         // Cast here rather than add to the interface because this is a hack to support an older way of configuring
         if(manager instanceof DataCacheManagerImpl){
-            List<String> invalidConfigured = new ArrayList<String>();
+            List<String> invalidConfigured = new ArrayList<>();
             // assert that things are configured properly
             if(_includedTypes!=null){
                 for(String s : _includedTypes){
@@ -127,6 +132,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         }
     }
 
+    @Override
     public void commit(Collection<DataCachePCData> additions, Collection<DataCachePCData> newUpdates,
             Collection<DataCachePCData> existingUpdates, Collection<Object> deletes) {
         // remove all objects in deletes list
@@ -142,9 +148,9 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
             putAllInternal(existingUpdates);
 
         if (log.isTraceEnabled()) {
-            Collection<Object> addIds = new ArrayList<Object>(additions.size());
-            Collection<Object> upIds = new ArrayList<Object>(newUpdates.size());
-            Collection<Object> exIds = new ArrayList<Object>(existingUpdates.size());
+            Collection<Object> addIds = new ArrayList<>(additions.size());
+            Collection<Object> upIds = new ArrayList<>(newUpdates.size());
+            Collection<Object> exIds = new ArrayList<>(existingUpdates.size());
 
             for (DataCachePCData addition : additions)
                 addIds.add(addition.getId());
@@ -157,11 +163,9 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         }
     }
 
+    @Override
     public boolean contains(Object key) {
         DataCachePCData o = getInternal(key);
-        if (stats.isEnabled()) {
-            stats.newGet(o == null ? null : o.getType(), o != null);
-        }
         if (o != null && o.isTimedOut()) {
             o = null;
             removeInternal(key);
@@ -171,6 +175,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return o != null;
     }
 
+    @Override
     public BitSet containsAll(Collection<Object> keys) {
         if (keys.isEmpty())
             return EMPTY_BITSET;
@@ -183,6 +188,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return set;
     }
 
+    @Override
     public DataCachePCData get(Object key) {
         DataCachePCData o = getInternal(key);
         if (o != null && o.isTimedOut()) {
@@ -197,9 +203,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
             else
                 log.trace(s_loc.get("cache-hit", key));
         }
-        if (stats.isEnabled()) {
-            stats.newGet((o == null) ? null : o.getType(), o != null);
-        }
+
         return o;
     }
 
@@ -207,32 +211,30 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     /**
      * Returns the objects for the given key List.
      */
+    @Override
     public Map<Object,DataCachePCData> getAll(List<Object> keys) {
-        Map<Object,DataCachePCData> resultMap = new HashMap<Object,DataCachePCData>(keys.size());
+        Map<Object,DataCachePCData> resultMap = new HashMap<>(keys.size());
         for (Object key : keys)
             resultMap.put(key, get(key));
         return resultMap;
     }
 
+    @Override
     public DataCachePCData put(DataCachePCData data) {
-        if (stats.isEnabled()) {
-            stats.newPut(data.getType());
-        }
         DataCachePCData o = putInternal(data.getId(), data);
         if (log.isTraceEnabled())
             log.trace(s_loc.get("cache-put", data.getId()));
         return (o == null || o.isTimedOut()) ? null : o;
     }
 
+    @Override
     public void update(DataCachePCData data) {
         if (recacheUpdates()) {
-            if (stats.isEnabled()) {
-                stats.newPut(data.getType());
-            }
             putInternal(data.getId(), data);
         }
     }
 
+    @Override
     public DataCachePCData remove(Object key) {
         DataCachePCData o = removeInternal(key);
         if (o != null && o.isTimedOut())
@@ -246,6 +248,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return o;
     }
 
+    @Override
     public BitSet removeAll(Collection<Object> keys) {
         if (keys.isEmpty())
             return EMPTY_BITSET;
@@ -261,10 +264,12 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
     /**
      * Remove the objects of the given class from the cache.
      */
+    @Override
     public void removeAll(Class<?> cls, boolean subClasses) {
         removeAllInternal(cls, subClasses);
     }
 
+    @Override
     public boolean pin(Object key) {
         boolean bool = pinInternal(key);
         if (log.isTraceEnabled()) {
@@ -276,6 +281,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return bool;
     }
 
+    @Override
     public BitSet pinAll(Collection<Object> keys) {
         if (keys.isEmpty())
             return EMPTY_BITSET;
@@ -288,11 +294,13 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return set;
     }
 
+    @Override
     public void pinAll(Class<?> cls, boolean subs) {
         if (log.isWarnEnabled())
             log.warn(s_loc.get("cache-class-pin", getName()));
     }
 
+    @Override
     public boolean unpin(Object key) {
         boolean bool = unpinInternal(key);
         if (log.isTraceEnabled()) {
@@ -304,6 +312,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return bool;
     }
 
+    @Override
     public BitSet unpinAll(Collection<Object> keys) {
         if (keys.isEmpty())
             return EMPTY_BITSET;
@@ -316,17 +325,20 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return set;
     }
 
+    @Override
     public void unpinAll(Class<?> cls, boolean subs) {
         if (log.isWarnEnabled())
             log.warn(s_loc.get("cache-class-unpin", getName()));
     }
 
+    @Override
     public void clear() {
         clearInternal();
         if (log.isTraceEnabled())
             log.trace(s_loc.get("cache-clear", getName()));
     }
 
+    @Override
     public void close() {
         close(true);
     }
@@ -343,14 +355,17 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
         return _closed;
     }
 
+    @Override
     public void addExpirationListener(ExpirationListener listen) {
         addListener(listen);
     }
 
+    @Override
     public boolean removeExpirationListener(ExpirationListener listen) {
         return removeListener(listen);
     }
 
+    @Override
     public String toString() {
         return "[" + super.toString() + ":" + _name + "]";
     }
@@ -411,15 +426,12 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
      */
     protected abstract DataCachePCData putInternal(Object oid,
             DataCachePCData pc);
-    
+
     /**
      * Add all of the given objects to the cache.
      */
     protected void putAllInternal(Collection<DataCachePCData> pcs) {
         for (DataCachePCData pc : pcs) {
-            if (stats.isEnabled()) {
-                stats.newPut(pc.getType());
-            }
             putInternal(pc.getId(), pc);
         }
     }
@@ -471,41 +483,44 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
      * Unpin an object from the cache.
      */
     protected abstract boolean unpinInternal(Object oid);
+
     
-    /**
-     * 
-     */
+    @Override
     public DataCache getPartition(String name, boolean create) {
-        if (StringUtils.equals(_name, name))
+        if (Objects.equals(_name, name))
             return this;
         return null;
     }
 
-    /**
-     * 
-     */
+    
+    @Override
     public Set<String> getPartitionNames() {
         return Collections.emptySet();
     }
-    
+
+    @Override
     public boolean isPartitioned() {
         return false;
     }
 
+     @Override
     public CacheStatistics getStatistics() {
-    	return stats;
+    	return _stats;
     }
 
     // ---------- Configurable implementation ----------
 
+    @Override
     public void setConfiguration(Configuration conf) {
         this.conf = (OpenJPAConfiguration) conf;
         this.log = conf.getLog(OpenJPAConfiguration.LOG_DATACACHE);
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
         if (_name == null)
             setName(NAME_DEFAULT);
@@ -513,6 +528,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
 
     // ---------- AbstractEventManager implementation ----------
 
+    @Override
     protected void fireEvent(Object event, Object listener) {
         ExpirationListener listen = (ExpirationListener) listener;
         ExpirationEvent ev = (ExpirationEvent) event;
@@ -523,7 +539,7 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
                 log.warn(s_loc.get("exp-listener-ex"), e);
 		}
 	}
-    
+
     public Set<String> getTypes() {
         return _includedTypes;
     }
@@ -534,19 +550,40 @@ public abstract class AbstractDataCache extends AbstractConcurrentEventManager
 
     public void setTypes(Set<String> types) {
         _includedTypes = types;
+        if (log.isWarnEnabled())
+            log.warn(s_loc.get("recommend_jpa2_caching", new Object[]{"Types", DataCacheMode.ENABLE_SELECTIVE.toString()}));
     }
 
     public void setTypes(String types) {
         _includedTypes =
-            StringUtils.isEmpty(types) ? null : new HashSet<String>(Arrays.asList(Strings.split(types, ";", 0)));
+            StringUtil.isEmpty(types) ? null : new HashSet<>(Arrays.asList(StringUtil.split(types, ";", 0)));
+        if (log.isWarnEnabled())
+            log.warn(s_loc.get("recommend_jpa2_caching", new Object[]{"Types", DataCacheMode.ENABLE_SELECTIVE.toString()}));
     }
 
     public void setExcludedTypes(Set<String> types) {
         _excludedTypes = types;
+        if (log.isWarnEnabled())
+            log.warn(s_loc.get("recommend_jpa2_caching", new Object[]{"ExcludeTypes", DataCacheMode.DISABLE_SELECTIVE.toString()}));
     }
 
     public void setExcludedTypes(String types) {
         _excludedTypes =
-            StringUtils.isEmpty(types) ? null : new HashSet<String>(Arrays.asList(Strings.split(types, ";", 0)));
+            StringUtil.isEmpty(types) ? null : new HashSet<>(Arrays.asList(StringUtil.split(types, ";", 0)));
+        if (log.isWarnEnabled())
+            log.warn(s_loc.get("recommend_jpa2_caching", new Object[]{"ExcludeTypes", DataCacheMode.DISABLE_SELECTIVE.toString()}));
+    }
+
+    public DataCache selectCache(OpenJPAStateManager sm) {
+        return this;
+    }
+
+    @Override
+    public boolean getEvictOnBulkUpdate(){
+        return _evictOnBulkUpdate;
+    }
+
+    public void setEvictOnBulkUpdate(boolean b){
+        _evictOnBulkUpdate = b;
     }
 }

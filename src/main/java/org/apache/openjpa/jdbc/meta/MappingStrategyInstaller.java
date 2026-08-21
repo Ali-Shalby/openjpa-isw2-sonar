@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -25,12 +25,10 @@ import org.apache.openjpa.meta.MetaDataModes;
  * information (if any), and fails if it does not work.
  *
  * @author Abe White
- * @nojavadoc
  * @since 0.4.0
  */
-@SuppressWarnings("serial")
-public class MappingStrategyInstaller
-    extends StrategyInstaller {
+public class MappingStrategyInstaller extends StrategyInstaller {
+    private static final long serialVersionUID = 1L;
 
     /**
      * Constructor; supply configuration.
@@ -39,10 +37,12 @@ public class MappingStrategyInstaller
         super(repos);
     }
 
+    @Override
     public boolean isAdapting() {
         return true;
     }
 
+    @Override
     public void installStrategy(ClassMapping cls) {
         ClassStrategy strat = repos.namedStrategy(cls);
         if (strat == null)
@@ -51,6 +51,7 @@ public class MappingStrategyInstaller
         cls.setSourceMode(MetaDataModes.MODE_MAPPING, true);
     }
 
+    @Override
     public void installStrategy(FieldMapping field) {
         FieldStrategy strategy = repos.namedStrategy(field, true);
         if (strategy == null)
@@ -58,6 +59,7 @@ public class MappingStrategyInstaller
         field.setStrategy(strategy, Boolean.TRUE);
     }
 
+    @Override
     public void installStrategy(Version version) {
         VersionStrategy strat = repos.namedStrategy(version);
         if (strat == null)
@@ -65,6 +67,7 @@ public class MappingStrategyInstaller
         version.setStrategy(strat, Boolean.TRUE);
     }
 
+    @Override
     public void installStrategy(Discriminator discrim) {
         DiscriminatorStrategy strat = repos.namedStrategy(discrim);
         if (strat == null)

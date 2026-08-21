@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.identifier;
 
@@ -24,34 +24,50 @@ import java.io.Serializable;
  * Base identifer implementation.
  */
 public class IdentifierImpl implements Identifier, Serializable {
+
     
+    private static final long serialVersionUID = 1L;
     private String _name = null;
-    
+    private boolean nameDelimited = false;
+
     protected IdentifierImpl() {}
-    
+
     public IdentifierImpl(String name) {
         setName(name);
     }
 
+    @Override
     public void setName(String name) {
         _name = name;
     }
 
+    @Override
     public String getName() {
         return _name;
     }
-    
+
+    public boolean isNameDelimited() {
+        return nameDelimited;
+    }
+
+    public void setNameDelimited(boolean nameDelimited) {
+        this.nameDelimited = nameDelimited;
+    }
+
+    @Override
     public String toString() {
         return getName();
     }
-    
+
+    @Override
     public int hashCode() {
         if (_name == null) {
             return super.hashCode();
         }
-        return _name.hashCode();
+        return _name.toUpperCase().hashCode();
     }
 
+    @Override
     public int length() {
         if (getName() == null) {
             return 0;
@@ -59,6 +75,7 @@ public class IdentifierImpl implements Identifier, Serializable {
         return getName().length();
     }
 
+    @Override
     public int compareTo(Identifier o) {
         if (_name == null && (o == null || o.getName() == null)) {
             return 0;

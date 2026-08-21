@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -22,15 +22,16 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
+import java.util.UUID;
 
-import org.apache.openjpa.enhance.PersistenceCapable;
-import org.apache.openjpa.enhance.PCRegistry;
-import org.apache.openjpa.enhance.StateManager;
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.ManagedInstanceProvider;
+import org.apache.openjpa.enhance.PCRegistry;
+import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.enhance.ReflectingPersistenceCapable;
 import org.apache.openjpa.enhance.RuntimeUnenhancedClassesModes;
+import org.apache.openjpa.enhance.StateManager;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.LockManager;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
@@ -38,33 +39,32 @@ import org.apache.openjpa.kernel.PCState;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.kernel.StoreManager;
 import org.apache.openjpa.lib.util.Closeable;
-import org.apache.openjpa.lib.util.ReferenceMap;
 import org.apache.openjpa.lib.util.UUIDGenerator;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap.ReferenceStrength;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.SequenceMetaData;
 import org.apache.openjpa.meta.ValueStrategies;
-import org.apache.openjpa.conf.OpenJPAConfiguration;
 
 /**
  * Helper for OpenJPA back-ends.
  *
  * @since 0.3.0
  * @author Abe White
- * @nojavadoc
  */
 public class ImplHelper {
 
     // Cache for from/to type assignments
     private static final Map _assignableTypes =
-        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
+        new ConcurrentReferenceHashMap(ReferenceStrength.WEAK, ReferenceStrength.HARD);
 
     // map of all new unenhanced instances active in this classloader
     public static final Map _unenhancedInstanceMap =
-        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD) {
+        new ConcurrentReferenceHashMap(ReferenceStrength.WEAK, ReferenceStrength.HARD) {
 
+            @Override
             protected boolean eq(Object x, Object y) {
                 // the Entries in ConcurrentReferenceHashMap delegate back to
                 // eq() in their equals() impls
@@ -74,6 +74,7 @@ public class ImplHelper {
                     return x == y;
             }
 
+            @Override
             protected int hc(Object o) {
                 // the Entries in ConcurrentReferenceHashMap delegate back to
                 // hc() in their hashCode() impls
@@ -96,18 +97,20 @@ public class ImplHelper {
         Collection failed = null;
         OpenJPAStateManager sm;
         LockManager lm;
-        for (Iterator itr = sms.iterator(); itr.hasNext();) {
-            sm = (OpenJPAStateManager) itr.next();
+        for (Object o : sms) {
+            sm = (OpenJPAStateManager) o;
             if (sm.getManagedInstance() == null) {
                 if (!store.initialize(sm, state, fetch, context))
                     failed = addFailedId(sm, failed);
-            } else if (load != StoreManager.FORCE_LOAD_NONE
-                || sm.getPCState() == PCState.HOLLOW) {
+            }
+            else if (load != StoreManager.FORCE_LOAD_NONE
+                    || sm.getPCState() == PCState.HOLLOW) {
                 lm = sm.getContext().getLockManager();
-                if (!store.load(sm, sm.getUnloaded(fetch), fetch, 
-                    lm.getLockLevel(sm), context))
+                if (!store.load(sm, sm.getUnloaded(fetch), fetch,
+                        lm.getLockLevel(sm), context))
                     failed = addFailedId(sm, failed);
-            } else if (!store.exists(sm, context))
+            }
+            else if (!store.exists(sm, context))
                 failed = addFailedId(sm, failed);
         }
         return (failed == null) ? Collections.EMPTY_LIST : failed;
@@ -141,7 +144,7 @@ public class ImplHelper {
      */
     public static Object generateFieldValue(StoreContext ctx,
         FieldMetaData fmd) {
-        return generateValue(ctx, fmd.getDefiningMetaData(), fmd, 
+        return generateValue(ctx, fmd.getDefiningMetaData(), fmd,
             fmd.getDeclaredTypeCode());
     }
 
@@ -167,6 +170,10 @@ public class ImplHelper {
                 return UUIDGenerator.nextString(UUIDGenerator.TYPE4);
             case ValueStrategies.UUID_TYPE4_HEX:
                 return UUIDGenerator.nextHex(UUIDGenerator.TYPE4);
+            case ValueStrategies.UUID_TYPE4_CANON:
+                return UUID.randomUUID().toString();
+            case ValueStrategies.UUID_JPA:
+                return UUID.randomUUID();
             default:
                 return null;
         }
@@ -253,19 +260,19 @@ public class ImplHelper {
         Boolean isAssignable = null;
         Map assignableTo = (Map) _assignableTypes.get(from);
         if (assignableTo == null) { // "to" cache doesn't exist, so create it...
-            assignableTo = new ConcurrentReferenceHashMap(ReferenceMap.WEAK,
-                    ReferenceMap.HARD);
+            assignableTo = new ConcurrentReferenceHashMap(ReferenceStrength.WEAK,
+                ReferenceStrength.HARD);
             _assignableTypes.put(from, assignableTo);
         } else { // "to" cache exists...
             isAssignable = (Boolean) assignableTo.get(to);
         }
 
         if (isAssignable == null) {// we don't have a record of this pair...
-            isAssignable = Boolean.valueOf(from.isAssignableFrom(to));
+            isAssignable = from.isAssignableFrom(to);
             assignableTo.put(to, isAssignable);
         }
 
-        return isAssignable.booleanValue();
+        return isAssignable;
     }
 
     /**

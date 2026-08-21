@@ -25,35 +25,35 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 
-import javax.persistence.criteria.CriteriaBuilder;
-import javax.persistence.criteria.Expression;
-import javax.persistence.criteria.Path;
-import javax.persistence.criteria.Predicate;
-import javax.persistence.metamodel.Attribute;
-import javax.persistence.metamodel.ManagedType;
-import javax.persistence.metamodel.SingularAttribute;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.metamodel.Attribute;
+import jakarta.persistence.metamodel.ManagedType;
+import jakarta.persistence.metamodel.SingularAttribute;
 
 import org.apache.openjpa.enhance.Reflection;
 
 /**
  * An expression for query-by-example.
- * 
+ *
  * @author Pinaki Poddar
- * 
+ *
  */
 class CompareByExample<T> extends PredicateImpl {
 
-    CompareByExample(CriteriaBuilder builder, ManagedType<T> type, 
+    CompareByExample(CriteriaBuilder builder, ManagedType<T> type,
             Path<T> from, T instance, ComparisonStyle style,
             Attribute<?, ?>... excludes) {
         super(extractOperator(style));
-        List<Attribute<?, ?>> excludeAttr = excludes == null 
-            ? new ArrayList<Attribute<?,?>>() : Arrays.asList(excludes);
-        
+        List<Attribute<?, ?>> excludeAttr = excludes == null
+            ? new ArrayList<>() : Arrays.asList(excludes);
+
         Set<SingularAttribute<? super T, ?>> attrs = type.getSingularAttributes();
         for (SingularAttribute<? super T, ?> attr : attrs) {
-            if (excludeAttr.contains(attr) 
-            || (style.excludeIdentity() && attr.isId()) 
+            if (excludeAttr.contains(attr)
+            || (style.excludeIdentity() && attr.isId())
             || (style.excludeVersion() && attr.isVersion())) {
                 continue;
             }
@@ -70,7 +70,7 @@ class CompareByExample<T> extends PredicateImpl {
                 continue;
             }
             if (attr.isAssociation()) {
-                p = new CompareByExample(builder, (ManagedType<?>)attr.getType(), 
+                p = new CompareByExample(builder, (ManagedType<?>)attr.getType(),
                         from.get(attr), value, style, excludes);
             } else if (attr.getJavaType() == String.class) {
                 Expression<String> s = from.get(attr).as(String.class);
@@ -88,7 +88,7 @@ class CompareByExample<T> extends PredicateImpl {
             this.add(p);
         }
     }
-    
+
     Object extractValue(T instance, SingularAttribute<? super T, ?> attr) {
         Class<?> cls = instance.getClass();
         Method getter = Reflection.findGetter(cls, attr.getName(), false);
@@ -99,7 +99,7 @@ class CompareByExample<T> extends PredicateImpl {
             return Reflection.get(instance, field);
         return null;
     }
-    
+
     boolean isDefaultValue(Class<?> cls, Object val) {
         if (val == null) {
             return true;
@@ -107,7 +107,7 @@ class CompareByExample<T> extends PredicateImpl {
         if (cls == Boolean.class || cls == boolean.class) {
            return Boolean.FALSE.equals(val);
         } else if (cls == Character.class || cls == char.class) {
-            return ((Character) val).charValue() == 0;
+            return (Character) val == 0;
         } else if (cls == Byte.class || cls == byte.class
                 || cls == Double.class || cls == double.class
                 || cls == Float.class || cls == float.class
@@ -121,7 +121,7 @@ class CompareByExample<T> extends PredicateImpl {
             return false;
         }
     }
-    
+
     static <T> BooleanOperator extractOperator(ComparisonStyle style) {
         return style == null ? BooleanOperator.AND : style.isDisjunction() ? BooleanOperator.OR : BooleanOperator.AND;
     }

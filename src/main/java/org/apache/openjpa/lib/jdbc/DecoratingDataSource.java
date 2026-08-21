@@ -14,43 +14,28 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
-import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import javax.sql.DataSource;
-
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
-
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import javax.sql.DataSource;
 
 /**
  * Delegating data source that maintains a list of {@link ConnectionDecorator}s.
  *
  * @author Abe White
- * @nojavadoc
  */
-public abstract class DecoratingDataSource extends DelegatingDataSource {
-    
-    private static final Constructor<DecoratingDataSource> implClass;
-
-    static {
-        try {
-            implClass = ConcreteClassGenerator.getConcreteConstructor(DecoratingDataSource.class, DataSource.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
-
+public class DecoratingDataSource extends DelegatingDataSource {
 
     private List<ConnectionDecorator> _decorators =
-        new CopyOnWriteArrayList<ConnectionDecorator>();
+        new CopyOnWriteArrayList<>();
 
     /**
      * Constructor. Supply wrapped data source.
@@ -58,11 +43,6 @@ public abstract class DecoratingDataSource extends DelegatingDataSource {
     public DecoratingDataSource(DataSource ds) {
         super(ds);
     }
-    
-    public static DecoratingDataSource newDecoratingDataSource(DataSource ds) {
-        return ConcreteClassGenerator.newInstance(implClass, ds);
-    }
-
 
     /**
      * Return a read-only list of connection decorators in the order they were
@@ -102,11 +82,13 @@ public abstract class DecoratingDataSource extends DelegatingDataSource {
         _decorators.clear();
     }
 
+    @Override
     public Connection getConnection() throws SQLException {
         Connection conn = super.getConnection();
         return decorate(conn);
     }
 
+    @Override
     public Connection getConnection(String user, String pass)
         throws SQLException {
         Connection conn = super.getConnection(user, pass);
@@ -114,7 +96,7 @@ public abstract class DecoratingDataSource extends DelegatingDataSource {
     }
 
     private Connection decorate(Connection conn) throws SQLException {
-        for(ConnectionDecorator decorator : _decorators) { 
+        for(ConnectionDecorator decorator : _decorators) {
             conn = decorator.decorate(conn);
         }
         return conn;

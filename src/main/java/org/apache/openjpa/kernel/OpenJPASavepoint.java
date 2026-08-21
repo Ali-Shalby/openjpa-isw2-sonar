@@ -14,14 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
 import java.io.Serializable;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 
 /**
@@ -32,13 +31,12 @@ import java.util.Map;
  * @since 0.3.4
  */
 public class OpenJPASavepoint implements Serializable {
-
+    private static final long serialVersionUID = 1L;
     private final Broker _broker;
     private final String _name;
     private final boolean _copy;
 
-    // <StateManagerImpl, SavepointFieldManager>
-    private Map _saved;
+     private Map<StateManagerImpl, SavepointFieldManager> _saved;
 
     /**
      * Constructor. Indicate whether to copy field data into memory.
@@ -73,7 +71,7 @@ public class OpenJPASavepoint implements Serializable {
     /**
      * Return the map of states to savepoint data.
      */
-    protected Map getStates() {
+    protected Map<StateManagerImpl, SavepointFieldManager> getStates() {
         return _saved;
     }
 
@@ -81,14 +79,12 @@ public class OpenJPASavepoint implements Serializable {
      * Set this savepoint, saving any state for the passed-in
      * {@link OpenJPAStateManager}s as necessary.
      */
-    public void save(Collection states) {
+    public void save(Collection<StateManagerImpl> states) {
         if (_saved != null)
             throw new IllegalStateException();
 
-        _saved = new HashMap((int) (states.size() * 1.33 + 1));
-        StateManagerImpl sm;
-        for (Iterator i = states.iterator(); i.hasNext();) {
-            sm = (StateManagerImpl) i.next();
+        _saved = new HashMap<>((int) (states.size() * 1.33 + 1));
+        for (StateManagerImpl sm : states) {
             _saved.put(sm, new SavepointFieldManager(sm, _copy));
         }
     }
@@ -110,16 +106,16 @@ public class OpenJPASavepoint implements Serializable {
      *
      * @param previous previous savepoints set in the transaction
      */
-    public Collection rollback(Collection previous) {
-        Map saved;
+    public Collection<SavepointFieldManager> rollback(Collection<OpenJPASavepoint> previous) {
+        Map<StateManagerImpl, SavepointFieldManager> saved;
         if (previous.isEmpty())
             saved = _saved;
         else {
             // merge all changes into one collection, allowing for later
             // SavepointFieldManagers to replace previous ones.
-            saved = new HashMap();
-            for (Iterator i = previous.iterator(); i.hasNext();)
-                saved.putAll(((OpenJPASavepoint) i.next()).getStates());
+            saved = new HashMap<>();
+            for (OpenJPASavepoint savepoint : previous)
+                saved.putAll(savepoint.getStates());
             saved.putAll(_saved);
         }
         _saved = null;

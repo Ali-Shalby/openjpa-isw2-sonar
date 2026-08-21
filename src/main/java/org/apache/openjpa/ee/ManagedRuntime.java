@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ee;
 
-import javax.transaction.NotSupportedException;
-import javax.transaction.SystemException;
-import javax.transaction.TransactionManager;
+import jakarta.transaction.NotSupportedException;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.TransactionManager;
 
 /**
  * This interface must be implemented by concrete plugins to application
@@ -36,27 +36,27 @@ public interface ManagedRuntime {
      * map transactional PersistenceManagers to the current transaction,
      * and possibly to enlist XA resources.
      */
-    public TransactionManager getTransactionManager()
+    TransactionManager getTransactionManager()
         throws Exception;
 
-    /** 
+    /**
      * Sets the rollback only flag on the current transaction. If the
      * TransactionManager is capable of tracking the cause of the
      * rollback-only flag, it will also pass along cause information.
-     *  
+     *
      * @param  cause  the Throwable that caused the transaction to be
      *                marked for rollback, or null of none is known
      */
-    public void setRollbackOnly(Throwable cause)
+    void setRollbackOnly(Throwable cause)
         throws Exception;
 
-    /** 
+    /**
      * Returns the Throwable that caused the current transaction to be
      * marked for rollback, provided that any exists.
      *
      * @return the Throwable cause, or null if none
      */
-    public Throwable getRollbackCause()
+    Throwable getRollbackCause()
         throws Exception;
 
     /**
@@ -64,7 +64,7 @@ public interface ManagedRuntime {
      * and Brokers.
      * @return the transaction key
      */
-    public Object getTransactionKey()
+    Object getTransactionKey()
         throws Exception, SystemException;
 
     /**
@@ -76,16 +76,16 @@ public interface ManagedRuntime {
      * If the runnable object encounters an exception it should be wrapped in a
      * RuntimeException and thrown back to the caller
      * </P>
-     * 
+     *
      * @param runnable
      *            The runnable wrapper for the work that will be done. The
      *            runnable object should be fully initialized with any state
      *            needed to execute.
-     * 
+     *
      * @throws NotSupportedException
      *             if the transaction can not be suspended.
      */
-    public void doNonTransactionalWork(Runnable runnable)
+    void doNonTransactionalWork(Runnable runnable)
             throws NotSupportedException;
-  
+
 }

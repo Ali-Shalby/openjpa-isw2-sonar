@@ -14,23 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.lib.meta.XMLMetaDataSerializer;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.xml.sax.SAXException;
 
 /**
@@ -41,7 +40,6 @@ import org.xml.sax.SAXException;
  *  Serializers are not thread safe.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class XMLSchemaSerializer
     extends XMLMetaDataSerializer
@@ -50,8 +48,8 @@ public class XMLSchemaSerializer
     private static final Localizer _loc = Localizer.forPackage
         (XMLSchemaSerializer.class);
 
-    private final Collection<Table> _tables = new TreeSet<Table>();
-    private final Collection<Sequence> _seqs = new TreeSet<Sequence>();
+    private final Collection<Table> _tables = new TreeSet<>();
+    private final Collection<Sequence> _seqs = new TreeSet<>();
 
     /**
      * Constructor. Supply configuration.
@@ -60,15 +58,18 @@ public class XMLSchemaSerializer
         setLog(conf.getLog(JDBCConfiguration.LOG_SCHEMA));
     }
 
+    @Override
     public Table[] getTables() {
         return (Table[]) _tables.toArray(new Table[_tables.size()]);
     }
 
+    @Override
     public void addTable(Table table) {
         if (table != null)
             _tables.add(table);
     }
 
+    @Override
     public boolean removeTable(Table table) {
         return _tables.remove(table);
     }
@@ -86,66 +87,79 @@ public class XMLSchemaSerializer
         return _seqs.remove(seq);
     }
 
+    @Override
     public void addAll(Schema schema) {
         if (schema == null)
             return;
         Table[] tables = schema.getTables();
-        for (int i = 0; i < tables.length; i++)
-            addTable(tables[i]);
+        for (Table table : tables) {
+            addTable(table);
+        }
         Sequence[] seqs = schema.getSequences();
-        for (int i = 0; i < seqs.length; i++)
-            addSequence(seqs[i]);
+        for (Sequence seq : seqs) {
+            addSequence(seq);
+        }
     }
 
+    @Override
     public void addAll(SchemaGroup group) {
         if (group == null)
             return;
         Schema[] schemas = group.getSchemas();
-        for (int i = 0; i < schemas.length; i++)
-            addAll(schemas[i]);
+        for (Schema schema : schemas) {
+            addAll(schema);
+        }
     }
 
+    @Override
     public boolean removeAll(Schema schema) {
         if (schema == null)
             return false;
 
         boolean removed = false;
         Table[] tables = schema.getTables();
-        for (int i = 0; i < tables.length; i++)
-            removed |= removeTable(tables[i]);
+        for (Table table : tables) {
+            removed |= removeTable(table);
+        }
         Sequence[] seqs = schema.getSequences();
-        for (int i = 0; i < seqs.length; i++)
-            removed |= removeSequence(seqs[i]);
+        for (Sequence seq : seqs) {
+            removed |= removeSequence(seq);
+        }
         return removed;
     }
 
+    @Override
     public boolean removeAll(SchemaGroup group) {
         if (group == null)
             return false;
 
         boolean removed = false;
         Schema[] schemas = group.getSchemas();
-        for (int i = 0; i < schemas.length; i++)
-            removed |= removeAll(schemas[i]);
+        for (Schema schema : schemas) {
+            removed |= removeAll(schema);
+        }
         return removed;
     }
 
+    @Override
     public void clear() {
         _tables.clear();
         _seqs.clear();
     }
 
+    @Override
     protected Collection getObjects() {
         if (_seqs.isEmpty())
             return _tables;
         if (_tables.isEmpty())
             return _seqs;
-        List<Object> all = new ArrayList<Object>(_seqs.size() + _tables.size());
+        List<Object> all = new ArrayList<>(_seqs.size() + _tables.size());
         all.addAll(_seqs);
         all.addAll(_tables);
         return all;
     }
 
+    @Override
     protected void serialize(Collection objs)
         throws SAXException {
         // group the objects by schema
@@ -153,8 +167,8 @@ public class XMLSchemaSerializer
         String schemaName;
         Collection schemaObjs;
         Object obj;
-        for (Iterator itr = objs.iterator(); itr.hasNext();) {
-            obj = itr.next();
+        for (Object value : objs) {
+            obj = value;
             if (obj instanceof Table)
                 schemaName = ((Table) obj).getSchemaName();
             else
@@ -169,10 +183,10 @@ public class XMLSchemaSerializer
 
         startElement("schemas");
         Map.Entry entry;
-        for (Iterator itr = schemas.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
+        for (Object o : schemas.entrySet()) {
+            entry = (Map.Entry) o;
             serializeSchema((String) entry.getKey(), (Collection)
-                entry.getValue());
+                    entry.getValue());
         }
         endElement("schemas");
     }
@@ -194,8 +208,8 @@ public class XMLSchemaSerializer
 
         // tables and seqs
         Object obj;
-        for (Iterator<?> itr = objs.iterator(); itr.hasNext();) {
-            obj = itr.next();
+        for (Object o : objs) {
+            obj = o;
             if (obj instanceof Table)
                 serializeTable((Table) obj);
             else
@@ -237,23 +251,27 @@ public class XMLSchemaSerializer
 
         // columns
         Column[] cols = table.getColumns();
-        for (int i = 0; i < cols.length; i++)
-            serializeColumn(cols[i]);
+        for (Column col : cols) {
+            serializeColumn(col);
+        }
 
         // foreign keys
         ForeignKey[] fks = table.getForeignKeys();
-        for (int i = 0; i < fks.length; i++)
-            serializeForeignKey(fks[i]);
+        for (ForeignKey fk : fks) {
+            serializeForeignKey(fk);
+        }
 
         // indexes
         Index[] idxs = table.getIndexes();
-        for (int i = 0; i < idxs.length; i++)
-            serializeIndex(idxs[i]);
+        for (Index idx : idxs) {
+            serializeIndex(idx);
+        }
 
         // unique constraints
         Unique[] unqs = table.getUniques();
-        for (int i = 0; i < unqs.length; i++)
-            serializeUnique(unqs[i]);
+        for (Unique unq : unqs) {
+            serializeUnique(unq);
+        }
 
         endElement("table");
     }
@@ -265,7 +283,7 @@ public class XMLSchemaSerializer
         throws SAXException {
         addAttribute("name", col.getName());
         addAttribute("type", Schemas.getJDBCName(col.getType()));
-        if (!StringUtils.isEmpty(col.getTypeName())
+        if (!StringUtil.isEmpty(col.getTypeName())
             && !col.getTypeName().equalsIgnoreCase
             (Schemas.getJDBCName(col.getType())))
             addAttribute("type-name", col.getTypeName());
@@ -301,8 +319,9 @@ public class XMLSchemaSerializer
 
         // columns
         if (cols.length > 1)
-            for (int i = 0; i < cols.length; i++)
-                serializeOn(cols[i]);
+            for (Column col : cols) {
+                serializeOn(col);
+            }
 
         endElement("pk");
     }
@@ -322,8 +341,9 @@ public class XMLSchemaSerializer
 
         // columns
         if (cols.length > 1)
-            for (int i = 0; i < cols.length; i++)
-                serializeOn(cols[i]);
+            for (Column col : cols) {
+                serializeOn(col);
+            }
 
         endElement("index");
     }
@@ -344,8 +364,9 @@ public class XMLSchemaSerializer
 
         // columns
         if (cols.length > 1)
-            for (int i = 0; i < cols.length; i++)
-                serializeOn(cols[i]);
+            for (Column col : cols) {
+                serializeOn(col);
+            }
 
         endElement("unique");
     }
@@ -382,10 +403,12 @@ public class XMLSchemaSerializer
         if (cols.length > 1 || consts.length > 0 || constsPK.length > 0)
             for (int i = 0; i < cols.length; i++)
                 serializeJoin(cols[i], pks[i]);
-        for (int i = 0; i < consts.length; i++)
-            serializeJoin(consts[i], fk.getConstant(consts[i]));
-        for (int i = 0; i < constsPK.length; i++)
-            serializeJoin(fk.getPrimaryKeyConstant(constsPK[i]), constsPK[i]);
+        for (Column aConst : consts) {
+            serializeJoin(aConst, fk.getConstant(aConst));
+        }
+        for (Column column : constsPK) {
+            serializeJoin(fk.getPrimaryKeyConstant(column), column);
+        }
 
         endElement("fk");
     }

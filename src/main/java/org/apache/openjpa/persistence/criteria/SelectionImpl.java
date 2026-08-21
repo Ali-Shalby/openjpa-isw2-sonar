@@ -14,24 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.criteria;
 
 import java.util.List;
 
-import javax.persistence.criteria.Expression;
-import javax.persistence.criteria.Selection;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Selection;
 
-import org.apache.openjpa.kernel.exps.ExpressionFactory;
 import org.apache.openjpa.persistence.util.ReservedWords;
 
 /**
  * An item selected in the projection clause of Criteria query.
  * Base implementation for all concrete expressions.
- * 
+ *
  * @param <X> the type this term evaluates to
- * 
+ *
  * @author Pinaki Poddar
  *
  * @since 2.0.0
@@ -39,43 +38,46 @@ import org.apache.openjpa.persistence.util.ReservedWords;
 abstract class SelectionImpl<X> implements Selection<X>, CriteriaExpression {
     private final Class<X> _cls;
     private String _alias;
-    private Boolean _autoAliased; 
-    
+    private Boolean _autoAliased;
+
     /**
      * Construct with the immutable type represented by this selection term.
      */
     public SelectionImpl(Class<X> cls) {
         _cls = cls;
     }
-    
+
     /**
      * Gets the immutable type represented by this selection term.
      */
+    @Override
     public Class<X> getJavaType() {
         return _cls;
     }
-    
+
     /**
      * Gets the alias set of this selection term.
      */
+    @Override
     public String getAlias() {
-        return _alias; 
+        return _alias;
     }
-    
+
     /**
      * Sets the alias on this selection term.
      * Alias can only be set once.
      */
+    @Override
     public Selection<X> alias(String alias) {
         assertValidName(alias);
         if (isAliased())
-            throw new IllegalStateException(this + " has been aliased to [" + _alias 
+            throw new IllegalStateException(this + " has been aliased to [" + _alias
                     + ". Can not alias again to " + alias);
         _alias = alias;
         _autoAliased = false;
         return this;
     }
-    
+
     /**
      * Sets the alias of this expression internally. Only valid if the expression is not aliased explicitly
      * by calling {@linkplain #alias(String)}.
@@ -86,26 +88,27 @@ abstract class SelectionImpl<X> implements Selection<X>, CriteriaExpression {
         _alias = alias;
         _autoAliased = true;
     }
-    
+
     /**
      * Affirms if the alias of this expression is assigned automatically.
      */
     boolean isAutoAliased() {
-        return _autoAliased == null ? true : _autoAliased.booleanValue();
-    }  
-    
+        return _autoAliased == null ? true : _autoAliased;
+    }
+
     /**
      * Affirms if this expression has been assigned an alias by {@linkplain #alias(String)} method.
      * An alias can be assigned also by internal implementation.
-     * @see #isAutoAliased() 
+     * @see #isAutoAliased()
      */
     boolean isAliased() {
         return Boolean.FALSE.equals(_autoAliased);
-    }  
+    }
 
     /**
      * Throws IllegalStateException because a selection term, by default, consists of single value.
      */
+    @Override
     public List<Selection<?>> getCompoundSelectionItems() {
         throw new IllegalStateException(this + " is not a compound selection");
     }
@@ -113,37 +116,42 @@ abstract class SelectionImpl<X> implements Selection<X>, CriteriaExpression {
     /**
      * Returns false because a selection term, by default, consists of single value.
      */
+    @Override
     public boolean isCompoundSelection() {
         return false;
     }
-    
+
     void assertValidName(String name) {
         if (name == null || name.trim().length() == 0)
             throw new IllegalArgumentException("empty name is invalid");
-        if (ReservedWords.isKeyword(name)) 
+        if (ReservedWords.isKeyword(name))
             throw new IllegalArgumentException("reserved word " + name + " is not valid");
         Character ch = ReservedWords.hasSpecialCharacter(name);
-        if (ch != null) 
+        if (ch != null)
             throw new IllegalArgumentException(name + " contains reserved symbol " + ch);
     }
-    
+
     //  ------------------------------------------------------------------------------------
     //  Contract for CriteriaExpression implemented mostly as a no-op for easier derivation.
     //  ------------------------------------------------------------------------------------
-    
+
+    @Override
     public StringBuilder asValue(AliasContext q) {
         throw new IllegalStateException(this.getClass().getSimpleName() + " can not be rendered as value");
     }
-    
+
+    @Override
     public StringBuilder asVariable(AliasContext q) {
         throw new IllegalStateException(this.getClass().getSimpleName() + " can not be rendered as variable");
     }
-    
+
+    @Override
     public StringBuilder asProjection(AliasContext q) {
         String as = (isAutoAliased() ? "" : " AS " + getAlias());
         return asValue(q).append(as);
     }
-    
+
+    @Override
     public void acceptVisit(CriteriaExpressionVisitor visitor) {
         Expressions.acceptVisit(visitor, this, (Expression<?>[])null);
     }

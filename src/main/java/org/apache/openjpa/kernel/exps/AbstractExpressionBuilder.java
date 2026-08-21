@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -27,8 +27,9 @@ import java.util.Set;
 
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.StringDistance;
 import org.apache.openjpa.lib.util.Localizer.Message;
+import org.apache.openjpa.lib.util.StringDistance;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -37,7 +38,6 @@ import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
-import serp.util.Strings;
 
 /**
  * Abstract base class to help build expressions. Provides
@@ -45,7 +45,6 @@ import serp.util.Strings;
  * path traversal, and error messages.
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public abstract class AbstractExpressionBuilder {
 
@@ -73,7 +72,7 @@ public abstract class AbstractExpressionBuilder {
     protected final Resolver resolver;
     protected ExpressionFactory factory;
 
-    private final Set<ClassMetaData> _accessPath = new HashSet<ClassMetaData>();
+    private final Set<ClassMetaData> _accessPath = new HashSet<>();
     private Map<String,Value> _seenVars = null;
     private Set<Value> _boundVars = null;
 
@@ -148,7 +147,7 @@ public abstract class AbstractExpressionBuilder {
      */
     protected void bind(Value var) {
         if (_boundVars == null)
-            _boundVars = new HashSet<Value>();
+            _boundVars = new HashSet<>();
         _boundVars.add(var);
     }
 
@@ -186,7 +185,7 @@ public abstract class AbstractExpressionBuilder {
         var.setMetaData(meta);
 
         if (_seenVars == null)
-            _seenVars = new HashMap<String,Value>();
+            _seenVars = new HashMap<>();
         _seenVars.put(id, var);
 
         addVariableToContext(id, var);
@@ -252,7 +251,7 @@ public abstract class AbstractExpressionBuilder {
     protected Value traversePath(Path path, String field) {
         return traversePath(path, field, false, false);
     }
-    
+
     protected Value traverseXPath(Path path, String field) {
         XMLMetaData meta = path.getXmlMapping();
         if (meta.getFieldMapping(field) == null) {
@@ -294,8 +293,8 @@ public abstract class AbstractExpressionBuilder {
             	String[] all = meta.getFieldNames();
             	Class<?> cls = meta.getDescribedType();
                 throw parseException(EX_USER, "no-field",
-                    new Object[] {field, cls.getSimpleName(), 
-                    StringDistance.getClosestLevenshteinDistance(field, all), 
+                    new Object[] {field, cls.getSimpleName(),
+                    StringDistance.getClosestLevenshteinDistance(field, all),
                 	cls.getName(), Arrays.toString(all)}, null);
             }
 
@@ -312,14 +311,14 @@ public abstract class AbstractExpressionBuilder {
         }
         else {
             // xmlsupport xpath
-            XMLMetaData xmlmeta = fmd.getRepository().getXMLMetaData(fmd);
+            XMLMetaData xmlmeta = fmd.getRepository().getXMLMetaData(fmd.getDeclaredType());
             if (xmlmeta != null) {
                 path.get(fmd, xmlmeta);
                 return path;
             }
         }
 
-        if (meta != null || !pcOnly) 
+        if (meta != null || !pcOnly)
             path.get(fmd, allowNull);
 
         return path;
@@ -336,7 +335,7 @@ public abstract class AbstractExpressionBuilder {
             return null;
         }
     }
-    
+
     private boolean isMultiValuedTraversalAttempt(Path path, String field) {
         if (path == null) return false;
         if (path.last() == null) return false;
@@ -385,7 +384,56 @@ public abstract class AbstractExpressionBuilder {
             else
                 convertTypes(val1, val2);
         }
+//        convertLiteralToAvoidCast(val1, val2);
     }
+
+//    private static void convertLiteralToAvoidCast(Value val1, Value val2) {
+//        boolean l1 = val1 instanceof Literal;
+//        boolean l2 = val2 instanceof Literal;
+//        Class<?> c1 = val1.getType();
+//        Class<?> c2 = val2.getType();
+//        if (l1 ^ l2 && c1 != c2) {
+//            // if one side is a literal and types are different
+//            if (l1 && isNumeric(c1) && canDownTypeValue(((Literal)val1).getValue(), c1, c2)) {
+//                val1.setImplicitType(c2);
+//            } else if (l2 && isNumeric(c2) && canDownTypeValue(((Literal)val2).getValue(), c2, c1)) {
+//                val2.setImplicitType(c1);
+//            }
+//        }
+//    }
+//
+//    private static boolean canDownTypeValue(Object val, Class<?> fromType, Class<?> toType) {
+//        long testVal = ( fromType == Character.TYPE || fromType == TYPE_CHAR_OBJ )
+//            ? ((Character)val).charValue()
+//            : ((Number)val).longValue();
+//        long min;
+//        long max;
+//        switch (JavaTypes.getTypeCode(toType)) {
+//        case JavaTypes.BYTE:
+//            min = Byte.MIN_VALUE;
+//            max = Byte.MAX_VALUE;
+//            break;
+//        case JavaTypes.CHAR:
+//            min = Character.MIN_VALUE;
+//            max = Character.MAX_VALUE;
+//            break;
+//        case JavaTypes.SHORT:
+//            min = Short.MIN_VALUE;
+//            max = Short.MAX_VALUE;
+//            break;
+//        case JavaTypes.INT:
+//            min = Integer.MIN_VALUE;
+//            max = Integer.MAX_VALUE;
+//            break;
+//        case JavaTypes.LONG:
+//            min = Long.MIN_VALUE;
+//            max = Long.MAX_VALUE;
+//            break;
+//        default:
+//            return false;
+//        }
+//        return min <= testVal && testVal <= max;
+//    }
 
     /**
      * Perform conversions to make values compatible.
@@ -467,13 +515,13 @@ public abstract class AbstractExpressionBuilder {
         if (t1 == TYPE_STRING && val1 instanceof Literal
             && ((Literal) val1).getParseType() == Literal.TYPE_STRING) {
             String s = (String) ((Literal) val1).getValue();
-            ((Literal) val1).setValue(Strings.parse(s, Filters.wrap(t2)));
+            ((Literal) val1).setValue(StringUtil.parse(s, Filters.wrap(t2)));
             val1.setImplicitType(t2);
         }
         if (t2 == TYPE_STRING && val2 instanceof Literal
             && ((Literal) val2).getParseType() == Literal.TYPE_STRING) {
             String s = (String) ((Literal) val2).getValue();
-            ((Literal) val2).setValue(Strings.parse(s, Filters.wrap(t1)));
+            ((Literal) val2).setValue(StringUtil.parse(s, Filters.wrap(t1)));
             val2.setImplicitType(t1);
         }
     }
@@ -544,8 +592,6 @@ public abstract class AbstractExpressionBuilder {
 
     /**
      * Register the schema alias to the current JPQL query context.
-     * @param alias
-     * @param meta
      */
     protected abstract void addSchemaToContext(String alias,
         ClassMetaData meta);
@@ -553,15 +599,11 @@ public abstract class AbstractExpressionBuilder {
     /**
      * Register the variable associated with the schema alias (id) to
      * the current JPQL query context.
-     * @param id
-     * @param var
      */
     protected abstract void addVariableToContext(String id, Value var);
 
     /**
      * Returns the variable associated with the schema alias (id).
-     * @param id
-     * @return
      */
     protected abstract Value getVariable(String id);
 }

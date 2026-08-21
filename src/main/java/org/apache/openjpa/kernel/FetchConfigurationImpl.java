@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -29,9 +29,9 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.rop.EagerResultList;
 import org.apache.openjpa.lib.rop.ListResultObjectProvider;
@@ -40,6 +40,7 @@ import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.rop.SimpleResultList;
 import org.apache.openjpa.lib.rop.WindowResultList;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FetchGroup;
 import org.apache.openjpa.meta.FieldMetaData;
@@ -56,19 +57,18 @@ import org.apache.openjpa.util.UserException;
  * @since 0.3.0
  * @author Abe White
  * @author Pinaki Poddar
- * @nojavadoc
  */
-@SuppressWarnings("serial")
 public class FetchConfigurationImpl
     implements FetchConfiguration, Cloneable {
 
+    private static final long serialVersionUID = 1L;
     private static final Localizer _loc = Localizer.forPackage(FetchConfigurationImpl.class);
-    private static Map<String, Method> _hintSetters = new HashMap<String, Method>();
-    
-    /** 
+    private static Map<String, Method> _hintSetters = new HashMap<>();
+
+    /**
      * Registers hint keys that have a corresponding setter method.
      * The hint keys are registered in <code>openjpa.FetchPlan</code> and <code>openjpa</code> as prefix.
-     * Also some keys are registered in <code>javax.persistence</code> namespace.
+     * Also some keys are registered in <code>jakarta.persistence</code> namespace.
      */
     static {
             String[] prefixes = {"openjpa.FetchPlan", "openjpa"};
@@ -78,38 +78,38 @@ public class FetchConfigurationImpl
             populateHintSetter(target, "FlushBeforeQueries", int.class, prefixes);
             populateHintSetter(target, "LockScope", int.class, prefixes);
             populateHintSetter(target, "LockTimeout", int.class, prefixes);
-            populateHintSetter(target, "setLockTimeout", "timeout", int.class, "javax.persistence.lock");
+            populateHintSetter(target, "setLockTimeout", "timeout", int.class, "jakarta.persistence.lock");
             populateHintSetter(target, "MaxFetchDepth", int.class, prefixes);
             populateHintSetter(target, "QueryTimeout", int.class, prefixes);
-            populateHintSetter(target, "setQueryTimeout", "timeout", int.class, "javax.persistence.query");
+            populateHintSetter(target, "setQueryTimeout", "timeout", int.class, "jakarta.persistence.query");
             populateHintSetter(target, "ReadLockLevel", int.class, prefixes);
             populateHintSetter(target, "setReadLockLevel", "ReadLockMode", int.class, prefixes);
             populateHintSetter(target, "WriteLockLevel", int.class, prefixes);
             populateHintSetter(target, "setWriteLockLevel", "WriteLockMode", int.class, prefixes);
     }
-    
+
     /**
      * Populate static registry of hints.
-     *  
-     * @param target The name of the target class that will receive this hint. 
-     * @param hint the simple name of the hint without a prefix. 
-     * @param type the value argument type of the target setter method. 
-     * @param prefixes the prefixes will be added to the simple hint name. 
+     *
+     * @param target The name of the target class that will receive this hint.
+     * @param hint the simple name of the hint without a prefix.
+     * @param type the value argument type of the target setter method.
+     * @param prefixes the prefixes will be added to the simple hint name.
      */
     protected static void populateHintSetter(Class<?> target, String hint, Class<?> type, String...prefixes) {
         populateHintSetter(target, "set" + hint, hint, type, prefixes);
     }
-    
+
     /**
      * Populate static registry of hints.
-     *  
-     * @param target The name of the target class that will receive this hint. 
-     * @param method The name of the method in the target class that will receive this hint. 
-     * @param hint the simple name of the hint without a prefix. 
-     * @param type the value argument type of the target setter method. 
-     * @param prefixes the prefixes will be added to the simple hint name. 
+     *
+     * @param target The name of the target class that will receive this hint.
+     * @param method The name of the method in the target class that will receive this hint.
+     * @param hint the simple name of the hint without a prefix.
+     * @param type the value argument type of the target setter method.
+     * @param prefixes the prefixes will be added to the simple hint name.
      */
-    protected static void populateHintSetter(Class<?> target, String method, String hint, Class<?> type, 
+    protected static void populateHintSetter(Class<?> target, String method, String hint, Class<?> type,
             String...prefixes) {
         try {
             Method setter = target.getMethod(method, type);
@@ -128,6 +128,8 @@ public class FetchConfigurationImpl
     protected static class ConfigurationState
         implements Serializable
     {
+        
+        private static final long serialVersionUID = 1L;
         public transient StoreContext ctx = null;
         public int fetchBatchSize = 0;
         public int maxFetchDepth = 1;
@@ -145,9 +147,11 @@ public class FetchConfigurationImpl
         public Map<String,Object> hints = null;
         public boolean fetchGroupContainsDefault = false;
         public boolean fetchGroupContainsAll = false;
+        public boolean fetchGroupIsPUDefault = false;
         public boolean extendedPathLookup = false;
         public DataCacheRetrieveMode cacheRetrieveMode = DataCacheRetrieveMode.USE;
-        public DataCacheStoreMode cacheStoreMode = DataCacheStoreMode.USE;        
+        public DataCacheStoreMode cacheStoreMode = DataCacheStoreMode.USE;
+        public boolean cacheNonDefaultFetchPlanQueries = false;
     }
 
     private final ConfigurationState _state;
@@ -166,12 +170,14 @@ public class FetchConfigurationImpl
     protected FetchConfigurationImpl(ConfigurationState state) {
         _state = (state == null) ? new ConfigurationState() : state;
         _availableDepth = _state.maxFetchDepth;
-    } 
+    }
 
+    @Override
     public StoreContext getContext() {
         return _state.ctx;
     }
 
+    @Override
     public void setContext(StoreContext ctx) {
         // can't reset non-null context to another context
         if (ctx != null && _state.ctx != null && ctx != _state.ctx)
@@ -186,17 +192,24 @@ public class FetchConfigurationImpl
         setFlushBeforeQueries(conf.getFlushBeforeQueriesConstant());
         setLockTimeout(conf.getLockTimeout());
         setQueryTimeout(conf.getQueryTimeout());
-        clearFetchGroups();
-        addFetchGroups(Arrays.asList(conf.getFetchGroupsList()));
+
+        String[] fetchGroupList = conf.getFetchGroupsList();
+        clearFetchGroups((fetchGroupList == null || fetchGroupList.length == 0));
+
+        addFetchGroups(Arrays.asList(fetchGroupList));
         setMaxFetchDepth(conf.getMaxFetchDepth());
+
+        _state.cacheNonDefaultFetchPlanQueries = conf.getCompatibilityInstance().getCacheNonDefaultFetchPlanQueries();
     }
 
     /**
      * Clone this instance.
      */
+    @Override
     public Object clone() {
         FetchConfigurationImpl clone = newInstance(null);
         clone._state.ctx = _state.ctx;
+        clone._state.cacheNonDefaultFetchPlanQueries = _state.cacheNonDefaultFetchPlanQueries;
         clone._parent = _parent;
         clone._fromField = _fromField;
         clone._fromType = _fromType;
@@ -215,6 +228,7 @@ public class FetchConfigurationImpl
         return new FetchConfigurationImpl(state);
     }
 
+    @Override
     public void copy(FetchConfiguration fetch) {
         setFetchBatchSize(fetch.getFetchBatchSize());
         setMaxFetchDepth(fetch.getMaxFetchDepth());
@@ -224,7 +238,7 @@ public class FetchConfigurationImpl
         setLockTimeout(fetch.getLockTimeout());
         setQueryTimeout(fetch.getQueryTimeout());
         setLockScope(fetch.getLockScope());
-        clearFetchGroups();
+        clearFetchGroups(false);
         addFetchGroups(fetch.getFetchGroups());
         clearFields();
         copyHints(fetch);
@@ -237,9 +251,9 @@ public class FetchConfigurationImpl
         _state.writeLockLevel = fetch.getWriteLockLevel();
     }
 
-    
+
     void copyHints(FetchConfiguration fetch) {
-        if (fetch instanceof FetchConfigurationImpl == false)
+        if (!(fetch instanceof FetchConfigurationImpl))
             return;
         FetchConfigurationImpl from = (FetchConfigurationImpl)fetch;
         if (from._state == null || from._state.hints == null)
@@ -247,14 +261,16 @@ public class FetchConfigurationImpl
         if (this._state == null)
             return;
         if (this._state.hints == null)
-            this._state.hints = new HashMap<String,Object>();
+            this._state.hints = new HashMap<>();
         this._state.hints.putAll(from._state.hints);
     }
-    
+
+    @Override
     public int getFetchBatchSize() {
         return _state.fetchBatchSize;
     }
 
+    @Override
     public FetchConfiguration setFetchBatchSize(int fetchBatchSize) {
         if (fetchBatchSize == DEFAULT && _state.ctx != null)
             fetchBatchSize = _state.ctx.getConfiguration().getFetchBatchSize();
@@ -263,10 +279,12 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public int getMaxFetchDepth() {
         return _state.maxFetchDepth;
     }
 
+    @Override
     public FetchConfiguration setMaxFetchDepth(int depth) {
         if (depth == DEFAULT && _state.ctx != null)
             depth = _state.ctx.getConfiguration().getMaxFetchDepth();
@@ -279,35 +297,41 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public boolean getQueryCacheEnabled() {
         return _state.queryCache;
     }
 
+    @Override
     public FetchConfiguration setQueryCacheEnabled(boolean cache) {
         _state.queryCache = cache;
         return this;
     }
 
+    @Override
     public int getFlushBeforeQueries() {
         return _state.flushQuery;
     }
-    
+
+    @Override
     public boolean getExtendedPathLookup() {
         return _state.extendedPathLookup;
     }
-    
+
+    @Override
     public FetchConfiguration setExtendedPathLookup(boolean flag) {
         _state.extendedPathLookup = flag;
         return this;
     }
 
+    @Override
     public FetchConfiguration setFlushBeforeQueries(int flush) {
         if (flush != DEFAULT
             && flush != QueryFlushModes.FLUSH_TRUE
             && flush != QueryFlushModes.FLUSH_FALSE
             && flush != QueryFlushModes.FLUSH_WITH_CONNECTION)
             throw new IllegalArgumentException(_loc.get(
-                "bad-flush-before-queries", new Integer(flush)).getMessage());
+                "bad-flush-before-queries", flush).getMessage());
 
         if (flush == DEFAULT && _state.ctx != null)
             _state.flushQuery = _state.ctx.getConfiguration().
@@ -317,11 +341,13 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public Set<String> getFetchGroups() {
         if (_state.fetchGroups == null) return Collections.emptySet();
         return _state.fetchGroups;
     }
 
+    @Override
     public boolean hasFetchGroup(String group) {
         return _state.fetchGroups != null
             && (_state.fetchGroups.contains(group)
@@ -330,42 +356,59 @@ public class FetchConfigurationImpl
 
      public boolean hasFetchGroupDefault() {
          // Fetch group All includes fetch group Default by definition
-         return _state.fetchGroupContainsDefault || 
+         return _state.fetchGroupContainsDefault ||
              _state.fetchGroupContainsAll;
      }
-     
+
      public boolean hasFetchGroupAll() {
          return _state.fetchGroupContainsAll;
      }
-     
+
+    @Override
     public FetchConfiguration addFetchGroup(String name) {
-        if (StringUtils.isEmpty(name))
+        return addFetchGroup(name, true);
+    }
+
+    private FetchConfiguration addFetchGroup(String name, boolean recomputeIsDefault) {
+        if (StringUtil.isEmpty(name))
             throw new UserException(_loc.get("null-fg"));
 
         lock();
         try {
             if (_state.fetchGroups == null)
-                _state.fetchGroups = new HashSet<String>();
+                _state.fetchGroups = new HashSet<>();
             _state.fetchGroups.add(name);
+
             if (FetchGroup.NAME_ALL.equals(name))
                 _state.fetchGroupContainsAll = true;
             else if (FetchGroup.NAME_DEFAULT.equals(name))
                 _state.fetchGroupContainsDefault = true;
         } finally {
+            if (recomputeIsDefault) {
+                verifyDefaultPUFetchGroups();
+            }
             unlock();
         }
         return this;
     }
 
+    @Override
     public FetchConfiguration addFetchGroups(Collection<String> groups) {
         if (groups == null || groups.isEmpty())
             return this;
         for (String group : groups)
-            addFetchGroup(group);
+            addFetchGroup(group, false);
+
+        verifyDefaultPUFetchGroups();
         return this;
     }
 
+    @Override
     public FetchConfiguration removeFetchGroup(String group) {
+        return removeFetchGroup(group, true);
+    }
+
+    private FetchConfiguration removeFetchGroup(String group, boolean recomputeIsDefault) {
         lock();
         try {
             if (_state.fetchGroups != null) {
@@ -376,69 +419,138 @@ public class FetchConfigurationImpl
                     _state.fetchGroupContainsDefault = false;
             }
         } finally {
+            if (recomputeIsDefault) {
+                verifyDefaultPUFetchGroups();
+            }
             unlock();
         }
         return this;
     }
 
+    @Override
     public FetchConfiguration removeFetchGroups(Collection<String> groups) {
         lock();
         try {
             if (_state.fetchGroups != null && groups != null)
                 for (String group : groups)
-                    removeFetchGroup(group);
+                    removeFetchGroup(group, false);
         } finally {
+            verifyDefaultPUFetchGroups();
             unlock();
         }
         return this;
     }
 
+    @Override
     public FetchConfiguration clearFetchGroups() {
+        return clearFetchGroups(true);
+    }
+
+    private FetchConfiguration clearFetchGroups(boolean restoresDefault) {
         lock();
         try {
             if (_state.fetchGroups != null) {
                 _state.fetchGroups.clear();
-                _state.fetchGroupContainsAll = false;
+            } else {
+                _state.fetchGroups = new HashSet<>();
+            }
+
+            _state.fetchGroupContainsAll = false;
+
+            if (restoresDefault) {
                 _state.fetchGroupContainsDefault = true;
+                _state.fetchGroups.add(FetchGroup.NAME_DEFAULT); // OPENJPA-2413
             }
         } finally {
+            verifyDefaultPUFetchGroups();
             unlock();
         }
         return this;
     }
 
+    @Override
     public FetchConfiguration resetFetchGroups() {
-        clearFetchGroups();
+        String[] fetchGroupList = _state.ctx.getConfiguration().getFetchGroupsList();
+        clearFetchGroups((fetchGroupList == null || fetchGroupList.length == 0));
+
         if (_state.ctx != null)
-            addFetchGroups(Arrays.asList(_state.ctx.getConfiguration().
-                getFetchGroupsList()));
+            addFetchGroups(Arrays.asList(fetchGroupList));
+
+        verifyDefaultPUFetchGroups();
+
         return this;
     }
 
+    /**
+     * Determine if the current selection of FetchGroups is equivalent to the Configuration's default FetchGroups
+     */
+    private void verifyDefaultPUFetchGroups() {
+        _state.fetchGroupIsPUDefault = false;
+
+        if (_state.fields != null && !_state.fields.isEmpty()) {
+            return;
+        }
+
+        if (_state.fetchGroups != null && _state.ctx != null) {
+            List<String> defaultPUFetchGroups = Arrays.asList(_state.ctx.getConfiguration().getFetchGroupsList());
+            if (_state.fetchGroups.size() != defaultPUFetchGroups.size()) {
+                return;
+            }
+
+            for (String fetchGroupName : defaultPUFetchGroups) {
+                if (!_state.fetchGroups.contains(fetchGroupName)) {
+                    return;
+                }
+            }
+
+            _state.fetchGroupIsPUDefault = true;
+        }
+    }
+
+    @Override
+    public boolean isDefaultPUFetchGroupConfigurationOnly() {
+        return _state.fetchGroupIsPUDefault;
+    }
+
+    @Override
+    public boolean isFetchConfigurationSQLCacheAdmissible() {
+        if (_state == null || _state.cacheNonDefaultFetchPlanQueries) {
+            return false;
+        } else {
+            // Only pctx-default matching FetchConfiguration generated SQL is cache permissible
+            return _state.fetchGroupIsPUDefault;
+        }
+    }
+
+    @Override
     public Set<String> getFields() {
         if (_state.fields == null) return Collections.emptySet();
         return _state.fields;
     }
 
+    @Override
     public boolean hasField(String field) {
         return _state.fields != null && _state.fields.contains(field);
     }
 
+    @Override
     public FetchConfiguration addField(String field) {
-        if (StringUtils.isEmpty(field))
+        if (StringUtil.isEmpty(field))
             throw new UserException(_loc.get("null-field"));
 
         lock();
         try {
             if (_state.fields == null)
-                _state.fields = new HashSet<String>();
+                _state.fields = new HashSet<>();
             _state.fields.add(field);
+            _state.fetchGroupIsPUDefault = false;
         } finally {
             unlock();
         }
         return this;
     }
 
+    @Override
     public FetchConfiguration addFields(Collection<String> fields) {
         if (fields == null || fields.isEmpty())
             return this;
@@ -446,25 +558,33 @@ public class FetchConfigurationImpl
         lock();
         try {
             if (_state.fields == null)
-                _state.fields = new HashSet<String>();
+                _state.fields = new HashSet<>();
             _state.fields.addAll(fields);
         } finally {
+            verifyDefaultPUFetchGroups();
             unlock();
         }
         return this;
     }
 
+    @Override
     public FetchConfiguration removeField(String field) {
         lock();
         try {
-            if (_state.fields != null)
+            if (_state.fields != null) {
                 _state.fields.remove(field);
+
+                if (_state.fields.size() == 0) {
+                    verifyDefaultPUFetchGroups();
+                }
+            }
         } finally {
             unlock();
         }
         return this;
     }
 
+    @Override
     public FetchConfiguration removeFields(Collection<String> fields) {
         lock();
         try {
@@ -476,43 +596,51 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public FetchConfiguration clearFields() {
         lock();
         try {
             if (_state.fields != null)
                 _state.fields.clear();
         } finally {
+            verifyDefaultPUFetchGroups();
             unlock();
         }
         return this;
     }
 
+    @Override
     public DataCacheRetrieveMode getCacheRetrieveMode() {
         return _state.cacheRetrieveMode;
     }
 
+    @Override
     public DataCacheStoreMode getCacheStoreMode() {
         return _state.cacheStoreMode;
     }
 
+    @Override
     public void setCacheRetrieveMode(DataCacheRetrieveMode mode) {
         _state.cacheRetrieveMode = mode;
     }
 
+    @Override
     public void setCacheStoreMode(DataCacheStoreMode mode) {
         _state.cacheStoreMode = mode;
     }
 
+    @Override
     public int getLockTimeout() {
         return _state.lockTimeout;
     }
 
+    @Override
     public FetchConfiguration setLockTimeout(int timeout) {
         if (timeout == DEFAULT && _state.ctx != null)
             _state.lockTimeout = _state.ctx.getConfiguration().getLockTimeout();
         else if (timeout != DEFAULT) {
             if (timeout < -1) {
-                throw new IllegalArgumentException(_loc.get("invalid-timeout", 
+                throw new IllegalArgumentException(_loc.get("invalid-timeout",
                     timeout).getMessage());
             } else {
                 _state.lockTimeout = timeout;
@@ -520,18 +648,20 @@ public class FetchConfigurationImpl
         }
         return this;
     }
-    
+
+    @Override
     public int getQueryTimeout() {
         return _state.queryTimeout;
     }
 
+    @Override
     public FetchConfiguration setQueryTimeout(int timeout) {
         if (timeout == DEFAULT && _state.ctx != null)
             _state.queryTimeout = _state.ctx.getConfiguration().
                 getQueryTimeout();
         else if (timeout != DEFAULT) {
             if (timeout < -1) {
-                throw new IllegalArgumentException(_loc.get("invalid-timeout", 
+                throw new IllegalArgumentException(_loc.get("invalid-timeout",
                     timeout).getMessage());
             } else {
                 _state.queryTimeout = timeout;
@@ -540,16 +670,18 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public int getLockScope() {
         return _state.lockScope;
     }
 
+    @Override
     public FetchConfiguration setLockScope(int scope) {
         if (scope != DEFAULT
                 && scope != LockScopes.LOCKSCOPE_NORMAL
                 && scope != LockScopes.LOCKSCOPE_EXTENDED)
                 throw new IllegalArgumentException(_loc.get(
-                    "bad-lock-scope", new Integer(scope)).getMessage());
+                    "bad-lock-scope", scope).getMessage());
         if (scope == DEFAULT )
             _state.lockScope = LOCKSCOPE_NORMAL;
         else
@@ -557,29 +689,31 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public int getReadLockLevel() {
         return _state.readLockLevel;
     }
 
+    @Override
     public FetchConfiguration setReadLockLevel(int level) {
         if (_state.ctx == null)
             return this;
 
         if (level != DEFAULT
-            && level != MixedLockLevels.LOCK_NONE
-            && level != MixedLockLevels.LOCK_READ
+            && level != LockLevels.LOCK_NONE
+            && level != LockLevels.LOCK_READ
             && level != MixedLockLevels.LOCK_OPTIMISTIC
-            && level != MixedLockLevels.LOCK_WRITE
+            && level != LockLevels.LOCK_WRITE
             && level != MixedLockLevels.LOCK_OPTIMISTIC_FORCE_INCREMENT
             && level != MixedLockLevels.LOCK_PESSIMISTIC_READ
             && level != MixedLockLevels.LOCK_PESSIMISTIC_WRITE
             && level != MixedLockLevels.LOCK_PESSIMISTIC_FORCE_INCREMENT)
             throw new IllegalArgumentException(_loc.get(
-                "bad-lock-level", new Integer(level)).getMessage());
+                "bad-lock-level", level).getMessage());
 
         lock();
         try {
-            if (level != MixedLockLevels.LOCK_NONE)
+            if (level != LockLevels.LOCK_NONE)
                 assertActiveTransaction();
             if (level == DEFAULT)
                 _state.readLockLevel = _state.ctx.getConfiguration().
@@ -592,25 +726,27 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public int getWriteLockLevel() {
         return _state.writeLockLevel;
     }
 
+    @Override
     public FetchConfiguration setWriteLockLevel(int level) {
         if (_state.ctx == null)
             return this;
 
         if (level != DEFAULT
-            && level != MixedLockLevels.LOCK_NONE
-            && level != MixedLockLevels.LOCK_READ
+            && level != LockLevels.LOCK_NONE
+            && level != LockLevels.LOCK_READ
             && level != MixedLockLevels.LOCK_OPTIMISTIC
-            && level != MixedLockLevels.LOCK_WRITE
+            && level != LockLevels.LOCK_WRITE
             && level != MixedLockLevels.LOCK_OPTIMISTIC_FORCE_INCREMENT
             && level != MixedLockLevels.LOCK_PESSIMISTIC_READ
             && level != MixedLockLevels.LOCK_PESSIMISTIC_WRITE
             && level != MixedLockLevels.LOCK_PESSIMISTIC_FORCE_INCREMENT)
             throw new IllegalArgumentException(_loc.get(
-                "bad-lock-level", new Integer(level)).getMessage());
+                "bad-lock-level", level).getMessage());
 
         lock();
         try {
@@ -626,6 +762,7 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public ResultList<?> newResultList(ResultObjectProvider rop) {
         if (rop instanceof ListResultObjectProvider)
             return new SimpleResultList(rop);
@@ -643,30 +780,32 @@ public class FetchConfigurationImpl
         if (!isActiveTransaction())
             throw new NoTransactionException(_loc.get("not-active"));
     }
-    
+
     private boolean isActiveTransaction() {
         return (_state.ctx != null && _state.ctx.isActive());
     }
-    
+
     /**
-     * Gets the current hints set on this receiver. 
+     * Gets the current hints set on this receiver.
      * The values designate the actual value specified by the caller and not the values
      * that may have been actually set on the state variables of this receiver.
-     * 
+     *
      */
+    @Override
     public Map<String,Object> getHints() {
         if (_state.hints == null)
             return Collections.emptyMap();
         return Collections.unmodifiableMap(_state.hints);
     }
-    
+
     /**
      * Affirms if the given key is set as a hint.
      */
+    @Override
     public boolean isHintSet(String key) {
         return _state.hints != null && _state.hints.containsKey(key);
     }
-    
+
     /**
      * Removes the given keys and their hint value.
      */
@@ -677,38 +816,40 @@ public class FetchConfigurationImpl
             _state.hints.remove(key);
         }
     }
-    
+
     public Collection<String> getSupportedHints() {
         return _hintSetters.keySet();
     }
-    
+
     /**
      * Same as <code>setHint(key, value, value)</code>.
-     * 
+     *
      * @see #setHint(String, Object, Object)
      */
+    @Override
     public void setHint(String key, Object value) {
         setHint(key, value, value);
     }
-    
+
     /**
      * Sets the hint to the given value.
      * If the key corresponds to a known key, then that value is set via the setter method.
-     * Otherwise it is put into opaque hints map.  
+     * Otherwise it is put into opaque hints map.
      * <br>
      * In either case, the original value is put in the hints map.
      * So essential difference between setting a value directly by a setter and via a hint is the memory
      * of this original value.
      * <br>
      * The other important difference is setting lock levels. Setting of lock level via setter method needs
-     * active transaction. But setting via hint does not. 
+     * active transaction. But setting via hint does not.
      * @param key a hint key. If it is one of the statically registered hint key then the setter is called.
      * @param value to be set. The given value type must match the argument type of the setter, if one exists.
      * @param original value as specified by the caller. This value is put in the hints map.
-     * 
+     *
      * @exception IllegalArgumentException if the given value is not acceptable by the setter method, if one
      * exists corresponds the given hint key.
      */
+    @Override
     public void setHint(String key, Object value, Object original) {
         if (key == null)
             return;
@@ -733,18 +874,19 @@ public class FetchConfigurationImpl
         }
         addHint(key, original);
     }
-    
+
     private void addHint(String name, Object value) {
         lock();
         try {
             if (_state.hints == null)
-                _state.hints = new HashMap<String,Object>();
+                _state.hints = new HashMap<>();
             _state.hints.put(name, value);
         } finally {
             unlock();
         }
     }
 
+    @Override
     public Object getHint(String name) {
         return (_state.hints == null) ? null : _state.hints.get(name);
     }
@@ -752,12 +894,14 @@ public class FetchConfigurationImpl
     public Object removeHint(String name) {
         return (_state.hints == null) ? null : _state.hints.remove(name);
     }
-    
+
+    @Override
     public Set<Class<?>> getRootClasses() {
-        if (_state.rootClasses == null) return Collections.emptySet(); 
+        if (_state.rootClasses == null) return Collections.emptySet();
         return _state.rootClasses;
     }
 
+    @Override
     public FetchConfiguration setRootClasses(Collection<Class<?>> classes) {
         lock();
         try {
@@ -765,8 +909,8 @@ public class FetchConfigurationImpl
                 _state.rootClasses.clear();
             if (classes != null && !classes.isEmpty()) {
                 if (_state.rootClasses == null)
-                    _state.rootClasses = new HashSet<Class<?>>(classes);
-                else 
+                    _state.rootClasses = new HashSet<>(classes);
+                else
                     _state.rootClasses.addAll(classes);
             }
         } finally {
@@ -775,11 +919,13 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public Set<Object> getRootInstances() {
-        if (_state.rootInstances == null) return Collections.emptySet(); 
+        if (_state.rootInstances == null) return Collections.emptySet();
         return _state.rootInstances;
     }
 
+    @Override
     public FetchConfiguration setRootInstances(Collection<?> instances) {
         lock();
         try {
@@ -787,8 +933,8 @@ public class FetchConfigurationImpl
                 _state.rootInstances.clear();
             if (instances != null && !instances.isEmpty()) {
                 if (_state.rootInstances == null) {
-                    _state.rootInstances = new HashSet<Object>(instances);
-                } else { 
+                    _state.rootInstances = new HashSet<>(instances);
+                } else {
                     _state.rootInstances.addAll(instances);
                 }
             }
@@ -798,11 +944,13 @@ public class FetchConfigurationImpl
         return this;
     }
 
+    @Override
     public void lock() {
         if (_state.ctx != null)
             _state.ctx.lock();
     }
 
+    @Override
     public void unlock() {
         if (_state.ctx != null)
             _state.ctx.unlock();
@@ -811,12 +959,13 @@ public class FetchConfigurationImpl
     /////////////
     // Traversal
     /////////////
-    
+
+    @Override
     public int requiresFetch(FieldMetaData fm) {
         if (!includes(fm))
             return FETCH_NONE;
-        
-        Class<?> type = getRelationType(fm);
+
+        Class<?> type = fm.getRelationType();
         if (type == null)
             return FETCH_LOAD;
         if (_availableDepth == 0)
@@ -824,25 +973,27 @@ public class FetchConfigurationImpl
 
         // we can skip calculating recursion depth if this is a top-level conf:
         // the field is in our fetch groups, so can't possibly not select
-        if (_parent == null) 
+        if (_parent == null)
             return FETCH_LOAD;
-        
+
         String fieldName = fm.getFullName(false);
         int rdepth = getAvailableRecursionDepth(fm, type, fieldName, false);
         if (rdepth != FetchGroup.DEPTH_INFINITE && rdepth <= 0)
             return FETCH_NONE;
 
-        if (StringUtils.equals(_directRelationOwner, fieldName))
+        if (Objects.equals(_directRelationOwner, fieldName))
             return FETCH_REF;
         return FETCH_LOAD;
     }
 
+    @Override
     public boolean requiresLoad() {
         return _load;
     }
 
+    @Override
     public FetchConfiguration traverse(FieldMetaData fm) {
-        Class<?> type = getRelationType(fm);
+        Class<?> type = fm.getRelationType();
         if (type == null)
             return this;
 
@@ -852,7 +1003,7 @@ public class FetchConfigurationImpl
         clone._fromField = fm.getFullName(false);
         clone._fromType = type;
         clone._availableRecursion = getAvailableRecursionDepth(fm, type, fm.getFullName(false), true);
-        if (StringUtils.equals(_directRelationOwner, fm.getFullName(false)))
+        if (Objects.equals(_directRelationOwner, fm.getFullName(false)))
             clone._load = false;
         else
             clone._load = _load;
@@ -860,7 +1011,7 @@ public class FetchConfigurationImpl
         FieldMetaData owner = fm.getMappedByMetaData();
         if (owner != null && owner.getTypeCode() == JavaTypes.PC)
             clone._directRelationOwner = owner.getFullName(false);
-        
+
         return clone;
     }
 
@@ -868,22 +1019,22 @@ public class FetchConfigurationImpl
      * Whether our configuration state includes the given field.
      */
     private boolean includes(FieldMetaData fmd) {
-        if ((hasFetchGroupDefault() && fmd.isInDefaultFetchGroup()) 
+        if ((hasFetchGroupDefault() && fmd.isInDefaultFetchGroup())
         || hasFetchGroupAll()
         || hasField(fmd.getFullName(false))
         || hasExtendedLookupPath(fmd))
             return true;
         String[] fgs = fmd.getCustomFetchGroups();
-        for (int i = 0; i < fgs.length; i++)
-            if (hasFetchGroup(fgs[i]))
+        for (String fg : fgs)
+            if (hasFetchGroup(fg))
                 return true;
-        return false; 
+        return false;
     }
-    
+
     private boolean hasExtendedLookupPath(FieldMetaData fmd) {
         return getExtendedPathLookup()
             && (hasField(fmd.getRealName())
-                || (_fromField != null 
+                || (_fromField != null
                 && hasField(_fromField + "." + fmd.getName())));
     }
 
@@ -898,7 +1049,7 @@ public class FetchConfigurationImpl
         // see if there's a previous limit
         int avail = Integer.MIN_VALUE;
         for (FetchConfigurationImpl f = this; f != null; f = f._parent) {
-            if (StringUtils.equals(f._fromField, fromField) 
+            if (Objects.equals(f._fromField, fromField)
                 && ImplHelper.isAssignable(f._fromType, type)) {
                 avail = f._availableRecursion;
                 if (traverse)
@@ -908,7 +1059,7 @@ public class FetchConfigurationImpl
         }
         if (avail == 0)
             return 0;
-        
+
         // calculate fetch groups max
         ClassMetaData meta = fm.getDefiningMetaData();
         int max = Integer.MIN_VALUE;
@@ -917,12 +1068,12 @@ public class FetchConfigurationImpl
                 getRecursionDepth(fm);
         String[] groups = fm.getCustomFetchGroups();
         int cur;
-        for (int i = 0; max != FetchGroup.DEPTH_INFINITE 
+        for (int i = 0; max != FetchGroup.DEPTH_INFINITE
             && i < groups.length; i++) {
             // ignore custom groups that are inactive in this configuration
             if (!this.hasFetchGroup(groups[i])) continue;
             cur = meta.getFetchGroup(groups[i]).getRecursionDepth(fm);
-            if (cur == FetchGroup.DEPTH_INFINITE || cur > max) 
+            if (cur == FetchGroup.DEPTH_INFINITE || cur > max)
                 max = cur;
         }
         // reduce max if we're traversing a self-type relation
@@ -943,18 +1094,6 @@ public class FetchConfigurationImpl
         return Math.min(max, avail);
     }
 
-    /**
-     * Return the relation type of the given field.
-     */
-    private static Class<?> getRelationType(FieldMetaData fm) {
-        if (fm.isDeclaredTypePC())
-            return fm.getDeclaredType();
-        if (fm.getElement().isDeclaredTypePC())
-            return fm.getElement().getDeclaredType();
-        if (fm.getKey().isDeclaredTypePC())
-            return fm.getKey().getDeclaredType();
-        return null;
-    }
 
     /**
      * Reduce the given logical depth by 1.
@@ -974,11 +1113,11 @@ public class FetchConfigurationImpl
     FetchConfiguration getParent() {
         return _parent;
     }
-    
+
     boolean isRoot() {
         return _parent == null;
     }
-    
+
     FetchConfiguration getRoot() {
         return (isRoot()) ? this : _parent.getRoot();
     }
@@ -1002,21 +1141,22 @@ public class FetchConfigurationImpl
     List<FetchConfigurationImpl> getPath() {
         if (isRoot())
             return Collections.emptyList();
-        return trackPath(new ArrayList<FetchConfigurationImpl>());
+        return trackPath(new ArrayList<>());
     }
-    
+
     List<FetchConfigurationImpl> trackPath(List<FetchConfigurationImpl> path) {
         if (_parent != null)
             _parent.trackPath(path);
         path.add(this);
         return path;
     }
-       
+
+    @Override
     public String toString() {
-        return "FetchConfiguration@" + System.identityHashCode(this) 
+        return "FetchConfiguration@" + System.identityHashCode(this)
             + " (" + _availableDepth + ")" + getPathString();
     }
-    
+
     private String getPathString() {
         List<FetchConfigurationImpl> path = getPath();
         if (path.isEmpty())

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -38,6 +38,8 @@ import org.apache.openjpa.meta.JavaTypes;
 class InstanceofExpression
     implements Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final PCPath _path;
     private final Class _cls;
 
@@ -49,6 +51,7 @@ class InstanceofExpression
         _cls = cls;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         // note that we tell the path to go ahead and join to its related
         // object (if any) in order to access its class indicator
@@ -77,8 +80,8 @@ class InstanceofExpression
 
         // if the path represents a relation, get its class indicator and
         // make sure it's joined down to its base type
-        Discriminator discrim = (relMapping == null 
-            || !relMapping.getDescribedType().isAssignableFrom(_cls)) 
+        Discriminator discrim = (relMapping == null
+            || !relMapping.getDescribedType().isAssignableFrom(_cls))
             ? null : relMapping.getDiscriminator();
         ClassMapping mapping = null;
         Joins joins = pathState.joins;
@@ -123,7 +126,7 @@ class InstanceofExpression
         public final Discriminator discrim;
         public final Class rel;
 
-        public InstanceofExpState(Joins joins, ExpState pathState, 
+        public InstanceofExpState(Joins joins, ExpState pathState,
             ClassMapping mapping, Discriminator discrim, Class rel) {
             super(joins);
             this.pathState = pathState;
@@ -133,7 +136,8 @@ class InstanceofExpression
         }
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
         // if no class indicator or a final class, just append true or false
         // depending on whether the cast matches the expected type
@@ -152,13 +156,15 @@ class InstanceofExpression
         sel.append(sql, istate.joins);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         InstanceofExpState istate = (InstanceofExpState) state;
         if (istate.discrim != null)
             sel.select(istate.discrim.getColumns(), istate.joins);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _path.acceptVisit(visitor);

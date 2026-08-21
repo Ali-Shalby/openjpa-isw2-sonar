@@ -14,61 +14,61 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice;
 
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 /**
  * A thread to execute operation against each database slice.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class SliceThread extends Thread {
     private final Thread _parent;
+    private static ExecutorService _pool;
 
     public SliceThread(String name, Thread parent, Runnable r) {
         super(r, name);
         _parent = parent;
     }
-    
+
     public SliceThread(Thread parent, Runnable r) {
         super(r);
         _parent = parent;
     }
-    
+
     /**
      * Gets the parent thread of this receiver.
-     * 
+     *
      */
     public Thread getParent() {
         return _parent;
     }
-    
-    /** 
-     * Create a pool of given size.
-     * The thread factory is specialized to create SliceThread which gets
-     * preferential treatment for locking.
-     * 
+
+    /**
+     * Create a cached pool of <em>slice</em> threads.
+     * The thread factory creates specialized threads for preferential locking treatment.
+     *
      */
 
-    public static ExecutorService newPool(int size) {
-        return new ThreadPoolExecutor(size, size, 60L, TimeUnit.SECONDS, 
-            new SynchronousQueue<Runnable>(), new SliceThreadFactory());
+    public static ExecutorService getPool() {
+        if (_pool == null) {
+            _pool = Executors.newCachedThreadPool(new SliceThreadFactory());
+        }
+        return _pool;
     }
-    
-    static class SliceThreadFactory implements ThreadFactory {
+
+    private static class SliceThreadFactory implements ThreadFactory {
         int n = 0;
+        @Override
         public Thread newThread(Runnable r) {
             Thread parent = Thread.currentThread();
             return new SliceThread(parent.getName()+"-slice-"+n++, parent, r);
         }
     }
-
 }

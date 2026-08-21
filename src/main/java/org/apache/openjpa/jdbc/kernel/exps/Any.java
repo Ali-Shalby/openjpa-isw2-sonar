@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -26,10 +26,14 @@ package org.apache.openjpa.jdbc.kernel.exps;
 class Any
     extends UnaryOp {
 
+    
+    private static final long serialVersionUID = 1L;
+
     public Any(Val val) {
         super(val, true);
     }
 
+    @Override
     protected String getOperator() {
         return "ANY";
     }

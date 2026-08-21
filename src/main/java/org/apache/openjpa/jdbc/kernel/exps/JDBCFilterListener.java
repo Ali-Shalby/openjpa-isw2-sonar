@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -42,6 +42,6 @@ public interface JDBCFilterListener
      * @param mapping the class mapping for the query's candidate class
      * @param store the store that owns the query
      */
-    public void appendTo(SQLBuffer buf, FilterValue target, FilterValue[] args,
+    void appendTo(SQLBuffer buf, FilterValue target, FilterValue[] args,
         ClassMapping mapping, JDBCStore store);
 }

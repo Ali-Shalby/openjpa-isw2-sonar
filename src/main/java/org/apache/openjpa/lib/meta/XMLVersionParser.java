@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -26,12 +26,15 @@ import org.xml.sax.SAXException;
  * schema location attributes from the root node.
  *
  * @author Jeremy Bauer
- * @nojavadoc
  */
 public class XMLVersionParser extends XMLMetaDataParser {
 
     public static final String VERSION_1_0 = "1.0";
     public static final String VERSION_2_0 = "2.0";
+    public static final String VERSION_2_1 = "2.1";
+    public static final String VERSION_2_2 = "2.2";
+    public static final String VERSION_3_0 = "3.0";
+    public static final String VERSION_3_1 = "3.1";
 
     static private final String VERSION_ATTR = "version";
     static private final String XSI_NS =
@@ -41,7 +44,7 @@ public class XMLVersionParser extends XMLMetaDataParser {
     private String _rootElement;
     private String _version;
     private String _schemaLocation;
-    
+
     public XMLVersionParser(String rootElement) {
         _rootElement = rootElement;
         setCaching(false);
@@ -74,7 +77,7 @@ public class XMLVersionParser extends XMLMetaDataParser {
     public String getVersion() {
         return _version;
     }
-    
+
     /**
      * Get the string value of the schema location attribute on the root element
      * @return doc schema location

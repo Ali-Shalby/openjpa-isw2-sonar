@@ -14,28 +14,31 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
+import java.sql.Array;
+import java.sql.Blob;
 import java.sql.CallableStatement;
+import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.NClob;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLClientInfoException;
 import java.sql.SQLException;
 import java.sql.SQLWarning;
+import java.sql.SQLXML;
 import java.sql.Savepoint;
 import java.sql.Statement;
-import java.util.HashMap;
+import java.sql.Struct;
 import java.util.Map;
+import java.util.Properties;
+import java.util.concurrent.Executor;
 
-import org.apache.commons.lang.exception.NestableRuntimeException;
 import org.apache.openjpa.lib.util.Closeable;
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
-import org.apache.openjpa.lib.util.Localizer;
 
 
 /**
@@ -46,51 +49,7 @@ import org.apache.openjpa.lib.util.Localizer;
  *
  * @author Abe White
  */
-public abstract class DelegatingConnection implements Connection, Closeable {
-
-    static final Constructor<DelegatingConnection> concreteImpl;
-    static {
-        try {
-            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DelegatingConnection.class, Connection.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
-
-    // jdbc 3 method keys
-    private static final Object SET_HOLDABILITY = new Object();
-    private static final Object GET_HOLDABILITY = new Object();
-    private static final Object SET_SAVEPOINT_NONAME = new Object();
-    private static final Object SET_SAVEPOINT = new Object();
-    private static final Object ROLLBACK_SAVEPOINT = new Object();
-    private static final Object RELEASE_SAVEPOINT = new Object();
-    private static final Object CREATE_STATEMENT = new Object();
-    private static final Object PREPARE_STATEMENT = new Object();
-    private static final Object PREPARE_CALL = new Object();
-    private static final Object PREPARE_WITH_KEYS = new Object();
-    private static final Object PREPARE_WITH_INDEX = new Object();
-    private static final Object PREPARE_WITH_NAMES = new Object();
-
-    private static final Localizer _loc = Localizer.forPackage
-        (DelegatingConnection.class);
-
-    private static final Map<Object, Method> _jdbc3;
-
-    static {
-        boolean jdbc3 = false;
-        Method m = null;
-        try {
-            m = Connection.class.getMethod("setSavepoint", new Class[]{ String.class });
-            jdbc3 = true;
-        } catch (Throwable t) {
-        }
-
-        if (jdbc3) {
-            _jdbc3 = new HashMap<Object,Method>();
-            _jdbc3.put(SET_SAVEPOINT, m);
-        } else
-            _jdbc3 = null;
-    }
+public class DelegatingConnection implements Connection, Closeable {
 
     private final Connection _conn;
     private final DelegatingConnection _del;
@@ -102,18 +61,6 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         else
             _del = null;
     }
-
-    /** 
-     *  Constructor for the concrete implementation of this abstract class.
-     */
-    public static DelegatingConnection newInstance(Connection conn) {
-        return ConcreteClassGenerator.newInstance(concreteImpl, conn);
-    }
-
-    /** 
-     *  Marker to enforce that subclasses of this class are abstract.
-     */
-    protected abstract void enforceAbstract();
 
     /**
      * Return the wrapped connection.
@@ -129,10 +76,12 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         return (_del == null) ? _conn : _del.getInnermostDelegate();
     }
 
+    @Override
     public int hashCode() {
         return getInnermostDelegate().hashCode();
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -141,6 +90,7 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         return getInnermostDelegate().equals(other);
     }
 
+    @Override
     public String toString() {
         StringBuffer buf = new StringBuffer("conn ").append(hashCode());
         appendInfo(buf);
@@ -152,6 +102,7 @@ public abstract class DelegatingConnection implements Connection, Closeable {
             _del.appendInfo(buf);
     }
 
+    @Override
     public Statement createStatement() throws SQLException {
         return createStatement(true);
     }
@@ -167,10 +118,11 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.createStatement();
         if (wrap)
-            stmnt = DelegatingStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public PreparedStatement prepareStatement(String str) throws SQLException {
         return prepareStatement(str, true);
     }
@@ -185,13 +137,14 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         if (_del != null)
             stmnt = _del.prepareStatement(str, false);
         else
-            stmnt = _conn.prepareStatement(str, ResultSet.TYPE_FORWARD_ONLY, 
+            stmnt = _conn.prepareStatement(str, ResultSet.TYPE_FORWARD_ONLY,
                 ResultSet.CONCUR_READ_ONLY);
         if (wrap)
-            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingPreparedStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public CallableStatement prepareCall(String str) throws SQLException {
         return prepareCall(str, true);
     }
@@ -208,38 +161,46 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.prepareCall(str);
         if (wrap)
-            stmnt = DelegatingCallableStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingCallableStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public String nativeSQL(String str) throws SQLException {
         return _conn.nativeSQL(str);
     }
 
+    @Override
     public void setAutoCommit(boolean bool) throws SQLException {
         _conn.setAutoCommit(bool);
     }
 
+    @Override
     public boolean getAutoCommit() throws SQLException {
         return _conn.getAutoCommit();
     }
 
+    @Override
     public void commit() throws SQLException {
         _conn.commit();
     }
 
+    @Override
     public void rollback() throws SQLException {
         _conn.rollback();
     }
 
+    @Override
     public void close() throws SQLException {
         _conn.close();
     }
 
+    @Override
     public boolean isClosed() throws SQLException {
         return _conn.isClosed();
     }
 
+    @Override
     public DatabaseMetaData getMetaData() throws SQLException {
         return getMetaData(true);
     }
@@ -255,42 +216,51 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         else
             meta = _conn.getMetaData();
         if (wrap)
-            meta = DelegatingDatabaseMetaData.newInstance(meta, this);
+            meta = new DelegatingDatabaseMetaData(meta, this);
         return meta;
     }
 
+    @Override
     public void setReadOnly(boolean bool) throws SQLException {
         _conn.setReadOnly(bool);
     }
 
+    @Override
     public boolean isReadOnly() throws SQLException {
         return _conn.isReadOnly();
     }
 
+    @Override
     public void setCatalog(String str) throws SQLException {
         _conn.setCatalog(str);
     }
 
+    @Override
     public String getCatalog() throws SQLException {
         return _conn.getCatalog();
     }
 
+    @Override
     public void setTransactionIsolation(int i) throws SQLException {
         _conn.setTransactionIsolation(i);
     }
 
+    @Override
     public int getTransactionIsolation() throws SQLException {
         return _conn.getTransactionIsolation();
     }
 
+    @Override
     public SQLWarning getWarnings() throws SQLException {
         return _conn.getWarnings();
     }
 
+    @Override
     public void clearWarnings() throws SQLException {
         _conn.clearWarnings();
     }
 
+    @Override
     public Statement createStatement(int type, int concur) throws SQLException {
         return createStatement(type, concur, true);
     }
@@ -307,10 +277,11 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.createStatement(type, concur);
         if (wrap)
-            stmnt = DelegatingStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public PreparedStatement prepareStatement(String str, int type, int concur)
         throws SQLException {
         return prepareStatement(str, type, concur, true);
@@ -328,10 +299,11 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.prepareStatement(str, type, concur);
         if (wrap)
-            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingPreparedStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public CallableStatement prepareCall(String str, int type, int concur)
         throws SQLException {
         return prepareCall(str, type, concur, true);
@@ -349,78 +321,56 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         else
             stmnt = _conn.prepareCall(str, type, concur);
         if (wrap)
-            stmnt = DelegatingCallableStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingCallableStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public Map<String, Class<?>> getTypeMap() throws SQLException {
         return _conn.getTypeMap();
     }
 
+    @Override
     public void setTypeMap(Map<String, Class<?>> map) throws SQLException {
         _conn.setTypeMap(map);
     }
 
-    // JDBC 3.0 methods follow; these are required to be able to
-    // compile against JDK 1.4; these methods will not work on
-    // previous JVMs
+    // JDBC 3.0 methods follow.
 
+    @Override
     public void setHoldability(int holdability) throws SQLException {
-        assertJDBC3();
-        Method m = (Method) _jdbc3.get(SET_HOLDABILITY);
-        if (m == null)
-            m = createJDBC3Method(SET_HOLDABILITY, "setHoldability",
-                new Class[]{ int.class });
-        invokeJDBC3(m, new Object[]{ holdability });
+        _conn.setHoldability(holdability);
     }
 
+    @Override
     public int getHoldability() throws SQLException {
-        assertJDBC3();
-        Method m = (Method) _jdbc3.get(GET_HOLDABILITY);
-        if (m == null)
-            m = createJDBC3Method(GET_HOLDABILITY, "getHoldability", null);
-        return ((Number) invokeJDBC3(m, null)).intValue();
+        return _conn.getHoldability();
     }
 
+    @Override
     public Savepoint setSavepoint() throws SQLException {
-        assertJDBC3();
-        Method m = (Method) _jdbc3.get(SET_SAVEPOINT_NONAME);
-        if (m == null)
-            m = createJDBC3Method(SET_SAVEPOINT_NONAME, "setSavepoint", null);
-        return (Savepoint) invokeJDBC3(m, null);
+        return _conn.setSavepoint();
     }
 
+    @Override
     public Savepoint setSavepoint(String savepoint) throws SQLException {
-        assertJDBC3();
-        Method m = (Method) _jdbc3.get(SET_SAVEPOINT);
-        if (m == null)
-            m = createJDBC3Method(SET_SAVEPOINT, "setSavepoint",
-                new Class[]{ String.class });
-        return (Savepoint) invokeJDBC3(m, new Object[]{ savepoint });
+        return _conn.setSavepoint(savepoint);
     }
 
+    @Override
     public void rollback(Savepoint savepoint) throws SQLException {
-        assertJDBC3();
-        Method m = (Method) _jdbc3.get(ROLLBACK_SAVEPOINT);
-        if (m == null)
-            m = createJDBC3Method(ROLLBACK_SAVEPOINT, "rollback",
-                new Class[]{ Savepoint.class });
-        invokeJDBC3(m, new Object[]{ savepoint });
+        _conn.rollback(savepoint);
     }
 
+    @Override
     public void releaseSavepoint(Savepoint savepoint) throws SQLException {
-        assertJDBC3();
-        Method m = (Method) _jdbc3.get(RELEASE_SAVEPOINT);
-        if (m == null)
-            m = createJDBC3Method(RELEASE_SAVEPOINT, "releaseSavepoint",
-                new Class[]{ Savepoint.class });
-        invokeJDBC3(m, new Object[]{ savepoint });
+        _conn.releaseSavepoint(savepoint);
     }
 
+    @Override
     public Statement createStatement(int resultSetType,
         int resultSetConcurrency, int resultSetHoldability)
         throws SQLException {
-        assertJDBC3();
         return createStatement(resultSetType, resultSetConcurrency,
             resultSetHoldability, true);
     }
@@ -433,24 +383,17 @@ public abstract class DelegatingConnection implements Connection, Closeable {
             stmnt = _del.createStatement(resultSetType, resultSetConcurrency,
                 resultSetHoldability, false);
         else {
-            Method m = (Method) _jdbc3.get(CREATE_STATEMENT);
-            if (m == null)
-                m = createJDBC3Method(CREATE_STATEMENT, "createStatement",
-                    new Class[]{ int.class, int.class, int.class });
-            stmnt = (Statement) invokeJDBC3(m, new Object[]{
-                resultSetType,
-                resultSetConcurrency,
-                resultSetHoldability });
+            stmnt = _conn.createStatement(resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         if (wrap)
-            stmnt = DelegatingStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public PreparedStatement prepareStatement(String sql,
         int resultSetType, int resultSetConcurrency, int resultSetHoldability)
         throws SQLException {
-        assertJDBC3();
         return prepareStatement(sql, resultSetType, resultSetConcurrency,
             resultSetHoldability, true);
     }
@@ -463,25 +406,17 @@ public abstract class DelegatingConnection implements Connection, Closeable {
             stmnt = _del.prepareStatement(sql, resultSetType,
                 resultSetConcurrency, resultSetHoldability, false);
         else {
-            Method m = (Method) _jdbc3.get(PREPARE_STATEMENT);
-            if (m == null)
-                m = createJDBC3Method(PREPARE_STATEMENT, "prepareStatement",
-                    new Class[]{ String.class, int.class, int.class,
-                        int.class });
-            stmnt = (PreparedStatement) invokeJDBC3(m, new Object[]{ sql,
-                resultSetType,
-                resultSetConcurrency,
-                resultSetHoldability });
+            stmnt = _conn.prepareStatement(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         if (wrap)
-            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingPreparedStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public CallableStatement prepareCall(String sql,
         int resultSetType, int resultSetConcurrency, int resultSetHoldability)
         throws SQLException {
-        assertJDBC3();
         return prepareCall(sql, resultSetType, resultSetConcurrency,
             resultSetHoldability, true);
     }
@@ -494,24 +429,16 @@ public abstract class DelegatingConnection implements Connection, Closeable {
             stmnt = _del.prepareCall(sql, resultSetType,
                 resultSetConcurrency, resultSetHoldability, false);
         else {
-            Method m = (Method) _jdbc3.get(PREPARE_CALL);
-            if (m == null)
-                m = createJDBC3Method(PREPARE_CALL, "prepareCall",
-                    new Class[]{ String.class, int.class, int.class,
-                        int.class });
-            stmnt = (CallableStatement) invokeJDBC3(m, new Object[]{ sql,
-                resultSetType,
-                resultSetConcurrency,
-                resultSetHoldability });
+            stmnt = _conn.prepareCall(sql, resultSetType, resultSetConcurrency, resultSetHoldability);
         }
         if (wrap)
-            stmnt = DelegatingCallableStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingCallableStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public PreparedStatement prepareStatement(String sql, int autoGeneratedKeys)
         throws SQLException {
-        assertJDBC3();
         return prepareStatement(sql, autoGeneratedKeys, true);
     }
 
@@ -521,21 +448,16 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         if (_del != null)
             stmnt = _del.prepareStatement(sql, autoGeneratedKeys);
         else {
-            Method m = (Method) _jdbc3.get(PREPARE_WITH_KEYS);
-            if (m == null)
-                m = createJDBC3Method(PREPARE_WITH_KEYS, "prepareStatement",
-                    new Class[]{ String.class, int.class });
-            stmnt = (PreparedStatement) invokeJDBC3(m, new Object[]{ sql,
-                autoGeneratedKeys });
+            stmnt = _conn.prepareStatement(sql, autoGeneratedKeys);
         }
         if (wrap)
-            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingPreparedStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public PreparedStatement prepareStatement(String sql, int[] columnIndexes)
         throws SQLException {
-        assertJDBC3();
         return prepareStatement(sql, columnIndexes, true);
     }
 
@@ -545,81 +467,141 @@ public abstract class DelegatingConnection implements Connection, Closeable {
         if (_del != null)
             stmnt = _del.prepareStatement(sql, columnIndexes, wrap);
         else {
-            Method m = (Method) _jdbc3.get(PREPARE_WITH_INDEX);
-            if (m == null)
-                m = createJDBC3Method(PREPARE_WITH_INDEX, "prepareStatement",
-                    new Class[]{ String.class, int[].class });
-            stmnt = (PreparedStatement) invokeJDBC3(m, new Object[]{ sql,
-                columnIndexes });
+            stmnt = _conn.prepareStatement(sql, columnIndexes);
         }
         if (wrap)
-            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingPreparedStatement(stmnt, this);
         return stmnt;
     }
 
+    @Override
     public PreparedStatement prepareStatement(String sql, String[] columnNames)
         throws SQLException {
-        assertJDBC3();
         return prepareStatement(sql, columnNames, true);
     }
 
     protected PreparedStatement prepareStatement(String sql,
         String[] columnNames, boolean wrap) throws SQLException {
-        assertJDBC3();
         PreparedStatement stmnt;
         if (_del != null)
             stmnt = _del.prepareStatement(sql, columnNames, wrap);
         else {
-            Method m = (Method) _jdbc3.get(PREPARE_WITH_NAMES);
-            if (m == null)
-                m = createJDBC3Method(PREPARE_WITH_NAMES, "prepareStatement",
-                    new Class[]{ String.class, String[].class });
-            stmnt = (PreparedStatement) invokeJDBC3(m, new Object[]{ sql,
-                columnNames });
+            stmnt = _conn.prepareStatement(sql, columnNames);
         }
         if (wrap)
-            stmnt = DelegatingPreparedStatement.newInstance(stmnt, this);
+            stmnt = new DelegatingPreparedStatement(stmnt, this);
         return stmnt;
     }
 
-    private static void assertJDBC3() {
-        if (_jdbc3 == null)
-            throw new UnsupportedOperationException(_loc.get("not-jdbc3")
-                .getMessage());
-    }
+    //  JDBC 4.0 methods follow.
 
-    private Object invokeJDBC3(Method m, Object[] args) throws SQLException {
-        try {
-            return m.invoke(_conn, args);
-        } catch (Throwable t) {
-            if (t instanceof SQLException)
-                throw(SQLException) t;
-            throw new NestableRuntimeException(_loc.get("invoke-jdbc3")
-                .getMessage(), t);
-        }
-    }
-
-    private static Method createJDBC3Method(Object key, String name,
-        Class<?>[] args) {
-        try {
-            Method m = Connection.class.getMethod(name, args);
-            _jdbc3.put(key, m);
-            return m;
-        } catch (Throwable t) {
-            throw new NestableRuntimeException(_loc.get("error-jdbc3")
-                .getMessage(), t);
-        }
-    }
-
-    // java.sql.Wrapper implementation (JDBC 4)
-    public boolean isWrapperFor(Class iface) {
+    @Override
+    public boolean isWrapperFor(Class<?> iface) throws SQLException {
         return iface.isAssignableFrom(getDelegate().getClass());
     }
 
-    public Object unwrap(Class iface) {
-        if (isWrapperFor(iface))
-            return getDelegate();
-        else
-            return null;
+    /**
+     * From java.sql.Wrapper javadoc:
+     *
+     * Returns an object that implements the given interface to allow access to
+     * non-standard methods, or standard methods not exposed by the proxy. If
+     * the receiver implements the interface then the result is the receiver
+     * or a proxy for the receiver. If the receiver is a wrapper and the
+     * wrapped object implements the interface then the result is the wrapped
+     * object or a proxy for the wrapped object. Otherwise return the the
+     * result of calling unwrap recursively on the wrapped object or a proxy
+     * for that result. If the receiver is not a wrapper and does not implement
+     * the interface, then an SQLException is thrown.
+     *
+     */
+    @Override
+    public <T> T unwrap(Class<T> iface) throws SQLException {
+        if (isWrapperFor(iface)) {
+            return (T) getDelegate();
+        } else {
+            return getDelegate().unwrap(iface);
+        }
+    }
+
+    @Override
+    public Array createArrayOf(String typeName, Object[] elements) throws SQLException {
+        return _conn.createArrayOf(typeName, elements);
+    }
+
+    @Override
+    public Blob createBlob() throws SQLException {
+        return _conn.createBlob();
+    }
+
+    @Override
+    public Clob createClob() throws SQLException {
+        return _conn.createClob();
+    }
+
+    @Override
+    public NClob createNClob() throws SQLException {
+        return _conn.createNClob();
+    }
+
+    @Override
+    public SQLXML createSQLXML() throws SQLException {
+        return _conn.createSQLXML();
+    }
+
+    @Override
+    public Struct createStruct(String typeName, Object[] attributes) throws SQLException {
+        return _conn.createStruct(typeName, attributes);
+    }
+
+    @Override
+    public Properties getClientInfo() throws SQLException {
+        return _conn.getClientInfo();
+    }
+
+    @Override
+    public String getClientInfo(String name) throws SQLException {
+        return _conn.getClientInfo(name);
+    }
+
+    @Override
+    public boolean isValid(int timeout) throws SQLException {
+        return _conn.isValid(timeout);
+    }
+
+    @Override
+    public void setClientInfo(Properties properties) throws SQLClientInfoException {
+        _conn.setClientInfo(properties);
+    }
+
+    @Override
+    public void setClientInfo(String name, String value) throws SQLClientInfoException {
+        _conn.setClientInfo(name, value);
+    }
+
+    // Java 7 methods follow
+
+    @Override
+    public void abort(Executor executor) throws SQLException {
+    	throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public int getNetworkTimeout() throws SQLException{
+    	throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setNetworkTimeout(Executor executor, int milliseconds) throws SQLException{
+    	throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public String getSchema() throws SQLException {
+    	throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setSchema(String schema)throws SQLException {
+    	throw new UnsupportedOperationException();
     }
 }

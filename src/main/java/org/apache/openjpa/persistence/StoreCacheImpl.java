@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
@@ -33,15 +33,14 @@ import org.apache.openjpa.meta.MetaDataRepository;
  *
  * @author Abe White
  * @since 0.4.1
- * @nojavadoc
  */
-public class StoreCacheImpl 
+public class StoreCacheImpl
 	implements StoreCache {
 
     private final MetaDataRepository _repos;
     private final DelegatingDataCache _cache;
 
-    
+
     /**
      * Constructor; supply delegate.
      */
@@ -54,19 +53,23 @@ public class StoreCacheImpl
     /**
      * Delegate.
      */
+    @Override
     public DataCache getDelegate() {
         return _cache.getDelegate();
     }
 
+    @Override
     public boolean contains(Class cls, Object oid) {
         return _cache.getDelegate() != null && _cache.contains
             (JPAFacadeHelper.toOpenJPAObjectId(getMetaData(cls), oid));
     }
 
+    @Override
     public boolean containsAll(Class cls, Object... oids) {
         return containsAll(cls, Arrays.asList(oids));
     }
 
+    @Override
     public boolean containsAll(Class cls, Collection oids) {
         if (_cache.getDelegate() == null)
             return oids.isEmpty();
@@ -79,58 +82,77 @@ public class StoreCacheImpl
         return true;
     }
 
+    @Override
     public void pin(Class cls, Object oid) {
         if (_cache.getDelegate() != null)
             _cache.pin(JPAFacadeHelper.toOpenJPAObjectId(getMetaData(cls),
                 oid));
     }
 
+    @Override
     public void pinAll(Class cls, Object... oids) {
         pinAll(cls, Arrays.asList(oids));
     }
 
+    @Override
     public void pinAll(Class cls, Collection oids) {
         if (_cache.getDelegate() != null)
             _cache.pinAll(JPAFacadeHelper.toOpenJPAObjectIds
                 (getMetaData(cls), oids));
     }
 
+    @Override
     public void unpin(Class cls, Object oid) {
         if (_cache.getDelegate() != null)
             _cache.unpin(JPAFacadeHelper.toOpenJPAObjectId(getMetaData(cls),
                 oid));
     }
 
+    @Override
     public void unpinAll(Class cls, Object... oids) {
         unpinAll(cls, Arrays.asList(oids));
     }
 
+    @Override
     public void unpinAll(Class cls, Collection oids) {
         if (_cache.getDelegate() != null)
             _cache.unpinAll(JPAFacadeHelper.toOpenJPAObjectIds
                 (getMetaData(cls), oids));
     }
 
+    @Override
     public void evict(Class cls, Object oid) {
         if (_cache.getDelegate() != null)
             _cache.remove(JPAFacadeHelper.toOpenJPAObjectId(getMetaData(cls),
                 oid));
     }
 
+    @Override
     public void evictAll(Class cls, Object... oids) {
         evictAll(cls, Arrays.asList(oids));
     }
 
+    @Override
     public void evictAll(Class cls, Collection oids) {
         if (_cache.getDelegate() != null)
             _cache.removeAll(JPAFacadeHelper.toOpenJPAObjectIds
                 (getMetaData(cls), oids));
     }
 
+    @Override
     public void evictAll() {
         _cache.clear();
     }
-    
+
+    @Override
+    public <T> T unwrap(Class<T> cls) {
+        if (cls.isInstance(this)) {
+            return cls.cast(this);
+        }
+        throw new jakarta.persistence.PersistenceException(cls.getName() + " not supported");
+    }
+
+    @Override
     public CacheStatistics getStatistics() {
     	return (_cache == null) ? null : _cache.getStatistics();
     }
@@ -147,18 +169,23 @@ public class StoreCacheImpl
         }
     }
 
+    @Override
     public int hashCode() {
-        return _cache.hashCode();
+        return (_cache == null) ? 0 : _cache.hashCode();
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
-        if (!(other instanceof StoreCacheImpl))
+        if ((other == null) || (other.getClass() != this.getClass()))
             return false;
-        return _cache.equals (((StoreCacheImpl) other)._cache);
+        if (_cache == null)
+            return false;
+      return _cache.equals (((StoreCacheImpl) other)._cache);
 	}
 
+    @Override
     @SuppressWarnings("unchecked")
     public void evict(Class cls) {
         // Check MetaData throws a consistent exception with evict(Class,

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -22,7 +22,7 @@ import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 
 ///////////////////////////////////////////////////////////////
-// NOTE: when adding a public API method, be sure to add it to 
+// NOTE: when adding a public API method, be sure to add it to
 // JDO and JPA facades!
 ///////////////////////////////////////////////////////////////
 
@@ -31,7 +31,6 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  * in facades.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class DelegatingSeq
     implements Seq {
@@ -73,10 +72,12 @@ public class DelegatingSeq
         return (_del == null) ? _seq : _del.getInnermostDelegate();
     }
 
+    @Override
     public int hashCode() {
         return getInnermostDelegate().hashCode();
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -92,6 +93,7 @@ public class DelegatingSeq
         return (_trans == null) ? re : _trans.translate(re);
     }
 
+    @Override
     public void setType(int type) {
         try {
             _seq.setType(type);
@@ -100,6 +102,7 @@ public class DelegatingSeq
         }
     }
 
+    @Override
     public Object next(StoreContext ctx, ClassMetaData meta) {
         try {
             return _seq.next(ctx, meta);
@@ -108,6 +111,7 @@ public class DelegatingSeq
         }
     }
 
+    @Override
     public Object current(StoreContext ctx, ClassMetaData meta) {
         try {
             return _seq.current(ctx, meta);
@@ -116,6 +120,7 @@ public class DelegatingSeq
         }
     }
 
+    @Override
     public void allocate(int additional, StoreContext ctx, ClassMetaData meta) {
         try {
             _seq.allocate(additional, ctx, meta);
@@ -124,6 +129,7 @@ public class DelegatingSeq
         }
     }
 
+    @Override
     public void close() {
         try {
             _seq.close();

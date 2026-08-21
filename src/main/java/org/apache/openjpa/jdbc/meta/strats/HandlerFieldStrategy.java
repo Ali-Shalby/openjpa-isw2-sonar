@@ -14,22 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
 import java.sql.SQLException;
 
+import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.Embeddable;
-import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.Joinable;
 import org.apache.openjpa.jdbc.meta.ValueHandler;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.Row;
@@ -38,6 +39,7 @@ import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueStrategies;
 import org.apache.openjpa.util.InternalException;
@@ -54,17 +56,21 @@ public class HandlerFieldStrategy
     extends AbstractFieldStrategy
     implements Joinable, Embeddable {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Object NULL = new Object();
 
     private static final Localizer _loc = Localizer.forPackage
         (HandlerFieldStrategy.class);
 
-    private Column[] _cols = null;
-    private ColumnIO _io = null;
-    private Object[] _args = null;
-    private boolean _load = false;
-    private boolean _lob = false;
+    protected Column[] _cols = null;
+    protected ColumnIO _io = null;
+    protected Object[] _args = null;
+    protected boolean _load = false;
+    protected boolean _lob = false;
 
+    @Override
     public void map(boolean adapt) {
         if (field.getHandler() == null)
             throw new MetaDataException(_loc.get("no-handler", field));
@@ -87,23 +93,27 @@ public class HandlerFieldStrategy
                 if (_cols[i].isAutoAssigned())
                     marked = true;
             if (!marked)
-                for (int i = 0; i < _cols.length; i++)
-                    _cols[i].setAutoAssigned(true);
+                for (Column col : _cols) {
+                    col.setAutoAssigned(true);
+                }
         }
 
         // add primary key columns to table pk if logical
         field.mapPrimaryKey(adapt);
         PrimaryKey pk = field.getTable().getPrimaryKey();
         if (field.isPrimaryKey() && pk != null && (adapt || pk.isLogical()))
-            for (int i = 0; i < _cols.length; i++)
-                pk.addColumn(_cols[i]);
+            for (Column col : _cols) {
+                pk.addColumn(col);
+            }
 
         // set joinable
         if (!field.getHandler().objectValueRequiresLoad(field))
-            for (int i = 0; i < _cols.length; i++)
-                field.getDefiningMapping().setJoinable(_cols[i], this);
+            for (Column col : _cols) {
+                field.getDefiningMapping().setJoinable(col, this);
+            }
     }
 
+    @Override
     public void initialize() {
         _load = field.getHandler().objectValueRequiresLoad(field);
         if (_load)
@@ -120,6 +130,7 @@ public class HandlerFieldStrategy
             _args = (Object[]) args;
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         if (field.getColumnIO().isInsertable(0, false)) {
@@ -127,7 +138,7 @@ public class HandlerFieldStrategy
             if (row != null) {
                 Object value = sm.fetch(field.getIndex());
                 if (!HandlerStrategies.set(field, value, store, row, _cols,
-                    _io, field.getNullValue() == FieldMapping.NULL_NONE))
+                    _io, field.getNullValue() == FieldMetaData.NULL_NONE))
                     if (field.getValueStrategy() != ValueStrategies.AUTOASSIGN)
                         throw new UserException(_loc.get("cant-set-value", row
                             .getFailedObject(), field, value));
@@ -135,6 +146,7 @@ public class HandlerFieldStrategy
         }
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         if (field.getColumnIO().isUpdatable(0, false)) {
@@ -142,7 +154,7 @@ public class HandlerFieldStrategy
             if (row != null) {
                 Object value = sm.fetch(field.getIndex());
                 if (!HandlerStrategies.set(field, value, store, row, _cols,
-                    _io, field.getNullValue() == FieldMapping.NULL_NONE))
+                    _io, field.getNullValue() == FieldMetaData.NULL_NONE))
                     if (field.getValueStrategy() != ValueStrategies.AUTOASSIGN)
                         throw new UserException(_loc.get("cant-set-value", row
                             .getFailedObject(), field, value));
@@ -150,11 +162,13 @@ public class HandlerFieldStrategy
         }
     }
 
+    @Override
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         field.deleteRow(sm, store, rm);
     }
 
+    @Override
     public int supportsSelect(Select sel, int type, OpenJPAStateManager sm,
         JDBCStore store, JDBCFetchConfiguration fetch) {
         if ((type == Select.TYPE_JOINLESS && sel.isSelected(field.getTable()))
@@ -163,6 +177,7 @@ public class HandlerFieldStrategy
         return 0;
     }
 
+    @Override
     public int select(Select sel, OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, int eagerMode) {
         if (_cols.length == 0)
@@ -171,12 +186,13 @@ public class HandlerFieldStrategy
         if (sm != null && sm.getIntermediate(field.getIndex()) != null)
             return -1;
         if (_lob && !field.isPrimaryKey() && (sel.isDistinct() ||
-                eagerMode == JDBCFetchConfiguration.EAGER_NONE))
+                eagerMode == EagerFetchModes.EAGER_NONE))
             return -1;
         sel.select(_cols, field.join(sel));
         return 1;
     }
 
+    @Override
     public void load(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res)
         throws SQLException {
@@ -194,6 +210,7 @@ public class HandlerFieldStrategy
         }
     }
 
+    @Override
     public void load(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch)
         throws SQLException {
@@ -236,38 +253,48 @@ public class HandlerFieldStrategy
         loadEmbedded(sm, store, fetch, val);
     }
 
+    @Override
     public Object toDataStoreValue(Object val, JDBCStore store) {
         return HandlerStrategies.toDataStoreValue(field, val, _cols, store);
     }
 
+    @Override
     public void appendIsNull(SQLBuffer sql, Select sel, Joins joins) {
         joins = join(joins, false);
         for (int i = 0; i < _cols.length; i++) {
-            if (i > 0)
+            if (i > 0) {
                 sql.append(" AND ");
-            sql.append(sel.getColumnAlias(_cols[i], joins)).append(" IS ").
-                appendValue(null, _cols[i]);
+            }
+            // Some databases do not allow IS NULL for every column type - let the DBDictionary decide.
+            DBDictionary dict = sel.getDictionary();
+            sql.append(dict.getIsNullSQL(sel.getColumnAlias(_cols[i], joins), _cols[i].getType()));
         }
     }
 
+    @Override
     public void appendIsNotNull(SQLBuffer sql, Select sel, Joins joins) {
         joins = join(joins, false);
-        if (_cols.length > 1)
+        if (_cols.length > 1) {
             sql.append("(");
+        }
         for (int i = 0; i < _cols.length; i++) {
-            if (i > 0)
+            if (i > 0) {
                 sql.append(" OR ");
-            sql.append(sel.getColumnAlias(_cols[i], joins)).
-                append(" IS NOT ").appendValue(null, _cols[i]);
+            }
+            // Some databases do not allow IS NOT NULL for every column type - let the DBDictionary decide.
+            DBDictionary dict = sel.getDictionary();
+            sql.append(dict.getIsNotNullSQL(sel.getColumnAlias(_cols[i], joins), _cols[i].getType()));
         }
         if (_cols.length > 1)
             sql.append(")");
     }
 
+    @Override
     public Joins join(Joins joins, boolean forceOuter) {
         return field.join(joins, forceOuter, false);
     }
 
+    @Override
     public Joins joinRelation(Joins joins, boolean forceOuter,
         boolean traverse) {
         if (traverse)
@@ -275,6 +302,7 @@ public class HandlerFieldStrategy
         return joins;
     }
 
+    @Override
     public Object loadProjection(JDBCStore store, JDBCFetchConfiguration fetch,
         Result res, Joins joins)
         throws SQLException {
@@ -282,11 +310,13 @@ public class HandlerFieldStrategy
             joins, _cols, _load);
     }
 
+    @Override
     public boolean isVersionable() {
         return !_lob && !field.isJoinOuter()
             && field.getHandler().isVersionable(field);
     }
 
+    @Override
     public void where(OpenJPAStateManager sm, JDBCStore store, RowManager rm,
         Object prevValue)
         throws SQLException {
@@ -299,10 +329,12 @@ public class HandlerFieldStrategy
     // Joinable implementation
     ///////////////////////////
 
+    @Override
     public int getFieldIndex() {
         return field.getIndex();
     }
 
+    @Override
     public Object getPrimaryKeyValue(Result res, Column[] cols, ForeignKey fk,
         JDBCStore store, Joins joins)
         throws SQLException {
@@ -310,10 +342,17 @@ public class HandlerFieldStrategy
         Object val = null;
         if (cols.length == 1) {
             col = cols[0];
-            if (fk != null)
+            if (fk != null){
                 col = fk.getColumn(col);
-            val = res.getObject(col, field.getHandler().
-                getResultArgument(field), joins);
+            }
+
+            //OJ-1793: Get the args from the handler and first check to see if the
+            //args are null.  If they aren't null then use the first element in the args
+            //array rather than passing into 'getObject' the entire args array.  This is
+            //akin to what is done in the 'else if' leg below.
+            Object[] args = (Object[]) field.getHandler().getResultArgument(field);
+            val = res.getObject(col, (args == null) ? null : args[0],
+                    joins);
         } else if (cols.length > 1) {
             Object[] vals = new Object[cols.length];
             Object[] args = (Object[]) field.getHandler().
@@ -330,14 +369,17 @@ public class HandlerFieldStrategy
         return field.getHandler().toObjectValue(field, val);
     }
 
+    @Override
     public Column[] getColumns() {
         return _cols;
     }
 
+    @Override
     public Object[] getResultArguments() {
         return _args;
     }
 
+    @Override
     public Object getJoinValue(Object fieldVal, Column col, JDBCStore store) {
         Object val = HandlerStrategies.toDataStoreValue(field, fieldVal,
             _cols, store);
@@ -350,11 +392,13 @@ public class HandlerFieldStrategy
         throw new InternalException();
     }
 
+    @Override
     public Object getJoinValue(OpenJPAStateManager sm, Column col,
         JDBCStore store) {
         return getJoinValue(sm.fetch(field.getIndex()), col, store);
     }
 
+    @Override
     public void setAutoAssignedValue(OpenJPAStateManager sm, JDBCStore store,
         Column col, Object autoInc) {
         Object data;
@@ -369,7 +413,7 @@ public class HandlerFieldStrategy
                 data = new Object[_cols.length];
             for (int i = 0; i < _cols.length; i++) {
                 if (_cols[i] == col) {
-                    ((Object[]) data)[i] = JavaTypes.convert(autoInc, 
+                    ((Object[]) data)[i] = JavaTypes.convert(autoInc,
                         col.getJavaType());
                     break;
                 }
@@ -384,10 +428,12 @@ public class HandlerFieldStrategy
     // Embeddable implementation
     /////////////////////////////
 
+    @Override
     public ColumnIO getColumnIO() {
         return _io;
     }
 
+    @Override
     public Object toEmbeddedDataStoreValue(Object val, JDBCStore store) {
         // don't use HandlerStrategies.toDataStoreValue b/c we want relation ids
         // to be represented by state managers, not the serialized id value
@@ -397,12 +443,14 @@ public class HandlerFieldStrategy
         return val;
     }
 
+    @Override
     public Object toEmbeddedObjectValue(Object val) {
         if (!_load)
             return field.getHandler().toObjectValue(field, val);
         return UNSUPPORTED;
     }
 
+    @Override
     public void loadEmbedded(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Object val)
         throws SQLException {

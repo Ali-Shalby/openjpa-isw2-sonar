@@ -14,15 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice.jdbc;
 
-import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
@@ -52,15 +50,15 @@ import org.apache.openjpa.kernel.StoreQuery;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.slice.DistributedConfiguration;
 import org.apache.openjpa.slice.DistributedStoreManager;
-import org.apache.openjpa.slice.ProductDerivation;
 import org.apache.openjpa.slice.Slice;
 import org.apache.openjpa.slice.SliceImplHelper;
 import org.apache.openjpa.slice.SliceInfo;
+import org.apache.openjpa.slice.SlicePersistence;
 import org.apache.openjpa.slice.SliceThread;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.StoreException;
@@ -71,35 +69,21 @@ import org.apache.openjpa.util.StoreException;
  * commit protocol if all the component slices is XA-complaint. The actions are
  * delegated to the underlying slices. The actions are executed in parallel
  * threads whenever possible such as flushing or query. <br>
- * 
+ *
  * @author Pinaki Poddar
- * 
+ *
  */
-class DistributedJDBCStoreManager extends JDBCStoreManager 
+class DistributedJDBCStoreManager extends JDBCStoreManager
     implements DistributedStoreManager {
     private final List<SliceStoreManager> _slices;
     private JDBCStoreManager _master;
     private final DistributedJDBCConfiguration _conf;
-    private static final Localizer _loc =
-            Localizer.forPackage(DistributedJDBCStoreManager.class);
+    private static final Localizer _loc = Localizer.forPackage(DistributedJDBCStoreManager.class);
 
-    private static final Constructor<ClientConnection> clientConnectionImpl;
-    private static final Constructor<RefCountConnection> refCountConnectionImpl;
-    static {
-        try {
-            clientConnectionImpl = ConcreteClassGenerator.
-                getConcreteConstructor(ClientConnection.class, Connection.class);
-            refCountConnectionImpl = ConcreteClassGenerator.
-                getConcreteConstructor(RefCountConnection.class, JDBCStoreManager.class, Connection.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
-    
     /**
      * Constructs a set of child StoreManagers each connected to a physical
      * DataSource.
-     * 
+     *
      * The supplied configuration carries multiple URL for underlying physical
      * slices. The first slice is referred as <em>master</em> and is used to
      * get Sequence based entity identifiers.
@@ -107,38 +91,40 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
     public DistributedJDBCStoreManager(DistributedJDBCConfiguration conf) {
         super();
         _conf = conf;
-        _slices = new ArrayList<SliceStoreManager>();
-        List<String> sliceNames = conf.getActiveSliceNames();
-        for (String name : sliceNames) {
-            SliceStoreManager slice =
-                    new SliceStoreManager(conf.getSlice(name));
-            _slices.add(slice);
-            if (slice.getName().equals(_conf.getMaster().getName()))
-                _master = slice;
+        _slices = new ArrayList<>();
+        List<Slice> slices = conf.getSlices(Slice.Status.ACTIVE);
+        Slice masterSlice = conf.getMasterSlice();
+        for (Slice slice : slices) {
+            SliceStoreManager store = new SliceStoreManager(slice);
+            _slices.add(store);
+            if (slice == masterSlice) {
+                _master = store;
+            }
         }
     }
 
+    @Override
     public DistributedJDBCConfiguration getConfiguration() {
         return _conf;
     }
-    
+
     public SliceStoreManager getSlice(int i) {
     	return _slices.get(i);
     }
-    
+
+    @Override
     public SliceStoreManager addSlice(Slice slice) {
         SliceStoreManager result = new SliceStoreManager(slice);
-        result.setContext(getContext(),
-                (JDBCConfiguration)slice.getConfiguration());
+        result.setContext(getContext(), (JDBCConfiguration)slice.getConfiguration());
         _slices.add(result);
         return result;
     }
 
     /**
      * Decides the index of the StoreManager by first looking at the
-     * implementation data. If no implementation data is found, then estimates 
+     * implementation data. If no implementation data is found, then estimates
      * targets slices by using additional connection info. If no additional
-     * connection info then calls back to user-defined policy. 
+     * connection info then calls back to user-defined policy.
      */
     protected SliceInfo findSliceNames(OpenJPAStateManager sm, Object edata) {
         if (SliceImplHelper.isSliceAssigned(sm))
@@ -146,7 +132,7 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         SliceInfo result = null;
         PersistenceCapable pc = sm.getPersistenceCapable();
         Object ctx = getContext();
-        if (SliceImplHelper.isReplicated(sm)) {
+        if (_conf.isReplicated(sm.getMetaData().getDescribedType())) {
             result = SliceImplHelper.getSlicesByPolicy(pc, _conf, ctx);
         } else {
             String origin = estimateSlice(sm, edata);
@@ -158,21 +144,21 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         }
         return result;
     }
-    
+
     private void assignSlice(OpenJPAStateManager sm, String hint) {
-        if (SliceImplHelper.isReplicated(sm)) {
+        if (_conf.isReplicated(sm.getMetaData().getDescribedType())) {
             SliceImplHelper.getSlicesByPolicy(sm, _conf, getContext())
                 .setInto(sm);
             return;
         }
         new SliceInfo(hint).setInto(sm);
     }
-    
+
     /**
      * The additional edata is used, if possible, to find the StoreManager
      * managing the given StateManager. If the additional data is unavailable
      * then return null.
-     * 
+     *
      */
     private String estimateSlice(OpenJPAStateManager sm, Object edata) {
         if (edata == null || !(edata instanceof ConnectionInfo))
@@ -187,7 +173,7 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
                 }
             }
         }
-        return null; 
+        return null;
     }
 
     /**
@@ -205,25 +191,30 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return null;
     }
 
+    @Override
     public boolean assignField(OpenJPAStateManager sm, int field,
             boolean preFlush) {
         return selectStore(sm, null).assignField(sm, field, preFlush);
     }
 
+    @Override
     public boolean assignObjectId(OpenJPAStateManager sm, boolean preFlush) {
         return _master.assignObjectId(sm, preFlush);
     }
 
+    @Override
     public void beforeStateChange(OpenJPAStateManager sm, PCState fromState,
             PCState toState) {
         _master.beforeStateChange(sm, fromState, toState);
     }
 
+    @Override
     public void beginOptimistic() {
         for (SliceStoreManager slice : _slices)
             slice.beginOptimistic();
     }
 
+    @Override
     public boolean cancelAll() {
         boolean ret = true;
         for (SliceStoreManager slice : _slices)
@@ -231,14 +222,17 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return ret;
     }
 
+    @Override
     public int compareVersion(OpenJPAStateManager sm, Object v1, Object v2) {
         return selectStore(sm, null).compareVersion(sm, v1, v2);
     }
 
+    @Override
     public Object copyDataStoreId(Object oid, ClassMetaData meta) {
         return _master.copyDataStoreId(oid, meta);
     }
 
+    @Override
     public ResultObjectProvider executeExtent(ClassMetaData meta,
             boolean subclasses, FetchConfiguration fetch) {
         int i = 0;
@@ -250,12 +244,13 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return new MergedResultObjectProvider(tmp);
     }
 
+    @Override
     public boolean exists(OpenJPAStateManager sm, Object edata) {
-    	String origin = null;
+        String origin = null;
         for (SliceStoreManager slice : _slices) {
             if (slice.exists(sm, edata)) {
-            	origin = slice.getName();
-            	break;
+                origin = slice.getName();
+                break;
             }
         }
         if (origin != null)
@@ -263,71 +258,84 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return origin != null;
     }
 
-    
+
     /**
      * Flush the given StateManagers after binning them to respective physical
      * slices.
      */
-    public Collection flush(Collection sms) {
+    @Override
+    public Collection flush(Collection<OpenJPAStateManager> sms) {
         Collection exceptions = new ArrayList();
-        List<Future<Collection>> futures = new ArrayList<Future<Collection>>();
+        List<Future<Collection>> futures = new ArrayList<>();
         Map<String, StateManagerSet> subsets = bin(sms, null);
-        Collection<StateManagerSet> remaining = 
-            new ArrayList<StateManagerSet>(subsets.values());
-        ExecutorService threadPool = SliceThread.newPool(_slices.size());
-        for (int i = 0; i < _slices.size(); i++) {
-            SliceStoreManager slice = _slices.get(i);
+        Collection<StateManagerSet> remaining =
+            new ArrayList<>(subsets.values());
+        ExecutorService threadPool = SliceThread.getPool();
+        for (SliceStoreManager slice : _slices) {
             StateManagerSet subset = subsets.get(slice.getName());
             if (subset.isEmpty())
                 continue;
             if (subset.containsReplicated()) {
-                Map<OpenJPAStateManager, Object> oldVersions = cacheVersion(
-                    subset.getReplicated());
-            	collectException(slice.flush(subset), exceptions);
+                Map<OpenJPAStateManager, Object> oldVersions = cacheVersion(subset.getReplicated());
+                collectException(slice.flush(subset), exceptions);
                 remaining.remove(subset);
-            	rollbackVersion(subset.getReplicated(), oldVersions, remaining);
+                rollbackVersion(subset.getReplicated(), oldVersions, remaining);
             } else {
-            	futures.add(threadPool.submit(new Flusher(slice, subset)));
+                futures.add(threadPool.submit(new Flusher(slice, subset)));
             }
         }
         for (Future<Collection> future : futures) {
             try {
-            	collectException(future.get(), exceptions);
+                collectException(future.get(), exceptions);
             } catch (InterruptedException e) {
                 throw new StoreException(e);
             } catch (ExecutionException e) {
                 throw new StoreException(e.getCause());
             }
         }
-        
-	    return exceptions;
+
+        return exceptions;
     }
-    
+
     private void collectException(Collection error,  Collection holder) {
         if (!(error == null || error.isEmpty())) {
-        	holder.addAll(error);
+            holder.addAll(error);
         }
     }
-    
+
+    @Override
+    public void commit() {
+        for (SliceStoreManager slice : _slices) {
+            slice.commit();
+        }
+    }
+
+    @Override
+    public void rollback() {
+        for (SliceStoreManager slice : _slices) {
+            slice.rollback();
+        }
+    }
+
     /**
      * Collect the current versions of the given StateManagers.
      */
     private Map<OpenJPAStateManager, Object> cacheVersion(
         List<OpenJPAStateManager> sms) {
-        Map<OpenJPAStateManager, Object> result = 
-            new HashMap<OpenJPAStateManager, Object>();
+        Map<OpenJPAStateManager, Object> result =
+            new HashMap<>();
         for (OpenJPAStateManager sm : sms)
             result.put(sm, sm.getVersion());
         return result;
     }
-    
+
     /**
      * Sets the version of the given StateManagers from the cached versions.
      * Provided that the StateManager does not appear in the FlusSets of the
      * remaining.
      */
-    private void rollbackVersion(List<OpenJPAStateManager> sms, 
-        Map<OpenJPAStateManager, Object> oldVersions, 
+    private void rollbackVersion(List<OpenJPAStateManager> sms,
+        Map<OpenJPAStateManager, Object> oldVersions,
         Collection<StateManagerSet> reminder) {
         if (reminder.isEmpty())
             return;
@@ -336,24 +344,24 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
               sm.setVersion(oldVersions.get(sm));
         }
     }
-    
-    boolean occurs(OpenJPAStateManager sm, 
+
+    boolean occurs(OpenJPAStateManager sm,
         Collection<StateManagerSet> reminder) {
         for (StateManagerSet set : reminder)
             if (set.contains(sm))
                 return true;
         return false;
     }
-    
+
     /**
      * Separate the given list of StateManagers in separate lists for each slice
      * by the associated slice identifier of each StateManager.
      */
     private Map<String, StateManagerSet> bin(Collection sms, Object edata) {
-        Map<String, StateManagerSet> subsets =  
-            new HashMap<String, StateManagerSet>();
-        for (SliceStoreManager slice : _slices)
-            subsets.put(slice.getName(), new StateManagerSet());
+        Map<String, StateManagerSet> subsets =  new HashMap<>();
+        for (SliceStoreManager slice : _slices) {
+            subsets.put(slice.getName(), new StateManagerSet(_conf));
+        }
         for (Object x : sms) {
             OpenJPAStateManager sm = (OpenJPAStateManager) x;
             String[] targets = findSliceNames(sm, edata).getSlices();
@@ -364,26 +372,32 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return subsets;
     }
 
+    @Override
     public Object getClientConnection() {
-        return ConcreteClassGenerator.newInstance(clientConnectionImpl, getConnection());
+        return _master.getClientConnection();
     }
 
+    @Override
     public Seq getDataStoreIdSequence(ClassMetaData forClass) {
         return _master.getDataStoreIdSequence(forClass);
     }
 
+    @Override
     public Class<?> getDataStoreIdType(ClassMetaData meta) {
         return _master.getDataStoreIdType(meta);
     }
 
+    @Override
     public Class<?> getManagedType(Object oid) {
         return _master.getManagedType(oid);
     }
 
+    @Override
     public Seq getValueSequence(FieldMetaData forField) {
         return _master.getValueSequence(forField);
     }
 
+    @Override
     public boolean initialize(OpenJPAStateManager sm, PCState state,
             FetchConfiguration fetch, Object edata) {
         if (edata instanceof ConnectionInfo) {
@@ -406,11 +420,13 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return false;
     }
 
+    @Override
     public boolean load(OpenJPAStateManager sm, BitSet fields,
             FetchConfiguration fetch, int lockLevel, Object edata) {
         return selectStore(sm, edata).load(sm, fields, fetch, lockLevel, edata);
     }
 
+    @Override
     public Collection loadAll(Collection sms, PCState state, int load,
             FetchConfiguration fetch, Object edata) {
         Map<String, StateManagerSet> subsets = bin(sms, edata);
@@ -426,19 +442,28 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return result;
     }
 
+    @Override
     public Object newDataStoreId(Object oidVal, ClassMetaData meta) {
         return _master.newDataStoreId(oidVal, meta);
-    }
-
-    public FetchConfiguration newFetchConfiguration() {
-        return _master.newFetchConfiguration();
     }
 
     /**
      * Construct a distributed query to be executed against all the slices.
      */
+    @Override
     public StoreQuery newQuery(String language) {
+        if (QueryLanguages.LANG_SQL.equals(language)) {
+            DistributedSQLStoreQuery ret = new DistributedSQLStoreQuery(this);
+            for (SliceStoreManager slice : _slices) {
+                ret.add(slice.newQuery(language));
+            }
+            return ret;
+        }
         ExpressionParser parser = QueryLanguages.parserForLanguage(language);
+        if (parser == null) {
+            throw new UnsupportedOperationException("Language [" + language + "] not supported");
+        }
+
         DistributedStoreQuery ret = new DistributedStoreQuery(this, parser);
         for (SliceStoreManager slice : _slices) {
             ret.add(slice.newQuery(language));
@@ -446,13 +471,20 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return ret;
     }
 
+    @Override
+    public FetchConfiguration newFetchConfiguration() {
+        return new TargetFetchConfiguration();
+    }
+
+
     /**
      * Sets the context for this receiver and all its underlying slices.
      */
+    @Override
     public void setContext(StoreContext ctx) {
         super.setContext(ctx);
         for (SliceStoreManager store : _slices) {
-            store.setContext(ctx, 
+            store.setContext(ctx,
                     (JDBCConfiguration)store.getSlice().getConfiguration());
         }
     }
@@ -464,50 +496,55 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
         return null;
     }
 
+    @Override
     public boolean syncVersion(OpenJPAStateManager sm, Object edata) {
-    	String[] targets = findSliceNames(sm, edata).getSlices();
-    	boolean sync = true;
-    	for (String replica : targets) {
-    		SliceStoreManager slice = lookup(replica);
-    		sync &= slice.syncVersion(sm, edata);
-    	}
-    	return sync;
+        String[] targets = findSliceNames(sm, edata).getSlices();
+        boolean sync = true;
+        for (String replica : targets) {
+            SliceStoreManager slice = lookup(replica);
+            sync &= slice.syncVersion(sm, edata);
+        }
+        return sync;
     }
 
     @Override
     protected RefCountConnection connectInternal() throws SQLException {
-        List<Connection> list = new ArrayList<Connection>();
+        List<Connection> list = new ArrayList<>();
         for (SliceStoreManager slice : _slices)
             list.add(slice.getConnection());
-        DistributedConnection con = DistributedConnection.newInstance(list);
-        return ConcreteClassGenerator.newInstance(refCountConnectionImpl, DistributedJDBCStoreManager.this, con);
+        DistributedConnection con = new DistributedConnection(list);
+        return new RefCountConnection(con);
     }
-    
+
     /**
-     * Gets the list of slices mentioned as  
-     * {@link ProductDerivation#HINT_TARGET hint} of the given
-     * {@link FetchConfiguration#getHint(String) fetch configuration}. 
-     * 
-     * @return all active slices if a) the hint is not specified or b) a null 
+     * Gets the list of slices mentioned as
+     * {@link SlicePersistence#HINT_TARGET hint} of the given
+     * {@link FetchConfiguration#getHint(String) fetch configuration}.
+     *
+     * @return all active slices if a) the hint is not specified or b) a null
      * value or c) a non-String or d) matches no active slice.
      */
     List<SliceStoreManager> getTargets(FetchConfiguration fetch) {
         if (fetch == null)
             return _slices;
-        Object hint = fetch.getHint(ProductDerivation.HINT_TARGET);
-        if (hint == null || !(hint instanceof String)) 
+        Object hint = fetch.getHint(SlicePersistence.HINT_TARGET);
+        if (hint == null || !(hint instanceof String || hint instanceof String[]))
             return _slices;
-        List<String> targetNames = Arrays.asList(hint.toString().split("\\,"));
-        List<SliceStoreManager> targets = new ArrayList<SliceStoreManager>();
+        String[] targetNames = hint instanceof String
+                ? new String[]{hint.toString()} : (String[])hint;
+        List<SliceStoreManager> targets = new ArrayList<>();
         for (SliceStoreManager slice : _slices) {
-           if (targetNames.contains(slice.getName()))
-              targets.add(slice);
-           }
-          if (targets.isEmpty())
+            for (String name : targetNames) {
+                if (slice.getName().equals(name)) {
+                    targets.add(slice);
+                }
+            }
+        }
+        if (targets.isEmpty())
             return _slices;
         return targets;
     }
-    
+
     private static class Flusher implements Callable<Collection> {
         final SliceStoreManager store;
         final StateManagerSet toFlush;
@@ -517,39 +554,45 @@ class DistributedJDBCStoreManager extends JDBCStoreManager
             this.toFlush = toFlush;
         }
 
+        @Override
         public Collection call() throws Exception {
-        	return store.flush(toFlush);
+            return store.flush(toFlush);
         }
     }
-    
+
     /**
-     * A specialized, insert-only collection of StateManagers that notes 
+     * A specialized, insert-only collection of StateManagers that notes
      * if any of its member is replicated.
-     *  
+     *
      */
     private static class StateManagerSet extends HashSet<OpenJPAStateManager> {
+        private static final long serialVersionUID = 1L;
+        private final DistributedConfiguration conf;
         List<OpenJPAStateManager> replicated;
-        
+
+        StateManagerSet(DistributedConfiguration conf) {
+            this.conf = conf;
+        }
         @Override
         public boolean add(OpenJPAStateManager sm) {
-            boolean isReplicated = sm.getMetaData().isReplicated();
+            boolean isReplicated =  conf.isReplicated(sm.getMetaData().getDescribedType());
             if (isReplicated) {
                 if (replicated == null)
-                    replicated = new ArrayList<OpenJPAStateManager>();
+                    replicated = new ArrayList<>();
                 replicated.add(sm);
             }
             return super.add(sm);
         }
-        
+
         @Override
         public boolean remove(Object sm) {
             throw new UnsupportedOperationException();
         }
-        
+
         boolean containsReplicated() {
             return replicated != null && !replicated.isEmpty();
         }
-        
+
         List<OpenJPAStateManager> getReplicated() {
             return replicated;
         }

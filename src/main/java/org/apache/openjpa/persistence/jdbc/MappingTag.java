@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
@@ -27,7 +27,6 @@ package org.apache.openjpa.persistence.jdbc;
  * Set of mapping tags used in JPA.
  *
  * @author Abe White
- * @nojavadoc
  */
 enum MappingTag {
 
@@ -80,6 +79,8 @@ enum MappingTag {
     ELEM_STRAT,
     EMBEDDED_MAPPING,
     FK,
+    FK_COL_NAMES,
+    FK_COL_NAME,
     INDEX,
     KEY_COL,
     KEY_COLS,
@@ -113,5 +114,5 @@ enum MappingTag {
     X_MAPPING_OVERRIDES,
     X_SECONDARY_TABLE,
     X_SECONDARY_TABLES,
-    X_TABLE,
+    X_TABLE
 }

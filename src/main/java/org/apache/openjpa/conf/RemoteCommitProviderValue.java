@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.conf;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.RemoteCommitProvider;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.conf.PluginValue;
 import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * Value type used to represent a {@link RemoteCommitProvider}. This
@@ -32,7 +32,6 @@ import org.apache.openjpa.lib.util.Options;
  * in the remote commit events distributed.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class RemoteCommitProviderValue
     extends PluginValue {
@@ -51,12 +50,14 @@ public class RemoteCommitProviderValue
         setAliases(ALIASES);
     }
 
+    @Override
     public void setProperties(String props) {
         super.setProperties(props);
         _opts = null;
         _transmitPersIds = null;
     }
 
+    @Override
     public void setString(String str) {
         super.setString(str);
         _opts = null;
@@ -113,12 +114,13 @@ public class RemoteCommitProviderValue
     public void configureEventManager(RemoteCommitEventManager mgr) {
         parseOptions();
         if (_transmitPersIds != null)
-            mgr.setTransmitPersistedObjectIds(_transmitPersIds.booleanValue());
+            mgr.setTransmitPersistedObjectIds(_transmitPersIds);
     }
 
     /**
      * Override to keep decorators out of transport configuration.
      */
+    @Override
     public Object instantiate(Class type, Configuration conf, boolean fatal) {
         Object obj = newInstance(getClassName(), type, conf, fatal);
         parseOptions();
@@ -132,7 +134,7 @@ public class RemoteCommitProviderValue
             return;
 
         _opts = Configurations.parseProperties(getProperties());
-        String transmit = StringUtils.trimToNull(_opts.removeProperty
+        String transmit = StringUtil.trimToNull(_opts.removeProperty
             ("transmitPersistedObjectIds", "TransmitPersistedObjectIds", null));
         if (transmit != null)
             _transmitPersIds = Boolean.valueOf (transmit);

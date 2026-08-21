@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -31,10 +31,11 @@ import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public class SchemaGroup
     extends NameSet
     implements Cloneable {
+
+    private static final long serialVersionUID = 1L;
 
     private Map<DBIdentifier, Schema> _schemaMap = null;
 
@@ -55,6 +56,7 @@ public class SchemaGroup
      * Return the schema with the given name, or null if none.
      * @deprecated
      */
+    @Deprecated
     public Schema getSchema(String name) {
         if (_schemaMap == null)
             return null;
@@ -65,7 +67,7 @@ public class SchemaGroup
         if (_schemaMap == null)
             return null;
         DBIdentifier sName = DBIdentifier.toUpper(name);
-        Schema schema = (Schema) _schemaMap.get(sName);
+        Schema schema = _schemaMap.get(sName);
         return schema;
     }
 
@@ -84,7 +86,7 @@ public class SchemaGroup
         Schema schema = newSchema(name);
         DBIdentifier sName = DBIdentifier.toUpper(name);
         if (_schemaMap == null)
-            _schemaMap = new HashMap<DBIdentifier, Schema>();
+            _schemaMap = new HashMap<>();
         _schemaMap.put(sName, schema);
         _schemas = null;
         return schema;
@@ -93,12 +95,12 @@ public class SchemaGroup
     /**
      * @deprecated
      * @param name
-     * @return
      */
+    @Deprecated
     public Schema addSchema(String name) {
         return addSchema(DBIdentifier.newSchema(name));
     }
-    
+
     /**
      * Remove the given schema from the group.
      *
@@ -109,7 +111,7 @@ public class SchemaGroup
             return false;
 
         DBIdentifier name = DBIdentifier.toUpper(schema.getIdentifier());
-        Schema rem = (Schema) _schemaMap.get(name);
+        Schema rem = _schemaMap.get(name);
         if (schema.equals(rem)) {
             _schemaMap.remove(name);
             removeName(schema.getIdentifier());
@@ -129,21 +131,24 @@ public class SchemaGroup
 
         Schema copy = addSchema(schema.getIdentifier());
         Sequence[] seqs = schema.getSequences();
-        for (int i = 0; i < seqs.length; i++)
-            copy.importSequence(seqs[i]);
+        for (Sequence seq : seqs) {
+            copy.importSequence(seq);
+        }
 
         Table[] tables = schema.getTables();
         Index[] idxs;
         Unique[] unqs;
         Table tab;
-        for (int i = 0; i < tables.length; i++) {
-            tab = copy.importTable(tables[i]);
-            idxs = tables[i].getIndexes();
-            for (int j = 0; j < idxs.length; j++)
-                tab.importIndex(idxs[j]);
-            unqs = tables[i].getUniques();
-            for (int j = 0; j < unqs.length; j++)
-                tab.importUnique(unqs[j]);
+        for (Table table : tables) {
+            tab = copy.importTable(table);
+            idxs = table.getIndexes();
+            for (Index idx : idxs) {
+                tab.importIndex(idx);
+            }
+            unqs = table.getUniques();
+            for (Unique unq : unqs) {
+                tab.importUnique(unq);
+            }
         }
         return copy;
     }
@@ -165,6 +170,7 @@ public class SchemaGroup
      * added to this group or is known to exist in the database.
      * @deprecated
      */
+    @Deprecated
     public boolean isKnownTable(String name) {
         return findTable(name) != null;
     }
@@ -172,7 +178,7 @@ public class SchemaGroup
       public boolean isKnownTable(QualifiedDBIdentifier path) {
           return findTable(path) != null;
       }
-    
+
     /**
      * Find the equivalent of the given table in this schema group. The
      * given table that may have come from another schema group.
@@ -186,6 +192,7 @@ public class SchemaGroup
      * catalog separator. Returns null if no table found.
      * @deprecated
      */
+    @Deprecated
     public Table findTable(String name) {
         if (name == null)
             return null;
@@ -201,12 +208,12 @@ public class SchemaGroup
             Schema schema = getSchema(path.getSchemaName());
             if (schema != null)
                 return schema.getTable(path.getUnqualifiedName());
-            
+
         } else {
             Schema[] schemas = getSchemas();
             Table tab;
-            for (int i = 0; i < schemas.length; i++) {
-                tab = schemas[i].getTable(path.getIdentifier());
+            for (Schema schema : schemas) {
+                tab = schema.getTable(path.getIdentifier());
                 if (tab != null)
                     return tab;
             }
@@ -219,6 +226,7 @@ public class SchemaGroup
      * separator. Returns null if no table found.
      * @deprecated
      */
+    @Deprecated
     public Table findTable(Schema inSchema, String name) {
         if (name == null)
             return null;
@@ -236,7 +244,7 @@ public class SchemaGroup
             return null;
         return findTable(inSchema, QualifiedDBIdentifier.getPath(name), defaultSchemaName);
     }
-    
+
     public Table findTable(Schema inSchema, QualifiedDBIdentifier path, DBIdentifier defaultSchemaName) {
         if (path == null)
             return null;
@@ -247,8 +255,8 @@ public class SchemaGroup
                 return schema.getTable(path.getIdentifier());
         } else {
             Schema[] schemas = getSchemas();
-            for (int i = 0; i < schemas.length; i++) {
-                Table tab = schemas[i].getTable(path.getIdentifier());
+            for (Schema schema : schemas) {
+                Table tab = schema.getTable(path.getIdentifier());
                 // if a table is found and it has the same schema
                 // as the input schema , it means that the table
                 // exists. However, if the input schema is null,
@@ -257,14 +265,14 @@ public class SchemaGroup
                 // We can't handle the case that one entity has schema name
                 // and other entity does not have schema name but both entities
                 // map to the same table.
-                boolean isDefaultSchema = DBIdentifier.isNull(inSchema.getIdentifier()) && 
-                    !DBIdentifier.isNull(defaultSchemaName) && 
-                    DBIdentifier.equalsIgnoreCase(defaultSchemaName, schemas[i].getIdentifier());
-                boolean hasNoDefaultSchema = DBIdentifier.isNull(inSchema.getIdentifier()) && 
-                    DBIdentifier.isNull(defaultSchemaName); 
-                
+                boolean isDefaultSchema = DBIdentifier.isNull(inSchema.getIdentifier()) &&
+                        !DBIdentifier.isNull(defaultSchemaName) &&
+                        DBIdentifier.equalsIgnoreCase(defaultSchemaName, schema.getIdentifier());
+                boolean hasNoDefaultSchema = DBIdentifier.isNull(inSchema.getIdentifier()) &&
+                        DBIdentifier.isNull(defaultSchemaName);
+
                 if (tab != null &&
-                    (schemas[i] == inSchema || isDefaultSchema || hasNoDefaultSchema)) 
+                        (schema == inSchema || isDefaultSchema || hasNoDefaultSchema))
                     return tab;
 
             }
@@ -289,6 +297,7 @@ public class SchemaGroup
      * added to this group or is known to exist in the database.
      * @deprecated
      */
+    @Deprecated
     public boolean isKnownSequence(String name) {
         return findSequence(name) != null;
     }
@@ -314,6 +323,7 @@ public class SchemaGroup
      * catalog separator. Returns null if no sequence found.
      * @deprecated
      */
+    @Deprecated
     public Sequence findSequence(String name) {
         if (name == null)
             return null;
@@ -337,8 +347,8 @@ public class SchemaGroup
         } else {
             Schema[] schemas = getSchemas();
             Sequence seq;
-            for (int i = 0; i < schemas.length; i++) {
-                seq = schemas[i].getSequence(path.getIdentifier());
+            for (Schema schema : schemas) {
+                seq = schema.getSequence(path.getIdentifier());
                 if (seq != null)
                     return seq;
             }
@@ -351,13 +361,14 @@ public class SchemaGroup
      * catalog separator. Returns null if no sequence found.
      * @deprecated
      */
+    @Deprecated
     public Sequence findSequence(Schema inSchema, String name) {
         if (name == null)
             return null;
         return findSequence(inSchema, QualifiedDBIdentifier.getPath(DBIdentifier.newSequence(name)));
     }
 
-    
+
     public Sequence findSequence(Schema inSchema, QualifiedDBIdentifier path) {
         if (path == null)
             return null;
@@ -369,10 +380,10 @@ public class SchemaGroup
         } else {
             Schema[] schemas = getSchemas();
             Sequence seq;
-            for (int i = 0; i < schemas.length; i++) {
-                seq = schemas[i].getSequence(path.getIdentifier());
+            for (Schema schema : schemas) {
+                seq = schema.getSequence(path.getIdentifier());
                 if ((seq != null) &&
-                        (schemas[i] == inSchema || DBIdentifier.isNull(inSchema.getIdentifier())))
+                        (schema == inSchema || DBIdentifier.isNull(inSchema.getIdentifier())))
                     return seq;
             }
         }
@@ -390,20 +401,20 @@ public class SchemaGroup
         Schema[] schemas = getSchemas();
         Table[] tabs;
         ForeignKey[] fks;
-        Collection<ForeignKey> exports = new LinkedList<ForeignKey>();
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                fks = tabs[j].getForeignKeys();
-                for (int k = 0; k < fks.length; k++) {
-                    if (fks[k].getPrimaryKeyTable() != null
-                        && pk.equals(fks[k].getPrimaryKeyTable().
-                        getPrimaryKey()))
-                        exports.add(fks[k]);
+        Collection<ForeignKey> exports = new LinkedList<>();
+        for (Schema schema : schemas) {
+            tabs = schema.getTables();
+            for (Table tab : tabs) {
+                fks = tab.getForeignKeys();
+                for (ForeignKey fk : fks) {
+                    if (fk.getPrimaryKeyTable() != null
+                            && pk.equals(fk.getPrimaryKeyTable().
+                            getPrimaryKey()))
+                        exports.add(fk);
                 }
             }
         }
-        return (ForeignKey[]) exports.toArray(new ForeignKey[exports.size()]);
+        return exports.toArray(new ForeignKey[exports.size()]);
     }
 
     /**
@@ -416,38 +427,39 @@ public class SchemaGroup
         Sequence[] seqs;
         PrimaryKey pk;
         ForeignKey[] fks;
-        for (int i = 0; i < schemas.length; i++) {
-            seqs = schemas[i].getSequences();
-            for (int j = 0; j < seqs.length; j++)
-                if (seqs[j].getRefCount() == 0)
-                    schemas[i].removeSequence(seqs[j]);
+        for (Schema schema : schemas) {
+            seqs = schema.getSequences();
+            for (Sequence seq : seqs)
+                if (seq.getRefCount() == 0)
+                    schema.removeSequence(seq);
 
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                pk = tabs[j].getPrimaryKey();
-                fks = tabs[j].getForeignKeys();
-                cols = tabs[j].getColumns();
+            tabs = schema.getTables();
+            for (Table tab : tabs) {
+                pk = tab.getPrimaryKey();
+                fks = tab.getForeignKeys();
+                cols = tab.getColumns();
 
                 if (pk != null && pk.getRefCount() == 0)
-                    tabs[j].removePrimaryKey();
+                    tab.removePrimaryKey();
 
-                for (int k = 0; k < fks.length; k++)
-                    if (fks[k].getRefCount() == 0)
-                        tabs[j].removeForeignKey(fks[k]);
+                for (ForeignKey fk : fks)
+                    if (fk.getRefCount() == 0)
+                        tab.removeForeignKey(fk);
 
-                for (int k = 0; k < cols.length; k++)
-                    if (cols[k].getRefCount() == 0)
-                        tabs[j].removeColumn(cols[k]);
+                for (Column col : cols)
+                    if (col.getRefCount() == 0)
+                        tab.removeColumn(col);
 
-                if (tabs[j].getColumns().length == 0)
-                    schemas[i].removeTable(tabs[j]);
+                if (tab.getColumns().length == 0)
+                    schema.removeTable(tab);
             }
 
-            if (schemas[i].getTables().length == 0)
-                removeSchema(schemas[i]);
+            if (schema.getTables().length == 0)
+                removeSchema(schema);
         }
     }
 
+    @Override
     public Object clone() {
         SchemaGroup clone = newInstance();
         clone.copy(this);
@@ -466,19 +478,20 @@ public class SchemaGroup
      */
     protected void copy(SchemaGroup group) {
         Schema[] schemas = group.getSchemas();
-        for (int i = 0; i < schemas.length; i++)
-            importSchema(schemas[i]);
+        for (Schema value : schemas) {
+            importSchema(value);
+        }
 
         // have to do fks after all schemas are imported
         Table[] tabs;
         ForeignKey[] fks;
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                fks = tabs[j].getForeignKeys();
-                for (int k = 0; k < fks.length; k++)
-                    getSchema(schemas[i].getIdentifier()).getTable
-                        (tabs[j].getIdentifier()).importForeignKey(fks[k]);
+        for (Schema schema : schemas) {
+            tabs = schema.getTables();
+            for (Table tab : tabs) {
+                fks = tab.getForeignKeys();
+                for (ForeignKey fk : fks)
+                    getSchema(schema.getIdentifier()).getTable
+                            (tab.getIdentifier()).importForeignKey(fk);
             }
         }
     }
@@ -487,6 +500,7 @@ public class SchemaGroup
      * Return a new schema with the given name.
      * @deprecated
      */
+    @Deprecated
     protected Schema newSchema(String name) {
         return new Schema(name, this);
     }
@@ -499,6 +513,7 @@ public class SchemaGroup
      * Return a new sequence with the given name and owner schema.
      * @deprecated
      */
+    @Deprecated
     protected Sequence newSequence(String name, Schema schema) {
         return new Sequence(name, schema);
     }
@@ -511,6 +526,7 @@ public class SchemaGroup
      * Return a new table with the given name and owner schema.
      * @deprecated
      */
+    @Deprecated
     protected Table newTable(String name, Schema schema) {
         return new Table(name, schema);
     }
@@ -523,6 +539,7 @@ public class SchemaGroup
      * Return a new column with the given name and owner table.
      * @deprecated
      */
+    @Deprecated
     protected Column newColumn(String name, Table table) {
         return new Column(name, table);
     }
@@ -535,6 +552,7 @@ public class SchemaGroup
      * Return a new primary key with the given name and owner table.
      * @deprecated
      */
+    @Deprecated
     protected PrimaryKey newPrimaryKey(String name, Table table) {
         return new PrimaryKey(name, table);
     }
@@ -547,6 +565,7 @@ public class SchemaGroup
      * Return a new index with the given name and owner table.
      * @deprecated
      */
+    @Deprecated
     protected Index newIndex(String name, Table table) {
         return new Index(name, table);
     }
@@ -559,6 +578,7 @@ public class SchemaGroup
      * Return a new unique constraint with the given name and owner table.
      * @deprecated
      */
+    @Deprecated
     protected Unique newUnique(String name, Table table) {
         return new Unique(name, table);
     }
@@ -571,6 +591,7 @@ public class SchemaGroup
      * Return a new foreign key with the given name and owner table.
      * @deprecated
      */
+    @Deprecated
     protected ForeignKey newForeignKey(String name, Table table) {
         return new ForeignKey(name, table);
     }

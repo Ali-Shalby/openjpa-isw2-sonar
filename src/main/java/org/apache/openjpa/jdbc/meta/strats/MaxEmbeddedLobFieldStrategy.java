@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -24,6 +24,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
+import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
@@ -46,7 +47,10 @@ import org.apache.openjpa.meta.JavaTypes;
  * @since 0.4.0
  */
 abstract class MaxEmbeddedLobFieldStrategy
-    extends AbstractFieldStrategy {
+    extends HandlerFieldStrategy {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Return the expected type of the field from {@link JavaTypes} or
@@ -73,6 +77,7 @@ abstract class MaxEmbeddedLobFieldStrategy
         DBDictionary dict)
         throws SQLException;
 
+    @Override
     public void map(boolean adapt) {
         assertNotMappedBy();
 
@@ -95,27 +100,32 @@ abstract class MaxEmbeddedLobFieldStrategy
         tmpCol.setIdentifier(fieldName);
         tmpCol.setJavaType(getExpectedJavaType());
         tmpCol.setSize(-1);
-        Column[] cols = vinfo.getColumns(field, fieldName,
+        _cols = vinfo.getColumns(field, fieldName,
             new Column[]{ tmpCol }, field.getTable(), adapt);
-
-        field.setColumns(cols);
-        field.setColumnIO(vinfo.getColumnIO());
+        _io = vinfo.getColumnIO();
+        if (_io == null)
+            _io = field.getColumnIO();
+        field.setColumns(_cols);
+        field.setColumnIO(_io);
         field.mapConstraints(fieldName, adapt);
         field.mapPrimaryKey(adapt);
     }
 
+    @Override
     public Boolean isCustomInsert(OpenJPAStateManager sm, JDBCStore store) {
         if (!field.getColumnIO().isInsertable(0, false))
             return Boolean.FALSE;
         return isCustom(sm, store);
     }
 
+    @Override
     public Boolean isCustomUpdate(OpenJPAStateManager sm, JDBCStore store) {
         if (!field.getColumnIO().isUpdatable(0, false))
             return Boolean.FALSE;
         return isCustom(sm, store);
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         if (!field.getColumnIO().isInsertable(0, false))
@@ -125,6 +135,7 @@ abstract class MaxEmbeddedLobFieldStrategy
             update(sm, row);
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         if (!field.getColumnIO().isUpdatable(0, false))
@@ -134,16 +145,19 @@ abstract class MaxEmbeddedLobFieldStrategy
             update(sm, row);
     }
 
+    @Override
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         field.deleteRow(sm, store, rm);
     }
 
+    @Override
     public void customInsert(OpenJPAStateManager sm, JDBCStore store)
         throws SQLException {
         customUpdate(sm, store);
     }
 
+    @Override
     public void customUpdate(OpenJPAStateManager sm, JDBCStore store)
         throws SQLException {
         JDBCFetchConfiguration fetch = store.getFetchConfiguration();
@@ -185,6 +199,7 @@ abstract class MaxEmbeddedLobFieldStrategy
         }
     }
 
+    @Override
     public int supportsSelect(Select sel, int type, OpenJPAStateManager sm,
         JDBCStore store, JDBCFetchConfiguration fetch) {
         if (type == Select.TYPE_JOINLESS && sel.isSelected(field.getTable()))
@@ -192,15 +207,17 @@ abstract class MaxEmbeddedLobFieldStrategy
         return 0;
     }
 
+    @Override
     public int select(Select sel, OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, int eagerMode) {
-        if (sel.isDistinct() || 
-            eagerMode == JDBCFetchConfiguration.EAGER_NONE)
+        if (sel.isDistinct() ||
+            eagerMode == EagerFetchModes.EAGER_NONE)
             return -1;
         sel.select(field.getColumns()[0], field.join(sel));
         return 1;
     }
 
+    @Override
     public void load(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res)
         throws SQLException {
@@ -209,6 +226,7 @@ abstract class MaxEmbeddedLobFieldStrategy
             sm.store(field.getIndex(), load(col, res, null));
     }
 
+    @Override
     public void load(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch)
         throws SQLException {
@@ -236,34 +254,28 @@ abstract class MaxEmbeddedLobFieldStrategy
         return res.getObject(col, null, joins);
     }
 
-    public void appendIsNull(SQLBuffer sql, Select sel, Joins joins) {
-        joins = join(joins, false);
-        sql.append(sel.getColumnAlias(field.getColumns()[0], joins)).
-            append(" IS ").appendValue(null, field.getColumns()[0]);
-    }
-
-    public void appendIsNotNull(SQLBuffer sql, Select sel, Joins joins) {
-        joins = join(joins, false);
-        sql.append(sel.getColumnAlias(field.getColumns()[0], joins)).
-            append(" IS NOT ").appendValue(null, field.getColumns()[0]);
-    }
-
+    @Override
     public Joins join(Joins joins, boolean forceOuter) {
         return field.join(joins, forceOuter, false);
     }
 
+    @Override
     public Object loadProjection(JDBCStore store, JDBCFetchConfiguration fetch,
         Result res, Joins joins)
         throws SQLException {
         return load(field.getColumns()[0], res, joins);
     }
 
+    @Override
     public boolean isVersionable() {
         return false;
     }
 
+    @Override
     public void where(OpenJPAStateManager sm, JDBCStore store, RowManager rm,
         Object prevValue)
         throws SQLException {
     }
+
+    protected abstract Object getValue(OpenJPAStateManager sm);
 }

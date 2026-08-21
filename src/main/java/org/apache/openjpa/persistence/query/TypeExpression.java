@@ -14,18 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 /**
  * Denotes TYPE(e) Expression.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class TypeExpression extends UnaryOperatorExpression {
-	public TypeExpression(Expression op) {
+	
+    private static final long serialVersionUID = 1L;
+
+    public TypeExpression(Expression op) {
 		super(op, UnaryFunctionalOperator.TYPE);
 	}
 }

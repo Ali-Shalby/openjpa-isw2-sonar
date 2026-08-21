@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
 
@@ -25,8 +25,8 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Map;
-import java.util.StringTokenizer;
 import java.util.Map.Entry;
+import java.util.StringTokenizer;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
@@ -34,10 +34,10 @@ import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Clearable;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Strings;
 
 /**
  * Cron-style clearable eviction. Understands schedules based on cron format:
@@ -53,7 +53,7 @@ public class ClearableScheduler implements Runnable {
 
     private static final Localizer _loc = Localizer.forPackage(ClearableScheduler.class);
 
-    private Map<Clearable,Schedule> _clearables = new ConcurrentHashMap<Clearable,Schedule>();
+    private Map<Clearable,Schedule> _clearables = new ConcurrentHashMap<>();
     private boolean _stop = false;
     private int _interval = 1;
     private Log _log;
@@ -119,6 +119,7 @@ public class ClearableScheduler implements Runnable {
             stop();
     }
 
+    @Override
     public void run() {
         if (_log.isTraceEnabled())
             _log.trace(_loc.get("scheduler-interval", _interval + ""));
@@ -182,7 +183,7 @@ public class ClearableScheduler implements Runnable {
                 Calendar cal = Calendar.getInstance();
                 int interval = Integer.parseInt(date.substring(1));
                 int currMin = cal.get(Calendar.MINUTE);
-                
+
                 tmin = new int[60/interval];
                 for(int i = 0; i<tmin.length;i++){
                     int temp;
@@ -204,7 +205,7 @@ public class ClearableScheduler implements Runnable {
                 month = WILDCARD;
                 dayOfWeek = WILDCARD;
             }else{
-            
+
                 StringTokenizer token = new StringTokenizer(date, " \t");
                 if (token.countTokens() != 5)
                     throw new UserException(_loc.get("bad-count", date)).setFatal(true);
@@ -223,7 +224,7 @@ public class ClearableScheduler implements Runnable {
         private int[] parse(String token, int min, int max) {
             if ("*".equals(token.trim()))
                 return WILDCARD;
-            String[] tokens = Strings.split(token, ",", 0);
+            String[] tokens = StringUtil.split(token, ",", 0);
             int [] times = new int[tokens.length];
             for (int i = 0; i < tokens.length; i++) {
                 try {

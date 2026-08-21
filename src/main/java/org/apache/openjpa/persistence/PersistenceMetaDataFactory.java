@@ -14,12 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.net.URL;
 import java.security.AccessController;
 import java.util.ArrayList;
@@ -32,16 +33,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Stack;
 
-import javax.persistence.Embeddable;
-import javax.persistence.Entity;
-import javax.persistence.MappedSuperclass;
-import javax.persistence.NamedNativeQueries;
-import javax.persistence.NamedNativeQuery;
-import javax.persistence.NamedQueries;
-import javax.persistence.NamedQuery;
-import javax.persistence.SqlResultSetMapping;
-import javax.persistence.SqlResultSetMappings;
-import javax.persistence.metamodel.StaticMetamodel;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.Entity;
+import jakarta.persistence.MappedSuperclass;
+import jakarta.persistence.NamedNativeQueries;
+import jakarta.persistence.NamedNativeQuery;
+import jakarta.persistence.NamedQueries;
+import jakarta.persistence.NamedQuery;
+import jakarta.persistence.NamedStoredProcedureQueries;
+import jakarta.persistence.NamedStoredProcedureQuery;
+import jakarta.persistence.SqlResultSetMapping;
+import jakarta.persistence.SqlResultSetMappings;
+import jakarta.persistence.metamodel.StaticMetamodel;
 
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
@@ -69,7 +72,6 @@ import org.apache.openjpa.util.MetaDataException;
  *
  * @author Steve Kim
  * @since 0.4.0
- * @nojavadoc
  */
 public class PersistenceMetaDataFactory
     extends AbstractCFMetaDataFactory
@@ -78,7 +80,7 @@ public class PersistenceMetaDataFactory
     private static final Localizer _loc = Localizer.forPackage
         (PersistenceMetaDataFactory.class);
 
-    private final PersistenceMetaDataDefaults _def = 
+    private final PersistenceMetaDataDefaults _def =
         new PersistenceMetaDataDefaults();
     private AnnotationPersistenceMetaDataParser _annoParser = null;
     private AnnotationPersistenceXMLMetaDataParser _annoXMLParser = null;
@@ -87,8 +89,8 @@ public class PersistenceMetaDataFactory
     private Set<URL> _unparsed = null; // xml rsrc
     private boolean _fieldOverride = true;
 
-    protected Stack<XMLPersistenceMetaDataParser> _stack = 
-        new Stack<XMLPersistenceMetaDataParser>();
+    protected Stack<XMLPersistenceMetaDataParser> _stack =
+        new Stack<>();
 
     /**
      * Whether to use field-level override or class-level override.
@@ -140,6 +142,7 @@ public class PersistenceMetaDataFactory
     /**
      * Create a new annotation serializer.
      */
+    @Override
     protected AnnotationPersistenceMetaDataSerializer
         newAnnotationSerializer() {
         return new AnnotationPersistenceMetaDataSerializer
@@ -172,7 +175,7 @@ public class PersistenceMetaDataFactory
     }
 
     public void resetXMLParser() {
-        // If a parser was pushed on the stack due to multi-level parsing, 
+        // If a parser was pushed on the stack due to multi-level parsing,
         // clear the current parser and pop the inner parser off the stack.
         if (!_stack.isEmpty()) {
             _xmlParser.clear();
@@ -204,7 +207,8 @@ public class PersistenceMetaDataFactory
     protected XMLPersistenceMetaDataSerializer newXMLSerializer() {
         return new XMLPersistenceMetaDataSerializer(repos.getConfiguration());
     }
-    
+
+    @Override
     public void load(Class<?> cls, int mode, ClassLoader envLoader) {
         if (mode == MODE_NONE)
             return;
@@ -223,7 +227,7 @@ public class PersistenceMetaDataFactory
         boolean parsedXML = false;
         if (_unparsed != null && !_unparsed.isEmpty()
             && (mode & MODE_META) != 0) {
-            Set<URL> unparsed = new HashSet<URL>(_unparsed);
+            Set<URL> unparsed = new HashSet<>(_unparsed);
             for (URL url : unparsed) {
                 parseXML(url, cls, mode, envLoader);
             }
@@ -267,7 +271,7 @@ public class PersistenceMetaDataFactory
     /**
      * Parse the given XML resource.
      */
-    private void parseXML(URL xml, Class<?> cls, int mode, 
+    private void parseXML(URL xml, Class<?> cls, int mode,
     	ClassLoader envLoader) {
         // spring needs to use the envLoader first for all class resolution,
         // but we must still fall back on application loader
@@ -284,7 +288,7 @@ public class PersistenceMetaDataFactory
             mult.addClassLoader(loader);
           loader = mult;
         }
-    
+
         XMLPersistenceMetaDataParser xmlParser = getXMLParser();
         xmlParser.setClassLoader(loader);
         xmlParser.setEnvClassLoader(envLoader);
@@ -333,13 +337,13 @@ public class PersistenceMetaDataFactory
         if (log.isTraceEnabled())
             log.trace(_loc.get(
                 "map-persistent-type-names", rsrc, Arrays.asList(names)));
-        
+
         if (_xml == null)
-            _xml = new HashMap<URL, Set<String>>();
-        _xml.put((URL) rsrc, new HashSet<String>(Arrays.asList(names)));
+            _xml = new HashMap<>();
+        _xml.put((URL) rsrc, new HashSet<>(Arrays.asList(names)));
 
         if (_unparsed == null)
-            _unparsed = new HashSet<URL>();
+            _unparsed = new HashSet<>();
         _unparsed.add((URL) rsrc);
     }
 
@@ -349,31 +353,37 @@ public class PersistenceMetaDataFactory
             return null;
         Collection<Class<?>> classes = repos.loadPersistentTypes(false, loader);
         for (Class<?> cls :  classes) {
-            if ((AccessController.doPrivileged(J2DoPrivHelper
-                .isAnnotationPresentAction(cls, NamedQuery.class)))
-                .booleanValue() && hasNamedQuery
+            if (AccessController.doPrivileged(J2DoPrivHelper
+                    .isAnnotationPresentAction(cls, NamedQuery.class)) && hasNamedQuery
                 (queryName, (NamedQuery) cls.getAnnotation(NamedQuery.class)))
                 return cls;
-            if ((AccessController.doPrivileged(J2DoPrivHelper
-                .isAnnotationPresentAction(cls, NamedQueries.class)))
-                .booleanValue() &&
+            if (AccessController.doPrivileged(J2DoPrivHelper
+                    .isAnnotationPresentAction(cls, NamedQueries.class)) &&
                 hasNamedQuery(queryName, ((NamedQueries) cls.
                     getAnnotation(NamedQueries.class)).value()))
                 return cls;
-            if ((AccessController.doPrivileged(J2DoPrivHelper
-                .isAnnotationPresentAction(cls, NamedNativeQuery.class)))
-                .booleanValue() &&
+            if (AccessController.doPrivileged(J2DoPrivHelper
+                    .isAnnotationPresentAction(cls, NamedNativeQuery.class)) &&
                 hasNamedNativeQuery(queryName, (NamedNativeQuery) cls.
                     getAnnotation(NamedNativeQuery.class)))
                 return cls;
-            if ((AccessController.doPrivileged(J2DoPrivHelper
-                .isAnnotationPresentAction(cls, NamedNativeQueries.class)))
-                .booleanValue() &&
+            if (AccessController.doPrivileged(J2DoPrivHelper
+                    .isAnnotationPresentAction(cls, NamedNativeQueries.class)) &&
                 hasNamedNativeQuery(queryName, ((NamedNativeQueries) cls.
                     getAnnotation(NamedNativeQueries.class)).value()))
                 return cls;
+            if (isAnnotated(cls, NamedStoredProcedureQuery.class)
+                    && hasNamedStoredProcedure(queryName, cls.getAnnotation(NamedStoredProcedureQuery.class)))
+                return cls;
+            if (isAnnotated(cls, NamedStoredProcedureQueries.class)
+                    && hasNamedStoredProcedure(queryName, cls.getAnnotation(NamedStoredProcedureQueries.class).value()))
+                return cls;
         }
         return null;
+    }
+
+    private boolean isAnnotated(Class<?> cls, Class<? extends Annotation> annotationClazz) {
+        return AccessController.doPrivileged(J2DoPrivHelper.isAnnotationPresentAction(cls, annotationClazz));
     }
 
     @Override
@@ -381,20 +391,18 @@ public class PersistenceMetaDataFactory
         ClassLoader loader) {
         if (rsMappingName == null)
             return null;
-        
+
         Collection<Class<?>> classes = repos.loadPersistentTypes(false, loader);
         for (Class<?> cls : classes) {
 
-            if ((AccessController.doPrivileged(J2DoPrivHelper
-                .isAnnotationPresentAction(cls, SqlResultSetMapping.class)))
-                .booleanValue() &&
+            if (AccessController.doPrivileged(J2DoPrivHelper
+                    .isAnnotationPresentAction(cls, SqlResultSetMapping.class)) &&
                 hasRSMapping(rsMappingName, (SqlResultSetMapping) cls.
                 getAnnotation(SqlResultSetMapping.class)))
                 return cls;
 
-            if ((AccessController.doPrivileged(J2DoPrivHelper
-                .isAnnotationPresentAction(cls, SqlResultSetMappings.class)))
-                .booleanValue() &&
+            if (AccessController.doPrivileged(J2DoPrivHelper
+                    .isAnnotationPresentAction(cls, SqlResultSetMappings.class)) &&
                 hasRSMapping(rsMappingName, ((SqlResultSetMappings) cls.
                 getAnnotation(SqlResultSetMappings.class)).value()))
                 return cls;
@@ -414,6 +422,14 @@ public class PersistenceMetaDataFactory
         SqlResultSetMapping... mappings) {
         for (SqlResultSetMapping m : mappings) {
             if (rsMapping.equals(m.name()))
+                return true;
+        }
+        return false;
+    }
+
+    private boolean hasNamedStoredProcedure(String query, NamedStoredProcedureQuery... queries) {
+        for (NamedStoredProcedureQuery q : queries) {
+            if (query.equals(q.name()))
                 return true;
         }
         return false;
@@ -448,13 +464,15 @@ public class PersistenceMetaDataFactory
                     buf = new StringBuilder();
                 else
                     buf.append(", ");
-                buf.append(fmd);
+                buf.append(meta.getDescribedTypeString() + "." + fmd);
             }
         }
-        if (buf != null)
+        if (buf != null) {
             throw new MetaDataException(_loc.get("no-pers-strat", buf));
+        }
     }
 
+    @Override
     public MetaDataDefaults getDefaults() {
         return _def;
     }
@@ -478,10 +496,12 @@ public class PersistenceMetaDataFactory
             _xml.clear();
     }
 
+    @Override
     protected Parser newParser(boolean loading) {
         return newXMLParser(loading);
     }
 
+    @Override
     protected Serializer newSerializer() {
         return newXMLSerializer();
     }
@@ -491,10 +511,12 @@ public class PersistenceMetaDataFactory
         parse(parser, Collections.singleton(defaultXMLFile()));
     }
 
+    @Override
     protected File defaultSourceFile(ClassMetaData meta) {
         return defaultXMLFile();
     }
 
+    @Override
     protected File defaultSourceFile(QueryMetaData query, Map clsNames) {
         ClassMetaData meta = getDefiningMetaData(query, clsNames);
         File file = (meta == null) ? null : meta.getSourceFile();
@@ -503,6 +525,7 @@ public class PersistenceMetaDataFactory
         return defaultXMLFile();
     }
 
+    @Override
     protected File defaultSourceFile(SequenceMetaData seq, Map clsNames) {
         return defaultXMLFile();
     }
@@ -517,19 +540,22 @@ public class PersistenceMetaDataFactory
             J2DoPrivHelper.getResourceAction(loader, "META-INF/orm.xml"));
         if (rsrc != null) {
             File file = new File(rsrc.getFile());
-            if ((AccessController.doPrivileged(
-                J2DoPrivHelper.existsAction(file))).booleanValue())
+            if (AccessController.doPrivileged(
+                    J2DoPrivHelper.existsAction(file)))
                 return file;
         }
-        return new File("orm.xml");
+        return new File(dir, "orm.xml");
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
         if (rsrcs == null)
             rsrcs = Collections.singleton("META-INF/orm.xml");
@@ -537,12 +563,13 @@ public class PersistenceMetaDataFactory
 			rsrcs.add("META-INF/orm.xml");
 	}
 
+    @Override
     public void setInto(Options opts) {
         opts.keySet().retainAll(opts.setInto(_def).keySet());
     }
 
     /**
-     * Return JAXB XML annotation parser, 
+     * Return JAXB XML annotation parser,
      * creating it if it does not already exist.
      */
     public AnnotationPersistenceXMLMetaDataParser getXMLAnnotationParser() {
@@ -573,14 +600,16 @@ public class PersistenceMetaDataFactory
             (repos.getConfiguration());
     }
 
-    public void loadXMLMetaData(FieldMetaData fmd) {
+    @Override
+    public void loadXMLMetaData(Class<?> cls) {
         AnnotationPersistenceXMLMetaDataParser parser
             = getXMLAnnotationParser();
-        parser.parse(fmd);
+        parser.parse(cls);
     }
-    
+
     private static String UNDERSCORE = "_";
-    
+
+    @Override
     public String getManagedClassName(String mmClassName) {
         if (mmClassName == null || mmClassName.length() == 0)
             return null;
@@ -589,16 +618,19 @@ public class PersistenceMetaDataFactory
         return mmClassName;
     }
 
+    @Override
     public String getMetaModelClassName(String managedClassName) {
         if (managedClassName == null || managedClassName.length() == 0)
             return null;
         return managedClassName + UNDERSCORE;
     }
 
+    @Override
     public boolean isMetaClass(Class<?> c) {
         return c != null && c.getAnnotation(StaticMetamodel.class) != null;
     }
-    
+
+    @Override
     public Class<?> getManagedClass(Class<?> c) {
         if (isMetaClass(c)) {
             return c.getAnnotation(StaticMetamodel.class).value();

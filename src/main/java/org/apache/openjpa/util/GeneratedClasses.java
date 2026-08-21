@@ -19,13 +19,8 @@
 package org.apache.openjpa.util;
 
 import java.security.AccessController;
-import java.security.PrivilegedActionException;
-import java.lang.reflect.Constructor;
 
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
-import org.apache.openjpa.lib.util.Localizer;
-import serp.bytecode.BCClass;
-import serp.bytecode.BCClassLoader;
 
 /**
  * Utility methods when generating classes, including at runtime.
@@ -35,7 +30,7 @@ import serp.bytecode.BCClassLoader;
 public class GeneratedClasses {
 
     /**
-     * Return the more derived loader of the class laoders for the given 
+     * Return the more derived loader of the class laoders for the given
      * classes.
      */
     public static ClassLoader getMostDerivedLoader(Class c1, Class c2) {
@@ -56,28 +51,22 @@ public class GeneratedClasses {
         return l2;
     }
 
-    /**
-     * Load the class represented by the given bytecode.
-     */
-    public static Class loadBCClass(BCClass bc, ClassLoader loader) {
-        BCClassLoader bcloader = AccessController
-                .doPrivileged(J2DoPrivHelper.newBCClassLoaderAction(bc
-                        .getProject(), loader));
+    public static Class loadAsmClass(String className, byte[] classBytes, Class<?> proxiedClass, ClassLoader loader) {
+        ClassLoaderProxyService pcls = new ClassLoaderProxyService(null, loader);
         try {
-            Class c = Class.forName(bc.getName(), true, bcloader);
-            bc.getProject().clear();
-            return c;
+            return pcls.defineAndLoad(className, classBytes, proxiedClass);
         } catch (Throwable t) {
-            throw new GeneralException(bc.getName()).setCause(t);
+            // this happens e.g when trying to create a proxy for a class with private access.
+            throw new GeneralException(className).setCause(t);
         }
     }
-    
+
     /**
-     * Return true if the given loader will load the same version of a given 
-     * class.  
-     * 
+     * Return true if the given loader will load the same version of a given
+     * class.
+     *
      * @param loader Classloader to use.
-     * @param clazz  Expected class. 
+     * @param clazz  Expected class.
      * @return true if loader.load(clazz.getName()) == clazz. Otherwise false.
      */
     private static boolean canLoad(ClassLoader loader, Class clazz) {

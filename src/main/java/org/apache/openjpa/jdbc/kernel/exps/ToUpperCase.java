@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -30,6 +30,9 @@ import org.apache.openjpa.jdbc.sql.Select;
 public class ToUpperCase
     extends StringFunction {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Provide the string to operate on.
      */
@@ -37,7 +40,8 @@ public class ToUpperCase
         super(val);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf, int index) {
 
         DBDictionary dict = ctx.store.getDBDictionary();
@@ -55,6 +59,7 @@ public class ToUpperCase
         buf.append(func.substring(idx + 3));
     }
 
+    @Override
     public int getId() {
         return Val.UPPER_VAL;
     }

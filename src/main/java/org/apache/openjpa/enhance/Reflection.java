@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.enhance;
 
@@ -29,12 +29,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.ReferenceMap;
-import org.apache.openjpa.lib.util.Reflectable;
 import org.apache.openjpa.lib.util.Localizer.Message;
+import org.apache.openjpa.lib.util.Reflectable;
+import org.apache.openjpa.lib.util.StringUtil;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap.ReferenceStrength;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 import org.apache.openjpa.util.GeneralException;
 import org.apache.openjpa.util.UserException;
@@ -51,13 +51,13 @@ public class Reflection {
         (Reflection.class);
 
     // Weak HashMap caches of getter/setter/beanProperty methods
-    private static Map<Class<?>, Map<String, Method>> getterMethodCache = 
-        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
-    private static Map<Class<?>, Map<String, Method>> setterMethodCache = 
-        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
-    private static Map<Class<?>, Set<String>> beanPropertiesNameCache = 
-        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
-    
+    private static Map<Class<?>, Map<String, Method>> getterMethodCache =
+        new ConcurrentReferenceHashMap(ReferenceStrength.WEAK, ReferenceStrength.HARD);
+    private static Map<Class<?>, Map<String, Method>> setterMethodCache =
+        new ConcurrentReferenceHashMap(ReferenceStrength.WEAK, ReferenceStrength.HARD);
+    private static Map<Class<?>, Set<String>> beanPropertiesNameCache =
+        new ConcurrentReferenceHashMap(ReferenceStrength.WEAK, ReferenceStrength.HARD);
+
     private static Method getGetterMethod(Class<?> cls, String prop) {
         Method rtnMethod = null;
         Map<String, Method> clsMap = getterMethodCache.get(cls);
@@ -71,8 +71,8 @@ public class Reflection {
         Method method) {
         Map<String, Method> clsMap = getterMethodCache.get(cls);
         if (clsMap == null) {
-            clsMap = new ConcurrentReferenceHashMap(ReferenceMap.HARD,
-                ReferenceMap.WEAK);
+            clsMap = new ConcurrentReferenceHashMap(ReferenceStrength.HARD,
+                ReferenceStrength.WEAK);
             getterMethodCache.put(cls, clsMap);
         }
         clsMap.put(prop, method);
@@ -91,8 +91,8 @@ public class Reflection {
         Method method) {
         Map<String, Method> clsMap = setterMethodCache.get(cls);
         if (clsMap == null) {
-            clsMap = new ConcurrentReferenceHashMap(ReferenceMap.HARD,
-                ReferenceMap.WEAK);
+            clsMap = new ConcurrentReferenceHashMap(ReferenceStrength.HARD,
+                ReferenceStrength.WEAK);
             setterMethodCache.put(cls, clsMap);
         }
         clsMap.put(prop, method);
@@ -107,7 +107,7 @@ public class Reflection {
         if (m != null) {
             return m;
         }
-        String capProp = StringUtils.capitalize(prop);
+        String capProp = StringUtil.capitalize(prop);
         try {
             // this algorithm searches for a get<prop> or is<prop> method in
             // a breadth-first manner.
@@ -123,6 +123,19 @@ public class Reflection {
                         || m.getReturnType() == Boolean.class)) {
                         setGetterMethod(cls, prop, m);
                         return m;
+                    } else {
+                        m = getDeclaredMethod(c, "get" + prop, null);
+                        if (m != null) {
+                            setGetterMethod(cls, prop, m);
+                            return m;
+                        } else {
+                            m = getDeclaredMethod(c, "is" + prop, null);
+                            if (m != null
+                                    && (m.getReturnType() == boolean.class || m.getReturnType() == Boolean.class)) {
+                                setGetterMethod(cls, prop, m);
+                                return m;
+                            }
+                        }
                     }
                 }
             }
@@ -141,7 +154,7 @@ public class Reflection {
      */
     public static Method findSetter(Class cls, String prop, boolean mustExist) {
         Method getter = findGetter(cls, prop, mustExist);
-        return (getter == null) ? null 
+        return (getter == null) ? null
             : findSetter(cls, prop, getter.getReturnType(), mustExist);
     }
 
@@ -155,7 +168,7 @@ public class Reflection {
         if (m != null) {
             return m;
         }
-        String name = "set" + StringUtils.capitalize(prop);
+        String name = "set" + StringUtil.capitalize(prop);
         try {
             for (Class c = cls; c != null && c != Object.class;
                 c = c.getSuperclass()) {
@@ -189,14 +202,14 @@ public class Reflection {
         Method[] methods = (Method[]) AccessController.doPrivileged(
             J2DoPrivHelper.getDeclaredMethodsAction(cls));
         Method candidate = null;
-        for (int i = 0 ; i < methods.length; i++) {
-    	    if (name.equals(methods[i].getName())) {
-                Class[] methodParams = methods[i].getParameterTypes();
+        for (Method method : methods) {
+            if (name.equals(method.getName())) {
+                Class[] methodParams = method.getParameterTypes();
                 if (param == null && methodParams.length == 0)
-                    candidate = mostDerived(methods[i], candidate);
+                    candidate = mostDerived(method, candidate);
                 else if (param != null && methodParams.length == 1
-                    && param.equals(methodParams[0]))
-                    candidate = mostDerived(methods[i], candidate);
+                        && param.equals(methodParams[0]))
+                    candidate = mostDerived(method, candidate);
             }
         }
         return candidate;
@@ -207,7 +220,7 @@ public class Reflection {
             return meth2;
         if (meth2 == null)
             return meth1;
-        
+
         Class cls2 = meth2.getDeclaringClass();
         Class cls1 = meth1.getDeclaringClass();
 
@@ -266,9 +279,9 @@ public class Reflection {
     private static Field getDeclaredField(Class cls, String name) {
         Field[] fields = AccessController.doPrivileged(
             J2DoPrivHelper.getDeclaredFieldsAction(cls));
-        for (int i = 0 ; i < fields.length; i++) {
-    	    if (name.equals(fields[i].getName()))
-		        return fields[i];
+        for (Field field : fields) {
+            if (name.equals(field.getName()))
+                return field;
         }
         return null;
     }
@@ -286,14 +299,14 @@ public class Reflection {
             throw wrapReflectionException(t, _loc.get("get-field", target, field));
         }
     }
-    
+
     /**
      * Get the value of the given named field or a corresponding getter method.
-     * 
+     *
      * @return null if the field does not exist and mustExist is set to false or
      * the given target is null.
-     * 
-     * @exception UserException if mustExist is true and the field or getter 
+     *
+     * @exception UserException if mustExist is true and the field or getter
      * method is non-existent
      */
     public static Object getValue(Object obj, String prop, boolean mustExist) {
@@ -330,7 +343,7 @@ public class Reflection {
      */
     private static RuntimeException wrapReflectionException(Throwable t, Message message) {
         if (t instanceof InvocationTargetException)
-            t = ((InvocationTargetException) t).getTargetException();  
+            t = ((InvocationTargetException) t).getTargetException();
         t.initCause(new IllegalArgumentException(message.getMessage()));
         if (t instanceof RuntimeException)
             return (RuntimeException) t;
@@ -468,7 +481,7 @@ public class Reflection {
      */
     public static boolean getBoolean(Object target, Method getter) {
         Object o = get(target, getter);
-        return (o == null) ? false : ((Boolean) o).booleanValue();
+        return (o == null) ? false : (Boolean) o;
     }
 
     /**
@@ -484,7 +497,7 @@ public class Reflection {
      */
     public static char getChar(Object target, Method getter) {
         Object o = get(target, getter);
-        return (o == null) ? (char) 0 : ((Character) o).charValue();
+        return (o == null) ? (char) 0 : (Character) o;
     }
 
     /**
@@ -537,7 +550,7 @@ public class Reflection {
         try {
             field.set(target, value);
         } catch (Throwable t) {
-            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value, 
+            throw wrapReflectionException(t, _loc.get("set-field", new Object[]{target, field, value,
                     value == null ? "" : value.getClass()}));
         }
     }
@@ -763,7 +776,7 @@ public class Reflection {
         try {
             setter.invoke(target, new Object[] { value });
         } catch (Throwable t) {
-            throw wrapReflectionException(t, _loc.get("set-method", new Object[]{target, setter, value, 
+            throw wrapReflectionException(t, _loc.get("set-method", new Object[]{target, setter, value,
                     value == null ? "" : value.getClass()}));
         }
     }
@@ -779,14 +792,14 @@ public class Reflection {
      * Invoke the given setter on the given object.
      */
     public static void set(Object target, Method setter, byte value) {
-        set(target, setter, new Byte(value));
+        set(target, setter, Byte.valueOf(value));
     }
 
     /**
      * Invoke the given setter on the given object.
      */
     public static void set(Object target, Method setter, char value) {
-        set(target, setter, new Character(value));
+        set(target, setter, Character.valueOf(value));
     }
 
     /**
@@ -807,33 +820,33 @@ public class Reflection {
      * Invoke the given setter on the given object.
      */
     public static void set(Object target, Method setter, int value) {
-        set(target, setter, new Integer(value));
+        set(target, setter, Integer.valueOf(value));
     }
 
     /**
      * Invoke the given setter on the given object.
      */
     public static void set(Object target, Method setter, long value) {
-        set(target, setter, new Long(value));
+        set(target, setter, Long.valueOf(value));
     }
 
     /**
      * Invoke the given setter on the given object.
      */
     public static void set(Object target, Method setter, short value) {
-        set(target, setter, new Short(value));
+        set(target, setter, Short.valueOf(value));
     }
-    
+
     /**
      * Gets all bean-style property names of the given Class or its superclass.
-     * A bean-style property 'abc' exists in Class C iff C has declared 
+     * A bean-style property 'abc' exists in Class C iff C has declared
      * following pair of methods:
      *   public void setAbc(Y y) or public C setAbc(Y y)
      *   public Y getAbc();
-     *   
+     *
      * If a getter property is annotated with {@link Reflectable}, then
      * it is ignored.
-     *   
+     *
      */
     public static Set<String> getBeanStylePropertyNames(Class<?> c) {
         if (c == null)
@@ -845,31 +858,31 @@ public class Reflection {
         Method[] methods = c.getMethods();
         if (methods == null || methods.length < 2)
             return Collections.emptySet();
-        result = new TreeSet<String>();
+        result = new TreeSet<>();
         for (Method m : methods) {
             if (m.getName().startsWith("get")) {
                 if (!canReflect(m))
                     continue;
-                String prop = StringUtils.capitalize(m.getName()
+                String prop = StringUtil.capitalize(m.getName()
                     .substring("get".length()));
                 Class<?> rtype = m.getReturnType();
                 try {
                   Method setter = c.getMethod("set"+prop, new Class<?>[]{rtype});
-                  if (setter.getReturnType() == void.class || 
+                  if (setter.getReturnType() == void.class ||
                       setter.getReturnType().isAssignableFrom(c))
                   result.add(prop);
                 } catch (NoSuchMethodException e) {
-                    
+
                 }
             }
         }
         beanPropertiesNameCache.put(c, result);
         return result;
     }
-    
+
     /**
      * Gets all public field names of the given Class.
-     *   
+     *
      */
     public static Set<String> getPublicFieldNames(Class c) {
         if (c == null)
@@ -877,19 +890,19 @@ public class Reflection {
         Field[] fields = c.getFields();
         if (fields == null || fields.length == 0)
             return Collections.EMPTY_SET;
-        Set<String> result = new TreeSet<String>();
+        Set<String> result = new TreeSet<>();
         for (Field f : fields) {
             if (canReflect(f))
                 result.add(f.getName());
         }
         return result;
     }
-    
+
     /**
-     * Gets values of all field f the given class such that f exactly 
+     * Gets values of all field f the given class such that f exactly
      * match the given modifiers and are of given type (Object implies any type)
-     * unless f is annotated as {@link Reflectable}. 
-     *   
+     * unless f is annotated as {@link Reflectable}.
+     *
      */
     public static <T> Set<T> getFieldValues(Class c, int mods, Class<T> t){
         if (c == null)
@@ -897,15 +910,14 @@ public class Reflection {
         Field[] fields = c.getFields();
         if (fields == null || fields.length == 0)
             return Collections.EMPTY_SET;
-        Set<T> result = new TreeSet<T>();
+        Set<T> result = new TreeSet<>();
         for (Field f : fields) {
-            if (mods == f.getModifiers() 
+            if (mods == f.getModifiers()
             && (t == Object.class || t.isAssignableFrom(f.getType()))
             && canReflect(f)) {
                 try {
                     result.add((T)f.get(null));
-                } catch (IllegalArgumentException e) {
-                } catch (IllegalAccessException e) {
+                } catch (IllegalArgumentException | IllegalAccessException e) {
                 }
             }
         }
@@ -914,10 +926,10 @@ public class Reflection {
 
     /**
      * Affirms if the given member is selected for reflection. The decision is
-     * based on the following truth table on both the class-level and 
-     * member-level annotation (null annotation represents MAYBE) 
-     * 
-     * Class   member  
+     * based on the following truth table on both the class-level and
+     * member-level annotation (null annotation represents MAYBE)
+     *
+     * Class   member
      * MAYBE   MAYBE   YES
      * MAYBE   YES     YES
      * MAYBE   NO      NO
@@ -928,43 +940,43 @@ public class Reflection {
      *
      * NO      YES     YES
      * NO      MAYBE   NO
-     * NO      NO      NO 
-     * 
-    */   
+     * NO      NO      NO
+     *
+    */
     static boolean canReflect(Reflectable cls, Reflectable member) {
         if (cls == null || cls.value()) {
-            return member == null || member.value() == true;
+            return member == null || member.value();
         } else {
-            return member != null && member.value() == true;
+            return member != null && member.value();
         }
     }
-    
+
     /**
      * Affirms if the original declaration the given field is annotated
-     * for reflection. 
+     * for reflection.
      */
     static boolean canReflect(Field field) {
         Class cls = field.getDeclaringClass();
-        return canReflect((Reflectable)cls.getAnnotation(Reflectable.class), 
+        return canReflect((Reflectable)cls.getAnnotation(Reflectable.class),
             field.getAnnotation(Reflectable.class));
     }
-    
+
     /**
      * Affirms if the original declaration the given method is annotated
-     * for reflection. 
+     * for reflection.
      */
     static boolean canReflect(Method method) {
         Class cls = getDeclaringClass(method);
         if (cls != method.getDeclaringClass())
             method = getDeclaringMethod(cls, method);
-        return canReflect((Reflectable)cls.getAnnotation(Reflectable.class), 
+        return canReflect((Reflectable)cls.getAnnotation(Reflectable.class),
             method.getAnnotation(Reflectable.class));
     }
-    
+
     /**
      * Gets the declaring class of the given method signature but also checks
      * if the method is declared in an interface. If yes, then returns the
-     * interface. 
+     * interface.
      */
     public static Class getDeclaringClass(Method m) {
         if (m == null)
@@ -977,7 +989,7 @@ public class Reflection {
         }
         return cls;
     }
-    
+
     /**
      * Gets the method in the given class that has the same signature of the
      * given method, if exists. Otherwise, null.
@@ -989,5 +1001,5 @@ public class Reflection {
         } catch (Exception e) {
             return null;
         }
-    }    
+    }
 }

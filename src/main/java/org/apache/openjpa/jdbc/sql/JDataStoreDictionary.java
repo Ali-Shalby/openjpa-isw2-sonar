@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -64,26 +64,27 @@ public class JDataStoreDictionary
             "SHORT", "INT", "LONG", "DOUBLE PRECISION", "BOOLEAN",
         }));
 
+        requiresSearchStringEscapeForLike = true;
         searchStringEscape = "";
     }
 
     @Override
     public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
-        FilterValue end) {
+        FilterValue length) {
         buf.append("SUBSTRING(");
         str.appendTo(buf);
         buf.append(" FROM (");
         start.appendTo(buf);
-        buf.append(" + 1) FOR (");
-        if (end == null) {
+        buf.append(") FOR (");
+        if (length == null) {
             buf.append("CHAR_LENGTH(");
             str.appendTo(buf);
             buf.append(")");
         } else
-            end.appendTo(buf);
+            length.appendTo(buf);
         buf.append(" - (");
         start.appendTo(buf);
-        buf.append(")))");
+        buf.append(" - 1)))");
     }
 
     @Override
@@ -96,9 +97,9 @@ public class JDataStoreDictionary
             substring(buf, str, start, null);
         else
             str.appendTo(buf);
-        buf.append(") - 1");
+        buf.append(")");
         if (start != null) {
-            buf.append(" + ");
+            buf.append(" - 1 + ");
             start.appendTo(buf);
         }
         buf.append(")");

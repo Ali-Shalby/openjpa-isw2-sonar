@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -46,21 +46,26 @@ public class UUIDType4HexSeq
     private UUIDType4HexSeq() {
     }
 
+    @Override
     public void setType(int type) {
     }
 
+    @Override
     public synchronized Object next(StoreContext ctx, ClassMetaData meta) {
         _last = UUIDGenerator.nextHex(UUIDGenerator.TYPE4);
         return _last;
     }
 
+    @Override
     public synchronized Object current(StoreContext ctx, ClassMetaData meta) {
         return _last;
     }
 
+    @Override
     public void allocate(int additional, StoreContext ctx, ClassMetaData meta) {
     }
 
+    @Override
     public void close() {
 	}
 }

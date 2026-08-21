@@ -14,19 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 
 /**
  * Denotes CONCAT(e1,e2,..) Expression.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class ConcatExpression extends UnaryOperatorExpression {
-	public ConcatExpression(VarArgsExpression op) {
+	
+    private static final long serialVersionUID = 1L;
+
+    public ConcatExpression(VarArgsExpression op) {
 		super(op, UnaryFunctionalOperator.CONCAT);
 	}
 }

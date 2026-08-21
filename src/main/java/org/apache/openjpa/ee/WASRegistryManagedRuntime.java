@@ -14,51 +14,50 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ee;
 
 import com.ibm.wsspi.uow.UOWAction;
-import com.ibm.wsspi.uow.UOWActionException;
-import com.ibm.wsspi.uow.UOWException;
 import com.ibm.wsspi.uow.UOWManager;
 import com.ibm.wsspi.uow.UOWManagerFactory;
 
 /**
  * WASRegistryManagedRuntime provides WebSphere specific extensions to
- * {@link RegistryManagedRuntime}. Currently these extensions consist of using
- * the WebSphere UOWManager interface to submit non transactional work.
+ * {@link RegistryManagedRuntime}. Currently, these extensions consist of using
+ * the WebSphere UOWManager interface to submit non-transactional work.
  */
 public class WASRegistryManagedRuntime extends RegistryManagedRuntime {
+
+    // value taken from com.ibm.websphere.uow.UOWSynchronizationRegistry
+    private static final int WEBSPHERE_UOW_TYPE_LOCAL_TRANSACTION = 0;
+
+
+    public WASRegistryManagedRuntime() {
+    }
+
     /**
      * <P>
-     * RegistryManagedRuntime cannot suspend transactions, but WebSphere 
+     * RegistryManagedRuntime cannot suspend transactions, but WebSphere
      * provides an interface to submit work outside of the current tran.
      * </P>
      */
-    public void doNonTransactionalWork(Runnable runnable)
-            throws RuntimeException, UnsupportedOperationException {
+    @Override
+    public void doNonTransactionalWork(Runnable runnable) throws RuntimeException {
         try {
-            UOWManagerFactory.getUOWManager().runUnderUOW(
-                UOWManager.UOW_TYPE_LOCAL_TRANSACTION, false,
-                new DelegatingUOWAction(runnable));
+            UOWManager uowManager = UOWManagerFactory.getUOWManager();
+            uowManager.runUnderUOW(WEBSPHERE_UOW_TYPE_LOCAL_TRANSACTION, false, new DelegatingUOWAction(runnable));
         }
-        catch(UOWActionException e ) {
-            RuntimeException re = new RuntimeException(e.getMessage());
-            re.initCause(e);
-            throw re;
-        }
-        catch(UOWException e ) {
-            RuntimeException re = new RuntimeException(e.getMessage());
-            re.initCause(e);
+        catch(Exception e ) {
+            RuntimeException re = new RuntimeException(e.getMessage(), e);
             throw re;
         }
     }
 
-    
+
     /**
-     * Delegate for the WebSphere proprietary UOWAction interface. Enables a 
-     * {@link Runnable} to be passed in to the WebSphere UOWManager.  
+     * Delegate for the WebSphere proprietary UOWAction interface. Enables a
+     * {@link Runnable} to be passed in to the WebSphere UOWManager.
      */
     class DelegatingUOWAction implements UOWAction {
         Runnable _del;
@@ -67,6 +66,7 @@ public class WASRegistryManagedRuntime extends RegistryManagedRuntime {
             _del = delegate;
         }
 
+        @Override
         public void run() throws Exception {
             _del.run();
         }

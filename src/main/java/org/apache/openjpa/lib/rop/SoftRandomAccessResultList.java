@@ -14,20 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
-import java.util.Map;
+import org.apache.openjpa.lib.util.collections.ReferenceMap;
 
-import org.apache.commons.collections.ReferenceMap;
+import java.util.Map;
 
 /**
  * Specialization of the {@link RandomAccessResultList} that only maintains
  * soft references to instantiated objects.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class SoftRandomAccessResultList extends RandomAccessResultList {
 
@@ -35,6 +34,7 @@ public class SoftRandomAccessResultList extends RandomAccessResultList {
         super(rop);
     }
 
+    @Override
     protected Map newRowMap() {
         return new ReferenceMap();
     }

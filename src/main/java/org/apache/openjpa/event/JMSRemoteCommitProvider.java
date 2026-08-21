@@ -14,23 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
 import java.util.Properties;
-import javax.jms.ExceptionListener;
-import javax.jms.JMSException;
-import javax.jms.Message;
-import javax.jms.MessageListener;
-import javax.jms.ObjectMessage;
-import javax.jms.Session;
-import javax.jms.Topic;
-import javax.jms.TopicConnection;
-import javax.jms.TopicConnectionFactory;
-import javax.jms.TopicPublisher;
-import javax.jms.TopicSession;
-import javax.jms.TopicSubscriber;
+
+import jakarta.jms.ExceptionListener;
+import jakarta.jms.JMSException;
+import jakarta.jms.Message;
+import jakarta.jms.MessageListener;
+import jakarta.jms.ObjectMessage;
+import jakarta.jms.Session;
+import jakarta.jms.Topic;
+import jakarta.jms.TopicConnection;
+import jakarta.jms.TopicConnectionFactory;
+import jakarta.jms.TopicPublisher;
+import jakarta.jms.TopicSession;
+import jakarta.jms.TopicSubscriber;
 import javax.naming.Context;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
@@ -65,7 +66,7 @@ public class JMSRemoteCommitProvider
     private TopicSession _session;
     private TopicPublisher _publisher;
     private ClassLoader _appClassLoader;
-    
+
     /**
      * Sets the JMS Topic name. Defaults to
      * <code>topic/OpenJPACommitProviderTopic</code>.
@@ -96,6 +97,7 @@ public class JMSRemoteCommitProvider
      * constructor for JNDI lookups. Implementation of
      * {@link GenericConfigurable}.
      */
+    @Override
     public void setInto(Options opts) {
         if (opts != null && !opts.isEmpty()) {
             _ctxProps = new Properties();
@@ -117,6 +119,7 @@ public class JMSRemoteCommitProvider
 
     // ---------- RemoteCommitProvider implementation ----------
 
+    @Override
     public void broadcast(RemoteCommitEvent event) {
         try {
             _publisher.publish(createMessage(event));
@@ -128,6 +131,7 @@ public class JMSRemoteCommitProvider
         }
     }
 
+    @Override
     public void close() {
         try {
             if (_connection != null) {
@@ -150,6 +154,7 @@ public class JMSRemoteCommitProvider
      * Subclasses that need to perform actions in
      * {@link Configurable#endConfiguration} must invoke this method.
      */
+    @Override
     public void endConfiguration() {
         super.endConfiguration();
         _appClassLoader = Thread.currentThread().getContextClassLoader();
@@ -176,7 +181,7 @@ public class JMSRemoteCommitProvider
             // create a subscriber.
             TopicSubscriber s = _session.createSubscriber(topic, null,
                 /* noLocal: */ true);
-            
+
             MessageListener l = getMessageListener();
             s.setMessageListener(l);
             _connection.start();
@@ -192,13 +197,14 @@ public class JMSRemoteCommitProvider
     }
 
     /* *
-     * Returns a {@link javax.jms.MessageListener} capable of
+     * Returns a {@link jakarta.jms.MessageListener} capable of
      * understanding and processing messages created by {@link #createMessage}.
      *  The listener returned by this method is responsible for
      * notifying the provider that a remote event has been received.
      */
     protected MessageListener getMessageListener() {
         return new MessageListener() {
+            @Override
             public void onMessage(Message m) {
                 if (!(m instanceof ObjectMessage)) {
                     if (log.isWarnEnabled())
@@ -206,7 +212,7 @@ public class JMSRemoteCommitProvider
                             _topicName, m.getClass().getName()));
                     return;
                 }
-                
+
                 ClassLoader saveCls = Thread.currentThread()
                     .getContextClassLoader();
                 try {
@@ -249,6 +255,7 @@ public class JMSRemoteCommitProvider
         return _session.createObjectMessage(event);
     }
 
+    @Override
     public void onException(JMSException ex) {
         if (log.isWarnEnabled())
             log.warn(s_loc.get("jms-listener-error", _topicName), ex);

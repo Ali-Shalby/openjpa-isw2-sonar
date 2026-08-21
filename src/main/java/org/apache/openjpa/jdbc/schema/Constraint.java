@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -27,10 +27,8 @@ import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public abstract class Constraint
-    extends ReferenceCounter {
-
+public abstract class Constraint extends ReferenceCounter {
+    private static final long serialVersionUID = 1L;
     private DBIdentifier _name = DBIdentifier.NULL;
     private QualifiedDBIdentifier _fullPath = null;
     private Table _table = null;
@@ -52,6 +50,7 @@ public abstract class Constraint
      * @param table the local table of the constraint
      * @deprecated
      */
+    @Deprecated
     Constraint(String name, Table table) {
         this(DBIdentifier.newConstant(name), table);
     }
@@ -84,6 +83,7 @@ public abstract class Constraint
      * Return the column's table name.
      * @deprecated
      */
+    @Deprecated
     public String getTableName() {
         return getTableIdentifier().getName();
     }
@@ -97,6 +97,7 @@ public abstract class Constraint
      * columns whose table object is not set.
      * @deprecated
      */
+    @Deprecated
     public void setTableName(String name) {
         setTableIdentifier(DBIdentifier.newTable(name));
     }
@@ -108,11 +109,12 @@ public abstract class Constraint
           _fullPath = null;
       }
 
-    
+
     /**
      * Return the column table's schema name.
      * @deprecated
      */
+    @Deprecated
     public String getSchemaName() {
         return getSchemaIdentifier().getName();
     }
@@ -126,6 +128,7 @@ public abstract class Constraint
      * columns whose table object is not set.
      * @deprecated
      */
+    @Deprecated
     public void setSchemaName(String schema) {
         setSchemaIdentifier(DBIdentifier.newSchema(schema));
     }
@@ -140,6 +143,7 @@ public abstract class Constraint
      * Return the column's name.
      * @deprecated
      */
+    @Deprecated
     public String getColumnName() {
         return getColumnIdentifier().getName();
     }
@@ -153,6 +157,7 @@ public abstract class Constraint
      * columns whose table object is not set.
      * @deprecated
      */
+    @Deprecated
     public void setColumnName(String name) {
         setColumnIdentifier(DBIdentifier.newColumn(name));
     }
@@ -167,10 +172,11 @@ public abstract class Constraint
      * Return the name of the constraint.
      * @deprecated
      */
+    @Deprecated
     public String getName() {
         return getIdentifier().getName();
     }
-    
+
     public DBIdentifier getIdentifier() {
         return _name == null ? DBIdentifier.NULL : _name;
     }
@@ -181,6 +187,7 @@ public abstract class Constraint
      * constraint already belongs to a table.
      * @deprecated
      */
+    @Deprecated
     public void setName(String name) {
         setIdentifier(DBIdentifier.newConstraint(name));
     }
@@ -196,6 +203,7 @@ public abstract class Constraint
      * Return the full name of the constraint.
      * @deprecated
      */
+    @Deprecated
     public String getFullName() {
         return getFullIdentifier().getName();
     }
@@ -210,8 +218,8 @@ public abstract class Constraint
     public DBIdentifier getFullIdentifier() {
         return getQualifiedPath().getIdentifier();
     }
-    
-    
+
+
     /**
      * Return whether this constraint is a logical constraint only; i.e.
      * if it does not exist in the database.
@@ -232,6 +240,7 @@ public abstract class Constraint
         _deferred = deferred;
     }
 
+    @Override
     public String toString() {
         if (!getIdentifier().isNull())
             return getIdentifier().getName();
@@ -239,5 +248,33 @@ public abstract class Constraint
         String name = getClass().getName();
         name = name.substring(name.lastIndexOf('.') + 1);
         return "<" + name.toLowerCase() + ">";
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Constraint that = (Constraint) o;
+
+        if (_deferred != that._deferred) return false;
+        if (_name != null ? !_name.equals(that._name) : that._name != null) return false;
+        if (_fullPath != null ? !_fullPath.equals(that._fullPath) : that._fullPath != null) return false;
+        if (_table != null ? !_table.equals(that._table) : that._table != null) return false;
+        if (_tableName != null ? !_tableName.equals(that._tableName) : that._tableName != null) return false;
+        if (_schemaName != null ? !_schemaName.equals(that._schemaName) : that._schemaName != null) return false;
+        return _columnName != null ? _columnName.equals(that._columnName) : that._columnName == null;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = _name != null ? _name.hashCode() : 0;
+        result = 31 * result + (_fullPath != null ? _fullPath.hashCode() : 0);
+        result = 31 * result + (_table != null ? _table.hashCode() : 0);
+        result = 31 * result + (_tableName != null ? _tableName.hashCode() : 0);
+        result = 31 * result + (_schemaName != null ? _schemaName.hashCode() : 0);
+        result = 31 * result + (_columnName != null ? _columnName.hashCode() : 0);
+        result = 31 * result + (_deferred ? 1 : 0);
+        return result;
     }
 }

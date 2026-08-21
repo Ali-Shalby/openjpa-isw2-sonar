@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -31,14 +31,16 @@ import org.apache.openjpa.util.MetaDataException;
  * Class mapping for embedded objects.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class EmbeddedClassStrategy
     extends AbstractClassStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final Localizer _loc = Localizer.forPackage
         (EmbeddedClassStrategy.class);
 
+    @Override
     public void map(boolean adapt) {
         ValueMapping vm = cls.getEmbeddingMapping();
         if (vm == null || vm.getType() != cls.getDescribedType())
@@ -92,6 +94,7 @@ public class EmbeddedClassStrategy
         return false;
     }
 
+    @Override
     public boolean isPrimaryKeyObjectId(boolean hasAll) {
         return cls.getEmbeddingMapping().getFieldMapping().
             getDefiningMapping().isPrimaryKeyObjectId(hasAll);

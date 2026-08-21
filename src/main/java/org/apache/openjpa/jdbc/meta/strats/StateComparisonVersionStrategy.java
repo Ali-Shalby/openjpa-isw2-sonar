@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -22,7 +22,6 @@ import java.sql.SQLException;
 import java.util.BitSet;
 import java.util.Collection;
 
-import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
@@ -34,7 +33,6 @@ import org.apache.openjpa.jdbc.sql.RowImpl;
 import org.apache.openjpa.jdbc.sql.RowManager;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreManager;
-import org.apache.openjpa.lib.identifier.IdentifierConfiguration;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.ArrayStateImage;
 import org.apache.openjpa.util.InternalException;
@@ -48,15 +46,20 @@ import org.apache.openjpa.util.MetaDataException;
 public class StateComparisonVersionStrategy
     extends AbstractVersionStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     public static final String ALIAS = "state-comparison";
 
     private static final Localizer _loc = Localizer.forPackage
         (StateComparisonVersionStrategy.class);
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
 
+    @Override
     public void map(boolean adapt) {
         ClassMapping cls = vers.getClassMapping();
         if (cls.getJoinablePCSuperclassMapping() != null
@@ -66,6 +69,7 @@ public class StateComparisonVersionStrategy
         vers.getMappingInfo().assertNoSchemaComponents(vers, true);
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         FieldMapping[] fields = (FieldMapping[]) sm.getMetaData().getFields();
@@ -86,11 +90,13 @@ public class StateComparisonVersionStrategy
      * This method is for class mappings that take over the insert
      * process, but still want to use this indicator for optimistic locking.
      */
+    @Override
     public void customInsert(OpenJPAStateManager sm, JDBCStore store)
         throws SQLException {
         insert(sm, store, null);
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         // if there is no recorded state (for example, modification made to
@@ -183,6 +189,7 @@ public class StateComparisonVersionStrategy
         return custom;
     }
 
+    @Override
     public void afterLoad(OpenJPAStateManager sm, JDBCStore store) {
         FieldMapping[] fields = (FieldMapping[]) sm.getMetaData().getFields();
 
@@ -205,6 +212,7 @@ public class StateComparisonVersionStrategy
         sm.setVersion(state);
     }
 
+    @Override
     public boolean checkVersion(OpenJPAStateManager sm, JDBCStore store,
         boolean updateVersion)
         throws SQLException {
@@ -213,6 +221,7 @@ public class StateComparisonVersionStrategy
         return !updateVersion;
     }
 
+    @Override
     public int compareVersion(Object v1, Object v2) {
         return (ArrayStateImage.sameVersion((Object[]) v1, (Object[]) v2))
             ? StoreManager.VERSION_SAME : StoreManager.VERSION_DIFFERENT;
@@ -241,27 +250,29 @@ public class StateComparisonVersionStrategy
          * WHERE clause of an UPDATE to test whether the current database
          * record matches our stored version.
          */
+        @Override
         public String getSQL(DBDictionary dict) {
             Column[] cols = getTable().getColumns();
             StringBuilder buf = new StringBuilder();
             boolean hasWhere = false;
             Object val;
-            for (int i = 0; i < cols.length; i++) {
-                val = getWhere(cols[i]);
+            for (Column col : cols) {
+                val = getWhere(col);
                 if (val == null)
                     continue;
 
                 if (hasWhere)
                     buf.append(" AND ");
                 if (val == NULL)
-                    buf.append(dict.getColumnDBName(cols[i]) + " IS NULL");
+                    buf.append(dict.getColumnDBName(col) + " IS NULL");
                 else
-                    buf.append(dict.getColumnDBName(cols[i]) + " = ?");
+                    buf.append(dict.getColumnDBName(col) + " = ?");
                 hasWhere = true;
             }
             return buf.toString();
         }
 
+        @Override
         protected RowImpl newInstance(Column[] cols, int action) {
             return new CustomUpdate(cols);
         }
@@ -302,6 +313,7 @@ public class StateComparisonVersionStrategy
             throw new InternalException();
         }
 
+        @Override
         public Row getRow(Table table, int action, OpenJPAStateManager sm,
             boolean create) {
             // verionable mappings will never want to create rows, so we
@@ -311,20 +323,25 @@ public class StateComparisonVersionStrategy
             return this;
         }
 
+        @Override
         public Row getSecondaryRow(Table table, int action) {
             throw new InternalException();
         }
 
+        @Override
         public void flushSecondaryRow(Row row) {
         }
 
+        @Override
         public Row getAllRows(Table table, int action) {
             throw new InternalException();
         }
 
+        @Override
         public void flushAllRows(Row row) {
         }
 
+        @Override
         public void setObject(Column col, Object val)
             throws SQLException {
             throw new InternalException();

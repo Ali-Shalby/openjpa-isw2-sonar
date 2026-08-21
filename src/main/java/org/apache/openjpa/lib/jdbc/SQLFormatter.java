@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
@@ -184,11 +184,11 @@ public class SQLFormatter {
         int start = 0;
         int end = -1;
         StringBuilder clause;
-        List<StringBuilder> clauses = new ArrayList<StringBuilder>();
+        List<StringBuilder> clauses = new ArrayList<>();
         clauses.add(new StringBuilder());
-        for (int i = 0; i < separators.length; i++) {
-            end = lowerCaseSql.indexOf(" " + separators[i].toLowerCase(),
-                start);
+        for (String separator : separators) {
+            end = lowerCaseSql.indexOf(" " + separator.toLowerCase(),
+                    start);
             if (end == -1)
                 break;
 
@@ -198,9 +198,9 @@ public class SQLFormatter {
             clause = new StringBuilder();
             clauses.add(clause);
             clause.append(clauseIndent);
-            clause.append(separators[i]);
+            clause.append(separator);
 
-            start = end + 1 + separators[i].length();
+            start = end + 1 + separator.length();
         }
 
         clause = clauses.get(clauses.size() - 1);
@@ -265,8 +265,10 @@ public class SQLFormatter {
 
     public static void main(String [] args) {
         SQLFormatter formatter = new SQLFormatter();
-        for (int i = 0; i < args.length; i++) {
-            System.out.println(formatter.prettyPrint(args[i]));
+        for (String arg : args) {
+            // START - ALLOW PRINT STATEMENTS
+            System.out.println(formatter.prettyPrint(arg));
+            // STOP - ALLOW PRINT STATEMENTS
         }
     }
 }

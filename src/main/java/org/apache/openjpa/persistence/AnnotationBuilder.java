@@ -18,28 +18,26 @@
  */
 package org.apache.openjpa.persistence;
 
-import serp.util.Strings;
-
-import java.util.List;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.EnumSet;
 import java.lang.annotation.Annotation;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Objects;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.lib.util.ClassUtil;
 
 /**
  * Helper class to stringify annotation declarations.
  *
  * @author Gokhan Ergul
  * @since 1.0.0
- * @nojavadoc
  */
 public class AnnotationBuilder {
 
     private Class<? extends Annotation> type;
     private List<AnnotationEntry> components =
-        new ArrayList<AnnotationEntry>();
+        new ArrayList<>();
 
     protected AnnotationBuilder(Class<? extends Annotation> type) {
         this.type = type;
@@ -85,7 +83,7 @@ public class AnnotationBuilder {
             if (ae.value instanceof List) {
                 list = (List<AnnotationBuilder>) ae.value;
             } else if (ae.value instanceof AnnotationBuilder) {
-                list = new ArrayList<AnnotationBuilder> ();
+                list = new ArrayList<> ();
                 list.add((AnnotationBuilder) ae.value);
                 ae.value = list;
             } else {
@@ -104,13 +102,13 @@ public class AnnotationBuilder {
     private AnnotationBuilder doAdd (String key, Object val) {
         if (null != val)
             components.add(new AnnotationEntry(key, val));
-        return this;        
+        return this;
     }
 
     private AnnotationEntry find(String key) {
         for(AnnotationEntry ae: components) {
             // null key references considered equal
-            if (StringUtils.equals(ae.key, key))
+            if (Objects.equals(ae.key, key))
                 return ae;
         }
         return null;
@@ -118,7 +116,7 @@ public class AnnotationBuilder {
 
     static String enumToString(Enum e) {
         StringBuilder sb = new StringBuilder();
-        sb.append(Strings.getClassName(e.getClass())).
+        sb.append(ClassUtil.getClassName(e.getClass())).
             append(".").append(e);
         return sb.toString();
     }
@@ -127,7 +125,7 @@ public class AnnotationBuilder {
         StringBuilder sb = new StringBuilder();
         for (Iterator i = set.iterator(); i.hasNext();) {
             Object e =  i.next();
-            sb.append(Strings.getClassName(e.getClass())).
+            sb.append(ClassUtil.getClassName(e.getClass())).
                 append(".").append(e);
             if (i.hasNext())
                 sb.append(", ");
@@ -136,20 +134,21 @@ public class AnnotationBuilder {
     }
 
     protected void toString(StringBuilder sb) {
-        sb.append("@").append(Strings.getClassName(type));
+        sb.append("@").append(ClassUtil.getClassName(type));
         if (components.size() == 0)
             return;
         sb.append("(");
-        for (Iterator<AnnotationEntry> i = components.iterator(); i.hasNext();) 
+        for (Iterator<AnnotationEntry> i = components.iterator(); i.hasNext();)
         {
             AnnotationEntry e = i.next();
             e.toString(sb);
             if (i.hasNext())
                 sb.append(", ");
         }
-        sb.append(")");        
+        sb.append(")");
     }
 
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         toString(sb);

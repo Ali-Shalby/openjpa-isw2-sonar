@@ -14,25 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.meta.MappingRepository;
 import org.apache.openjpa.meta.MetaDataFactory;
+import org.apache.openjpa.persistence.AnnotationPersistenceMetaDataParser;
+import org.apache.openjpa.persistence.AnnotationPersistenceMetaDataSerializer;
 import org.apache.openjpa.persistence.PersistenceMetaDataFactory;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataParser;
 import org.apache.openjpa.persistence.XMLPersistenceMetaDataSerializer;
-import org.apache.openjpa.persistence.AnnotationPersistenceMetaDataParser;
-import org.apache.openjpa.persistence.AnnotationPersistenceMetaDataSerializer;
 
 /**
  * {@link MetaDataFactory} for JPA mapping information.
  *
  * @author Abe White
  * @since 0.4.0
- * @nojavadoc
  */
 public class PersistenceMappingFactory
     extends PersistenceMetaDataFactory {
@@ -50,6 +49,7 @@ public class PersistenceMappingFactory
         return parser;
     }
 
+    @Override
     protected AnnotationPersistenceMetaDataSerializer newAnnotationSerializer()
     {
         AnnotationPersistenceMappingSerializer ser =
@@ -71,9 +71,10 @@ public class PersistenceMappingFactory
         return parser;
     }
 
+    @Override
     protected XMLPersistenceMetaDataSerializer newXMLSerializer() {
-        XMLPersistenceMappingSerializer ser = 
-            new XMLPersistenceMappingSerializer((JDBCConfiguration) 
+        XMLPersistenceMappingSerializer ser =
+            new XMLPersistenceMappingSerializer((JDBCConfiguration)
             repos.getConfiguration());
         ser.setSyncMappingInfo(true);
         return ser;

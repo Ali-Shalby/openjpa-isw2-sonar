@@ -14,31 +14,35 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice;
+
+import java.io.Serializable;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 
 /**
  * Represents a database slice of immutable logical name, a configuration and
- * status.
- * 
- * @author Pinaki Poddar 
+ * status. A Slice is uniquely identified by its logical name.
+ *
+ * @author Pinaki Poddar
  *
  */
-public class Slice implements Comparable<Slice> {
+public class Slice implements Comparable<Slice>,Serializable {
+    private static final long serialVersionUID = 1L;
+
     public enum Status {
-        NOT_INITIALIZED, 
-        ACTIVE, 
+        NOT_INITIALIZED,
+        ACTIVE,
         INACTIVE, // configured but not available
         EXCLUDED  // configured but not used
-    }; 
-    
+    }
+
     private final String name;
     private transient final OpenJPAConfiguration conf;
     private transient Status status;
-    
+
     /**
      * Supply the logical name and configuration.
      */
@@ -47,38 +51,40 @@ public class Slice implements Comparable<Slice> {
         this.conf = conf;
         this.status = Status.NOT_INITIALIZED;
     }
-    
+
     /**
      * Gets the immutable logical name.
      */
     public String getName() {
         return name;
     }
-    
+
     public OpenJPAConfiguration getConfiguration() {
         return conf;
     }
-    
+
     public Status getStatus() {
         return status;
     }
-    
+
     public void setStatus(Status status) {
         this.status = status;
     }
-    
+
     public boolean isActive() {
         return status == Status.ACTIVE;
     }
-    
+
+    @Override
     public String toString() {
         return name;
     }
-    
+
+    @Override
     public int compareTo(Slice other) {
         return name.compareTo(other.name);
     }
-    
+
     /**
      * Equals by name.
      */
@@ -91,7 +97,7 @@ public class Slice implements Comparable<Slice> {
         }
         return false;
     }
-    
+
     @Override
     public int hashCode() {
         return name.hashCode();

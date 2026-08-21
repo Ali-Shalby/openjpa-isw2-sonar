@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -29,6 +29,9 @@ import org.apache.openjpa.kernel.Filters;
 class Abs
     extends UnaryMathVal {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Provide the number whose absolute value to calculate.
      */
@@ -36,6 +39,7 @@ class Abs
         super(val);
     }
 
+    @Override
     protected Class getType(Class c) {
         Class wrap = Filters.wrap(c);
         if (wrap == Integer.class
@@ -48,14 +52,15 @@ class Abs
         return int.class;
     }
 
+    @Override
     protected Object operate(Object o, Class c) {
         c = Filters.wrap(c);
         if (c == Integer.class)
             return Math.abs(((Number) o).intValue());
         if (c == Float.class)
-            return new Float(Math.abs(((Number) o).floatValue()));
+            return Math.abs(((Number) o).floatValue());
         if (c == Double.class)
-            return new Double(Math.abs(((Number) o).doubleValue()));
+            return Math.abs(((Number) o).doubleValue());
         if (c == Long.class)
             return Math.abs(((Number) o).longValue());
         if (c == BigDecimal.class)

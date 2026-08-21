@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
@@ -47,7 +46,7 @@ public class InverseManager implements Configurable {
     private static final Localizer _loc = Localizer.forPackage(InverseManager.class);
 
     protected static final Object NONE = new Object();
-    
+
     protected DataCacheManager _mgr;
 
     /**
@@ -115,12 +114,15 @@ public class InverseManager implements Configurable {
             throw new IllegalArgumentException(action);
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
         _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
         _mgr = ((OpenJPAConfiguration)conf).getDataCacheManagerInstance();
@@ -159,10 +161,9 @@ public class InverseManager implements Configurable {
                         value, fmd, inverses);
                     break;
                 case JavaTypes.COLLECTION:
-                    for (Iterator itr = ((Collection) value).iterator();
-                        itr.hasNext();)
+                    for (Object o : (Collection) value)
                         createInverseRelations(ctx, sm.getManagedInstance(),
-                            itr.next(), fmd, inverses);
+                                o, fmd, inverses);
                     break;
             }
         }
@@ -181,27 +182,27 @@ public class InverseManager implements Configurable {
             return;
 
         boolean owned;
-        for (int i = 0; i < inverses.length; i++) {
-            if (!getManageLRS() && inverses[i].isLRS())
+        for (FieldMetaData invers : inverses) {
+            if (!getManageLRS() && invers.isLRS())
                 continue;
 
             // if this is the owned side of the relation and has not yet been
             // loaded, no point in setting it now, cause it'll have the correct
             // value the next time it is loaded after the flush
-            owned = fmd == inverses[i].getMappedByMetaData()
-                && _action == ACTION_MANAGE
-                && !isLoaded(other, inverses[i].getIndex());
+            owned = fmd == invers.getMappedByMetaData()
+                    && _action == ACTION_MANAGE
+                    && !isLoaded(other, invers.getIndex());
 
-            switch (inverses[i].getDeclaredTypeCode()) {
+            switch (invers.getDeclaredTypeCode()) {
                 case JavaTypes.PC:
-                    if (!owned || inverses[i].getCascadeDelete()
-                        == ValueMetaData.CASCADE_AUTO)
-                        storeField(other, inverses[i], NONE, fromRef);
+                    if (!owned || invers.getCascadeDelete()
+                            == ValueMetaData.CASCADE_AUTO)
+                        storeField(other, invers, NONE, fromRef);
                     break;
                 case JavaTypes.COLLECTION:
-                    if (!owned || inverses[i].getElement().getCascadeDelete()
-                        == ValueMetaData.CASCADE_AUTO)
-                        addToCollection(other, inverses[i], fromRef);
+                    if (!owned || invers.getElement().getCascadeDelete()
+                            == ValueMetaData.CASCADE_AUTO)
+                        addToCollection(other, invers, fromRef);
                     break;
             }
         }
@@ -252,7 +253,7 @@ public class InverseManager implements Configurable {
                 initial = (Collection) obj;
             else if (obj instanceof Map)
                 initial = ((Map)obj).values();
-            
+
             if (initial == null)
                 return;
 
@@ -263,8 +264,8 @@ public class InverseManager implements Configurable {
             else if (newValue instanceof Map)
                 coll = ((Map)newValue).values();
             Object elem;
-            for (Iterator itr = initial.iterator(); itr.hasNext();) {
-                elem = itr.next();
+            for (Object o : initial) {
+                elem = o;
                 if (coll == null || !coll.contains(elem))
                     clearInverseRelations(sm, elem, fmd, inverses);
             }
@@ -284,28 +285,28 @@ public class InverseManager implements Configurable {
             return;
 
         boolean owned;
-        for (int i = 0; i < inverses.length; i++) {
-            if (!getManageLRS() && inverses[i].isLRS())
+        for (FieldMetaData invers : inverses) {
+            if (!getManageLRS() && invers.isLRS())
                 continue;
 
             // if this is the owned side of the relation and has not yet been
             // loaded, no point in setting it now, cause it'll have the correct
             // value the next time it is loaded after the flush
-            owned = fmd == inverses[i].getMappedByMetaData()
-                && _action == ACTION_MANAGE
-                && !isLoaded(other, inverses[i].getIndex());
+            owned = fmd == invers.getMappedByMetaData()
+                    && _action == ACTION_MANAGE
+                    && !isLoaded(other, invers.getIndex());
 
-            switch (inverses[i].getDeclaredTypeCode()) {
+            switch (invers.getDeclaredTypeCode()) {
                 case JavaTypes.PC:
-                    if (!owned || inverses[i].getCascadeDelete()
-                        == ValueMetaData.CASCADE_AUTO)
-                        storeNull(other, inverses[i], sm.getManagedInstance());
+                    if (!owned || invers.getCascadeDelete()
+                            == ValueMetaData.CASCADE_AUTO)
+                        storeNull(other, invers, sm.getManagedInstance());
                     break;
                 case JavaTypes.COLLECTION:
-                    if (!owned || inverses[i].getElement().getCascadeDelete()
-                        == ValueMetaData.CASCADE_AUTO)
-                        removeFromCollection(other, inverses[i],
-                            sm.getManagedInstance());
+                    if (!owned || invers.getElement().getCascadeDelete()
+                            == ValueMetaData.CASCADE_AUTO)
+                        removeFromCollection(other, invers,
+                                sm.getManagedInstance());
                     break;
             }
         }

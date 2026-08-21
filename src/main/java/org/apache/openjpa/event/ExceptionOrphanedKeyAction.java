@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -35,6 +35,7 @@ public class ExceptionOrphanedKeyAction
     private static final Localizer _loc = Localizer.forPackage
         (ExceptionOrphanedKeyAction.class);
 
+    @Override
     public Object orphan(Object oid, OpenJPAStateManager sm,
         ValueMetaData vmd) {
         throw new ObjectNotFoundException(_loc.get("orphaned-key", oid, vmd));

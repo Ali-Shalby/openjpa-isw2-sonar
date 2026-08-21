@@ -14,18 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
 import java.sql.Timestamp;
-import java.util.Map;
 import java.util.HashMap;
-import java.util.Date;
+import java.util.Map;
 
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.schema.Column;
-import org.apache.openjpa.util.InternalException;
 
 /**
  * Uses a timestamp for optimistic versioning.
@@ -35,26 +33,33 @@ import org.apache.openjpa.util.InternalException;
 public class TimestampVersionStrategy
     extends ColumnVersionStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
     public static final String ALIAS = "timestamp";
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
 
+    @Override
     protected int getJavaType() {
         return JavaSQLTypes.TIMESTAMP;
     }
-    
+
+    @Override
     protected Object nextVersion(Object version) {
         return new Timestamp(System.currentTimeMillis());
     }
 
+    @Override
     public Map getBulkUpdateValues() {
         Column[] cols = vers.getColumns();
         Map map = new HashMap(cols.length);
-        Date d = new Date();
-        for (int i = 0; i < cols.length; i++)
-            map.put(cols[i], d);
+        Object d = nextVersion(null);
+        for (Column col : cols) {
+            map.put(col, d);
+        }
         return map;
     }
 }

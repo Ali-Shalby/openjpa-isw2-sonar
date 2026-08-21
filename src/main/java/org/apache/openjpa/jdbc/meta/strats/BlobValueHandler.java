@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -28,11 +28,11 @@ import org.apache.openjpa.meta.JavaTypes;
 /**
  * Handler for blob values.
  *
- * @nojavadoc
  */
-public class BlobValueHandler
-    extends AbstractValueHandler {
+public class BlobValueHandler extends AbstractValueHandler {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final BlobValueHandler _instance = new BlobValueHandler();
 
     /**
@@ -42,9 +42,7 @@ public class BlobValueHandler
         return _instance;
     }
 
-    /**
-     * @deprecated
-     */
+    @Override
     public Column[] map(ValueMapping vm, String name, ColumnIO io,
         boolean adapt) {
         DBDictionary dict = vm.getMappingRepository().getDBDictionary();

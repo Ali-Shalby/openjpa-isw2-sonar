@@ -14,16 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.criteria;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-import javax.persistence.criteria.Expression;
-import javax.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Predicate;
 
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
 import org.apache.openjpa.kernel.exps.Literal;
@@ -37,18 +38,20 @@ import org.apache.openjpa.kernel.exps.Literal;
  * AND predicate with no argument evaluates to TRUE.
  * OR predicate with no argument evaluates to FALSE.
  * Negation of a Predicate creates a new Predicate.
- * 
+ *
  * @author Pinaki Poddar
  * @author Fay Wang
- * 
+ *
  * @since 2.0.0
  */
 abstract class PredicateImpl extends ExpressionImpl<Boolean> implements Predicate {
-    private static final ExpressionImpl<Integer> ONE  = new Expressions.Constant<Integer>(1);
-    public static final Predicate TRUE  = new Expressions.Equal(ONE,ONE);
-    public static final Predicate FALSE = new Expressions.NotEqual(ONE,ONE);
-    
-    protected final List<Predicate> _exps = new ArrayList<Predicate>();
+    static final Expression<?> TRUE_CONSTANT = new Expressions.Constant<>(true);
+    static final Expression<?> FALSE_CONSTANT = new Expressions.Constant<>(false);
+
+    private static Predicate TRUE;
+    private static Predicate FALSE;
+
+    protected final List<Predicate> _exps = Collections.synchronizedList(new ArrayList<>());
     private final BooleanOperator _op;
     private boolean _negated = false;
 
@@ -58,7 +61,7 @@ abstract class PredicateImpl extends ExpressionImpl<Boolean> implements Predicat
     protected PredicateImpl() {
         this(BooleanOperator.AND);
     }
-    
+
     /**
      * A predicate with the given operator.
      */
@@ -72,32 +75,37 @@ abstract class PredicateImpl extends ExpressionImpl<Boolean> implements Predicat
      */
     protected PredicateImpl(BooleanOperator op, Predicate...restrictions) {
         this(op);
-        if (restrictions != null) {
-            for (Predicate p : restrictions)
-                add(p);
-        }
+        if (restrictions == null || restrictions.length == 0) return;
+
+    	for (Predicate p : restrictions) {
+   			add(p);
+    	}
     }
 
     /**
      * Adds the given predicate expression.
      */
     public PredicateImpl add(Expression<Boolean> s) {
-        _exps.add((Predicate)s); // all boolean expressions are Predicate
+    	synchronized (_exps) {
+        	_exps.add((Predicate)s); // all boolean expressions are Predicate
+		}
         return this;
     }
 
+    @Override
     public List<Expression<Boolean>> getExpressions() {
-        List<Expression<Boolean>> result = new CopyOnWriteArrayList<Expression<Boolean>>();
+        List<Expression<Boolean>> result = new CopyOnWriteArrayList<>();
         if (_exps.isEmpty())
             return result;
         result.addAll(_exps);
         return result;
     }
 
+    @Override
     public final BooleanOperator getOperator() {
         return _op;
     }
-    
+
     public final boolean isEmpty() {
         return _exps.isEmpty();
     }
@@ -105,27 +113,45 @@ abstract class PredicateImpl extends ExpressionImpl<Boolean> implements Predicat
     /**
      * Is this predicate created by negating another predicate?
      */
+    @Override
     public final boolean isNegated() {
         return _negated;
     }
 
     /**
-     * Returns a new predicate as the negation of this predicate. 
+     * Returns a new predicate as the negation of this predicate.
      * <br>
      * Note:
      * Default negation creates a Not expression with this receiver as delegate.
      * Derived predicates can return the inverse expression, if exists.
      * For example, NotEqual for Equal or LessThan for GreaterThanEqual etc.
      */
+    @Override
     public PredicateImpl not() {
         return new Expressions.Not(this).markNegated();
     }
-    
+
     protected PredicateImpl markNegated() {
         _negated = true;
         return this;
     }
-    
+
+    public static Predicate TRUE() {
+    	if (TRUE == null) {
+    	    ExpressionImpl<Integer> ONE  = new Expressions.Constant<>(1);
+    		TRUE = new Expressions.Equal(ONE, ONE);
+    	}
+    	return TRUE;
+    }
+
+    public static Predicate FALSE() {
+    	if (FALSE == null) {
+    	    ExpressionImpl<Integer> ONE  = new Expressions.Constant<>(1);
+    		FALSE = new Expressions.NotEqual(ONE, ONE);
+    	}
+    	return FALSE;
+    }
+
     @Override
     org.apache.openjpa.kernel.exps.Value toValue(ExpressionFactory factory, CriteriaQueryImpl<?> q) {
         if (_exps.isEmpty()) {
@@ -133,11 +159,11 @@ abstract class PredicateImpl extends ExpressionImpl<Boolean> implements Predicat
         }
         throw new AbstractMethodError(this.getClass().getName());
     }
-    
+
     @Override
     org.apache.openjpa.kernel.exps.Expression toKernelExpression(ExpressionFactory factory, CriteriaQueryImpl<?> q) {
         if (_exps.isEmpty()) {
-            Predicate nil = _op == BooleanOperator.AND ? TRUE : FALSE;
+            Predicate nil = _op == BooleanOperator.AND ? TRUE() : FALSE();
             return ((PredicateImpl)nil).toKernelExpression(factory, q);
         }
         if (_exps.size() == 1) {
@@ -146,17 +172,17 @@ abstract class PredicateImpl extends ExpressionImpl<Boolean> implements Predicat
                 e0 = e0.not();
             return ((PredicateImpl)e0).toKernelExpression(factory, q);
         }
-        
+
         ExpressionImpl<?> e1 = (ExpressionImpl<?>)_exps.get(0);
         ExpressionImpl<?> e2 = (ExpressionImpl<?>)_exps.get(1);
         org.apache.openjpa.kernel.exps.Expression ke1 = e1.toKernelExpression(factory, q);
         org.apache.openjpa.kernel.exps.Expression ke2 = e2.toKernelExpression(factory, q);
-        org.apache.openjpa.kernel.exps.Expression result = _op == BooleanOperator.AND 
+        org.apache.openjpa.kernel.exps.Expression result = _op == BooleanOperator.AND
             ? factory.and(ke1,ke2) : factory.or(ke1, ke2);
 
         for (int i = 2; i < _exps.size(); i++) {
             PredicateImpl p = (PredicateImpl)_exps.get(i);
-            result = _op == BooleanOperator.AND 
+            result = _op == BooleanOperator.AND
               ? factory.and(result, p.toKernelExpression(factory, q))
               : factory.or(result, p.toKernelExpression(factory,q));
         }
@@ -167,7 +193,7 @@ abstract class PredicateImpl extends ExpressionImpl<Boolean> implements Predicat
     public void acceptVisit(CriteriaExpressionVisitor visitor) {
         Expressions.acceptVisit(visitor, this, _exps.toArray(new Expression<?>[_exps.size()]));
     }
-    
+
     @Override
     public StringBuilder asValue(AliasContext q) {
         boolean braces = _exps.size() > 1;

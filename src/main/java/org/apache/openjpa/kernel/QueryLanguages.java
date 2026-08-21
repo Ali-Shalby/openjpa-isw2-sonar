@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -34,6 +34,7 @@ import org.apache.openjpa.util.InternalException;
 public class QueryLanguages {
 
     public static final String LANG_SQL = "openjpa.SQL";
+    public static final String LANG_STORED_PROC = "openjpa.StoredProcedure.SQL";
     public static final String LANG_PREPARED_SQL = "openjpa.prepared.SQL";
     public static final String LANG_METHODQL = "openjpa.MethodQL";
 
@@ -44,16 +45,16 @@ public class QueryLanguages {
             ExpressionParser.class,
             AccessController.doPrivileged(
                 J2DoPrivHelper.getClassLoaderAction(ExpressionParser.class)));
-        for (int i = 0; i < classes.length; i++) {
+        for (Class aClass : classes) {
             ExpressionParser ep;
             try {
                 ep = (ExpressionParser) AccessController.doPrivileged(
-                    J2DoPrivHelper.newInstanceAction(classes[i]));
-            } catch (PrivilegedActionException pae) {
+                        J2DoPrivHelper.newInstanceAction(aClass));
+            }
+            catch (PrivilegedActionException pae) {
                 throw new InternalException(pae.getException());
-            } catch (InstantiationException e) {
-                throw new InternalException(e);
-            } catch (IllegalAccessException e) {
+            }
+            catch (InstantiationException | IllegalAccessException e) {
                 throw new InternalException(e);
             }
             _expressionParsers.put(ep.getLanguage(), ep);

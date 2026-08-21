@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -25,64 +25,80 @@ package org.apache.openjpa.kernel;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class PCleanState
-    extends PCState {
+class PCleanState extends PCState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
+        if (previous == null)
+            return;
+
         context.setDirty(false);
     }
 
+    @Override
     PCState commit(StateManagerImpl context) {
         return HOLLOW;
     }
 
+    @Override
     PCState commitRetain(StateManagerImpl context) {
         return PNONTRANS;
     }
 
+    @Override
     PCState rollback(StateManagerImpl context) {
         return HOLLOW;
     }
 
+    @Override
     PCState rollbackRestore(StateManagerImpl context) {
         return PNONTRANS;
     }
 
+    @Override
     PCState delete(StateManagerImpl context) {
         context.preDelete();
         return PDELETED;
     }
 
+    @Override
     PCState nontransactional(StateManagerImpl context) {
         return PNONTRANS;
     }
 
+    @Override
     PCState release(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState evict(StateManagerImpl context) {
         return HOLLOW;
     }
 
+    @Override
     PCState beforeWrite(StateManagerImpl context, int field, boolean mutate) {
         return PDIRTY;
     }
 
+    @Override
     PCState beforeOptimisticWrite(StateManagerImpl context, int field,
         boolean mutate) {
         return PDIRTY;
     }
 
+    @Override
     boolean isTransactional() {
         return true;
     }
 
+    @Override
     boolean isPersistent() {
         return true;
     }
-    
+
+    @Override
     public String toString() {
         return "Persistent-Clean";
     }

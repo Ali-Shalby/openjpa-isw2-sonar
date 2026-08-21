@@ -14,14 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
 import java.sql.Types;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
-import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
@@ -37,46 +36,55 @@ import org.apache.openjpa.lib.conf.Configuration;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public class DynamicSchemaFactory
     extends SchemaGroup
     implements SchemaFactory, Configurable {
 
+    private static final long serialVersionUID = 1L;
     private transient DBDictionary _dict = null;
     private DBIdentifier _schema = DBIdentifier.NULL;
 
+    @Override
     public void setConfiguration(Configuration conf) {
         JDBCConfiguration jconf = (JDBCConfiguration) conf;
         _dict = jconf.getDBDictionaryInstance();
         _schema = DBIdentifier.newSchema(jconf.getSchema());
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
-    
+
+    @Override
     public SchemaGroup readSchema() {
         return this;
     }
 
+    @Override
     public void storeSchema(SchemaGroup schema) {
         // nothing to do
     }
 
+    @Override
     public boolean isKnownTable(Table table) {
         return super.findTable(table) != null;
     }
 
+    @Override
     public boolean isKnownTable(String name) {
         return super.findTable(name) != null;
     }
 
+    @Override
     public boolean isKnownTable(QualifiedDBIdentifier path) {
         return super.findTable(path) != null;
     }
 
+    @Override
     public Table findTable(String name) {
         return super.findTable(name);
     }
@@ -89,6 +97,7 @@ public class DynamicSchemaFactory
         return findTable(path);
     }
 
+    @Override
     public Table findTable(QualifiedDBIdentifier path) {
         if (DBIdentifier.isNull(path))
             return null;
@@ -113,18 +122,19 @@ public class DynamicSchemaFactory
 
         // Ensure only valid table name(s) are added to the schema
         if (tableName.getName().length() > _dict.maxTableNameLength) {
-            return schema.addTable(tableName, 
+            return schema.addTable(tableName,
                 _dict.getValidTableName(tableName, getSchema(schemaName)));
         }
 
         return schema.addTable(tableName);
     }
-    
-    
+
+
 //    protected Table newTable(String name, Schema schema) {
 //        return new DynamicTable(name, schema);
 //    }
 
+    @Override
     protected Table newTable(DBIdentifier name, Schema schema) {
         return new DynamicTable(name, schema);
     }
@@ -133,6 +143,7 @@ public class DynamicSchemaFactory
 //        return new DynamicColumn(name, table);
 //    }
 
+    @Override
     protected Column newColumn(DBIdentifier name, Table table) {
         return new DynamicColumn(name, table);
     }
@@ -142,6 +153,9 @@ public class DynamicSchemaFactory
      */
     private class DynamicTable
         extends Table {
+
+        
+        private static final long serialVersionUID = 1L;
 
         public DynamicTable(String name, Schema schema) {
             super(name, schema);
@@ -154,10 +168,18 @@ public class DynamicSchemaFactory
         /**
          * @deprecated
          */
+        @Deprecated
+        @Override
         public Column getColumn(String name) {
             return getColumn(name, null);
         }
 
+        @Override
+        public Column getColumn(DBIdentifier name, boolean create) {
+            return getColumn(name, null, create);
+        }
+
+        @Override
         public Column getColumn(DBIdentifier name) {
             return getColumn(name, null);
         }
@@ -165,6 +187,7 @@ public class DynamicSchemaFactory
         /**
          * @deprecated
          */
+        @Deprecated
         public Column getColumn(String name, DBDictionary dict) {
             if (name == null)
                 return null;
@@ -172,18 +195,22 @@ public class DynamicSchemaFactory
         }
 
         public Column getColumn(DBIdentifier name, DBDictionary dict) {
+            return getColumn(name, dict, true);
+        }
+
+        public Column getColumn(DBIdentifier name, DBDictionary dict, boolean create) {
             if (DBIdentifier.isNull(name))
                 return null;
 
             Column col = super.getColumn(name);
-            if (col != null)
+            if (col != null || !create)
                 return col;
 
             // Ensure only valid column name(s) are added to the table
             if ((name.getName().length() > _dict.maxColumnNameLength) ||
                 _dict.getInvalidColumnWordSet().contains(
                     DBIdentifier.toUpper(name).getName())) {
-                return addColumn(name, 
+                return addColumn(name,
                     _dict.getValidColumnName(name, this));
             }
 
@@ -197,9 +224,13 @@ public class DynamicSchemaFactory
     private class DynamicColumn
         extends Column {
 
+        
+        private static final long serialVersionUID = 1L;
+
         /**
          * @deprecated
          */
+        @Deprecated
         public DynamicColumn(String name, Table table) {
             super(name, table);
         }
@@ -208,8 +239,8 @@ public class DynamicSchemaFactory
             super(name, table);
         }
 
-        public boolean isCompatible(int type, String typeName, int size,
-            int decimals) {
+        @Override
+        public boolean isCompatible(int type, String typeName, int size, int decimals) {
             if (getType() != Types.OTHER)
                 return super.isCompatible(type, typeName, size, decimals);
 
@@ -219,7 +250,7 @@ public class DynamicSchemaFactory
             setSize(size);
             if (typeName != null)
                 setTypeIdentifier(DBIdentifier.newColumnDefinition(typeName));
-            if (decimals >= 0)
+            if (decimals != 0)
                 setDecimalDigits(decimals);
             return true;
         }

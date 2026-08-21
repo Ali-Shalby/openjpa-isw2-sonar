@@ -22,6 +22,7 @@ import java.lang.reflect.InvocationTargetException;
 
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.MixedLockLevels;
+import org.apache.openjpa.util.ExceptionInfo;
 import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.LockException;
 import org.apache.openjpa.util.NoTransactionException;
@@ -33,20 +34,22 @@ import org.apache.openjpa.util.QueryException;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UserException;
-import org.apache.openjpa.util.WrappedException;
 
 /**
  * Converts from OpenJPA to persistence exception types.
  *
  * @author Abe White
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class PersistenceExceptions
     extends Exceptions {
 
     public static final RuntimeExceptionTranslator TRANSLATOR =
         new RuntimeExceptionTranslator() {
+            
+            private static final long serialVersionUID = 1L;
+
+            @Override
             public RuntimeException translate(RuntimeException re) {
                 return PersistenceExceptions.toPersistenceException(re);
             }
@@ -62,8 +65,11 @@ public class PersistenceExceptions
     public static RuntimeExceptionTranslator getRollbackTranslator(
         final OpenJPAEntityManager em) {
         return new RuntimeExceptionTranslator() {
+            
+            private static final long serialVersionUID = 1L;
             private boolean throwing = false;
 
+            @Override
             public RuntimeException translate(RuntimeException re) {
                 RuntimeException ex = toPersistenceException(re);
                 if (!(ex instanceof NonUniqueResultException)
@@ -122,7 +128,7 @@ public class PersistenceExceptions
             return ke.getCause();
 
         // RuntimeExceptions thrown from callbacks should be thrown directly
-        if (ke.getType() == OpenJPAException.USER
+        if (ke.getType() == ExceptionInfo.USER
             && ke.getSubtype() == UserException.CALLBACK
             && ke.getNestedThrowables().length == 1) {
             Throwable e = ke.getCause();
@@ -135,11 +141,11 @@ public class PersistenceExceptions
 
         // perform intelligent translation of openjpa exceptions
         switch (ke.getType()) {
-            case OpenJPAException.STORE:
+            case ExceptionInfo.STORE:
                 return translateStoreException(ke);
-            case OpenJPAException.USER:
+            case ExceptionInfo.USER:
                 return translateUserException(ke);
-            case OpenJPAException.WRAPPED:
+            case ExceptionInfo.WRAPPED:
                 return translateWrappedException(ke);
             default:
                 return translateGeneralException(ke);
@@ -164,16 +170,16 @@ public class PersistenceExceptions
         } else if (subtype == StoreException.OPTIMISTIC	|| cause instanceof OptimisticException) {
             	e = new org.apache.openjpa.persistence.OptimisticLockException(msg, nested, failed, fatal);
         } else if (subtype == StoreException.LOCK || cause instanceof LockException) {
-            LockException lockEx = (LockException) (ke instanceof LockException ? ke : cause); 
-            if (lockEx != null && lockEx.getLockLevel() >= MixedLockLevels.LOCK_PESSIMISTIC_READ) { 
-                if (!lockEx.isFatal()) { 
-                    e = new org.apache.openjpa.persistence.LockTimeoutException(msg, nested, failed); 
-                } else { 
-                    e = new org.apache.openjpa.persistence.PessimisticLockException(msg, nested, failed); 
-                } 
-            } else { 
-                e = new org.apache.openjpa.persistence.OptimisticLockException(msg, nested, failed, fatal); 
-            } 
+            LockException lockEx = (LockException) (ke instanceof LockException ? ke : cause);
+            if (lockEx != null && lockEx.getLockLevel() >= MixedLockLevels.LOCK_PESSIMISTIC_READ) {
+                if (!lockEx.isFatal()) {
+                    e = new org.apache.openjpa.persistence.LockTimeoutException(msg, nested, failed);
+                } else {
+                    e = new org.apache.openjpa.persistence.PessimisticLockException(msg, nested, failed);
+                }
+            } else {
+                e = new org.apache.openjpa.persistence.OptimisticLockException(msg, nested, failed, fatal);
+            }
         } else if (subtype == StoreException.OBJECT_EXISTS || cause instanceof ObjectExistsException) {
                 e = new org.apache.openjpa.persistence.EntityExistsException(msg, nested, failed, fatal);
         } else if (subtype == StoreException.QUERY || cause instanceof QueryException) {
@@ -229,7 +235,7 @@ public class PersistenceExceptions
         e.setStackTrace(ke.getStackTrace());
         return e;
     }
-    
+
     /*
      * Translate the given wrapped exception.  If contains an Exception, return
      * the exception.  If contains a Throwable, wrap the throwable and

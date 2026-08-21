@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -32,6 +32,8 @@ import org.apache.openjpa.kernel.StoreContext;
 class Distinct
     extends Val {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
 
     /**
@@ -41,13 +43,16 @@ class Distinct
         _val = val;
     }
 
+    @Override
     public Class getType() {
         return Collection.class;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         if (candidate == null)
@@ -57,12 +62,14 @@ class Distinct
         return eval(arg, orig, ctx, params).iterator().next();
     }
 
+    @Override
     protected Collection eval(Collection candidates, Object orig,
         StoreContext ctx, Object[] params) {
         Collection args = _val.eval(candidates, orig, ctx, params);
         return new HashSet(args);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

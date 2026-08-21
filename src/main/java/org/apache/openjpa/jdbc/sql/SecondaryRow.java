@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -32,7 +32,6 @@ import org.apache.openjpa.kernel.OpenJPAStateManager;
  * Secondary table row that tracks foreign keys to auto-inc columns.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class SecondaryRow
     extends RowImpl {
@@ -53,11 +52,13 @@ public class SecondaryRow
         super(cols, action);
     }
 
+    @Override
     public void setForeignKey(ForeignKey fk, OpenJPAStateManager sm)
         throws SQLException {
         setForeignKey(fk, null, sm);
     }
 
+    @Override
     public void setForeignKey(ForeignKey fk, ColumnIO io,
         OpenJPAStateManager sm)
         throws SQLException {
@@ -98,6 +99,7 @@ public class SecondaryRow
             && sm != null && sm.isNew() && !sm.isFlushed();
     }
 
+    @Override
     public void setRelationId(Column col, OpenJPAStateManager sm,
         RelationId rel)
         throws SQLException {
@@ -137,12 +139,13 @@ public class SecondaryRow
         while (cls.getJoinablePCSuperclassMapping() != null)
             cls = cls.getJoinablePCSuperclassMapping();
         Column[] cols = cls.getPrimaryKeyColumns();
-        for (int i = 0; i < cols.length; i++)
-            if (cols[i].isAutoAssigned())
+        for (Column col : cols)
+            if (col.isAutoAssigned())
                 return true;
         return false;
     }
 
+    @Override
     protected String generateSQL(DBDictionary dict) {
         try {
             if (_fks != null) {
@@ -168,10 +171,12 @@ public class SecondaryRow
         return super.generateSQL(dict);
     }
 
+    @Override
     protected RowImpl newInstance(Column[] cols, int action) {
         return new SecondaryRow(cols, action);
     }
 
+    @Override
     public void copyInto(RowImpl row, boolean whereOnly) {
         super.copyInto(row, whereOnly);
         if (_fks == null || whereOnly || row.getAction() == ACTION_DELETE

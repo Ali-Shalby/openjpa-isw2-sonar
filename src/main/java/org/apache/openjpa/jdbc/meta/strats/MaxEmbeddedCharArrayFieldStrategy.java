@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -43,21 +43,25 @@ import org.apache.openjpa.util.MetaDataException;
  * embedded CLOB size.
  *
  * @author Abe White
- * @nojavadoc
  * @since 0.4.0
  */
 public class MaxEmbeddedCharArrayFieldStrategy
     extends MaxEmbeddedLobFieldStrategy {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage
         (MaxEmbeddedCharArrayFieldStrategy.class);
 
     private int _maxSize = 0;
 
+    @Override
     protected int getExpectedJavaType() {
         return JavaSQLTypes.CHAR_STREAM;
     }
 
+    @Override
     protected void update(OpenJPAStateManager sm, Row row)
         throws SQLException {
         char[] c = PrimitiveWrapperArrays.
@@ -69,12 +73,14 @@ public class MaxEmbeddedCharArrayFieldStrategy
                 new CharArrayReader(c), c.length);
     }
 
+    @Override
     protected Boolean isCustom(OpenJPAStateManager sm, JDBCStore store) {
         Object val = sm.fetchObject(field.getIndex());
         return (val != null && Array.getLength(val) > _maxSize) ? null
             : Boolean.FALSE;
     }
 
+    @Override
     protected void putData(OpenJPAStateManager sm, ResultSet rs,
         DBDictionary dict)
         throws SQLException {
@@ -83,6 +89,7 @@ public class MaxEmbeddedCharArrayFieldStrategy
             toCharArray(sm.fetchObject(field.getIndex())));
     }
 
+    @Override
     protected Object load(Column col, Result res, Joins joins)
         throws SQLException {
         Reader reader = res.getCharacterStream(col, joins);
@@ -100,6 +107,7 @@ public class MaxEmbeddedCharArrayFieldStrategy
         }
     }
 
+    @Override
     public void map(boolean adapt) {
         if (field.getType() != char[].class
             && field.getType() != Character[].class)
@@ -107,8 +115,19 @@ public class MaxEmbeddedCharArrayFieldStrategy
         super.map(adapt);
     }
 
+    @Override
     public void initialize() {
         DBDictionary dict = field.getMappingRepository().getDBDictionary();
         _maxSize = dict.maxEmbeddedClobSize;
+    }
+
+    @Override
+    protected Object getValue(OpenJPAStateManager sm) {
+        char[] c = PrimitiveWrapperArrays.
+        toCharArray(sm.fetchObject(field.getIndex()));
+        if (c == null || c.length > _maxSize)
+            return null;
+        else
+            return c;
     }
 }

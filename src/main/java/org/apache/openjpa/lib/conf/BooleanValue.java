@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
@@ -26,12 +26,13 @@ package org.apache.openjpa.lib.conf;
 public class BooleanValue extends Value {
 
     private boolean value;
-    
+
     public BooleanValue(String prop) {
         super(prop);
         setAliasListComprehensive(true);
     }
 
+    @Override
     public Class<Boolean> getValueType() {
         return boolean.class;
     }
@@ -50,22 +51,26 @@ public class BooleanValue extends Value {
     /**
      * The internal value.
      */
+    @Override
     public Boolean get() {
         return value;
     }
 
+    @Override
     protected String getInternalString() {
         return String.valueOf(value);
     }
 
+    @Override
     protected void setInternalString(String val) {
-        set(Boolean.valueOf(val).booleanValue());
+        set(Boolean.valueOf(val));
     }
 
+    @Override
     protected void setInternalObject(Object obj) {
         if (obj == null)
             set(false);
         else
-            set(((Boolean) obj).booleanValue());
+            set((Boolean) obj);
     }
 }

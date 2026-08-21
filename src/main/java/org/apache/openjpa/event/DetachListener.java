@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -28,10 +28,10 @@ public interface DetachListener {
     /**
      * Invoked before the instance is detached.
      */
-    public void beforeDetach(LifecycleEvent event);
+    void beforeDetach(LifecycleEvent event);
 
     /**
      * Invoked after the instance has been detached.
      */
-    public void afterDetach(LifecycleEvent event);
+    void afterDetach(LifecycleEvent event);
 }

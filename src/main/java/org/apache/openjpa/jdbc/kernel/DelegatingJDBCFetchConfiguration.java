@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -27,7 +27,7 @@ import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 
 ///////////////////////////////////////////////////////////////
-// NOTE: when adding a public API method, be sure to add it to 
+// NOTE: when adding a public API method, be sure to add it to
 // JDO and JPA facades!
 ///////////////////////////////////////////////////////////////
 
@@ -36,12 +36,14 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  * transation for use in facades.
  *
  * @author Abe White
- * @nojavadoc
  * @since 0.4.0
  */
 public class DelegatingJDBCFetchConfiguration
     extends DelegatingFetchConfiguration
     implements JDBCFetchConfiguration {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Constructor; supply delegate.
@@ -65,6 +67,7 @@ public class DelegatingJDBCFetchConfiguration
         return (JDBCFetchConfiguration) getDelegate();
     }
 
+    @Override
     public int getEagerFetchMode() {
         try {
             return getJDBCDelegate().getEagerFetchMode();
@@ -73,6 +76,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration setEagerFetchMode(int mode) {
         try {
             getJDBCDelegate().setEagerFetchMode(mode);
@@ -82,6 +86,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public int getSubclassFetchMode() {
         try {
             return getJDBCDelegate().getSubclassFetchMode();
@@ -90,6 +95,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public int getSubclassFetchMode(ClassMapping cls) {
         try {
             return getJDBCDelegate().getSubclassFetchMode(cls);
@@ -98,6 +104,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration setSubclassFetchMode(int mode) {
         try {
             getJDBCDelegate().setSubclassFetchMode(mode);
@@ -107,6 +114,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public int getResultSetType() {
         try {
             return getJDBCDelegate().getResultSetType();
@@ -115,6 +123,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration setResultSetType(int type) {
         try {
             getJDBCDelegate().setResultSetType(type);
@@ -124,6 +133,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public int getFetchDirection() {
         try {
             return getJDBCDelegate().getFetchDirection();
@@ -132,6 +142,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration setFetchDirection(int direction) {
         try {
             getJDBCDelegate().setFetchDirection(direction);
@@ -141,6 +152,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public int getLRSSize() {
         try {
             return getJDBCDelegate().getLRSSize();
@@ -149,6 +161,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration setLRSSize(int lrsSize) {
         try {
             getJDBCDelegate().setLRSSize(lrsSize);
@@ -158,6 +171,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public int getJoinSyntax() {
         try {
             return getJDBCDelegate().getJoinSyntax();
@@ -166,6 +180,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration setJoinSyntax(int syntax) {
         try {
             getJDBCDelegate().setJoinSyntax(syntax);
@@ -175,6 +190,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public Set getJoins() {
         try {
             return getJDBCDelegate().getJoins();
@@ -183,6 +199,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public boolean hasJoin(String field) {
         try {
             return getJDBCDelegate().hasJoin(field);
@@ -191,6 +208,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration addJoin(String field) {
         try {
             getJDBCDelegate().addJoin(field);
@@ -200,6 +218,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration addJoins(Collection fields) {
         try {
             getJDBCDelegate().addJoins(fields);
@@ -209,6 +228,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration removeJoin(String field) {
         try {
             getJDBCDelegate().removeJoin(field);
@@ -218,6 +238,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration removeJoins(Collection fields) {
         try {
             getJDBCDelegate().removeJoins(fields);
@@ -227,6 +248,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration clearJoins() {
         try {
             getJDBCDelegate().clearJoins();
@@ -236,6 +258,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public int getIsolation() {
         try {
             return getJDBCDelegate().getIsolation();
@@ -244,6 +267,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration setIsolation(int level) {
         try {
             getJDBCDelegate().setIsolation(level);
@@ -253,6 +277,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration traverseJDBC(FieldMetaData fm) {
         try {
             return getJDBCDelegate().traverseJDBC(fm);
@@ -261,6 +286,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public Set getFetchInnerJoins() {
         try {
             return getJDBCDelegate().getFetchInnerJoins();
@@ -269,6 +295,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public boolean hasFetchInnerJoin(String field) {
         try {
             return getJDBCDelegate().hasFetchInnerJoin(field);
@@ -277,6 +304,7 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration addFetchInnerJoin(String field) {
         try {
             getJDBCDelegate().addFetchInnerJoin(field);
@@ -286,10 +314,28 @@ public class DelegatingJDBCFetchConfiguration
         }
     }
 
+    @Override
     public JDBCFetchConfiguration addFetchInnerJoins(Collection fields) {
         try {
             getJDBCDelegate().addFetchInnerJoins(fields);
             return this;
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+    @Override
+    public void setIgnoreDfgForFkSelect(boolean b) {
+        try {
+            getJDBCDelegate().setIgnoreDfgForFkSelect(b);
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    @Override
+    public boolean getIgnoreDfgForFkSelect() {
+        try {
+            return getJDBCDelegate().getIgnoreDfgForFkSelect();
         } catch (RuntimeException re) {
             throw translate(re);
         }

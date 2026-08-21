@@ -14,25 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
 import java.security.AccessController;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
-import serp.util.Strings;
 
 /**
  * Custom SAX parser used by the system to quickly parse metadata files
  * for classes.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class CFMetaDataParser extends XMLMetaDataParser {
 
@@ -93,6 +92,7 @@ public class CFMetaDataParser extends XMLMetaDataParser {
         return 2;
     }
 
+    @Override
     protected boolean startElement(String name, Attributes attrs)
         throws SAXException {
         // skip root element
@@ -100,7 +100,21 @@ public class CFMetaDataParser extends XMLMetaDataParser {
         if (depth == 0)
             return true;
 
+        if (StringUtil.contains(name, ':')) {
+            int index = name.indexOf(':');
+            name = name.substring(index + 1);
+        }
+
         try {
+            if (_openjpaNamespace > 0) {
+                if (name.equals("entity"))
+                    return startExtendedClass(name,attrs);
+                if (name.equals("attributes")) {
+                    return true;
+                }
+                return startClassElement(name, attrs);
+
+            }
             if (depth == getPackageElementDepth()
                 && isPackageElementName(name))
                 return startPackage(name, attrs);
@@ -120,14 +134,30 @@ public class CFMetaDataParser extends XMLMetaDataParser {
         }
     }
 
+    @Override
     protected void endElement(String name) throws SAXException {
         // skip root element
         int depth = currentDepth();
         if (depth == 0)
             return;
 
+        if (StringUtil.contains(name, ':')) {
+            int index = name.indexOf(':');
+            name = name.substring(index + 1);
+        }
+
         try {
-            if (depth == getPackageElementDepth()
+            if (_openjpaNamespace > 0) {
+                if (name.equals("entity"))
+                    endExtendedClass(name);
+                else if (name.equals("attributes")) {
+                    // do nothing
+                }
+                else {
+                    endClassElement(name);
+                }
+            }
+            else if (depth == getPackageElementDepth()
                 && isPackageElementName(name))
                 endPackage(name);
             else if (depth == getClassElementDepth()
@@ -180,7 +210,7 @@ public class CFMetaDataParser extends XMLMetaDataParser {
         throws SAXException {
         if (getClassAttributeName() != null) {
             _class = attrs.getValue(getClassAttributeName());
-            if (!StringUtils.isEmpty(_package) && _class.indexOf('.') == -1)
+            if (!StringUtil.isEmpty(_package) && _class.indexOf('.') == -1)
                 _class = _package + "." + _class;
         }
         return true;
@@ -194,9 +224,17 @@ public class CFMetaDataParser extends XMLMetaDataParser {
             _class = null;
         else {
             _class = currentText();
-            if (!StringUtils.isEmpty(_package) && _class.indexOf('.') == -1)
+            if (!StringUtil.isEmpty(_package) && _class.indexOf('.') == -1)
                 _class = _package + "." + _class;
         }
+    }
+
+    protected boolean startExtendedClass(String elem, Attributes attrs)
+        throws SAXException {
+        return false;
+    }
+
+    protected void endExtendedClass(String elem) throws SAXException {
     }
 
     /**
@@ -252,6 +290,7 @@ public class CFMetaDataParser extends XMLMetaDataParser {
      * a new document. Subclasses should call
      * <code>super.reset()</code> to clear superclass state.
      */
+    @Override
     protected void reset() {
         super.reset();
         _package = null;
@@ -295,35 +334,36 @@ public class CFMetaDataParser extends XMLMetaDataParser {
      */
     public static Class<?> classForName(String name, String pkg,
         boolean resolve, ClassLoader loader) {
-        if (StringUtils.isEmpty(name))
+        if (StringUtil.isEmpty(name))
             return null;
 
         if (loader == null)
             loader = AccessController.doPrivileged(
                 J2DoPrivHelper.getContextClassLoaderAction());
         boolean fullName = name.indexOf('.') != -1;
-        boolean noPackage = StringUtils.isEmpty(pkg);
+        boolean noPackage = StringUtil.isEmpty(pkg);
         try {
             if (fullName || noPackage)
-                return Strings.toClass(name, resolve, loader);
-            return Strings.toClass(pkg + "." + name, resolve, loader);
+                return ClassUtil.toClass(name, resolve, loader);
+            return ClassUtil.toClass(pkg + "." + name, resolve, loader);
         } catch (RuntimeException re) {
         }
 
         // if not a full name, now try the name without a package
         if (!fullName && !noPackage) {
             try {
-                return Strings.toClass(name, resolve, loader);
+                return ClassUtil.toClass(name, resolve, loader);
             } catch (RuntimeException re) {
             }
         }
 
         // try with standard packages
         if (!fullName) {
-            for (int i = 0; i < PACKAGES.length; i++) {
+            for (String aPackage : PACKAGES) {
                 try {
-                    return Strings.toClass(PACKAGES[i] + name, resolve, loader);
-                } catch (RuntimeException re) {
+                    return ClassUtil.toClass(aPackage + name, resolve, loader);
+                }
+                catch (RuntimeException re) {
                 }
             }
         }

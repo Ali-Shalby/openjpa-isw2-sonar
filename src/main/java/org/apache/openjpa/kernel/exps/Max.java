@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
 import java.util.Collection;
-import java.util.Iterator;
 
 /**
  * Find the max.
@@ -29,6 +28,9 @@ import java.util.Iterator;
 class Max
     extends AggregateVal {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Provide the value to maximize.
      */
@@ -36,15 +38,17 @@ class Max
         super(val);
     }
 
+    @Override
     protected Class getType(Class c) {
         return c;
     }
 
+    @Override
     protected Object operate(Collection os, Class c) {
         Comparable max = null;
         Comparable cur;
-        for (Iterator itr = os.iterator(); itr.hasNext();) {
-            cur = (Comparable) itr.next();
+        for (Object o : os) {
+            cur = (Comparable) o;
             if (cur != null && (max == null || max.compareTo(cur) < 0))
                 max = cur;
         }

@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 /**
  * Enumeration of Operator that operate on a single expression.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
@@ -52,14 +52,15 @@ public enum UnaryOperator {
 	TRIM("TRIM"),
 	TYPE("TYPE"),
 	UPPER("TOUPPER");
-	
+
 	private final String _symbol;
-	
+
 	UnaryOperator(String symbol) {
 		_symbol = symbol;
 	}
-	
-	public String toString() {
+
+	@Override
+    public String toString() {
 		return _symbol;
 	}
 }

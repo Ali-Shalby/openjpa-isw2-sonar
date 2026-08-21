@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
@@ -40,6 +40,7 @@ public enum ResultSetType implements OpenJPAEnum<ResultSetType>{
         resultSetConstant = value;
     }
 
+    @Override
     public int toKernelConstant() {
         return resultSetConstant;
     }
@@ -59,11 +60,13 @@ public enum ResultSetType implements OpenJPAEnum<ResultSetType>{
                 throw new IllegalArgumentException(kernelConstant + "");
         }
     }
-    
+
+    @Override
     public int convertToKernelConstant(String s) {
         return ResultSetType.toKernelConstantFromString(s);
     }
-    
+
+    @Override
     public int convertToKernelConstant(int i) {
         if (i == FetchConfiguration.DEFAULT)
             return i;
@@ -73,7 +76,7 @@ public enum ResultSetType implements OpenJPAEnum<ResultSetType>{
         }
         throw new IllegalArgumentException(i + " is invalid value for ResultSetType");
     }
-    
+
     public static int toKernelConstantFromString(String s) {
         for (ResultSetType level : ResultSetType.values()) {
             if (level.name().equalsIgnoreCase(s) || String.valueOf(level.toKernelConstant()).equals(s))

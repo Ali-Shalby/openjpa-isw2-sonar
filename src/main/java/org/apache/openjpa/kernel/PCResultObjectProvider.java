@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -36,7 +36,7 @@ public interface PCResultObjectProvider
      *
      * @see StoreManager#initialize
      */
-    public void initialize(OpenJPAStateManager sm, PCState state,
+    void initialize(OpenJPAStateManager sm, PCState state,
         FetchConfiguration fetch)
         throws Exception;
 }

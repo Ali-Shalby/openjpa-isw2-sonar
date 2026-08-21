@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -24,17 +24,14 @@ import java.lang.reflect.Member;
 import java.lang.reflect.Method;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
+import java.time.Duration;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.StringUtils;
-
-import serp.util.Strings;
 
 /**
  * A specialization of the {@link Properties} map type with the added
@@ -49,10 +46,9 @@ import serp.util.Strings;
  * properties of classes reachable from the class, through the command line.
  *
  * @author Abe White
- * @nojavadoc
  */
-@SuppressWarnings("serial")
 public class Options extends TypedProperties {
+    private static final long serialVersionUID = 1L;
 
     /**
      * Immutable empty instance.
@@ -62,13 +58,15 @@ public class Options extends TypedProperties {
     // maps primitive types to the appropriate wrapper class and default value
     private static Object[][] _primWrappers = new Object[][]{
         { boolean.class, Boolean.class, Boolean.FALSE },
-        { byte.class, Byte.class, new Byte((byte) 0) },
-        { char.class, Character.class, new Character((char) 0) },
-        { double.class, Double.class, new Double(0D) },
-        { float.class, Float.class, new Float(0F) },
-        { int.class, Integer.class, new Integer(0) },
-        { long.class, Long.class, new Long(0L) },
-        { short.class, Short.class, new Short((short) 0) }, };
+        { byte.class, Byte.class, (byte) 0},
+        { char.class, Character.class, (char) 0},
+        { double.class, Double.class, 0D},
+        { float.class, Float.class, 0F},
+        { int.class, Integer.class, 0},
+        { long.class, Long.class, 0L},
+        { short.class, Short.class, (short) 0}, };
+
+    private static Localizer _loc = Localizer.forPackage(Options.class);
 
     /**
      * Default constructor.
@@ -105,12 +103,12 @@ public class Options extends TypedProperties {
 
         String key = null;
         String value = null;
-        List remainder = new LinkedList();
+        List<String> remainder = new LinkedList<>();
         for (int i = 0; i < args.length + 1; i++) {
             if (i == args.length || args[i].startsWith("-")) {
                 key = trimQuote(key);
                 if (key != null) {
-                    if (!StringUtils.isEmpty(value))
+                    if (!StringUtil.isEmpty(value))
                         setProperty(key, trimQuote(value));
                     else
                         setProperty(key, "true");
@@ -129,7 +127,7 @@ public class Options extends TypedProperties {
                 remainder.add(args[i]);
         }
 
-        return (String[]) remainder.toArray(new String[remainder.size()]);
+        return remainder.toArray(new String[remainder.size()]);
     }
 
     /**
@@ -162,7 +160,7 @@ public class Options extends TypedProperties {
      * <li>Map Entry: <code>"brother.name"-&gt;"Bob"</code><br />
      * Resultant method call: <code>obj.getBrother().setName("Bob")
      * <code></li>
-     * </ul> 
+     * </ul>
      * Any keys present in the map for which there is no
      * corresponding property in the given object will be ignored,
      * and will be returned in the {@link Map} returned by this method.
@@ -175,9 +173,8 @@ public class Options extends TypedProperties {
         // set all defaults that have no explicit value
         Map.Entry entry = null;
         if (defaults != null) {
-            for (Iterator itr = defaults.entrySet().iterator(); itr.hasNext();)
-            {
-                entry = (Map.Entry) itr.next();
+            for (Map.Entry<Object, Object> objectObjectEntry : defaults.entrySet()) {
+                entry = (Map.Entry) objectObjectEntry;
                 if (!containsKey(entry.getKey()))
                     setInto(obj, entry);
             }
@@ -186,8 +183,8 @@ public class Options extends TypedProperties {
         // set from main map
         Options invalidEntries = null;
         Map.Entry e;
-        for (Iterator itr = entrySet().iterator(); itr.hasNext();) {
-            e = (Map.Entry) itr.next();
+        for (Map.Entry<Object, Object> objectObjectEntry : entrySet()) {
+            e = (Map.Entry) objectObjectEntry;
             if (!setInto(obj, e)) {
                 if (invalidEntries == null)
                     invalidEntries = new Options();
@@ -222,7 +219,7 @@ public class Options extends TypedProperties {
             else if (values.length == 1)
                 strValues = new String[]{ entry.getValue().toString() };
             else
-                strValues = Strings.split(entry.getValue().toString(), ",", 0);
+                strValues = StringUtil.split(entry.getValue().toString(), ",", 0);
 
             // convert the string values into parameter values, if not
             // enough string values repeat last one for rest
@@ -235,8 +232,7 @@ public class Options extends TypedProperties {
             invoke(match[0], match[1], values);
             return true;
         } catch (Throwable t) {
-            throw new ParseException(obj + "." + entry.getKey()
-                + " = " + entry.getValue(), t);
+            throw new ParseException(obj + "." + entry.getKey() + " = " + entry.getValue(), t);
         }
     }
 
@@ -258,27 +254,28 @@ public class Options extends TypedProperties {
      * names will have initial caps. They will be ordered alphabetically.
      */
     public static Collection<String> findOptionsFor(Class<?> type) {
-        Collection<String> names = new TreeSet<String>();
+        Collection<String> names = new TreeSet<>();
         // look for a setter method matching the key
         Method[] meths = type.getMethods();
         Class<?>[] params;
-        for (int i = 0; i < meths.length; i++) {
-            if (meths[i].getName().startsWith("set")) {
-                params = meths[i].getParameterTypes();
+        for (Method meth : meths) {
+            if (meth.getName().startsWith("set")) {
+                params = meth.getParameterTypes();
                 if (params.length == 0)
                     continue;
                 if (params[0].isArray())
                     continue;
 
-                names.add(StringUtils.capitalize(
-                    meths[i].getName().substring(3)));
+                names.add(StringUtil.capitalize(
+                        meth.getName().substring(3)));
             }
         }
 
         // check for public fields
         Field[] fields = type.getFields();
-        for (int i = 0; i < fields.length; i++)
-            names.add(StringUtils.capitalize(fields[i].getName()));
+        for (Field field : fields) {
+            names.add(StringUtil.capitalize(field.getName()));
+        }
 
         return names;
     }
@@ -298,26 +295,26 @@ public class Options extends TypedProperties {
      */
     private static boolean matchOptionToMember(String key, Object[] match)
         throws Exception {
-        if (StringUtils.isEmpty(key))
+        if (StringUtil.isEmpty(key))
             return false;
 
         // unfortunately we can't use bean properties for setters; any
-        // setter with more than 1 arg is ignored; calc setter and getter
+        // setter with more than 1 argument is ignored; calculate setter and getter
         // name to look for
-        String[] find = Strings.split(key, ".", 2);
-        String base = StringUtils.capitalize(find[0]);
+        String[] find = StringUtil.split(key, ".", 2);
+        String base = StringUtil.capitalize(find[0]);
         String set = "set" + base;
         String get = "get" + base;
 
         // look for a setter/getter matching the key; look for methods first
-        Class type = match[0].getClass();
+        Class<?> type = match[0].getClass();
         Method[] meths = type.getMethods();
         Method setMeth = null;
         Method getMeth = null;
         Class[] params;
-        for (int i = 0; i < meths.length; i++) {
-            if (meths[i].getName().equals(set)) {
-                params = meths[i].getParameterTypes();
+        for (Method meth : meths) {
+            if (meth.getName().equals(set)) {
+                params = meth.getParameterTypes();
                 if (params.length == 0)
                     continue;
                 if (params[0].isArray())
@@ -327,14 +324,15 @@ public class Options extends TypedProperties {
                 // it has less parameters than any other setter, or if it uses
                 // string parameters
                 if (setMeth == null)
-                    setMeth = meths[i];
+                    setMeth = meth;
                 else if (params.length < setMeth.getParameterTypes().length)
-                    setMeth = meths[i];
+                    setMeth = meth;
                 else if (params.length == setMeth.getParameterTypes().length
-                    && params[0] == String.class)
-                    setMeth = meths[i];
-            } else if (meths[i].getName().equals(get))
-                getMeth = meths[i];
+                        && params[0] == String.class)
+                    setMeth = meth;
+            }
+            else if (meth.getName().equals(get))
+                getMeth = meth;
         }
 
         // if no methods found, check for public field
@@ -342,12 +340,12 @@ public class Options extends TypedProperties {
         Member getter = getMeth;
         if (setter == null) {
             Field[] fields = type.getFields();
-            String uncapBase = StringUtils.uncapitalize(find[0]);
-            for (int i = 0; i < fields.length; i++) {
-                if (fields[i].getName().equals(base)
-                    || fields[i].getName().equals(uncapBase)) {
-                    setter = fields[i];
-                    getter = fields[i];
+            String uncapBase = StringUtil.uncapitalize(find[0]);
+            for (Field field : fields) {
+                if (field.getName().equals(base)
+                        || field.getName().equals(uncapBase)) {
+                    setter = field;
+                    getter = field;
                     break;
                 }
             }
@@ -366,7 +364,7 @@ public class Options extends TypedProperties {
             // if no getter or current inner is null, try to create a new
             // inner instance and set it in object
             if (inner == null && setter != null) {
-                Class innerType = getType(setter)[0];
+                Class<?> innerType = getType(setter)[0];
                 try {
                     inner = AccessController.doPrivileged(
                         J2DoPrivHelper.newInstanceAction(innerType));
@@ -387,7 +385,7 @@ public class Options extends TypedProperties {
     /**
      * Return the types of the parameters needed to set the given member.
      */
-    private static Class[] getType(Object member) {
+    private static Class<?>[] getType(Object member) {
         if (member instanceof Method)
             return ((Method) member).getParameterTypes();
         return new Class[]{ ((Field) member).getType() };
@@ -410,7 +408,7 @@ public class Options extends TypedProperties {
      * Converts the given string into an object of the given type, or its
      * wrapper type if it is primitive.
      */
-    private Object stringToObject(String str, Class type) throws Exception {
+    private Object stringToObject(String str, Class<?> type) throws Exception {
         // special case for null and for strings
         if (str == null || type == String.class)
             return str;
@@ -427,35 +425,39 @@ public class Options extends TypedProperties {
 
         // for primitives, recurse on wrapper type
         if (type.isPrimitive())
-            for (int i = 0; i < _primWrappers.length; i++)
-                if (type == _primWrappers[i][0])
-                    return stringToObject(str, (Class) _primWrappers[i][1]);
+            for (Object[] primWrapper : _primWrappers)
+                if (type == primWrapper[0])
+                    return stringToObject(str, (Class<?>) primWrapper[1]);
+
+        // special case for Durations
+        if (type == Duration.class) {
+            return Duration.ofMillis(Long.valueOf(str));
+        }
 
         // look for a string constructor
         Exception err = null;
         try {
-            Constructor cons = type.getConstructor
-                (new Class[]{ String.class });
+            Constructor<?> cons = type.getConstructor(new Class[]{ String.class });
             if (type == Boolean.class && "t".equalsIgnoreCase(str))
                 str = "true";
             return cons.newInstance(new Object[]{ str });
         } catch (Exception e) {
-            err = e;
+            err = new ParseException(_loc.get("conf-no-constructor", str, type), e);
         }
 
-        // special case: the arg value is a subtype name and a new instance
+        // special case: the argument value is a subtype name and a new instance
         // of that type should be set as the object
-        Class subType = null;
+        Class<?> subType = null;
         try {
             subType = Class.forName(str);
         } catch (Exception e) {
-            throw err;
+            err = e;
+            throw new ParseException(_loc.get("conf-no-type", str, type), e);
         }
         if (!type.isAssignableFrom(subType))
             throw err;
         try {
-            return AccessController.doPrivileged(
-                J2DoPrivHelper.newInstanceAction(subType));
+            return AccessController.doPrivileged(J2DoPrivHelper.newInstanceAction(subType));
         } catch (PrivilegedActionException pae) {
             throw pae.getException();
         }
@@ -464,10 +466,10 @@ public class Options extends TypedProperties {
     /**
      * Returns the default value for the given parameter type.
      */
-    private Object getDefaultValue(Class type) {
-        for (int i = 0; i < _primWrappers.length; i++)
-            if (_primWrappers[i][0] == type)
-                return _primWrappers[i][2];
+    private Object getDefaultValue(Class<?> type) {
+        for (Object[] primWrapper : _primWrappers)
+            if (primWrapper[0] == type)
+                return primWrapper[2];
 
         return null;
     }
@@ -617,7 +619,7 @@ public class Options extends TypedProperties {
     }
 
     /**
-     * Specialization of {@link Properties#removeProperty} to allow
+     * Specialization of {@link Properties#remove(Object)} to allow
      * a value to appear under either of two keys; useful for short and
      * long versions of command-line flags.
      */
@@ -631,10 +633,15 @@ public class Options extends TypedProperties {
      */
     private static class EmptyOptions extends Options {
 
+
+        private static final long serialVersionUID = 1L;
+
+        @Override
         public Object setProperty(String key, String value) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Object put(Object key, Object value) {
             throw new UnsupportedOperationException();
         }

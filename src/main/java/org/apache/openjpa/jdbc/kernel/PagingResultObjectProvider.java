@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -52,7 +52,6 @@ import org.apache.openjpa.util.InternalException;
  * <code>parallel</code> mode batch selects for each page it reads.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class PagingResultObjectProvider
     extends SelectResultObjectProvider {
@@ -87,23 +86,22 @@ public class PagingResultObjectProvider
 
         // not configured for eager selects?
         eagerMode = Math.min(eagerMode, fetch.getEagerFetchMode());
-        if (eagerMode != fetch.EAGER_PARALLEL)
+        if (eagerMode != EagerFetchModes.EAGER_PARALLEL)
             return null;
 
         // are there any mappings that require batched selects?
         FieldMapping[] fms = mapping.getDefinedFieldMappings();
         BitSet paged = null;
-        for (int i = 0; i < fms.length; i++) {
-            if (fetch.requiresFetch(fms[i]) != FetchConfiguration.FETCH_LOAD)
+        for (FieldMapping fm : fms) {
+            if (fetch.requiresFetch(fm) != FetchConfiguration.FETCH_LOAD)
                 continue;
 
-            if (fms[i].supportsSelect(sel, sel.EAGER_PARALLEL, null, store,
-                fetch) > 0 && (fms[i].isEagerSelectToMany() || fms[i].
-                supportsSelect(sel, sel.EAGER_OUTER, null, store, fetch) == 0))
-            {
+            if (fm.supportsSelect(sel, Select.EAGER_PARALLEL, null, store,
+                    fetch) > 0 && (fm.isEagerSelectToMany() || fm.
+                    supportsSelect(sel, Select.EAGER_OUTER, null, store, fetch) == 0)) {
                 if (paged == null)
                     paged = new BitSet();
-                paged.set(fms[i].getIndex());
+                paged.set(fm.getIndex());
             }
         }
         return paged;
@@ -187,12 +185,14 @@ public class PagingResultObjectProvider
         return _page.length;
     }
 
+    @Override
     public void open()
         throws SQLException {
         super.open();
         _pos = -1;
     }
 
+    @Override
     public boolean next()
         throws SQLException {
         _pos++;
@@ -205,6 +205,7 @@ public class PagingResultObjectProvider
         return true;
     }
 
+    @Override
     public boolean absolute(int pos)
         throws SQLException {
         _pos = pos;
@@ -213,6 +214,7 @@ public class PagingResultObjectProvider
         return super.absolute(pos);
     }
 
+    @Override
     public Object getResultObject()
         throws SQLException {
         if (!inPage())
@@ -333,8 +335,8 @@ public class PagingResultObjectProvider
         // figure out how many batch selects to do on this mapping
         FieldMapping[] fms = mapping.getDefinedFieldMappings();
         int sels = 0;
-        for (int i = 0; i < fms.length; i++)
-            if (paged.get(fms[i].getIndex()))
+        for (FieldMapping fieldMapping : fms)
+            if (paged.get(fieldMapping.getIndex()))
                 sels++;
         if (sels == 0)
             return;
@@ -358,12 +360,12 @@ public class PagingResultObjectProvider
         int esels = 0;
         SelectExecutor esel;
         int unions;
-        for (int i = 0; i < fms.length; i++) {
-            if (!paged.get(fms[i].getIndex()))
+        for (FieldMapping fm : fms) {
+            if (!paged.get(fm.getIndex()))
                 continue;
 
-            unions = fms[i].supportsSelect(sel, Select.EAGER_PARALLEL, null,
-                store, fetch);
+            unions = fm.supportsSelect(sel, Select.EAGER_PARALLEL, null,
+                    store, fetch);
             if (unions == 0)
                 continue;
 
@@ -375,17 +377,22 @@ public class PagingResultObjectProvider
                 esel = sel;
 
             // get result
-            fms[i].selectEagerParallel(esel, null, store, fetch,
-                JDBCFetchConfiguration.EAGER_PARALLEL);
+            fm.selectEagerParallel(esel, null, store, fetch,
+                    EagerFetchModes.EAGER_PARALLEL);
             res = esel.execute(store, fetch);
             try {
                 // and load result into paged instances
                 for (int j = start; j < end && _page[j] != null; j++)
-                    res = fms[i].loadEagerParallel(ctx.getStateManager
-                        (_page[j]), store, fetch, res);
-            } finally {
+                    res = fm.loadEagerParallel(ctx.getStateManager
+                            (_page[j]), store, fetch, res);
+            }
+            finally {
                 if (res instanceof Closeable)
-                    try { ((Closeable) res).close(); } catch (Exception e) {}
+                    try {
+                        ((Closeable) res).close();
+                    }
+                    catch (Exception e) {
+                    }
             }
         }
     }
@@ -393,7 +400,7 @@ public class PagingResultObjectProvider
     /**
      *  Based on the DBDictionary, create the needed IN clauses.
      */
-    private void createInContains(Select sel, DBDictionary dict, SQLBuffer buf, 
+    private void createInContains(Select sel, DBDictionary dict, SQLBuffer buf,
         ClassMapping mapping, Column[] pks, int start, int end) {
         int inClauseLimit = dict.inClauseLimit;
         if (inClauseLimit <= 0 || end - start <= inClauseLimit)
@@ -409,7 +416,7 @@ public class PagingResultObjectProvider
             buf.append(")");
         }
     }
-    
+
     /**
      * Create an IN clause limiting the results to the current page.
      */

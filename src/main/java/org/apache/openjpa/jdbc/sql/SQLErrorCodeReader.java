@@ -27,11 +27,10 @@ import java.util.Map;
 
 import javax.xml.parsers.DocumentBuilder;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
-import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.lib.xml.XMLFactory;
 import org.apache.openjpa.util.StoreException;
 import org.w3c.dom.Document;
@@ -43,15 +42,15 @@ import org.w3c.dom.NodeList;
 /**
  * Parses XML content of SQL Error State codes to populate error codes for
  * a given Database Dictionary.
- * 
+ *
  * @author Pinaki Poddar
- * 
+ *
  */
 public class SQLErrorCodeReader {
 	private Log log = null;
 	public static final String ERROR_CODE_DELIMITER = ",";
-	public static final Map<String, Integer> storeErrorTypes = 
-		new HashMap<String, Integer>();
+	public static final Map<String, Integer> storeErrorTypes =
+		new HashMap<>();
 	static {
 		storeErrorTypes.put("lock", StoreException.LOCK);
         storeErrorTypes.put("object-exists", StoreException.OBJECT_EXISTS);
@@ -62,12 +61,12 @@ public class SQLErrorCodeReader {
 				StoreException.REFERENTIAL_INTEGRITY);
 		storeErrorTypes.put("query", StoreException.QUERY);
 	}
-	
-	private static final Localizer _loc = 
+
+	private static final Localizer _loc =
 		Localizer.forPackage(SQLErrorCodeReader.class);
-	
+
 	public List<String> getDictionaries(InputStream in) {
-		List<String> result = new ArrayList<String>();
+		List<String> result = new ArrayList<>();
 		DocumentBuilder builder = XMLFactory.getDOMParser(false, false);
 		try {
 			Document doc = builder.parse(in);
@@ -98,7 +97,7 @@ public class SQLErrorCodeReader {
 	/**
      * Parses given stream of XML content for error codes of the given database
      * dictionary name. Populates the given dictionary with the error codes.
-	 * 
+	 *
 	 */
 	public void parse(InputStream in, String dictName, DBDictionary dict) {
 		if (in == null || dict == null)
@@ -113,7 +112,7 @@ public class SQLErrorCodeReader {
 				Node node = nodes.item(i);
 				NamedNodeMap attrs = node.getAttributes();
 				Node dictionary = attrs.getNamedItem("class");
-				if (dictionary != null 
+				if (dictionary != null
                         && dictionary.getNodeValue().equals(dictName)) {
 					readErrorCodes(node, dict);
 				}
@@ -141,7 +140,7 @@ public class SQLErrorCodeReader {
 				Node textNode = child.getFirstChild();
                 if (storeErrorTypes.containsKey(errorType) && textNode != null){
                     String errorCodes = textNode.getNodeValue();
-                    if (!StringUtils.isEmpty(errorCodes)) {
+                    if (!StringUtil.isEmpty(errorCodes)) {
                         String[] codes = errorCodes.split(ERROR_CODE_DELIMITER);
                         for (String code : codes) {
                             dict.addErrorCode(storeErrorTypes.get(errorType),

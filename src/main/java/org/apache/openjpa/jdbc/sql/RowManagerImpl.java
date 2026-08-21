@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -34,7 +34,6 @@ import org.apache.openjpa.util.InternalException;
  * Manages SQL rows during an insert/update/delete process.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class RowManagerImpl
     implements RowManager {
@@ -66,7 +65,7 @@ public class RowManagerImpl
      * @param order whether to keep track of the order in which rows are added
      */
     public RowManagerImpl(boolean order) {
-        _primaryOrder = (order) ? new ArrayList<PrimaryRow>() : null;
+        _primaryOrder = (order) ? new ArrayList<>() : null;
     }
 
     /**
@@ -81,10 +80,10 @@ public class RowManagerImpl
      * on construction.
      */
     public List<PrimaryRow> getOrdered() {
-        if(_primaryOrder == null ) { 
+        if(_primaryOrder == null ) {
             return Collections.emptyList();
         }
-        else { 
+        else {
             return _primaryOrder;
         }
     }
@@ -105,10 +104,10 @@ public class RowManagerImpl
      * Return all updated primary rows.
      */
     public Collection<PrimaryRow> getUpdates() {
-        if(_updates == null ){ 
+        if(_updates == null ){
             return Collections.emptyList();
         }
-        else { 
+        else {
             return _updates.values();
         }
     }
@@ -117,7 +116,7 @@ public class RowManagerImpl
      * Return all deleted primary rows.
      */
     public Collection<PrimaryRow> getDeletes() {
-        if(_deletes == null) { 
+        if(_deletes == null) {
             return Collections.emptyList();
         }
         else {
@@ -129,10 +128,10 @@ public class RowManagerImpl
      * Return all inserted and updated secondary rows.
      */
     public Collection<SecondaryRow> getSecondaryUpdates() {
-        if(_secondaryUpdates == null) { 
+        if(_secondaryUpdates == null) {
             return Collections.emptyList();
         }
-        else { 
+        else {
             return _secondaryUpdates;
         }
     }
@@ -141,10 +140,10 @@ public class RowManagerImpl
      * Return all deleted secondary rows.
      */
     public Collection<SecondaryRow> getSecondaryDeletes() {
-        if(_secondaryDeletes == null) { 
+        if(_secondaryDeletes == null) {
             return Collections.emptyList();
         }
-        else { 
+        else {
             return _secondaryDeletes;
         }
     }
@@ -153,10 +152,10 @@ public class RowManagerImpl
      * Return any 'all row' updates.
      */
     public Collection<Row> getAllRowUpdates() {
-        if(_allRowUpdates == null) { 
+        if(_allRowUpdates == null) {
             return Collections.emptyList();
         }
-        else { 
+        else {
             return _allRowUpdates;
         }
     }
@@ -165,19 +164,21 @@ public class RowManagerImpl
      * Return any 'all row' deletes.
      */
     public Collection<Row> getAllRowDeletes() {
-        if(_allRowDeletes == null) { 
+        if(_allRowDeletes == null) {
             return Collections.emptyList();
         }
-        else { 
+        else {
             return _allRowDeletes;
         }
-        
+
     }
 
+    @Override
     public Row getSecondaryRow(Table table, int action) {
         return new SecondaryRow(table, action);
     }
 
+    @Override
     public void flushSecondaryRow(Row row)
         throws SQLException {
         if (!row.isValid())
@@ -186,19 +187,21 @@ public class RowManagerImpl
         SecondaryRow srow = (SecondaryRow) row;
         if (srow.getAction() == Row.ACTION_DELETE) {
             if (_secondaryDeletes == null)
-                _secondaryDeletes = new ArrayList<SecondaryRow>();
+                _secondaryDeletes = new ArrayList<>();
             _secondaryDeletes.add((SecondaryRow) srow.clone());
         } else {
             if (_secondaryUpdates == null)
-                _secondaryUpdates = new ArrayList<SecondaryRow>();
+                _secondaryUpdates = new ArrayList<>();
             _secondaryUpdates.add((SecondaryRow) srow.clone());
         }
     }
 
+    @Override
     public Row getAllRows(Table table, int action) {
         return new RowImpl(table, action);
     }
 
+    @Override
     public void flushAllRows(Row row) {
         if (!row.isValid())
             return;
@@ -206,12 +209,12 @@ public class RowManagerImpl
         switch (row.getAction()) {
             case Row.ACTION_UPDATE:
                 if (_allRowUpdates == null)
-                    _allRowUpdates = new ArrayList<Row>();
+                    _allRowUpdates = new ArrayList<>();
                 _allRowUpdates.add(row);
                 break;
             case Row.ACTION_DELETE:
                 if (_allRowDeletes == null)
-                    _allRowDeletes = new ArrayList<Row>();
+                    _allRowDeletes = new ArrayList<>();
                 _allRowDeletes.add(row);
                 break;
             default:
@@ -219,6 +222,7 @@ public class RowManagerImpl
         }
     }
 
+    @Override
     public Row getRow(Table table, int action, OpenJPAStateManager sm,
         boolean create) {
         if (sm == null)
@@ -232,15 +236,15 @@ public class RowManagerImpl
         Map<Key, PrimaryRow> map;
         if (action == Row.ACTION_DELETE) {
             if (_deletes == null && create)
-                _deletes = new LinkedHashMap<Key, PrimaryRow>();
+                _deletes = new LinkedHashMap<>();
             map = _deletes;
         } else if (action == Row.ACTION_INSERT) {
             if (_inserts == null && create)
-                _inserts = new LinkedHashMap<Key, PrimaryRow>();
+                _inserts = new LinkedHashMap<>();
             map = _inserts;
         } else {
             if (_updates == null && create)
-                _updates = new LinkedHashMap<Key, PrimaryRow>();
+                _updates = new LinkedHashMap<>();
             map = _updates;
         }
         if (map == null)
@@ -279,11 +283,15 @@ public class RowManagerImpl
             this.sm = sm;
         }
 
+        @Override
         public int hashCode() {
-            return (table.hashCode() + sm.hashCode()) % Integer.MAX_VALUE;
+            return ((table == null) ? 0  : table.hashCode()) + ((sm == null) ? 0  : sm.hashCode()) % Integer.MAX_VALUE;
         }
 
+        @Override
         public boolean equals(Object other) {
+            if (other == null)
+                return false;
             if (other == this)
                 return true;
 

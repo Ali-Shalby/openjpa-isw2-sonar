@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -34,6 +34,9 @@ import org.apache.openjpa.util.UserException;
  */
 abstract class CompareEqualExpression
     implements Exp {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage
         (CompareEqualExpression.class);
@@ -61,6 +64,7 @@ abstract class CompareEqualExpression
         return _val2;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         boolean direct = isDirectComparison();
         int flags1 = 0;
@@ -83,7 +87,7 @@ abstract class CompareEqualExpression
             flags1 = flags1 | Val.CMP_EQUAL;
             flags2 = flags2 | Val.CMP_EQUAL;
         }
-        
+
         if (s1 == null)
             s1 = _val1.initialize(sel, ctx, flags1);
         if (s2 == null)
@@ -91,7 +95,8 @@ abstract class CompareEqualExpression
         return new BinaryOpExpState(sel.and(s1.joins, s2.joins), s1, s2);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _val1.calculateValue(sel, ctx, bstate.state1, _val2, bstate.state2);
@@ -110,7 +115,8 @@ abstract class CompareEqualExpression
             sel.append(buf, state.joins);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _val1.selectColumns(sel, ctx, bstate.state1, true);
@@ -120,8 +126,8 @@ abstract class CompareEqualExpression
     /**
      * Append the SQL for the comparison.
      */
-    protected abstract void appendTo(Select sel, ExpContext ctx, 
-        BinaryOpExpState state, SQLBuffer buf, boolean val1Null, 
+    protected abstract void appendTo(Select sel, ExpContext ctx,
+        BinaryOpExpState state, SQLBuffer buf, boolean val1Null,
         boolean val2Null);
 
     /**
@@ -133,6 +139,7 @@ abstract class CompareEqualExpression
         return true;
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val1.acceptVisit(visitor);

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -26,8 +26,9 @@ import org.apache.openjpa.lib.util.Localizer.Message;
  * @author Abe White
  * @since 0.3.2
  */
-public class InternalException
-    extends OpenJPAException {
+public class InternalException extends OpenJPAException {
+
+    private static final long serialVersionUID = 1L;
 
     public InternalException() {
         setFatal(true);
@@ -58,6 +59,7 @@ public class InternalException
         setFatal(true);
     }
 
+    @Override
     public int getType() {
         return INTERNAL;
     }

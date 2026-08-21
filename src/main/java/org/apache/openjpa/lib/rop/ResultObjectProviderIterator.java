@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
@@ -27,7 +27,6 @@ import org.apache.openjpa.lib.util.Closeable;
  * Iterator wrapped around a {@link ResultObjectProvider}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ResultObjectProviderIterator implements Iterator, Closeable {
 
@@ -45,8 +44,9 @@ public class ResultObjectProviderIterator implements Iterator, Closeable {
     /**
      * Close the underlying result object provider.
      */
+    @Override
     public void close() {
-        if (_open == Boolean.TRUE) {
+        if (Boolean.TRUE.equals(_open)) {
             try {
                 _rop.close();
             } catch (Exception e) {
@@ -55,12 +55,14 @@ public class ResultObjectProviderIterator implements Iterator, Closeable {
         }
     }
 
+    @Override
     public void remove() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean hasNext() {
-        if (_open == Boolean.FALSE)
+        if (Boolean.FALSE.equals(_open))
             return false;
 
         if (_hasNext == null) {
@@ -81,13 +83,14 @@ public class ResultObjectProviderIterator implements Iterator, Closeable {
         }
 
         // close if we reach the end of the list
-        if (!_hasNext.booleanValue()) {
+        if (!_hasNext) {
             close();
             return false;
         }
         return true;
     }
 
+    @Override
     public Object next() {
         if (!hasNext())
             throw new NoSuchElementException();
@@ -105,6 +108,7 @@ public class ResultObjectProviderIterator implements Iterator, Closeable {
         }
     }
 
+    @Override
     protected void finalize() {
         close();
     }

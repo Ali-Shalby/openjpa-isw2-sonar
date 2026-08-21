@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
@@ -34,6 +33,8 @@ import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 class OrExpression
     implements Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Exp _exp1;
     private final Exp _exp2;
 
@@ -45,6 +46,7 @@ class OrExpression
         _exp2 = exp2;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         // when OR'ing expressions each expression gets its own copy of the
         // contains counts, cause it's OK for each to use the same aliases
@@ -61,17 +63,18 @@ class OrExpression
         // combine the contains counts from the copy into the main map
         Map.Entry entry;
         Integer val1, val2;
-        for (Iterator itr = contains2.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
+        for (Object o : contains2.entrySet()) {
+            entry = (Map.Entry) o;
             val2 = (Integer) entry.getValue();
             val1 = (Integer) contains.get(entry.getKey());
-            if (val1 == null || val2.intValue() > val1.intValue())
+            if (val1 == null || val2 > val1)
                 contains.put(entry.getKey(), val2);
         }
         return ret;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         boolean paren = bstate.joins != null && !bstate.joins.isEmpty();
@@ -87,13 +90,15 @@ class OrExpression
         sel.append(buf, bstate.joins);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _exp1.selectColumns(sel, ctx, bstate.state1, pks);
         _exp2.selectColumns(sel, ctx, bstate.state2, pks);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _exp1.acceptVisit(visitor);

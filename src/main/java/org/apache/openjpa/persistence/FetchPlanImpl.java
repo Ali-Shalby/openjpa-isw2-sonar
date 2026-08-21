@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
@@ -22,12 +22,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import javax.persistence.LockModeType;
-import javax.persistence.PessimisticLockScope;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PessimisticLockScope;
 
 import org.apache.openjpa.kernel.DataCacheRetrieveMode;
 import org.apache.openjpa.kernel.DataCacheStoreMode;
@@ -41,58 +40,57 @@ import org.apache.openjpa.kernel.QueryFlushModes;
  * @author Abe White
  * @author Pinaki Poddar
  * @since 0.4.1
- * @nojavadoc
  */
 public class FetchPlanImpl
 	implements FetchPlan {
 
     private final DelegatingFetchConfiguration _fetch;
-    
+
     /**
      * Structure holds ranking of equivalent hint keys. Each entry value is a list of other keys that are higher rank
-     * than the entry key.   
+     * than the entry key.
      */
-    protected static Map<String, List<String>> _precedence = new HashMap<String, List<String>>();
-    
+    protected static Map<String, List<String>> _precedence = new HashMap<>();
+
     /**
-     * Structure holds one or more converters for a user-specified hint value. 
+     * Structure holds one or more converters for a user-specified hint value.
      */
-    protected static Map<String,HintValueConverter[]> _hints = new HashMap<String,HintValueConverter[]>();
-    
+    protected static Map<String,HintValueConverter[]> _hints = new HashMap<>();
+
     /**
-     * Statically registers supported hint keys with their ranking and converters. 
+     * Statically registers supported hint keys with their ranking and converters.
      */
     static {
-        registerHint(new String[]{"openjpa.FetchPlan.ExtendedPathLookup"}, 
+        registerHint(new String[]{"openjpa.FetchPlan.ExtendedPathLookup"},
                 new HintValueConverter.StringToBoolean());
-        registerHint(new String[]{"openjpa.FetchBatchSize", "openjpa.FetchPlan.FetchBatchSize"}, 
+        registerHint(new String[]{"openjpa.FetchBatchSize", "openjpa.FetchPlan.FetchBatchSize"},
                 new HintValueConverter.StringToInteger());
-        registerHint(new String[]{"openjpa.MaxFetchDepth", "openjpa.FetchPlan.MaxFetchDepth"}, 
+        registerHint(new String[]{"openjpa.MaxFetchDepth", "openjpa.FetchPlan.MaxFetchDepth"},
                 new HintValueConverter.StringToInteger());
-        registerHint(new String[]{"openjpa.LockTimeout", "openjpa.FetchPlan.LockTimeout", 
-                "javax.persistence.lock.timeout"}, new HintValueConverter.StringToInteger());
-        registerHint(new String[]{"openjpa.QueryTimeout", "openjpa.FetchPlan.QueryTimeout", 
-                "javax.persistence.query.timeout"}, new HintValueConverter.StringToInteger());
-        registerHint(new String[]{"openjpa.FlushBeforeQueries", "openjpa.FetchPlan.FlushBeforeQueries"}, 
+        registerHint(new String[]{"openjpa.LockTimeout", "openjpa.FetchPlan.LockTimeout",
+                "jakarta.persistence.lock.timeout"}, new HintValueConverter.StringToInteger());
+        registerHint(new String[]{"openjpa.QueryTimeout", "openjpa.FetchPlan.QueryTimeout",
+                "jakarta.persistence.query.timeout"}, new HintValueConverter.StringToInteger());
+        registerHint(new String[]{"openjpa.FlushBeforeQueries", "openjpa.FetchPlan.FlushBeforeQueries"},
                 new HintValueConverter.StringToInteger(
                    new String[] {"0", "1", "2"},
-                   new int[]{QueryFlushModes.FLUSH_TRUE, QueryFlushModes.FLUSH_FALSE, 
+                   new int[]{QueryFlushModes.FLUSH_TRUE, QueryFlushModes.FLUSH_FALSE,
                            QueryFlushModes.FLUSH_WITH_CONNECTION}));
         registerHint(new String[]{"openjpa.ReadLockMode", "openjpa.FetchPlan.ReadLockMode"},
                 new MixedLockLevelsHelper());
         registerHint(new String[]{"openjpa.ReadLockLevel", "openjpa.FetchPlan.ReadLockLevel"},
                 new MixedLockLevelsHelper());
-        registerHint(new String[]{"openjpa.WriteLockMode", "openjpa.FetchPlan.WriteLockMode"}, 
+        registerHint(new String[]{"openjpa.WriteLockMode", "openjpa.FetchPlan.WriteLockMode"},
                 new MixedLockLevelsHelper());
-        registerHint(new String[]{"openjpa.WriteLockLevel", "openjpa.FetchPlan.WriteLockLevel"}, 
+        registerHint(new String[]{"openjpa.WriteLockLevel", "openjpa.FetchPlan.WriteLockLevel"},
                 new MixedLockLevelsHelper());
     }
-    
+
     /**
-     * Registers a hint key with its value converters. 
-     * 
+     * Registers a hint key with its value converters.
+     *
      * @param keys a set of keys in increasing order of ranking. Can not be null or empty.
-     * 
+     *
      * @param converters array of converters that are attempts in order to convert a user-specified hint value
      * to a value that is consumable by the kernel.
      */
@@ -102,7 +100,7 @@ public class FetchPlanImpl
         }
         if (keys.length > 1) {
             for (int i = 0; i < keys.length-1; i++) {
-                List<String> list = new ArrayList<String>(keys.length-i-1);
+                List<String> list = new ArrayList<>(keys.length-i-1);
                 for (int j = i+1; j < keys.length; j++) {
                     list.add(keys[j]);
                 }
@@ -110,7 +108,7 @@ public class FetchPlanImpl
             }
         }
     }
-    
+
     /**
      * Constructor; supply delegate.
      */
@@ -128,151 +126,185 @@ public class FetchPlanImpl
     /**
      * Delegate.
      */
+    @Override
     public FetchConfiguration getDelegate() {
         return _fetch.getDelegate();
     }
 
+    @Override
     public int getMaxFetchDepth() {
         return _fetch.getMaxFetchDepth();
     }
 
+    @Override
     public FetchPlan setMaxFetchDepth(int depth) {
         _fetch.setMaxFetchDepth(depth);
         return this;
     }
 
+    @Override
     public int getFetchBatchSize() {
         return _fetch.getFetchBatchSize();
     }
 
+    @Override
     public FetchPlan setFetchBatchSize(int fetchBatchSize) {
         _fetch.setFetchBatchSize(fetchBatchSize);
         return this;
     }
 
+    @Override
     public boolean getQueryResultCacheEnabled() {
         return _fetch.getQueryCacheEnabled();
     }
 
+    @Override
     public FetchPlan setQueryResultCacheEnabled(boolean cache) {
         _fetch.setQueryCacheEnabled(cache);
         return this;
     }
 
+    @Override
     public boolean getQueryResultCache() {
         return getQueryResultCacheEnabled();
     }
 
+    @Override
     public FetchPlan setQueryResultCache(boolean cache) {
         return setQueryResultCacheEnabled(cache);
     }
 
+    @Override
     public Collection<String> getFetchGroups() {
         return _fetch.getFetchGroups();
     }
 
+    @Override
     public FetchPlan addFetchGroup(String group) {
         _fetch.addFetchGroup(group);
         return this;
     }
 
+    @Override
     public FetchPlan addFetchGroups(String... groups) {
         return addFetchGroups(Arrays.asList(groups));
     }
 
+    @Override
     public FetchPlan addFetchGroups(Collection groups) {
         _fetch.addFetchGroups(groups);
         return this;
     }
 
+    @Override
     public FetchPlan removeFetchGroup(String group) {
         _fetch.removeFetchGroup(group);
         return this;
     }
 
+    @Override
     public FetchPlan removeFetchGroups(String... groups) {
         return removeFetchGroups(Arrays.asList(groups));
     }
 
+    @Override
     public FetchPlan removeFetchGroups(Collection groups) {
         _fetch.removeFetchGroups(groups);
         return this;
     }
 
+    @Override
     public FetchPlan clearFetchGroups() {
         _fetch.clearFetchGroups();
         return this;
     }
 
+    @Override
     public FetchPlan resetFetchGroups() {
         _fetch.resetFetchGroups();
         return this;
     }
 
+    @Override
     public Collection<String> getFields() {
         return (Collection<String>) _fetch.getFields();
     }
 
+    @Override
     public boolean hasField(String field) {
         return _fetch.hasField(field);
     }
 
+    @Override
     public boolean hasField(Class cls, String field) {
         return hasField(toFieldName(cls, field));
     }
 
+    @Override
     public FetchPlan addField(String field) {
         _fetch.addField(field);
         return this;
     }
 
+    @Override
     public FetchPlan addField(Class cls, String field) {
         return addField(toFieldName(cls, field));
     }
 
+    @Override
     public FetchPlan addFields(String... fields) {
         return addFields(Arrays.asList(fields));
     }
 
+    @Override
     public FetchPlan addFields(Class cls, String... fields) {
         return addFields(cls, Arrays.asList(fields));
     }
 
+    @Override
     public FetchPlan addFields(Collection fields) {
         _fetch.addFields(fields);
         return this;
     }
 
+    @Override
     public FetchPlan addFields(Class cls, Collection fields) {
         return addFields(toFieldNames(cls, fields));
     }
 
+    @Override
     public FetchPlan removeField(String field) {
         _fetch.removeField(field);
         return this;
     }
 
+    @Override
     public FetchPlan removeField(Class cls, String field) {
         return removeField(toFieldName(cls, field));
     }
 
+    @Override
     public FetchPlan removeFields(String... fields) {
         return removeFields(Arrays.asList(fields));
     }
 
+    @Override
     public FetchPlan removeFields(Class cls, String... fields) {
         return removeFields(cls, Arrays.asList(fields));
     }
 
+    @Override
     public FetchPlan removeFields(Collection fields) {
         _fetch.removeFields(fields);
         return this;
     }
 
+    @Override
     public FetchPlan removeFields(Class cls, Collection fields) {
         return removeFields(toFieldNames(cls, fields));
     }
 
+    @Override
     public FetchPlan clearFields() {
         _fetch.clearFields();
         return this;
@@ -286,73 +318,88 @@ public class FetchPlanImpl
         if (fields.isEmpty())
             return fields;
         Collection names = new ArrayList(fields);
-        for (Iterator itr = fields.iterator(); itr.hasNext();)
-            names.add(toFieldName(cls, (String) itr.next()));
+        for (Object field : fields) {
+            names.add(toFieldName(cls, (String) field));
+        }
         return names;
     }
 
+    @Override
     public int getLockTimeout() {
         return _fetch.getLockTimeout();
     }
 
+    @Override
     public FetchPlan setLockTimeout(int timeout) {
         _fetch.setLockTimeout(timeout);
         return this;
     }
 
+    @Override
     public PessimisticLockScope getLockScope() {
         return LockScopesHelper.fromLockScope(_fetch.getLockScope());
     }
 
+    @Override
     public FetchPlan setLockScope(PessimisticLockScope scope) {
         _fetch.setLockScope(LockScopesHelper.toLockScope(scope));
         return this;
     }
 
+    @Override
     public int getQueryTimeout() {
         return _fetch.getQueryTimeout();
     }
 
+    @Override
     public FetchPlan setQueryTimeout(int timeout) {
         _fetch.setQueryTimeout(timeout);
         return this;
     }
 
+    @Override
     public LockModeType getReadLockMode() {
         return MixedLockLevelsHelper.fromLockLevel(_fetch.getReadLockLevel());
     }
 
+    @Override
     public FetchPlan setReadLockMode(LockModeType mode) {
         _fetch.setReadLockLevel(MixedLockLevelsHelper.toLockLevel(mode));
         return this;
     }
 
+    @Override
     public LockModeType getWriteLockMode() {
         return MixedLockLevelsHelper.fromLockLevel(_fetch.getWriteLockLevel());
     }
 
+    @Override
     public FetchPlan setWriteLockMode(LockModeType mode) {
         _fetch.setWriteLockLevel(MixedLockLevelsHelper.toLockLevel(mode));
         return this;
     }
-    
+
+    @Override
     public boolean getExtendedPathLookup() {
         return _fetch.getExtendedPathLookup();
     }
-    
+
+    @Override
     public FetchPlan setExtendedPathLookup(boolean flag) {
         _fetch.setExtendedPathLookup(flag);
         return this;
     }
 
+    @Override
     public Object getHint(String key) {
         return _fetch.getHint(key);
     }
-    
+
     /**
      * Sets the hint after converting the value appropriately.
-     * If a higher ranking equivalent hint is already set, then bypasses this hint. 
+     * If a higher ranking equivalent hint is already set, then bypasses this hint.
      */
+    @Override
     public void setHint(String key, Object value) {
         if (!isRecognizedHint(key))
             return;
@@ -363,7 +410,7 @@ public class FetchPlanImpl
                     return;
             }
         }
-        Object newValue = convertHintValue(key, value); 
+        Object newValue = convertHintValue(key, value);
         _fetch.setHint(key, newValue, value);
     }
 
@@ -375,36 +422,46 @@ public class FetchPlanImpl
             setHint(hint.getKey(), hint.getValue());
         }
     }
-    
+
+    @Override
     public Map<String, Object> getHints() {
         return _fetch.getHints();
     }
-    
+
+    @Override
     public int hashCode() {
-        return _fetch.hashCode();
+        return ((_fetch == null) ? 0  : _fetch.hashCode());
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
-        if (!(other instanceof FetchPlanImpl))
+        if ((other == null) || (other.getClass() != this.getClass()))
             return false;
+        if (_fetch == null)
+        	return false;
+
         return _fetch.equals(((FetchPlanImpl) other)._fetch);
     }
 
+    @Override
     public DataCacheRetrieveMode getCacheRetrieveMode() {
         return _fetch.getCacheRetrieveMode();
     }
 
+    @Override
     public DataCacheStoreMode getCacheStoreMode() {
         return _fetch.getCacheStoreMode();
     }
 
+    @Override
     public FetchPlan setCacheStoreMode(DataCacheStoreMode mode) {
         _fetch.setCacheStoreMode(mode);
         return this;
     }
 
+    @Override
     public FetchPlan setCacheRetrieveMode(DataCacheRetrieveMode mode) {
         _fetch.setCacheRetrieveMode(mode);
         return this;
@@ -423,7 +480,7 @@ public class FetchPlanImpl
         }
         return value;
     }
-    
+
     boolean isRecognizedHint(String key) {
         if (key == null)
             return false;
@@ -431,7 +488,7 @@ public class FetchPlanImpl
             return true;
         return key.startsWith("openjpa.");
     }
-    
+
     boolean intersects(Collection<String> keys, Collection<String> b) {
         if (keys == null || keys.isEmpty() || b == null || b.isEmpty())
             return false;

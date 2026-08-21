@@ -14,13 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
 
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.StoreContext;
@@ -33,6 +32,8 @@ import org.apache.openjpa.kernel.StoreContext;
 class Cast
     extends Val {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
     private final Class _cast;
 
@@ -44,18 +45,22 @@ class Cast
         _cast = cast;
     }
 
+    @Override
     public Class getType() {
         return _cast;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         return Filters.convert(_val.eval(candidate, orig, ctx, params), _cast);
     }
 
+    @Override
     protected Collection eval(Collection candidates, Object orig,
         StoreContext ctx, Object[] params) {
         Collection res = _val.eval(candidates, orig, ctx, params);
@@ -63,11 +68,13 @@ class Cast
             return res;
 
         Collection casts = new ArrayList(res.size());
-        for (Iterator itr = res.iterator(); itr.hasNext();)
-            casts.add(Filters.convert(itr.next(), _cast));
+        for (Object re : res) {
+            casts.add(Filters.convert(re, _cast));
+        }
         return casts;
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

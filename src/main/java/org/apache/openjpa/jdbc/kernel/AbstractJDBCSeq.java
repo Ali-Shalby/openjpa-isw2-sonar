@@ -14,22 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+
 import javax.sql.DataSource;
-import javax.transaction.Transaction;
-import javax.transaction.TransactionManager;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
-import org.apache.openjpa.jdbc.kernel.JDBCStoreManager.RefCountConnection;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.schema.SchemaGroup;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.kernel.StoreContext;
+import org.apache.openjpa.kernel.StoreManager;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.StoreException;
@@ -50,10 +49,12 @@ public abstract class AbstractJDBCSeq
     /**
      * Records the sequence type.
      */
+    @Override
     public void setType(int type) {
         this.type = type;
     }
 
+    @Override
     public Object next(StoreContext ctx, ClassMetaData meta) {
         JDBCStore store = getStore(ctx);
         try {
@@ -69,6 +70,7 @@ public abstract class AbstractJDBCSeq
         }
     }
 
+    @Override
     public Object current(StoreContext ctx, ClassMetaData meta) {
         JDBCStore store = getStore(ctx);
         try {
@@ -82,6 +84,7 @@ public abstract class AbstractJDBCSeq
         }
     }
 
+    @Override
     public void allocate(int additional, StoreContext ctx, ClassMetaData meta) {
         JDBCStore store = getStore(ctx);
         try {
@@ -98,12 +101,14 @@ public abstract class AbstractJDBCSeq
     /**
      * No-op.
      */
+    @Override
     public void addSchema(ClassMapping mapping, SchemaGroup group) {
     }
 
     /**
      * No-op.
      */
+    @Override
     public void close() {
     }
 
@@ -113,7 +118,7 @@ public abstract class AbstractJDBCSeq
     protected abstract Object nextInternal(JDBCStore store,
         ClassMapping mapping)
         throws Exception;
-    
+
     /**
      * Return the {@link JDBCConfiguration} for this sequence.
      */
@@ -144,21 +149,30 @@ public abstract class AbstractJDBCSeq
         return (JDBCStore) ctx.getStoreManager().getInnermostDelegate();
     }
 
+
+    /**
+     * @see #getConnection(JDBCStore, boolean) but without forcing a connection.
+     */
+    protected Connection getConnection(JDBCStore store) throws SQLException {
+        return getConnection(store, false);
+    }
+
     /**
      * <P>Return the connection to use based on the type of sequence. This
      * connection will automatically be closed; do not close it.</P>
-     * 
-     * @return If the sequence type is <code>TYPE_TRANSACTIONAL</code> or 
+     *
+     * @return If the sequence type is <code>TYPE_TRANSACTIONAL</code> or
      * <code>TYPE_CONTIGUOUS</code> the connection from the {@link StoreManager}
-     * will be returned. 
-     * 
+     * will be returned.
+     *
      * <P>Otherwise a new connection will be obtained using DataSource2 from the
-     * current configuration. In this case autocommit is set to false prior to 
+     * current configuration. In this case autocommit is set to false prior to
      * returning the connection.</P>
+     * @param forceNewConnection if {@code true} a new connection will be forced
      */
-    protected Connection getConnection(JDBCStore store)
+    protected Connection getConnection(JDBCStore store, boolean forceNewConnection)
         throws SQLException {
-        if (type == TYPE_TRANSACTIONAL || type == TYPE_CONTIGUOUS) {
+        if (!forceNewConnection && (type == TYPE_TRANSACTIONAL || type == TYPE_CONTIGUOUS)) {
             // Also increments ref count.
             return store.getConnection();
         }
@@ -176,19 +190,19 @@ public abstract class AbstractJDBCSeq
      * Close the current connection. If the sequence is
      * <code>TYPE_TRANSACTIONAL</code> or <code>TYPE_CONTIGUOUS</code>
      * we will decrement the ref count. Otherwise the connection will be
-     * committed and then closed. 
+     * committed and then closed.
      */
     protected void closeConnection(Connection conn) {
         if (conn == null)
             return;
         if (type == TYPE_TRANSACTIONAL || type == TYPE_CONTIGUOUS) {
             // The seq is part of the business transaction however we need
-            // to decrement the ref count so that the connection may be 
+            // to decrement the ref count so that the connection may be
             // closed appropriately.
-          	try { 
+          	try {
            		conn.close();
            	}
-           	catch(SQLException se) { 
+           	catch(SQLException se) {
            		throw SQLExceptions.getStore(se);
            	}
             return;
@@ -203,13 +217,13 @@ public abstract class AbstractJDBCSeq
             }
         }
     }
-    
+
     /**
-     * Detect whether or not OpenJPA should suspend the transaction in 
+     * Detect whether or not OpenJPA should suspend the transaction in
      * a managed environment.
      */
     protected boolean suspendInJTA() {
-        return getConfiguration().isConnectionFactoryModeManaged() && 
+        return getConfiguration().isConnectionFactoryModeManaged() &&
             getConfiguration().getConnectionFactory2() == null;
     }
 }

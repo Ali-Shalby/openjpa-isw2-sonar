@@ -14,14 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
-import java.io.Serializable;
-import java.io.ObjectOutputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Date;
@@ -43,6 +43,9 @@ import org.apache.openjpa.util.ProxyManager;
 class SavepointFieldManager
     extends ClearFieldManager
     implements Serializable {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage
         (SavepointFieldManager.class);
@@ -193,13 +196,12 @@ class SavepointFieldManager
         return false;
     }
 
+    @Override
     public Object fetchObjectField(int field) {
-        // return the copied field during save, or a null value during restore
-        Object val = _field;
-        _field = null;
-        return val;
+        return _field;
     }
 
+    @Override
     public void storeObjectField(int field, Object curVal) {
         // copy mutable fields
         ProxyManager proxy = _sm.getContext().getConfiguration().

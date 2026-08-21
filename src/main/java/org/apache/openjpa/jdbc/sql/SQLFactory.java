@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -28,19 +28,19 @@ public interface SQLFactory {
     /**
      * Select factory.
      */
-    public Select newSelect();
+    Select newSelect();
 
     /**
      * Union factory.
      *
      * @param selects the number of selects in the union
      */
-    public Union newUnion(int selects);
+    Union newUnion(int selects);
 
     /**
      * Union factory.
      *
      * @param selects the members of the union
      */
-    public Union newUnion(Select[] selects);
+    Union newUnion(Select[] selects);
 }

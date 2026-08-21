@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.xml;
 
@@ -28,18 +28,20 @@ import org.xml.sax.SAXParseException;
  * This handler is used by the validating parsers of the {@link XMLFactory}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ValidatingErrorHandler implements ErrorHandler {
 
+    @Override
     public void warning(SAXParseException e) throws SAXException {
         throw e;
     }
 
+    @Override
     public void error(SAXParseException e) throws SAXException {
         throw e;
     }
 
+    @Override
     public void fatalError(SAXParseException e) throws SAXException {
         throw e;
     }

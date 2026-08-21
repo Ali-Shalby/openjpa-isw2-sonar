@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -42,7 +42,6 @@ import java.util.Map;
  * the parameter key is used to lookup the corresponding System property.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ParameterTemplate {
 
@@ -195,6 +194,7 @@ public class ParameterTemplate {
      * Return a copy of the internal value template with all parameters
      * substituted with their current values.
      */
+    @Override
     public String toString() {
         if (_buf.length() == 0 || _params.isEmpty())
             return _buf.toString();

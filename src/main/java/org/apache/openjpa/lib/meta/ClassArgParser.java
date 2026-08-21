@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -33,16 +33,17 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.lang.exception.NestableRuntimeException;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.Files;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import serp.bytecode.lowlevel.ConstantPoolTable;
-import serp.util.Strings;
+import org.apache.xbean.asm9.ClassReader;
+import org.apache.xbean.asm9.ClassVisitor;
+import org.apache.xbean.asm9.Opcodes;
+
 
 /**
  * Parser used to resolve arguments into java classes.
@@ -55,7 +56,6 @@ import serp.util.Strings;
  * are not added to the returned classes list.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ClassArgParser {
 
@@ -161,7 +161,7 @@ public class ClassArgParser {
         String[] names = parseTypeNames(arg);
         Class<?>[] objs = new Class[names.length];
         for (int i = 0; i < names.length; i++)
-            objs[i] = Strings.toClass(names[i], _loader);
+            objs[i] = ClassUtil.toClass(names[i], _loader);
         return objs;
     }
 
@@ -173,7 +173,7 @@ public class ClassArgParser {
         String[] names = parseTypeNames(itr);
         Class<?>[] objs = new Class[names.length];
         for (int i = 0; i < names.length; i++)
-            objs[i] = Strings.toClass(names[i], _loader);
+            objs[i] = ClassUtil.toClass(names[i], _loader);
         return objs;
     }
 
@@ -183,17 +183,16 @@ public class ClassArgParser {
      */
     public Map<Object, Class<?>[]> mapTypes(MetaDataIterator itr) {
         Map<Object, String[]> map = mapTypeNames(itr);
-        Map<Object, Class<?>[]> rval = new HashMap<Object, Class<?>[]>();
+        Map<Object, Class<?>[]> rval = new HashMap<>();
         Map.Entry<Object, String[]> entry;
         String[] names;
         Class<?>[] objs;
-        for (Iterator<Map.Entry<Object, String[]>> i =
-            map.entrySet().iterator(); i.hasNext();) {
-            entry = i.next();
+        for (Map.Entry<Object, String[]> objectEntry : map.entrySet()) {
+            entry = objectEntry;
             names = entry.getValue();
             objs = new Class[names.length];
             for (int j = 0; j < names.length; j++) {
-                objs[j] = Strings.toClass(names[j], _loader);
+                objs[j] = ClassUtil.toClass(names[j], _loader);
             }
             rval.put(entry.getKey(), objs);
         }
@@ -217,13 +216,13 @@ public class ClassArgParser {
                 return new String[]{ getFromClassFile(file) };
             if (arg.endsWith(".java"))
                 return new String[]{ getFromJavaFile(file) };
-            if ((AccessController.doPrivileged(
-                J2DoPrivHelper.existsAction(file))).booleanValue()) {
+            if (AccessController.doPrivileged(
+                    J2DoPrivHelper.existsAction(file))) {
                 Collection<String> col = getFromMetaDataFile(file);
                 return col.toArray(new String[col.size()]);
             }
         } catch (Exception e) {
-            throw new NestableRuntimeException(
+            throw new RuntimeException(
                 _loc.get("class-arg", arg).getMessage(), e);
         }
 
@@ -238,7 +237,7 @@ public class ClassArgParser {
         if (itr == null)
             return new String[0];
 
-        List<String> names = new ArrayList<String>();
+        List<String> names = new ArrayList<>();
         Object source = null;
         try {
             while (itr.hasNext()) {
@@ -246,7 +245,7 @@ public class ClassArgParser {
                 appendTypeNames(source, itr.getInputStream(), names);
             }
         } catch (Exception e) {
-            throw new NestableRuntimeException(
+            throw new RuntimeException(
                 _loc.get("class-arg", source).getMessage(), e);
         }
         return names.toArray(new String[names.size()]);
@@ -256,11 +255,11 @@ public class ClassArgParser {
      * Parse the names in the given metadata iterator stream, closing the
      * stream on completion.
      */
-    private void appendTypeNames(Object source, InputStream in,
-        List<String> names) throws IOException {
+    private void appendTypeNames(Object source, InputStream in, List<String> names) throws IOException {
         try {
-            if (source.toString().endsWith(".class"))
-                names.add(getFromClass(in));
+            if (source.toString().endsWith(".class")) {
+                names.add(getNameFromClass(in));
+            }
             names.addAll(getFromMetaData(new InputStreamReader(in)));
         } finally {
             try {
@@ -278,9 +277,9 @@ public class ClassArgParser {
         if (itr == null)
             return Collections.emptyMap();
 
-        Map<Object, String []> map = new HashMap<Object, String[]>();
+        Map<Object, String []> map = new HashMap<>();
         Object source = null;
-        List<String> names = new ArrayList<String>();
+        List<String> names = new ArrayList<>();
         try {
             while (itr.hasNext()) {
                 source = itr.next();
@@ -291,7 +290,7 @@ public class ClassArgParser {
                 names.clear();
             }
         } catch (Exception e) {
-            throw new NestableRuntimeException(
+            throw new RuntimeException(
                 _loc.get("class-arg", source).getMessage(), e);
         }
         return map;
@@ -303,30 +302,31 @@ public class ClassArgParser {
     private String getFromClassFile(File file) throws IOException {
         FileInputStream fin = null;
         try {
-            fin = AccessController.doPrivileged(
-                J2DoPrivHelper.newFileInputStreamAction(file));
-            return getFromClass(fin);
+            fin = AccessController.doPrivileged(J2DoPrivHelper.newFileInputStreamAction(file));
+            return getNameFromClass(fin);
         } catch (PrivilegedActionException pae) {
             throw (FileNotFoundException) pae.getException();
         } finally {
-            if (fin != null)
+            if (fin != null) {
                 try {
                     fin.close();
-                } catch (IOException ioe) {
                 }
+                catch (IOException ioe) {
+                }
+            }
         }
     }
 
     /**
      * Returns the class name in the given .class bytecode.
      */
-    private String getFromClass(InputStream in) throws IOException {
-        ConstantPoolTable table = new ConstantPoolTable(in);
-        int idx = table.getEndIndex();
-        idx += 2; // access flags
-        int clsEntry = table.readUnsignedShort(idx);
-        int utfEntry = table.readUnsignedShort(table.get(clsEntry));
-        return table.readString(table.get(utfEntry)).replace('/', '.');
+    private String getNameFromClass(InputStream in) throws IOException {
+
+        ClassReader cr = new ClassReader(in);
+        final ClassNameScanner classNameScanner = new ClassNameScanner(Opcodes.ASM9);
+        cr.accept(classNameScanner, ClassReader.SKIP_CODE | ClassReader.SKIP_DEBUG | ClassReader.SKIP_FRAMES);
+
+        return classNameScanner.className;
     }
 
     /**
@@ -394,7 +394,7 @@ public class ClassArgParser {
      * Returns the classes named in the given common format metadata stream.
      */
     private Collection<String> getFromMetaData(Reader xml) throws IOException {
-        Collection<String> names = new ArrayList<String>();
+        Collection<String> names = new ArrayList<>();
         BufferedReader in = new BufferedReader(xml);
 
         boolean comment = false;
@@ -507,11 +507,11 @@ public class ClassArgParser {
 
         // make sure the rest of the element name matches
         char[] match = _endElements[matchIdx];
-        for (int i = 0; i < match.length; i++) {
+        for (char c : match) {
             ch = in.read();
             if (ch == -1)
                 return TOKEN_EOF;
-            if (ch != match[i])
+            if (ch != c)
                 return TOKEN_NONE;
         }
 
@@ -621,6 +621,21 @@ public class ClassArgParser {
             if (ch == '\'' || ch == '"')
                 return buf.toString();
             buf.append((char) ch);
+        }
+    }
+
+
+    public class ClassNameScanner extends ClassVisitor {
+        String className = null;
+
+        public ClassNameScanner(int api) {
+            super(api);
+        }
+
+        @Override
+        public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+            this.className = name.replace("/", ".");
+            super.visit(version, access, name, signature, superName, interfaces);
         }
     }
 }

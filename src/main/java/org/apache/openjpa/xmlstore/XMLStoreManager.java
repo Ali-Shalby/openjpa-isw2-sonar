@@ -14,14 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.xmlstore;
 
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 
@@ -51,9 +50,10 @@ public class XMLStoreManager
     private XMLStore _store;
 
     // changed data within the current transaction
-    private Collection _updates;
-    private Collection _deletes;
+    private Collection<ObjectData> _updates;
+    private Collection<ObjectData> _deletes;
 
+    @Override
     protected Collection getUnsupportedOptions() {
         Collection c = super.getUnsupportedOptions();
 
@@ -68,17 +68,20 @@ public class XMLStoreManager
         return c;
     }
 
+    @Override
     protected OpenJPAConfiguration newConfiguration() {
         // override to use our configuration type
         return new XMLConfiguration();
     }
 
+    @Override
     protected void open() {
         // cache operational state
         _conf = (XMLConfiguration) ctx.getConfiguration();
         _store = _conf.getStore();
     }
 
+    @Override
     public boolean exists(OpenJPAStateManager sm, Object context) {
         // see if the given object exists in the store
         return _store.getData(sm.getMetaData(), sm.getObjectId()) != null;
@@ -90,10 +93,11 @@ public class XMLStoreManager
     private static void incrementVersion(OpenJPAStateManager sm) {
         long version = 0;
         if (sm.getVersion() != null)
-            version = ((Long) sm.getVersion()).longValue() + 1;
+            version = (Long) sm.getVersion() + 1;
         sm.setNextVersion(version);
     }
 
+    @Override
     public boolean initialize(OpenJPAStateManager sm, PCState state,
         FetchConfiguration fetch, Object context) {
         // we may already have looked up the backing ObjectData (see our extent
@@ -120,6 +124,7 @@ public class XMLStoreManager
         return true;
     }
 
+    @Override
     public boolean load(OpenJPAStateManager sm, BitSet fields,
         FetchConfiguration fetch, int lockLevel, Object context) {
         // we may already have looked up the backing ObjectData (see our extent
@@ -142,6 +147,7 @@ public class XMLStoreManager
         return true;
     }
 
+    @Override
     public boolean syncVersion(OpenJPAStateManager sm, Object context) {
         if (sm.getVersion() == null)
             return false;
@@ -171,10 +177,12 @@ public class XMLStoreManager
         return false;
     }
 
+    @Override
     public void begin() {
         _store.beginTransaction();
     }
 
+    @Override
     public void commit() {
         try {
             _store.endTransaction(_updates, _deletes);
@@ -184,14 +192,16 @@ public class XMLStoreManager
         }
     }
 
+    @Override
     public void rollback() {
         _updates = null;
         _deletes = null;
         _store.endTransaction(null, null);
     }
 
-    protected Collection flush(Collection pNew, Collection pNewUpdated,
-        Collection pNewFlushedDeleted, Collection pDirty, Collection pDeleted) {
+    @Override
+    protected Collection flush(Collection<OpenJPAStateManager> pNew, Collection<OpenJPAStateManager> pNewUpdated,
+        Collection<OpenJPAStateManager> pNewFlushedDeleted, Collection<OpenJPAStateManager> pDirty, Collection<OpenJPAStateManager> pDeleted) {
         // we don't support incremental flushing, so pNewUpdated and
         // pNewFlushedDeleted should be empty; we ignore them here
 
@@ -199,20 +209,19 @@ public class XMLStoreManager
         Collection exceps = new LinkedList();
 
         // convert instances to ObjectDatas
-        _updates = new ArrayList(pNew.size() + pDirty.size());
-        _deletes = new ArrayList(pDeleted.size());
+        _updates = new ArrayList<>(pNew.size() + pDirty.size());
+        _deletes = new ArrayList<>(pDeleted.size());
 
         // convert additions
-        for (Iterator itr = pNew.iterator(); itr.hasNext();) {
+        for (OpenJPAStateManager sm : pNew) {
             // create new object data for instance
-            OpenJPAStateManager sm = (OpenJPAStateManager) itr.next();
             Object oid = sm.getObjectId();
             ObjectData data = _store.getData(sm.getMetaData(), oid);
             if (data != null)
                 throw new StoreException("Attempt to insert "
-                    + "new object " + sm.getManagedInstance()
-                    + "with the same oid as an existing instance: " + oid).
-                    setFatal(true);
+                        + "new object " + sm.getManagedInstance()
+                        + "with the same oid as an existing instance: " + oid).
+                        setFatal(true);
 
             data = new ObjectData(oid, sm.getMetaData());
             incrementVersion(sm);
@@ -221,16 +230,15 @@ public class XMLStoreManager
         }
 
         // convert updates
-        for (Iterator itr = pDirty.iterator(); itr.hasNext();) {
-            OpenJPAStateManager sm = (OpenJPAStateManager) itr.next();
+        for (OpenJPAStateManager sm : pDirty) {
             ObjectData data = _store.getData(sm.getMetaData(),
-                sm.getObjectId());
+                    sm.getObjectId());
 
             // if data has been deleted or has the wrong version, record
             // opt lock violation
             if (data == null || !data.getVersion().equals(sm.getVersion())) {
                 exceps.add(new OptimisticException
-                    (sm.getManagedInstance()));
+                        (sm.getManagedInstance()));
                 continue;
             }
 
@@ -242,10 +250,9 @@ public class XMLStoreManager
         }
 
         // convert deletes
-        for (Iterator itr = pDeleted.iterator(); itr.hasNext();) {
-            OpenJPAStateManager sm = (OpenJPAStateManager) itr.next();
+        for (OpenJPAStateManager sm : pDeleted) {
             ObjectData data = _store.getData(sm.getMetaData(),
-                sm.getObjectId());
+                    sm.getObjectId());
 
             // record delete
             if (data != null)
@@ -255,6 +262,7 @@ public class XMLStoreManager
         return exceps;
     }
 
+    @Override
     public ResultObjectProvider executeExtent(ClassMetaData meta,
         boolean subclasses, FetchConfiguration fetch) {
         // ask the store for all ObjectDatas for the given type; this
@@ -265,11 +273,11 @@ public class XMLStoreManager
         // create a list of the corresponding persistent objects that
         // match the type and subclasses criteria
         List pcs = new ArrayList(datas.length);
-        for (int i = 0; i < datas.length; i++) {
+        for (ObjectData data : datas) {
             // does this instance belong in the extent?
-            Class c = datas[i].getMetaData().getDescribedType();
+            Class c = data.getMetaData().getDescribedType();
             if (c != candidate && (!subclasses
-                || !candidate.isAssignableFrom(c)))
+                    || !candidate.isAssignableFrom(c)))
                 continue;
 
             // look up the pc instance for the data, passing in the data
@@ -279,12 +287,13 @@ public class XMLStoreManager
             // being passed through and save ourselves a trip to the store
             // if it is present; this is particularly important in systems
             // where a trip to the store can be expensive.
-            pcs.add(ctx.find(datas[i].getId(), fetch, null, datas[i], 0));
+            pcs.add(ctx.find(data.getId(), fetch, null, data, 0));
         }
         return new ListResultObjectProvider(pcs);
     }
+    @Override
     public boolean isCached(List<Object> oids, BitSet edata) {
-        // XMLStoreManager does not cache oids. 
+        // XMLStoreManager does not cache oids.
         return false;
     }
 }

@@ -14,17 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.conf;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.jdbc.meta.MetaDataPlusMappingFactory;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.conf.PluginValue;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.MetaDataFactory;
 
 /**
@@ -32,7 +33,6 @@ import org.apache.openjpa.meta.MetaDataFactory;
  * combined metadata and mapping.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class MappingFactoryValue
     extends PluginValue {
@@ -91,15 +91,15 @@ public class MappingFactoryValue
         String metaProps = metaPlugin.getProperties();
 
         // if no mapping factory set, check for default for this factory
-        if (StringUtils.isEmpty(clsName)) {
+        if (StringUtil.isEmpty(clsName)) {
             String def;
-            if (!StringUtils.isEmpty(mapping)) {
+            if (!StringUtil.isEmpty(mapping)) {
                 def = unalias(metaPlugin.alias(metaClsName),
                     _mappedMetaFactoryDefaults, true);
                 if (def != null)
                     clsName = unalias(def);
             }
-            if (StringUtils.isEmpty(clsName)) {
+            if (StringUtil.isEmpty(clsName)) {
                 def = unalias(metaPlugin.alias(metaClsName),
                     _metaFactoryDefaults, true);
                 if (def != null)
@@ -146,7 +146,7 @@ public class MappingFactoryValue
         Configurations.configureInstance(meta, conf, metaProps,
             (fatal) ? metaPlugin.getProperty() : null);
 
-        Log log = conf.getLog(JDBCConfiguration.LOG_METADATA);
+        Log log = conf.getLog(OpenJPAConfiguration.LOG_METADATA);
         if (log.isTraceEnabled()) {
             log.trace(_loc.get("meta-factory", meta));
             if (map != null)
@@ -155,8 +155,20 @@ public class MappingFactoryValue
 
         // if no mapping setting, return meta factory alone, assuming it handles
         // both metadata and mapping
-        MetaDataFactory ret = (map == null) ? meta
-            : new MetaDataPlusMappingFactory(meta, map);
+        MetaDataFactory ret = null;
+        if(map == null ) {
+            ret = meta;
+        }
+        else {
+            if( conf instanceof OpenJPAConfiguration) {
+                ret = new MetaDataPlusMappingFactory(meta, map, (OpenJPAConfiguration) conf);
+            }
+            else {
+                ret = new MetaDataPlusMappingFactory(meta, map);
+            }
+        }
+
         return ret;
+
     }
 }

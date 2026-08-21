@@ -14,48 +14,53 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.identifier;
 
 import java.util.ArrayList;
+import java.util.Locale;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * Implementation class for the base identifier impl.
  *
  */
 public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
-        
+
     private static final Localizer _loc = Localizer.forPackage
         (IdentifierUtilImpl.class);
-    
+
     private IdentifierConfiguration _config = null;
-    
+
     public IdentifierUtilImpl() {
-        
+
     }
-    
+
     public IdentifierUtilImpl(IdentifierConfiguration config) {
         _config = config;
     }
 
+    @Override
     public void setIdentifierConfiguration(IdentifierConfiguration config) {
         _config = config;
-    }    
+    }
 
+    @Override
     public IdentifierConfiguration getIdentifierConfiguration() {
         return _config;
-    }    
+    }
 
+    @Override
     public String combineNames(String rule, String name1, String name2) {
         return combineNames(getNamingRule(rule), name1, name2);
     }
 
+    @Override
     public String combineNames(String rule, String[] names) {
         return combineNames(getNamingRule(rule), names);
     }
@@ -64,15 +69,16 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return combineNames(config, getNamingRule(rule), names);
     }
 
-    public String combineNames(IdentifierRule rule, 
+    @Override
+    public String combineNames(IdentifierRule rule,
         IdentifierRule[] rules, String[] names) {
         return combineNames(_config, rule, rules, names);
     }
 
-    public String combineNames(IdentifierConfiguration config, IdentifierRule rule, 
+    public String combineNames(IdentifierConfiguration config, IdentifierRule rule,
         IdentifierRule[] rules, String[] names) {
         boolean delimited = false;
-        String combined = null;
+        StringBuilder combined = null;
         for (int i = 0; i < names.length; i++) {
             String name = names[i];
             if (isDelimited(rules[i], name)) {
@@ -80,20 +86,20 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
                 name = removeDelimiters(config, rules[i], name);
             }
             if (i == 0) {
-                combined = name;
+                combined = new StringBuilder(name);
             }
             else {
-                combined = combined + config.getIdentifierConcatenator() + name;
+                combined.append(config.getIdentifierConcatenator()).append(name);
             }
         }
-        
+
         if (delimited) {
-            combined = delimit(config, rule, combined.toString()).toString();
+            combined = new StringBuilder(delimit(config, rule, combined.toString()));
         }
-        
-        return combined;
+
+        return combined.toString();
     }
-    
+
     public String combineNames(IdentifierConfiguration config, IdentifierRule rule, String name1, String name2) {
         boolean delimit = false;
         if (isDelimited(rule, name1)) {
@@ -105,7 +111,7 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
             delimit = true;
         }
         String name = name1 + config.getIdentifierConcatenator() + name2;
-        return delimit(config, rule, name, delimit).toString();
+        return delimit(config, rule, name, delimit);
     }
 
     public String combineNames(IdentifierConfiguration config, IdentifierRule namingRule, String[] names) {
@@ -125,12 +131,13 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
             }
         }
         if (delimited) {
-            combined = delimit(config, namingRule, combined.toString()).toString();
+            combined = delimit(config, namingRule, combined);
         }
-        
+
         return combined;
     }
 
+    @Override
     public String appendNames(IdentifierRule rule, String name1, String name2) {
         if (isDelimited(rule, name1)) {
             name1 = removeDelimiters(rule, name1);
@@ -145,15 +152,16 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
             name2 = IdentifierUtil.EMPTY;
         }
         String name = name1 + name2;
-        return delimit(rule, name).toString();
+        return delimit(rule, name);
     }
 
     /**
      * Joins multiple names together using the standard delimiting rules
      * ex. ( {"s", "t", "c"} --> "s"."t"."c" }
      */
+    @Override
     public String joinNames(IdentifierRule[] rules, String[] names) {
-        
+
         if (names == null || names.length == 0) {
             return null;
         }
@@ -167,18 +175,22 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return combinedName.toString();
     }
 
+    @Override
     public String joinNames(String rule, String[] names) {
         return joinNames(_config, getNamingRule(rule), names, _config.getIdentifierDelimiter());
     }
 
+    @Override
     public String joinNames(IdentifierRule rule, String[] names) {
         return joinNames(_config, rule, names, _config.getIdentifierDelimiter());
     }
 
+    @Override
     public String joinNames(IdentifierRule rule, String[] names, String delimiter) {
         return joinNames(_config, rule, names, delimiter);
     }
 
+    @Override
     public String joinNames(String rule, String[] names, String delimiter) {
         return joinNames(_config, getNamingRule(rule), names, delimiter);
     }
@@ -187,10 +199,9 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
      * Join names using a single naming rule and specified delimiter
      * @param rule
      * @param names
-     * @return
      */
     public String joinNames(IdentifierConfiguration config, IdentifierRule rule, String[] names, String delimiter) {
-        
+
         if (names == null || names.length == 0) {
             return null;
         }
@@ -210,38 +221,40 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return splitName(nrule, name, config.getIdentifierDelimiter());
     }
 
+    @Override
     public String[] splitName(IdentifierRule nrule, String name) {
         return splitName(nrule, name, _config.getIdentifierDelimiter());
     }
 
-    
+
     /**
      * Splits names using single naming rule and appropriate separators
      * @param name  the multi-value name
      * @return individual components of the name
      *         ex. schema.table --> { schema, table }
-     */    
+     */
+    @Override
     public String[] splitName(IdentifierRule nrule, String name, String nameDelim) {
-        if (!canSplit(nrule, name, nameDelim) || StringUtils.isEmpty(name)) {
+        if (!canSplit(nrule, name, nameDelim) || StringUtil.isEmpty(name)) {
             return new String[] {name};
         }
         // "schema"."table"
         // "sch.ma"."table"
         // "sch""ma".table
-        
+
         // Split names by object delimiter not between name delimiters
-        ArrayList<String> names = new ArrayList<String>(2);
+        ArrayList<String> names = new ArrayList<>(2);
         String pname = name;
 
         // for each name
         int ndLen = nameDelim.length();
-        while (!StringUtils.isEmpty(name)) {
+        while (!StringUtil.isEmpty(name)) {
             pname = splitNameCharDelimiters(name, nameDelim);
             names.add(pname);
             if ((pname.length() + ndLen) >= name.length()) {
                 break;
             }
-            name = name.substring(pname.length() + ndLen); 
+            name = name.substring(pname.length() + ndLen);
         }
         return names.toArray(new String[names.size()]);
     }
@@ -250,7 +263,6 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
      * Gets the first part of a name when single character delimiters are
      * in use.
      * @param pname
-     * @return
      */
     private String splitNameCharDelimiters(String name, String nameDelim) {
         StringBuilder sname = new StringBuilder("");
@@ -284,13 +296,12 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
 
     /**
      * Returns whether a name is double quoted
-     * @return
      */
     public static boolean isDoubleQuoted(String name) {
         if (name == null || name.length() < 3) {
             return false;
         }
-        return name.startsWith(DOUBLE_QUOTE) && 
+        return name.startsWith(DOUBLE_QUOTE) &&
                name.endsWith(DOUBLE_QUOTE);
     }
 
@@ -298,17 +309,19 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return delimit(config, rule, name, false);
     }
 
-    
+
+    @Override
     public String delimit(IdentifierRule rule, String name) {
         return delimit(_config, rule, name, false);
     }
 
+    @Override
     public String delimit(IdentifierRule rule, String name, boolean force) {
         return delimit(_config, rule, name, force);
     }
-    
+
     public String delimit(IdentifierConfiguration config, IdentifierRule rule, String name, boolean force) {
-        if (!rule.getCanDelimit() || StringUtils.isEmpty(name)) {
+        if (!rule.getCanDelimit() || StringUtil.isEmpty(name)) {
             return name;
         }
 
@@ -318,24 +331,27 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return name;
     }
 
+    @Override
     public boolean isDelimited(IdentifierRule rule, String name) {
         return isDelimited(_config, rule, name);
     }
 
     public boolean isDelimited(IdentifierConfiguration config, IdentifierRule rule, String name) {
-        if (name == null || name.length() <= 3) {
+         if (name == null || name.length() < 3) {
             return false;
         }
         return name.startsWith(config.getLeadingDelimiter()) &&
             name.endsWith(config.getTrailingDelimiter());
     }
 
+    @Override
     public String removeDelimiters(IdentifierConfiguration config, String rule,
         String name) {
         return removeDelimiters(_config, getNamingRule(rule), name, _config.getLeadingDelimiter(),
             _config.getTrailingDelimiter());
     }
 
+    @Override
     public String removeDelimiters(IdentifierRule rule, String name) {
         return removeDelimiters(_config, rule, name, _config.getLeadingDelimiter(),
             _config.getTrailingDelimiter());
@@ -346,6 +362,7 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
             _config.getTrailingDelimiter());
     }
 
+    @Override
     public boolean requiresDelimiters(IdentifierRule rule, String name) {
         return requiresDelimiters(_config, rule, name);
     }
@@ -359,28 +376,29 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         }
         return false;
     }
-    
+
     /**
      * Returns whether a name is considered a reserved word.
      */
+    @Override
     public boolean isReservedWord(IdentifierRule rule, String name) {
         if (rule == null) {
-            System.out.println("NAmingConfig: " + _config.getClass().getName());
             throw new IllegalArgumentException("Naming rule is null!");
         }
         if (rule.getReservedWords() == null) {
             return false;
         }
         if (!isDelimited(rule, name)) {
-            name = name.toUpperCase();
+            name = name.toUpperCase(Locale.ENGLISH);
         }
         return rule.getReservedWords().contains(name);
     }
 
+    @Override
     public boolean isReservedWord(String rule, String name) {
         return isReservedWord(_config.getIdentifierRule(rule), name);
     }
-    
+
 
     protected String removeDelimiters(IdentifierConfiguration config, IdentifierRule rule, String name, String leading,
         String trailing) {
@@ -394,15 +412,18 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         }
         return name;
     }
-    
+
+    @Override
     public String combineNames(String rule, String[] rules, String[] names) {
         return combineNames(getNamingRule(rule), getNamingRules(rules), names);
     }
 
+    @Override
     public String truncateName(String rule, String name, int length) {
         return truncateName(getNamingRule(rule), name, length);
     }
 
+    @Override
     public String truncateName(IdentifierRule namingRule, String name, int length) {
         String tName = name;
         boolean delimited = isDelimited(namingRule, name);
@@ -414,27 +435,32 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         }
         tName = tName.substring(0, tName.length() - length);
         if (delimited) {
-            tName = delimit(namingRule, tName).toString();
+            tName = delimit(namingRule, tName);
         }
         return tName;
     }
 
+    @Override
     public String delimit(String rule, String name) {
         return delimit(getNamingRule(rule), name);
     }
 
+    @Override
     public String delimit(String rule, String name, boolean force) {
         return delimit(getNamingRule(rule), name, force);
     }
 
+    @Override
     public boolean isDelimited(String rule, String name) {
         return isDelimited(getNamingRule(rule), name);
     }
 
+    @Override
     public String removeDelimiters(String rule, String name) {
         return removeDelimiters(getNamingRule(rule), name);
     }
 
+    @Override
     public boolean requiresDelimiters(String rule, String name) {
         return requiresDelimiters(getNamingRule(rule), name);
     }
@@ -443,22 +469,26 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return splitName(config, getNamingRule(rule), name);
     }
 
+    @Override
     public String[] splitName(String rule, String name) {
         return splitName(_config, getNamingRule(rule), name);
     }
 
+    @Override
     public String joinNames(String[] rules, String[] names) {
         return joinNames(getNamingRules(rules), names);
     }
-    
+
     private IdentifierRule getNamingRule(String rule) {
         return _config.getIdentifierRule(rule);
     }
-    
+
+    @Override
     public String appendNames(String rule, String name1, String name2) {
         return appendNames(getNamingRule(rule), name1, name2);
     }
 
+    @Override
     public String removeHungarianNotation(IdentifierRule rule, String name) {
         boolean delimited = isDelimited(rule, name);
         if (delimited) {
@@ -477,19 +507,22 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
 
         name = name.substring(newStart);
         if (delimited) {
-            name = delimit(rule, name).toString();
+            name = delimit(rule, name);
         }
         return name;
     }
 
+    @Override
     public String removeHungarianNotation(String rule, String name) {
         return removeHungarianNotation(getNamingRule(rule), name);
     }
-    
+
+    @Override
     public String[] splitName(String nrule, String name, String nameDelim) {
         return splitName(getNamingRule(nrule), name, nameDelim);
     }
 
+    @Override
     public String convert(IdentifierConfiguration config, String rule, String name) {
         // Already using same delimiter, no need to convert
         if (!needsConversion(config)) {
@@ -500,13 +533,14 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         IdentifierRule nrule = config.getIdentifierRule(rule);
         boolean delimit = isDelimited(config, orule, name);
         if (delimit) {
-            name = removeDelimiters(config, orule, name, config.getLeadingDelimiter(), 
+            name = removeDelimiters(config, orule, name, config.getLeadingDelimiter(),
                 config.getTrailingDelimiter());
-            return delimit(getIdentifierConfiguration(), nrule, name, delimit).toString();
+            return delimit(getIdentifierConfiguration(), nrule, name, delimit);
         }
         return name;
     }
 
+    @Override
     public String convertFull(IdentifierConfiguration config, String rule, String fullName) {
         if (!needsConversion(config)) {
             return fullName;
@@ -522,9 +556,9 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
             return names[0];
         }
         // Join if multiple names
-        return joinNames(getIdentifierConfiguration(), config.getIdentifierRule(rule), names, 
+        return joinNames(getIdentifierConfiguration(), config.getIdentifierRule(rule), names,
             getIdentifierConfiguration().getIdentifierDelimiter());
-    }    
+    }
 
     public String combineFull(IdentifierConfiguration config, String rule, String fullName) {
         if (!needsConversion(config)) {
@@ -538,11 +572,12 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         }
         // Join
         return joinNames(config, config.getIdentifierRule(rule), names, config.getIdentifierDelimiter());
-    }    
+    }
 
 
     protected boolean needsConversion(IdentifierConfiguration config) {
-        return !(config.getConversionKey().equals(getIdentifierConfiguration().getConversionKey()));
+    	return (config != getIdentifierConfiguration())
+           && !(config.getConversionKey().equals(getIdentifierConfiguration().getConversionKey()));
     }
 
     private IdentifierRule[] getNamingRules(String[] rules) {
@@ -553,27 +588,34 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return nrules;
     }
 
+    @Override
     public void endConfiguration() {
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public boolean canSplit(String rule, String name) {
         return canSplit(getNamingRule(rule), name, _config.getIdentifierDelimiter());
     }
 
+    @Override
     public boolean canSplit(IdentifierRule rule, String name) {
         return canSplit(rule, name, _config.getIdentifierDelimiter());
     }
 
+    @Override
     public boolean canSplit(String rule, String name, String delim) {
         return canSplit(getNamingRule(rule), name);
     }
 
+    @Override
     public boolean canSplit(IdentifierRule rule, String name, String delim) {
         if (name == null || name.length() == 0) {
             return false;
@@ -581,10 +623,12 @@ public class IdentifierUtilImpl implements IdentifierUtil, Configurable {
         return name.contains(delim);
     }
 
+    @Override
     public String combineNames(IdentifierRule rule, String[] names) {
         return combineNames(_config, rule, names);
     }
 
+    @Override
     public String combineNames(IdentifierRule rule, String name1, String name2) {
         return combineNames(_config, rule, name1, name2);
     }

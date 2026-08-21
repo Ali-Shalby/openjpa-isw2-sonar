@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -35,6 +35,8 @@ import org.apache.openjpa.util.InternalException;
 public class LifecycleMetaData
     implements Serializable {
 
+    
+    private static final long serialVersionUID = 1L;
     public static final int IGNORE_NONE = 0;
     public static final int IGNORE_HIGH = 2 << 0;
     public static final int IGNORE_LOW = 2 << 1;
@@ -53,12 +55,22 @@ public class LifecycleMetaData
     private boolean _resolved = false;
     private boolean _ignoreSystem = false;
     private int _ignoreSups = 0;
+    private boolean _activated = false;
 
     /**
      * Construct with owning metadata.
      */
     LifecycleMetaData(ClassMetaData meta) {
         _meta = meta;
+    }
+
+    /**
+     * Whether the LifeCycleMetaData has had any callbacks or listeners registered.  Used
+     * for a quick test to determine whether to attempt to fire any events.
+     * @return boolean
+     */
+    public boolean is_activated() {
+        return _activated;
     }
 
     /**
@@ -127,6 +139,7 @@ public class LifecycleMetaData
         }
         _declared[eventType] = callbacks;
         _high[eventType] = highPriority;
+        _activated = true;
     }
 
     /**
@@ -160,6 +173,7 @@ public class LifecycleMetaData
         }
         _super[eventType] = callbacks;
         _superHigh[eventType] = highPriority;
+        _activated = true;
     }
 
     /**
@@ -192,6 +206,7 @@ public class LifecycleMetaData
                 return _declared;
             if (_declared == null && _ignoreSups == 0) {
                 _high = supMeta._high;
+                _activated = true;
                 return supMeta._all;
             }
             // don't hold strong refs onto redundant info

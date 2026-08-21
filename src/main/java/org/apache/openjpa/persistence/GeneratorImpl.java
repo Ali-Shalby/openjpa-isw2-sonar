@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
@@ -28,7 +28,6 @@ import org.apache.openjpa.meta.ClassMetaData;
  *
  * @author Abe White
  * @since 0.4.1
- * @nojavadoc
  */
 public class GeneratorImpl
 	implements Generator {
@@ -52,35 +51,45 @@ public class GeneratorImpl
     /**
      * Delegate.
      */
+    @Override
     public Seq getDelegate() {
         return _seq.getDelegate();
     }
 
+    @Override
     public String getName() {
         return _name;
     }
 
+    @Override
     public Object next() {
         return _seq.next(_ctx, _meta);
     }
 
+    @Override
     public Object current() {
         return _seq.current(_ctx, _meta);
     }
 
+    @Override
     public void allocate(int additional) {
         _seq.allocate(additional, _ctx, _meta);
     }
 
+    @Override
     public int hashCode() {
-        return _seq.hashCode();
+        return ((_seq == null) ? 0  : _seq.hashCode());
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
-        if (!(other instanceof GeneratorImpl))
+        if ((other == null) || (other.getClass() != this.getClass()))
             return false;
+        if (_seq == null)
+            return false;
+
         return _seq.equals(((GeneratorImpl) other)._seq);
-	}
+    }
 }

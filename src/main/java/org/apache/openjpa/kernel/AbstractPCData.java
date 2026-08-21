@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -25,7 +25,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 
@@ -41,11 +40,12 @@ import org.apache.openjpa.util.Proxy;
  *
  * @author Patrick Linskey
  * @author Abe White
- * @nojavadoc
  */
 public abstract class AbstractPCData
     implements PCData {
 
+    
+    private static final long serialVersionUID = 1L;
     public static final Object NULL = new Object();
     private static final Object[] EMPTY_ARRAY = new Object[0];
 
@@ -59,6 +59,7 @@ public abstract class AbstractPCData
      */
     public abstract AbstractPCData newEmbeddedPCData(OpenJPAStateManager sm);
 
+    @Override
     public boolean isLoaded(int field) {
         return getLoaded().get(field);
     }
@@ -87,11 +88,9 @@ public abstract class AbstractPCData
                 Map m = (Map) data;
                 Map m2 = (Map) sm.newFieldProxy(fmd.getIndex());
                 Collection keys = new ArrayList (m.size());
-                Collection values = new ArrayList(m.size());          
+                Collection values = new ArrayList(m.size());
 
-                for (Iterator<Map.Entry> mi = m.entrySet().iterator();
-                    mi.hasNext();) {
-                    Map.Entry e = mi.next();
+                for (Map.Entry e : (Iterable<Map.Entry>) m.entrySet()) {
                     keys.add(e.getKey());
                     values.add(e.getValue());
                 }
@@ -159,7 +158,7 @@ public abstract class AbstractPCData
      * Transform the given data value to its field value. The data value
      * may be a key, value, or element of a map or collection.
      */
-    protected Collection toNestedFields(OpenJPAStateManager sm, 
+    protected Collection toNestedFields(OpenJPAStateManager sm,
         ValueMetaData vmd, Collection data, FetchConfiguration fetch,
         Object context) {
         if (data == null)
@@ -168,18 +167,20 @@ public abstract class AbstractPCData
         Collection ret = new ArrayList(data.size());
         switch (vmd.getDeclaredTypeCode()) {
             case JavaTypes.DATE:
-                for (Iterator itr=data.iterator(); itr.hasNext();)
-                    ret.add(((Date)itr.next()).clone());
+                for (Object item : data) {
+                    ret.add(((Date) item).clone());
+                }
                 return ret;
             case JavaTypes.LOCALE:
-                for (Iterator itr=data.iterator(); itr.hasNext();)
-                    ret.add((Locale) itr.next());
+                for (Object value : data) {
+                    ret.add((Locale) value);
+                }
                 return ret;
             case JavaTypes.PC:
                 if (vmd.isEmbedded()) {
-                    for (Iterator itr=data.iterator(); itr.hasNext();) {
-                        ret.add(toEmbeddedField(sm, vmd, itr.next(), fetch
-                            , context));
+                    for (Object datum : data) {
+                        ret.add(toEmbeddedField(sm, vmd, datum, fetch
+                                , context));
                     }
                     return ret;
                 }
@@ -187,13 +188,13 @@ public abstract class AbstractPCData
             case JavaTypes.PC_UNTYPED:
                 Object[] r = toRelationFields(sm, data, fetch);
                 if (r != null) {
-                    for (int i = 0; i < r.length; i++)
-                        if (r[i] != null)
-                            ret.add(r[i]);
+                    for (Object o : r)
+                        if (o != null)
+                            ret.add(o);
                         else {
-                           ret.add(sm.getContext().getConfiguration().
-                               getOrphanedKeyActionInstance().
-                               orphan(data, sm, vmd));
+                            ret.add(sm.getContext().getConfiguration().
+                                    getOrphanedKeyActionInstance().
+                                    orphan(data, sm, vmd));
                         }
                     return ret;
                 }
@@ -202,7 +203,7 @@ public abstract class AbstractPCData
         }
     }
 
-    
+
     /**
      * Transform the given data into a relation field value. Default
      * implementation assumes the data is an oid.
@@ -250,8 +251,8 @@ public abstract class AbstractPCData
                     return ProxyDataList.EMPTY_LIST;
                 ProxyDataList c2 = null;
                 int size;
-                for (Iterator ci = c.iterator(); ci.hasNext();) {
-                    val = toNestedData(fmd.getElement(), ci.next(), ctx);
+                for (Object value : c) {
+                    val = toNestedData(fmd.getElement(), value, ctx);
                     if (val == NULL)
                         return NULL;
                     if (c2 == null) {
@@ -261,7 +262,8 @@ public abstract class AbstractPCData
                             ChangeTracker ct = ((Proxy) c).getChangeTracker();
                             if (ct != null)
                                 c2.nextSequence = ct.getNextSequence();
-                        } else
+                        }
+                        else
                             c2.nextSequence = size;
                     }
                     c2.add(val);
@@ -274,8 +276,8 @@ public abstract class AbstractPCData
                 Map m2 = null;
                 Map.Entry e;
                 Object val2;
-                for (Iterator mi = m.entrySet().iterator(); mi.hasNext();) {
-                    e = (Map.Entry) mi.next();
+                for (Object o : m.entrySet()) {
+                    e = (Map.Entry) o;
                     val = toNestedData(fmd.getKey(), e.getKey(), ctx);
                     if (val == NULL)
                         return NULL;
@@ -294,13 +296,13 @@ public abstract class AbstractPCData
 
                 Object a;
                 if (isImmutableType(fmd.getElement())) {
-                    a = Array.newInstance(fmd.getElement().getDeclaredType(), 
+                    a = Array.newInstance(fmd.getElement().getDeclaredType(),
                         length);
                     System.arraycopy(val, 0, a, 0, length);
                 } else {
                     Object[] data = new Object[length];
                     for (int i = 0; i < length; i++) {
-                        data[i] = toNestedData(fmd.getElement(), 
+                        data[i] = toNestedData(fmd.getElement(),
                             Array.get(val, i), ctx);
                     }
                     a = data;
@@ -409,6 +411,9 @@ public abstract class AbstractPCData
      */
     private static class ProxyDataList
         extends ArrayList {
+
+        
+        private static final long serialVersionUID = 1L;
 
         public static final ProxyDataList EMPTY_LIST = new ProxyDataList(0);
 

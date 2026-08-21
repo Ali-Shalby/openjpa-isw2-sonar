@@ -14,11 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
-import org.apache.commons.lang.StringUtils;
+import java.util.Objects;
+
 
 /**
  * A string {@link Value}.
@@ -33,6 +34,7 @@ public class StringValue extends Value {
         super(prop);
     }
 
+    @Override
     public Class<String> getValueType() {
         return String.class;
     }
@@ -40,6 +42,7 @@ public class StringValue extends Value {
     /**
      * The internal value.
      */
+    @Override
     public String get() {
         return value;
     }
@@ -51,18 +54,21 @@ public class StringValue extends Value {
         assertChangeable();
         String oldValue = this.value;
         this.value = value;
-        if (!StringUtils.equals(value, oldValue))
+        if (!Objects.equals(value, oldValue))
             valueChanged();
     }
 
+    @Override
     protected String getInternalString() {
         return get();
     }
 
+    @Override
     protected void setInternalString(String val) {
         set(val);
     }
-    
+
+    @Override
     protected void setInternalObject(Object obj) {
         if (obj instanceof String) {
             set((String) obj);

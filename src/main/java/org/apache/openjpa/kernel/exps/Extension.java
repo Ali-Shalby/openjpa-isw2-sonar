@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -28,6 +28,8 @@ import org.apache.openjpa.kernel.StoreContext;
 class Extension
     extends Val {
 
+    
+    private static final long serialVersionUID = 1L;
     private final FilterListener _listener;
     private final Val _target;
     private final Val _arg;
@@ -42,14 +44,17 @@ class Extension
         _arg = arg;
     }
 
+    @Override
     public Class getType() {
         Class targetClass = (_target == null) ? null : _target.getType();
         return _listener.getType(targetClass, getArgTypes());
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         Object target = null;
@@ -81,6 +86,7 @@ class Extension
         return new Object[]{ arg };
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         if (_target != null)

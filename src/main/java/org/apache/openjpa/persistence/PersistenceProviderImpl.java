@@ -14,23 +14,9 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
-
-import java.lang.instrument.ClassFileTransformer;
-import java.lang.instrument.IllegalClassFormatException;
-import java.security.AccessController;
-import java.security.ProtectionDomain;
-import java.util.HashMap;
-import java.util.Map;
-
-import javax.persistence.EntityManager;
-import javax.persistence.spi.ClassTransformer;
-import javax.persistence.spi.LoadState;
-import javax.persistence.spi.PersistenceProvider;
-import javax.persistence.spi.PersistenceUnitInfo;
-import javax.persistence.spi.ProviderUtil;
 
 import org.apache.openjpa.conf.BrokerValue;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
@@ -40,13 +26,13 @@ import org.apache.openjpa.enhance.PCEnhancerAgent;
 import org.apache.openjpa.kernel.AbstractBrokerFactory;
 import org.apache.openjpa.kernel.Bootstrap;
 import org.apache.openjpa.kernel.BrokerFactory;
+import org.apache.openjpa.kernel.ConnectionRetainModes;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
-import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.lib.util.MultiClassLoader;
 import org.apache.openjpa.meta.AbstractCFMetaDataFactory;
 import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.meta.MetaDataRepository;
@@ -54,12 +40,28 @@ import org.apache.openjpa.persistence.osgi.BundleUtils;
 import org.apache.openjpa.persistence.validation.ValidationUtils;
 import org.apache.openjpa.util.ClassResolver;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.spi.ClassTransformer;
+import jakarta.persistence.spi.LoadState;
+import jakarta.persistence.spi.PersistenceProvider;
+import jakarta.persistence.spi.PersistenceUnitInfo;
+import jakarta.persistence.spi.ProviderUtil;
+import jakarta.persistence.spi.TransformerException;
+
+import java.lang.instrument.ClassFileTransformer;
+import java.lang.instrument.IllegalClassFormatException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.security.ProtectionDomain;
+import java.util.HashMap;
+import java.util.Map;
+
 
 /**
  * Bootstrapping class that allows the creation of a stand-alone
  * {@link EntityManager}.
  *
- * @see javax.persistence.Persistence#createEntityManagerFactory(String,Map)
+ * @see jakarta.persistence.Persistence#createEntityManagerFactory(String,Map)
  * @published
  */
 public class PersistenceProviderImpl
@@ -91,43 +93,46 @@ public class PersistenceProviderImpl
                 return null;
             }
 
-            BrokerFactory factory = getBrokerFactory(cp, poolValue, null);
+            BrokerFactory factory = getBrokerFactory(cp, poolValue, BundleUtils.getBundleClassLoader());
             OpenJPAConfiguration conf = factory.getConfiguration();
-            _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);            
+            conf.setUserClassLoader(BundleUtils.getBundleClassLoader());
+            _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
             pd.checkPuNameCollisions(_log,name);
-            
+
             // add enhancer
             loadAgent(factory);
-            
+
             // Create appropriate LifecycleEventManager
             loadValidator(factory);
-            
-            // We need to wait to preload until after we get back a fully configured/instantiated
-            // BrokerFactory. This is because it is possible that someone has extended OpenJPA
-            // functions and they need to be allowed time to configure themselves before we go off and
-            // start instanting configurable objects (ie:openjpa.MetaDataRepository). Don't catch
-            // any exceptions here because we want to fail-fast.
-            preloadMetaDataRepository(factory);
-            
-            return JPAFacadeHelper.toEntityManagerFactory(factory);
+
+            if (conf.getConnectionRetainModeConstant() == ConnectionRetainModes.CONN_RETAIN_ALWAYS) {
+                // warn about EMs holding on to connections.
+                _log.warn(_loc.get("retain-always", conf.getId()));
+            }
+
+            OpenJPAEntityManagerFactory emf = JPAFacadeHelper.toEntityManagerFactory(factory);
+            if (_log.isTraceEnabled()) {
+                _log.trace(this + " creating " + emf + " for PU " + name + ".");
+            }
+            return emf;
         } catch (Exception e) {
             if (_log != null) {
                 _log.error(_loc.get("create-emf-error", name), e);
             }
-            
+
             /*
-             * 
+             *
              * Maintain 1.x behavior of throwing exceptions, even though
              * JPA2 9.2 - createEMF "must" return null for PU it can't handle.
-             * 
+             *
              * JPA 2.0 Specification Section 9.2 states:
-             * "If a provider does not qualify as the provider for the named persistence unit, 
+             * "If a provider does not qualify as the provider for the named persistence unit,
              * it must return null when createEntityManagerFactory is invoked on it."
-             * That specification compliance behavior has happened few lines above on null return. 
+             * That specification compliance behavior has happened few lines above on null return.
              * Throwing runtime exception in the following code is valid (and useful) behavior
              * because the qualified provider has encountered an unexpected situation.
              */
-            throw PersistenceExceptions.toPersistenceException(e);                
+            throw PersistenceExceptions.toPersistenceException(e);
         }
     }
 
@@ -143,17 +148,19 @@ public class PersistenceProviderImpl
             // we only support boolean settings for this option currently.
             throw new IllegalArgumentException(poolValue.toString());
         }
-        
-        if (poolValue == null || !((Boolean) poolValue).booleanValue())
+
+        if (poolValue == null || !(Boolean) poolValue)
             return Bootstrap.newBrokerFactory(cp, loader);
         else
             return Bootstrap.getBrokerFactory(cp, loader);
     }
 
+    @Override
     public OpenJPAEntityManagerFactory createEntityManagerFactory(String name, Map m) {
         return createEntityManagerFactory(name, null, m);
     }
 
+    @Override
     public OpenJPAEntityManagerFactory createContainerEntityManagerFactory(PersistenceUnitInfo pui, Map m) {
         PersistenceProductDerivation pd = new PersistenceProductDerivation();
         try {
@@ -180,14 +187,14 @@ public class PersistenceProviderImpl
                 cp.addProperty("openjpa." + BrokerValue.KEY, getDefaultBrokerAlias());
             }
 
-            // OPENJPA-1491 If running under OSGi, use the Bundle's ClassLoader instead of the application one
-            BrokerFactory factory;
-            if (BundleUtils.runningUnderOSGi()) {
-                factory = getBrokerFactory(cp, poolValue, BundleUtils.getBundleClassLoader());
-            } else {
-                factory = getBrokerFactory(cp, poolValue, pui.getClassLoader());
-            }
 
+            ClassLoader loader = pui.getClassLoader();
+            if (BundleUtils.runningUnderOSGi()) {
+                // OPENJPA-1491 : If running under OSGi, use the Bundle's ClassLoader instead of the application one
+                // OPENJPA-2542 : Also try to load from app loader in the case of a user implemented interface/config
+                loader = new MultiClassLoader(BundleUtils.getBundleClassLoader(), loader);
+            }
+            BrokerFactory factory = getBrokerFactory(cp, poolValue, loader);
             OpenJPAConfiguration conf = factory.getConfiguration();
             setPersistenceEnvironmentInfo(conf, pui);
             _log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
@@ -200,19 +207,111 @@ public class PersistenceProviderImpl
                 }
             }
 
+            if (conf.getConnectionRetainModeConstant() == ConnectionRetainModes.CONN_RETAIN_ALWAYS) {
+                // warn about container managed EMs holding on to connections.
+                _log.warn(_loc.get("cm-retain-always",conf.getId()));
+            }
+
             // Create appropriate LifecycleEventManager
             loadValidator(factory);
-            
-            // We need to wait to preload until after we get back a fully configured/instantiated
-            // BrokerFactory. This is because it is possible that someone has extended OpenJPA
-            // functions and they need to be allowed time to configure themselves before we go off and
-            // start instanting configurable objects (ie:openjpa.MetaDataRepository). Don't catch
-            // any exceptions here because we want to fail-fast.
-            preloadMetaDataRepository(factory);
-            
-            return JPAFacadeHelper.toEntityManagerFactory(factory);
+
+            OpenJPAEntityManagerFactory emf = JPAFacadeHelper.toEntityManagerFactory(factory);
+            if (_log.isTraceEnabled()) {
+                _log.trace(this + " creating container " + emf + " for PU " + pui.getPersistenceUnitName() + ".");
+            }
+
+            return emf;
         } catch (Exception e) {
             throw PersistenceExceptions.toPersistenceException(e);
+        }
+    }
+
+    @Override
+    public void generateSchema(final PersistenceUnitInfo info, final Map map) {
+        final Map runMap = map == null ? new HashMap<>() : new HashMap<>(map);
+
+        if (!acceptProvider(runMap)) {
+            return;
+        }
+
+        runMap.put("jakarta.persistence.schema-generation.database.action", "create");
+        final OpenJPAEntityManagerFactory factory = createContainerEntityManagerFactory(info, runMap);
+        try {
+            synchronizeMappings(factory);
+        } finally {
+            factory.close();
+        }
+    }
+
+    @Override
+    public boolean generateSchema(final String persistenceUnitName, final Map map) {
+        final Map runMap = map == null ? new HashMap<>() : new HashMap<>(map);
+
+        if (!acceptProvider(runMap)) {
+            return false;
+        }
+
+        runMap.put("jakarta.persistence.schema-generation.database.action", "create");
+        final OpenJPAEntityManagerFactory factory = createEntityManagerFactory(persistenceUnitName, runMap);
+        try {
+            final Object obj = synchronizeMappings(factory);
+            return Boolean.class.cast(obj) ? Boolean.class.cast(obj) : true;
+        } finally {
+            factory.close();
+        }
+    }
+
+    // if persistence provider is specific, don't do anything
+    // only allowed to process if persistence provider matches or if not provider is specified
+    public boolean acceptProvider(final Map properties) {
+        Object provider = properties.get("jakarta.persistence.provider");
+
+        // provider is specified, so it has to match
+        if (provider != null) {
+            if (provider instanceof Class) {
+                provider = ((Class) provider).getName();
+            }
+            try {
+                if (!((String) provider).equals(org.apache.openjpa.persistence.PersistenceProviderImpl.class.getName())) {
+                    return false;
+                }
+
+            } catch (final ClassCastException e) {
+                return false;
+                // not a recognized provider property value so must be another provider.
+            }
+        }
+
+        // no provider specified
+        return true;
+
+    }
+
+    private Object synchronizeMappings(final OpenJPAEntityManagerFactory factory) {
+        if (EntityManagerFactoryImpl.class.isInstance(factory)) {
+            final EntityManagerFactoryImpl entityManagerFactory = EntityManagerFactoryImpl.class.cast(factory);
+            final BrokerFactory brokerFactory = entityManagerFactory.getBrokerFactory();
+            if (!AbstractBrokerFactory.class.isInstance(brokerFactory)) {
+                throw new IllegalArgumentException("expected AbstractBrokerFactory but got " + brokerFactory);
+            }
+            try {
+                final Method synchronizeMappings = brokerFactory.getClass()
+                        .getDeclaredMethod("synchronizeMappings", ClassLoader.class);
+                if (!synchronizeMappings.isAccessible()) {
+                    synchronizeMappings.setAccessible(true);
+                }
+                return synchronizeMappings.invoke(brokerFactory, Thread.currentThread().getContextClassLoader());
+            } catch (final NoSuchMethodException | IllegalAccessException e) {
+                throw new IllegalStateException(e);
+            } catch (final InvocationTargetException e) {
+                final Throwable targetException = e.getTargetException();
+                if (RuntimeException.class.isInstance(targetException)) {
+                    throw RuntimeException.class.cast(targetException);
+                }
+                throw new IllegalStateException(targetException);
+            }
+        } else {
+            throw new IllegalArgumentException("expected EntityManagerFactoryImpl but got " + factory);
         }
     }
 
@@ -221,7 +320,7 @@ public class PersistenceProviderImpl
         if (conf instanceof OpenJPAConfigurationImpl) {
             Map<String, Object> peMap =((OpenJPAConfigurationImpl)conf).getPersistenceEnvironment();
             if (peMap == null) {
-                peMap = new HashMap<String, Object>();
+                peMap = new HashMap<>();
                 ((OpenJPAConfigurationImpl)conf).setPersistenceEnvironment(peMap);
             }
             peMap.put(AbstractCFMetaDataFactory.PERSISTENCE_UNIT_ROOT_URL, pui.getPersistenceUnitRootUrl());
@@ -229,11 +328,12 @@ public class PersistenceProviderImpl
             peMap.put(AbstractCFMetaDataFactory.JAR_FILE_URLS, pui.getJarFileUrls());
         }
     }
-    
+
     /*
      * Returns a ProviderUtil for use with entities managed by this
      * persistence provider.
      */
+    @Override
     public ProviderUtil getProviderUtil() {
         return this;
     }
@@ -246,7 +346,7 @@ public class PersistenceProviderImpl
     protected String getDefaultBrokerAlias() {
         return BrokerValue.NON_FINALIZING_ALIAS;
     }
-    
+
     /*
      * Return a new instance of Configuration subclass used by entity
      * enhancement in ClassTransformerImpl. If OpenJPAConfigurationImpl
@@ -258,30 +358,6 @@ public class PersistenceProviderImpl
     }
 
     /**
-     * Private worker method that will call to the MetaDataRepository to preload if the provided
-     * BrokerFactory is configured to do so.
-     */
-    private void preloadMetaDataRepository(BrokerFactory factory){
-        // We need to wait to preload until after we get back a fully configured/instantiated
-        // BrokerFactory. This is because it is possible that someone has extended OpenJPA
-        // functions and they need to be allowed time to configure themselves before we go off and
-        // start instantiating configurable objects (ie:openjpa.MetaDataRepository). Don't catch
-        // any exceptions here because we want to fail-fast.
-        OpenJPAConfiguration conf = factory.getConfiguration();
-        Options o = Configurations.parseProperties(Configurations.getProperties(conf.getMetaDataRepository()));
-        if (MetaDataRepository.needsPreload(o) == true) {
-            MetaDataRepository mdr = conf.getMetaDataRepositoryInstance(); 
-            mdr.setValidate(MetaDataRepository.VALIDATE_RUNTIME, true);
-            mdr.setResolve(MetaDataRepository.MODE_MAPPING_INIT, true);
-            
-            // Load persistent classes and hook in subclasser
-            ((AbstractBrokerFactory) factory).loadPersistentTypes((ClassLoader) AccessController
-                .doPrivileged(J2DoPrivHelper.getContextClassLoaderAction()));
-            mdr.preload();
-        }
-    }
-    
-    /**
      * Java EE 5 class transformer.
      */
     private static class ClassTransformerImpl
@@ -289,11 +365,12 @@ public class PersistenceProviderImpl
 
         private final ClassFileTransformer _trans;
 
-        private ClassTransformerImpl(ConfigurationProvider cp, String props, 
+        private ClassTransformerImpl(ConfigurationProvider cp, String props,
             final ClassLoader tmpLoader, OpenJPAConfiguration conf) {
             cp.setInto(conf);
             // use the temporary loader for everything
             conf.setClassResolver(new ClassResolver() {
+                @Override
                 public ClassLoader getClassLoader(Class<?> context, ClassLoader env) {
                     return tmpLoader;
                 }
@@ -302,17 +379,22 @@ public class PersistenceProviderImpl
 
             MetaDataRepository repos = conf.getMetaDataRepositoryInstance();
             repos.setResolve(MetaDataModes.MODE_MAPPING, false);
-            _trans = new PCClassFileTransformer(repos,
+            _trans = PCClassFileTransformer.newInstance(repos,
                 Configurations.parseProperties(props), tmpLoader);
         }
 
-        public byte[] transform(ClassLoader cl, String name,
-            Class<?> previousVersion, ProtectionDomain pd, byte[] bytes)
-            throws IllegalClassFormatException {
-            return _trans.transform(cl, name, previousVersion, pd, bytes);
+        @Override
+        public byte[] transform(ClassLoader cl, String name, Class<?> previousVersion, ProtectionDomain pd, byte[] bytes)
+                throws TransformerException {
+            try {
+                return _trans.transform(cl, name, previousVersion, pd, bytes);
+            }
+            catch (IllegalClassFormatException e) {
+                throw new TransformerException(e);
+            }
         }
-	}
-    
+    }
+
     /**
      * This private worker method will attempt load the PCEnhancerAgent.
      */
@@ -320,27 +402,25 @@ public class PersistenceProviderImpl
         OpenJPAConfiguration conf = factory.getConfiguration();
         Log log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
 
-        if (conf.getDynamicEnhancementAgent() == true) {
+        if (conf.getDynamicEnhancementAgent()) {
             boolean res = PCEnhancerAgent.loadDynamicAgent(log);
-            if (log.isInfoEnabled() && res == true ){
+            if (log.isInfoEnabled() && res){
                 log.info(_loc.get("dynamic-agent"));
             }
         }
     }
-    
+
     /**
      * This private worker method will attempt to setup the proper
-     * LifecycleEventManager type based on if the javax.validation APIs are
+     * LifecycleEventManager type based on if the jakarta.validation APIs are
      * available and a ValidatorImpl is required by the configuration.
-     * @param log
-     * @param conf
      * @throws if validation setup failed and was required by the config
      */
     private void loadValidator(BrokerFactory factory) {
         OpenJPAConfiguration conf = factory.getConfiguration();
         Log log = conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
 
-        if ((ValidationUtils.setupValidation(conf) == true) &&
+        if ((ValidationUtils.setupValidation(conf)) &&
                 log.isInfoEnabled()) {
             log.info(_loc.get("vlem-creation-info"));
         }
@@ -348,7 +428,7 @@ public class PersistenceProviderImpl
 
     /**
      * Determines whether the specified object is loaded.
-     * 
+     *
      * @return LoadState.LOADED - if all implicit or explicit EAGER fetch
      *         attributes are loaded
      *         LoadState.NOT_LOADED - if any implicit or explicit EAGER fetch
@@ -356,6 +436,7 @@ public class PersistenceProviderImpl
      *         LoadState.UNKNOWN - if the entity is not managed by this
      *         provider.
      */
+    @Override
     public LoadState isLoaded(Object obj) {
         return isLoadedWithoutReference(obj, null);
     }
@@ -364,7 +445,7 @@ public class PersistenceProviderImpl
      * Determines whether the attribute on the specified object is loaded.  This
      * method may access the value of the attribute to determine load state (but
      * currently does not).
-     * 
+     *
      * @return LoadState.LOADED - if the attribute is loaded.
      *         LoadState.NOT_LOADED - if the attribute is not loaded or any
      *         EAGER fetch attributes of the entity are not loaded.
@@ -372,21 +453,22 @@ public class PersistenceProviderImpl
      *         provider or if it does not contain the persistent
      *         attribute.
      */
+    @Override
     public LoadState isLoadedWithReference(Object obj, String attr) {
         // TODO: Are there be any cases where OpenJPA will need to examine
-        // the contents of a field to determine load state?  If so, per JPA 
-        // contract, this method permits that sort of access. In the extremely 
-        // unlikely case that the the entity is managed by multiple providers, 
-        // even if it doesn't trigger loading in OpenJPA, accessing field data 
+        // the contents of a field to determine load state?  If so, per JPA
+        // contract, this method permits that sort of access. In the extremely
+        // unlikely case that the the entity is managed by multiple providers,
+        // even if it doesn't trigger loading in OpenJPA, accessing field data
         // could trigger loading by an alternate provider.
         return isLoadedWithoutReference(obj, attr);
     }
 
     /**
      * Determines whether the attribute on the specified object is loaded.  This
-     * method does not access the value of the attribute to determine load 
+     * method does not access the value of the attribute to determine load
      * state.
-     * 
+     *
      * @return LoadState.LOADED - if the attribute is loaded.
      *         LoadState.NOT_LOADED - if the attribute is not loaded or any
      *         EAGER fetch attributes of the entity are not loaded.
@@ -394,7 +476,8 @@ public class PersistenceProviderImpl
      *         provider or if it does not contain the persistent
      *         attribute.
      */
-    public LoadState isLoadedWithoutReference(Object obj, String attr) {        
+    @Override
+    public LoadState isLoadedWithoutReference(Object obj, String attr) {
         if (obj == null) {
             return LoadState.UNKNOWN;
         }

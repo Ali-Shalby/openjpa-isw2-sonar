@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -25,10 +25,12 @@ package org.apache.openjpa.util;
  */
 public final class CharId extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
     private final char key;
 
     public CharId(Class cls, Character key) {
-        this(cls, (key == null) ? (char) 0 : key.charValue());
+        this(cls, (key == null) ? (char) 0 : key);
     }
 
     public CharId(Class cls, String key) {
@@ -49,18 +51,22 @@ public final class CharId extends OpenJPAId {
         return key;
     }
 
+    @Override
     public Object getIdObject() {
-        return new Character(key);
+        return key;
     }
 
+    @Override
     public String toString() {
         return String.valueOf(key);
     }
 
+    @Override
     protected int idHash() {
         return key;
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId o) {
         return key == ((CharId) o).key;
     }

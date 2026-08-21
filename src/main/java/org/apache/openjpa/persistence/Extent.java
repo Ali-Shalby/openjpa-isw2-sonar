@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
@@ -33,46 +33,46 @@ public interface Extent<T>
     /**
      * The extent's element type.
      */
-    public Class<T> getElementClass();
+    Class<T> getElementClass();
 
     /**
      * Whether the extent includes subclasses.
      */
-    public boolean hasSubclasses();
+    boolean hasSubclasses();
 
     /**
      * The owning entity manager.
      */
-    public OpenJPAEntityManager getEntityManager();
+    OpenJPAEntityManager getEntityManager();
 
     /**
      * Fetch configuration for controlling how iterated objects are loaded.
      */
-    public FetchPlan getFetchPlan();
+    FetchPlan getFetchPlan();
 
     /**
      * Whether the extent sees inserts and deletes in the current transaction.
      */
-    public boolean getIgnoreChanges();
+    boolean getIgnoreChanges();
 
     /**
      * Whether the extent sees inserts and deletes in the current transaction.
      */
-    public void setIgnoreChanges(boolean ignoreChanges);
+    void setIgnoreChanges(boolean ignoreChanges);
 
     /**
      * List the extent contents.
      */
-    public List<T> list();
+    List<T> list();
 
     /**
      * Close all open iterators that are consuming database resources.
      */
-    public void closeAll();
+    void closeAll();
 
     /**
      * @deprecated cast to {@link ExtentImpl} instead. This
      * method pierces the published-API boundary, as does the SPI cast.
      */
-    public org.apache.openjpa.kernel.Extent getDelegate();
+    @Deprecated org.apache.openjpa.kernel.Extent getDelegate();
 }

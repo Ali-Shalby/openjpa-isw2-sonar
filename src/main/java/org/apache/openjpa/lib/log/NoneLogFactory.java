@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.log;
 
@@ -26,6 +26,7 @@ package org.apache.openjpa.lib.log;
  */
 public class NoneLogFactory implements LogFactory {
 
+    @Override
     public final Log getLog(String channel) {
         return NoneLog.getInstance();
     }
@@ -41,53 +42,68 @@ public class NoneLogFactory implements LogFactory {
             return s_log;
         }
 
+        @Override
         public final boolean isErrorEnabled() {
             return false;
         }
 
+        @Override
         public final boolean isFatalEnabled() {
             return false;
         }
 
+        @Override
         public final boolean isInfoEnabled() {
             return false;
         }
 
+        @Override
         public final boolean isTraceEnabled() {
             return false;
         }
 
+        @Override
         public final boolean isWarnEnabled() {
             return false;
         }
 
+        @Override
         public final void trace(Object o) {
         }
 
+        @Override
         public final void trace(Object o, Throwable t) {
         }
 
+        @Override
         public final void info(Object o) {
         }
 
+        @Override
         public final void info(Object o, Throwable t) {
         }
 
+        @Override
         public final void warn(Object o) {
         }
 
+        @Override
         public final void warn(Object o, Throwable t) {
         }
 
+        @Override
         public final void error(Object o) {
         }
 
+        @Override
         public final void error(Object o, Throwable t) {
         }
 
+        @Override
         public final void fatal(Object o) {
         }
 
+        @Override
         public final void fatal(Object o, Throwable t) {
         }
     }

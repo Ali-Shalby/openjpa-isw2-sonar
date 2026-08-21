@@ -14,15 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 import org.apache.openjpa.kernel.Query;
 
 /**
- * Builds dynamic query  
- *  
+ * Builds dynamic query
+ *
  * @author Pinaki Poddar
  *
  */
@@ -31,15 +31,15 @@ public interface OpenJPAQueryBuilder extends QueryBuilder {
 	/**
 	 * Create a QueryDefinition from the given JPQL String.
 	 */
-	public QueryDefinition createQueryDefinition(String jpql);
-	
+	QueryDefinition createQueryDefinition(String jpql);
+
 	/**
 	 * Create a QueryDefinition from the given OpenJPA Query instance.
 	 */
-	public QueryDefinition createQueryDefinition(Query jpql);
-	
+	QueryDefinition createQueryDefinition(Query jpql);
+
 	/**
 	 * Gets equivalent JPQL String for the given QueryDefinition.
 	 */
-	public String toJPQL(QueryDefinition qdef);
+	String toJPQL(QueryDefinition qdef);
 }

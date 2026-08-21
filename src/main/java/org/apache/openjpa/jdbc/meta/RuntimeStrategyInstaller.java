@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -22,6 +22,7 @@ import java.lang.reflect.Modifier;
 
 import org.apache.openjpa.jdbc.meta.strats.NoneFieldStrategy;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.MetaDataException;
 
@@ -30,12 +31,13 @@ import org.apache.openjpa.util.MetaDataException;
  * fails if it does not work.
  *
  * @author Abe White
- * @nojavadoc
  * @since 0.4.0
  */
 public class RuntimeStrategyInstaller
     extends StrategyInstaller {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final Localizer _loc = Localizer.forPackage
         (RuntimeStrategyInstaller.class);
 
@@ -46,8 +48,9 @@ public class RuntimeStrategyInstaller
         super(repos);
     }
 
+    @Override
     public void installStrategy(ClassMapping cls) {
-        if ((cls.getSourceMode() & cls.MODE_MAPPING) == 0)
+        if ((cls.getSourceMode() & MetaDataModes.MODE_MAPPING) == 0)
             throw new MetaDataException(_loc.get("no-mapping", cls));
 
         ClassStrategy strat = repos.namedStrategy(cls);
@@ -56,11 +59,13 @@ public class RuntimeStrategyInstaller
         cls.setStrategy(strat, Boolean.FALSE);
     }
 
+    @Override
     public void installStrategy(FieldMapping field) {
         FieldStrategy strategy = null;
-        ClassMapping owner = getOutermostDefiningMapping(field); 
-        if (owner != null && !owner.isEmbeddable() && !owner.isAbstract())
+        ClassMapping owner = getOutermostDefiningMapping(field);
+        if (owner != null && !owner.isEmbeddable() && !owner.isAbstract()) {
             strategy = repos.namedStrategy(field, true);
+        }
         if (strategy == null) {
             try {
                 strategy = repos.defaultStrategy(field, true, false);
@@ -81,13 +86,13 @@ public class RuntimeStrategyInstaller
         }
         field.setStrategy(strategy, Boolean.FALSE);
     }
-    
+
     private ClassMapping getOutermostDefiningMapping(ValueMetaData vm) {
         if (vm instanceof FieldMapping) {
             ClassMapping owner = ((FieldMapping)vm).getDefiningMapping();
             ValueMetaData val = owner.getEmbeddingMetaData();
             if (val == null)
-                return owner; 
+                return owner;
             return getOutermostDefiningMapping(val);
         } else if (vm instanceof ValueMappingImpl) {
             FieldMapping owner = ((ValueMappingImpl)vm).getFieldMapping();
@@ -96,6 +101,7 @@ public class RuntimeStrategyInstaller
         return null;
     }
 
+    @Override
     public void installStrategy(Version version) {
         VersionStrategy strat = repos.namedStrategy(version);
         if (strat == null)
@@ -103,6 +109,7 @@ public class RuntimeStrategyInstaller
         version.setStrategy(strat, Boolean.FALSE);
     }
 
+    @Override
     public void installStrategy(Discriminator discrim) {
         DiscriminatorStrategy strat = repos.namedStrategy(discrim);
         if (strat == null)

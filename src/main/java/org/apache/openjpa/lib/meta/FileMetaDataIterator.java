@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -41,7 +41,6 @@ import org.apache.openjpa.lib.util.Localizer;
  * Iterator over a file, or over all metadata resources below a given directory.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class FileMetaDataIterator implements MetaDataIterator {
 
@@ -69,7 +68,7 @@ public class FileMetaDataIterator implements MetaDataIterator {
         if (dir == null)
             _itr = null;
         else {
-            Collection<File> metas = new ArrayList<File>();
+            Collection<File> metas = new ArrayList<>();
             FileResource rsrc = (filter == null) ? null : new FileResource();
             scan(dir, filter, rsrc, metas, 0);
             _itr = metas.iterator();
@@ -95,19 +94,22 @@ public class FileMetaDataIterator implements MetaDataIterator {
                 metas.add(file);
             else {
                 File[] files = (File[]) AccessController
-                    .doPrivileged(J2DoPrivHelper.listFilesAction(file)); 
+                    .doPrivileged(J2DoPrivHelper.listFilesAction(file));
                 if (files != null)
-                    for (int i = 0; i < files.length; i++)
-                        scanned = scan(files[i], filter, rsrc, metas, scanned);
+                    for (File value : files) {
+                        scanned = scan(value, filter, rsrc, metas, scanned);
+                    }
             }
         }
         return scanned;
     }
 
+    @Override
     public boolean hasNext() {
         return _itr != null && _itr.hasNext();
     }
 
+    @Override
     public URL next() throws IOException {
         if (_itr == null)
             throw new NoSuchElementException();
@@ -123,6 +125,7 @@ public class FileMetaDataIterator implements MetaDataIterator {
         }
     }
 
+    @Override
     public InputStream getInputStream() throws IOException {
         if (_file == null)
             throw new IllegalStateException();
@@ -136,12 +139,14 @@ public class FileMetaDataIterator implements MetaDataIterator {
         }
     }
 
+    @Override
     public File getFile() {
         if (_file == null)
             throw new IllegalStateException();
         return _file;
     }
 
+    @Override
     public void close() {
     }
 
@@ -153,13 +158,15 @@ public class FileMetaDataIterator implements MetaDataIterator {
             _file = file;
         }
 
+        @Override
         public String getName() {
             return _file.getName();
         }
 
+        @Override
         public byte[] getContent() throws IOException {
-            long len = (AccessController.doPrivileged(
-                J2DoPrivHelper.lengthAction(_file))).longValue();
+            long len = AccessController.doPrivileged(
+                    J2DoPrivHelper.lengthAction(_file));
             FileInputStream fin = null;
             try {
                 fin = AccessController.doPrivileged(
@@ -172,7 +179,7 @@ public class FileMetaDataIterator implements MetaDataIterator {
                 if (len <= 0 || len > Integer.MAX_VALUE) {
                     // some JVMs don't return a proper length
                     ByteArrayOutputStream bout = new ByteArrayOutputStream();
-                    byte[] buf = new byte[1024]; 
+                    byte[] buf = new byte[1024];
                     for (int r; (r = fin.read(buf)) != -1;)
                         bout.write(buf, 0, r);
                     content = bout.toByteArray();

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -23,8 +23,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
@@ -33,6 +31,7 @@ import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.JavaTypes;
 
 /**
@@ -43,29 +42,37 @@ import org.apache.openjpa.meta.JavaTypes;
 public class ClassNameDiscriminatorStrategy
     extends InValueDiscriminatorStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage
         (ClassNameDiscriminatorStrategy.class);
 
     public static final String ALIAS = "class-name";
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
 
+    @Override
     protected int getJavaType() {
         return JavaTypes.STRING;
     }
 
+    @Override
     protected Object getDiscriminatorValue(ClassMapping cls) {
         return cls.getDescribedType().getName();
     }
 
+    @Override
     protected Class getClass(Object val, JDBCStore store)
         throws ClassNotFoundException {
         ClassLoader loader = getClassLoader(store);
         return Class.forName((String) val, true, loader);
     }
 
+    @Override
     public void loadSubclasses(JDBCStore store)
         throws SQLException, ClassNotFoundException {
         if (isFinal) {
@@ -95,7 +102,7 @@ public class ClassNameDiscriminatorStrategy
             String className;
             while (rs.next()) {
                 className = dict.getString(rs, 1);
-                if (StringUtils.isEmpty(className))
+                if (StringUtil.isEmpty(className))
                     throw new ClassNotFoundException(_loc.get("no-class-name",
                         disc.getClassMapping(), col).getMessage());
                 Class.forName(className, true, loader);

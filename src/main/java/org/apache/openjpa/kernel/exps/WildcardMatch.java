@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -30,25 +30,31 @@ import org.apache.openjpa.lib.util.SimpleRegex;
  * </code>
  *
  * @deprecated Use <code>matches()</code> instead.
- * @nojavadoc
  */
+@Deprecated
 public class WildcardMatch
     implements FilterListener {
 
+    
+    private static final long serialVersionUID = 1L;
     public static final String TAG = "wildcardMatch";
 
+    @Override
     public String getTag() {
         return TAG;
     }
 
+    @Override
     public boolean expectsArguments() {
         return true;
     }
 
+    @Override
     public boolean expectsTarget() {
         return true;
     }
 
+    @Override
     public Object evaluate(Object target, Class targetClass, Object[] args,
         Class[] argClasses, Object candidate, StoreContext ctx) {
         if (target == null || args[0] == null)
@@ -64,6 +70,7 @@ public class WildcardMatch
         return (re.matches(target.toString())) ? Boolean.TRUE : Boolean.FALSE;
     }
 
+    @Override
     public Class getType(Class targetClass, Class[] argClasses) {
         return boolean.class;
     }

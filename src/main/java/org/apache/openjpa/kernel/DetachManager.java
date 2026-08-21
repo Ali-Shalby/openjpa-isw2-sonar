@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -28,12 +28,12 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.collections.map.IdentityMap;
 import org.apache.openjpa.conf.Compatibility;
 import org.apache.openjpa.conf.DetachOptions;
 import org.apache.openjpa.enhance.PersistenceCapable;
@@ -54,7 +54,6 @@ import org.apache.openjpa.util.UserException;
  * Handles detaching instances.
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class DetachManager
     implements DetachState {
@@ -70,13 +69,13 @@ public class DetachManager
     private final boolean _failFast;
     private boolean _flushed = false;
     private boolean _flushBeforeDetach;
-    private boolean _cascadeWithDetach; 
+    private boolean _cascadeWithDetach;
     private boolean _reloadOnDetach;
 
     // if we're not detaching full, we need to track all detached objects;
     // if we are, then we use a special field manager for more efficient
     // detachment than the standard one
-    private final IdentityMap _detached;
+    private final IdentityHashMap _detached;
     private final DetachFieldManager _fullFM;
 
     /**
@@ -162,7 +161,7 @@ public class DetachManager
         else if (detachMode == DETACH_ALL)
             loadMode = StateManagerImpl.LOAD_ALL;
         try {
-            if (detachMode != DETACH_LOADED || 
+            if (detachMode != DETACH_LOADED ||
                     reloadOnDetach ||
                     (!reloadOnDetach && !full)) {
                 sm.load(broker.getFetchConfiguration(), loadMode, exclude,
@@ -182,7 +181,7 @@ public class DetachManager
 
             // clear lrs fields
             FieldMetaData[] fmds = sm.getMetaData().getFields();
-            for (int i = 0; i < fmds.length; i++) 
+            for (int i = 0; i < fmds.length; i++)
                 if (fmds[i].isLRS())
                     idxs.clear(i);
         }
@@ -253,7 +252,7 @@ public class DetachManager
                 idxs.set(i);
         }
     }
-    
+
 
     /**
      * Constructor.
@@ -280,10 +279,10 @@ public class DetachManager
             _detached = null;
             _fullFM = new DetachFieldManager();
         } else {
-            _detached = new IdentityMap();
+            _detached = new IdentityHashMap();
             _fullFM = null;
         }
-        Compatibility compatibility = 
+        Compatibility compatibility =
             broker.getConfiguration().getCompatibilityInstance();
         _flushBeforeDetach = compatibility.getFlushBeforeDetach();
         _reloadOnDetach = compatibility.getReloadOnDetach();
@@ -292,7 +291,7 @@ public class DetachManager
             _copy = false;
         }
         else {
-            _copy = compatibility.getCopyOnDetach();;
+            _copy = compatibility.getCopyOnDetach();
         }
     }
 
@@ -330,8 +329,8 @@ public class DetachManager
         boolean failFast = false;
         try {
             Object detach;
-            for (Iterator itr = instances.iterator(); itr.hasNext();) {
-                detach = detachInternal(itr.next());
+            for (Object instance : instances) {
+                detach = detachInternal(instance);
                 if (_copy)
                     detached.add(detach);
             }
@@ -446,7 +445,7 @@ public class DetachManager
             }
             _flushed = true;
         }
-        
+
         BitSet fields = new BitSet();
         preDetach(_broker, sm, fields, _full,
             _reloadOnDetach);
@@ -604,6 +603,7 @@ public class DetachManager
             _detSM = detSM;
         }
 
+        @Override
         protected PersistenceCapable getDetachedPersistenceCapable() {
             return _to;
         }
@@ -625,11 +625,12 @@ public class DetachManager
                 // equals and hashCode methods, and this ensures that pk fields
                 // are set properly if we return any partially-detached objects
                 // due to reentrant calls when traversing relations
-                for (int i = 0; i < pks.length; i++)
-                    detachField(from, pks[i].getIndex(), true);
+                for (FieldMetaData pk : pks) {
+                    detachField(from, pk.getIndex(), true);
+                }
                 detachVersion();
                 for (int i = 0; i < fmds.length; i++)
-                    if (!fmds[i].isPrimaryKey() && !fmds[i].isVersion()) 
+                    if (!fmds[i].isPrimaryKey() && !fmds[i].isVersion())
                         detachField(from, i, fgfields.get(i));
             } finally {
                 // clear the StateManager from the target object
@@ -654,51 +655,61 @@ public class DetachManager
             }
         }
 
+        @Override
         public void storeBooleanField(int field, boolean curVal) {
             super.storeBooleanField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeByteField(int field, byte curVal) {
             super.storeByteField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeCharField(int field, char curVal) {
             super.storeCharField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeDoubleField(int field, double curVal) {
             super.storeDoubleField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeFloatField(int field, float curVal) {
             super.storeFloatField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeIntField(int field, int curVal) {
             super.storeIntField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeLongField(int field, long curVal) {
             super.storeLongField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeShortField(int field, short curVal) {
             super.storeShortField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeStringField(int field, String curVal) {
             super.storeStringField(field, curVal);
             sm.replaceField(_to, this, field);
         }
 
+        @Override
         public void storeObjectField(int field, Object curVal) {
             super.storeObjectField(field, detachField(curVal, field));
             sm.replaceField(_to, this, field);
@@ -721,18 +732,18 @@ public class DetachManager
                 return null;
 
             FieldMetaData fmd = sm.getMetaData().getField(field);
-            
+
             boolean cascade = false;
             if(_cascadeWithDetach
-                || fmd.getCascadeDetach() == 
+                || fmd.getCascadeDetach() ==
                     ValueMetaData.CASCADE_IMMEDIATE
-                || fmd.getKey().getCascadeDetach() == 
-                    ValueMetaData.CASCADE_IMMEDIATE 
-                || fmd.getElement().getCascadeDetach() == 
+                || fmd.getKey().getCascadeDetach() ==
+                    ValueMetaData.CASCADE_IMMEDIATE
+                || fmd.getElement().getCascadeDetach() ==
                     ValueMetaData.CASCADE_IMMEDIATE) {
                 cascade = true;
             }
-            
+
             Object newVal = null;
             switch (fmd.getDeclaredTypeCode()) {
             case JavaTypes.ARRAY:
@@ -831,8 +842,8 @@ public class DetachManager
             if (_copy)
                 coll.clear();
             Object detached;
-            for (Iterator itr = orig.iterator(); itr.hasNext();) {
-                detached = detachInternal(itr.next());
+            for (Object o : orig) {
+                detached = detachInternal(o);
                 if (_copy)
                     coll.add(detached);
             }
@@ -857,8 +868,8 @@ public class DetachManager
                 if (_copy)
                     map.clear();
                 Object key, val;
-                for (Iterator itr = orig.entrySet().iterator(); itr.hasNext();){
-                    entry = (Map.Entry) itr.next();
+                for (Object o : orig.entrySet()) {
+                    entry = (Map.Entry) o;
                     key = entry.getKey();
                     if (keyPC)
                         key = detachInternal(key);
@@ -869,10 +880,10 @@ public class DetachManager
                         map.put(key, val);
                 }
             } else {
-                for (Iterator itr = map.entrySet().iterator(); itr.hasNext();) {
-                    entry = (Map.Entry) itr.next ();
-                    entry.setValue (detachInternal (entry.getValue ()));
-				}
+                for (Object o : map.entrySet()) {
+                    entry = (Map.Entry) o;
+                    entry.setValue(detachInternal(entry.getValue()));
+                }
 			}
 		}
 	}

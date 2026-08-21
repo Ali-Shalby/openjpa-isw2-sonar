@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -31,9 +31,9 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.MultiClassLoader;
-import serp.util.Strings;
 
 /**
  * Iterator over all metadata resources that might contain the
@@ -41,14 +41,13 @@ import serp.util.Strings;
  * package-level resources are named "package.&lt;suffix&gt;".
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ClassMetaDataIterator implements MetaDataIterator {
 
     private final ClassLoader _loader;
     private final List<String> _locs;
     private int _loc = -1;
-    private final List<URL> _urls = new ArrayList<URL>(3);
+    private final List<URL> _urls = new ArrayList<>(3);
     private int _url = -1;
 
     /**
@@ -67,6 +66,7 @@ public class ClassMetaDataIterator implements MetaDataIterator {
             ClassLoader loader, boolean topDown) {
         // skip classes that can't have metadata
         if (cls != null && (cls.isPrimitive()
+            || cls.getName().startsWith("jakarta.")
             || cls.getName().startsWith("java.")
             || cls.getName().startsWith("javax."))) {
             _loader = null;
@@ -94,7 +94,7 @@ public class ClassMetaDataIterator implements MetaDataIterator {
 
         // collect the set of all possible metadata locations; start with
         // system locations
-        _locs = new ArrayList<String>();
+        _locs = new ArrayList<>();
         _locs.add("META-INF/package" + suffix);
         _locs.add("WEB-INF/package" + suffix);
         _locs.add("package" + suffix);
@@ -112,7 +112,7 @@ public class ClassMetaDataIterator implements MetaDataIterator {
             // <path>/<package-name><suffix> (legacy support)
             // <path>/../<package-name><suffix> (legacy support)
             // 2. <path>/<class-name><suffix>
-            String pkg = Strings.getPackageName(cls).replace('.', '/');
+            String pkg = ClassUtil.getPackageName(cls).replace('.', '/');
             if (pkg.length() > 0) {
                 int idx, start = 0;
                 String pkgName, path, upPath = "";
@@ -130,7 +130,7 @@ public class ClassMetaDataIterator implements MetaDataIterator {
                     _locs.add(path + pkgName + suffix); // legacy
                     _locs.add(upPath + pkgName + suffix); // legacy
                     if (idx == -1)
-                        _locs.add(path + Strings.getClassName(cls) + suffix);
+                        _locs.add(path + ClassUtil.getClassName(cls) + suffix);
 
                     start = idx + 1;
                     upPath = path;
@@ -147,6 +147,7 @@ public class ClassMetaDataIterator implements MetaDataIterator {
             Collections.reverse(_locs);
     }
 
+    @Override
     public boolean hasNext() throws IOException {
         Enumeration<URL> e;
         while (_url + 1 >= _urls.size()) {
@@ -161,19 +162,21 @@ public class ClassMetaDataIterator implements MetaDataIterator {
                         _loader, _locs.get(_loc)));
             } catch (PrivilegedActionException pae) {
                 throw (IOException) pae.getException();
-            }    
+            }
             while (e.hasMoreElements())
                 _urls.add(e.nextElement());
         }
         return true;
     }
 
+    @Override
     public URL next() throws IOException {
         if (!hasNext())
             throw new NoSuchElementException();
         return _urls.get(++_url);
     }
 
+    @Override
     public InputStream getInputStream() throws IOException {
         if (_url == -1 || _url >= _urls.size())
             throw new IllegalStateException();
@@ -185,14 +188,16 @@ public class ClassMetaDataIterator implements MetaDataIterator {
         }
     }
 
+    @Override
     public File getFile() throws IOException {
         if (_url == -1 || _url >= _urls.size())
             throw new IllegalStateException();
         File file = new File(URLDecoder.decode((_urls.get(_url)).getFile()));
-        return ((AccessController.doPrivileged(
-            J2DoPrivHelper.existsAction(file))).booleanValue()) ? file:null;
+        return (AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(file))) ? file:null;
     }
 
+    @Override
     public void close() {
     }
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -37,7 +37,6 @@ import org.apache.openjpa.lib.util.MultiClassLoader;
  * Iterator over a given metadata resource.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ResourceMetaDataIterator implements MetaDataIterator {
 
@@ -70,7 +69,7 @@ public class ResourceMetaDataIterator implements MetaDataIterator {
                 J2DoPrivHelper.getResourcesAction(loader, rsrc));
             while (e.hasMoreElements()) {
                 if (_urls == null)
-                    _urls = new ArrayList<URL>(3);
+                    _urls = new ArrayList<>(3);
                 _urls.add(e.nextElement());
             }
         } catch (PrivilegedActionException pae) {
@@ -78,16 +77,19 @@ public class ResourceMetaDataIterator implements MetaDataIterator {
         }
     }
 
+    @Override
     public boolean hasNext() {
         return _urls != null && _url + 1 < _urls.size();
     }
 
+    @Override
     public URL next() {
         if (!hasNext())
             throw new NoSuchElementException();
         return _urls.get(++_url);
     }
 
+    @Override
     public InputStream getInputStream() throws IOException {
         if (_url == -1 || _url >= _urls.size())
             throw new IllegalStateException();
@@ -99,14 +101,16 @@ public class ResourceMetaDataIterator implements MetaDataIterator {
         }
     }
 
+    @Override
     public File getFile() throws IOException {
         if (_url == -1 || _url >= _urls.size())
             throw new IllegalStateException();
         File file = new File(URLDecoder.decode((_urls.get(_url)).getFile()));
-        return ((AccessController.doPrivileged(
-            J2DoPrivHelper.existsAction(file))).booleanValue()) ? file :null;
+        return (AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(file))) ? file :null;
     }
 
+    @Override
     public void close() {
     }
 }

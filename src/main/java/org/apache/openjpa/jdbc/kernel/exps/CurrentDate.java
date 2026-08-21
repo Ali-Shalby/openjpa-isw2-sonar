@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -23,7 +23,6 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Date;
 
-import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
@@ -37,19 +36,24 @@ import org.apache.openjpa.util.InternalException;
 class CurrentDate
     extends Const {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Class<? extends Date> _type;
 
     public CurrentDate(Class<? extends Date> type) {
         _type = type;
     }
 
+    @Override
     public Class<? extends Date> getType() {
         return _type;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res) throws SQLException {
         if (Timestamp.class.isAssignableFrom(_type)) {
             return res.getTimestamp(this, null);
@@ -61,16 +65,17 @@ class CurrentDate
             throw new InternalException();
         }
     }
-    
+
+    @Override
     public Object getValue(Object[] params) {
         try {
-            _type.getConstructor(long.class).newInstance(System.currentTimeMillis());
+            return _type.getConstructor(long.class).newInstance(System.currentTimeMillis());
         } catch (Exception e) {
             return new Date();
         }
-        return null;
     }
 
+    @Override
     public void appendTo(Select sel, ExpContext ctx, ExpState state, SQLBuffer sql, int index) {
         if (Timestamp.class.isAssignableFrom(_type)) {
             sql.append(ctx.store.getDBDictionary().currentTimestampFunction);

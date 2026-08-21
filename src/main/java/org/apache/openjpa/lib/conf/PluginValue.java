@@ -14,12 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
-import org.apache.commons.lang.StringUtils;
+import java.util.Objects;
+
+import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.log.LogFactory;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.ParseException;
 
 /**
  * A plugin {@link Value} consisting of plugin name and properties.
@@ -68,7 +72,7 @@ public class PluginValue extends ObjectValue {
         assertChangeable();
         String oldName = _name;
         _name = name;
-        if (!StringUtils.equals(oldName, name)) {
+        if (!Objects.equals(oldName, name)) {
             if (_singleton)
                 set(null, true);
             valueChanged();
@@ -88,7 +92,7 @@ public class PluginValue extends ObjectValue {
     public void setProperties(String props) {
         String oldProps = _props;
         _props = props;
-        if (!StringUtils.equals(oldProps, props)) {
+        if (!Objects.equals(oldProps, props)) {
             if (_singleton)
                 set(null, true);
             valueChanged();
@@ -98,9 +102,24 @@ public class PluginValue extends ObjectValue {
     /**
      * Instantiate the plugin as an instance of the given class.
      */
+    @Override
     public Object instantiate(Class<?> type, Configuration conf, boolean fatal)
     {
         Object obj = newInstance(_name, type, conf, fatal);
+
+        // ensure plugin value is compatible with plugin type
+        if (obj != null && !type.isAssignableFrom(obj.getClass())) {
+            Log log = (conf == null || type.equals(LogFactory.class)) ? null : conf.getConfigurationLog();
+            String msg = getIncompatiblePluginMessage(obj, type);
+            if (log != null && log.isErrorEnabled()) {
+            	log.error(msg);
+            }
+            if (fatal) {
+            	throw new ParseException(msg);
+            }
+            return null;
+        }
+
         Configurations.configureInstance(obj, conf, _props,
             (fatal) ? getProperty() : null);
         if (_singleton)
@@ -108,9 +127,18 @@ public class PluginValue extends ObjectValue {
         return obj;
     }
 
-    /**
+    private String getIncompatiblePluginMessage(Object obj, Class<?> type) {
+		return _loc.get("incompatible-plugin",
+            new Object[]{ _name,
+                          obj == null ? null : obj.getClass().getName(),
+                          type == null ? null : type.getName()
+                          }).toString();
+	}
+
+	/**
      * Configure the given object.
      */
+    @Override
     public Object configure(Object obj, Configuration conf, boolean fatal) {
         Configurations.configureInstance(obj, conf, _props,
             (fatal) ? getProperty() : null);
@@ -118,8 +146,9 @@ public class PluginValue extends ObjectValue {
             set(obj, true);
         return obj;
     }
-    
 
+
+    @Override
     public void set(Object obj, boolean derived) {
         if (!_singleton)
             throw new IllegalStateException(_loc.get("not-singleton",
@@ -127,12 +156,14 @@ public class PluginValue extends ObjectValue {
         super.set(obj, derived);
     }
 
+    @Override
     public String getString() {
         return Configurations.getPlugin(alias(_name), _props);
     }
 
+    @Override
     public void setString(String str) {
-    	assertChangeable();
+        assertChangeable();
         _name = Configurations.getClassName(str);
         _name = unalias(_name);
         _props = Configurations.getProperties(str);
@@ -141,21 +172,25 @@ public class PluginValue extends ObjectValue {
         valueChanged();
     }
 
+    @Override
     public Class<Object> getValueType() {
         return Object.class;
     }
 
+    @Override
     protected void objectChanged() {
         Object obj = get();
         _name = (obj == null) ? unalias(null) : obj.getClass().getName();
         _props = null;
     }
 
+    @Override
     protected String getInternalString() {
         // should never get called
         throw new IllegalStateException();
     }
 
+    @Override
     protected void setInternalString(String str) {
         // should never get called
         throw new IllegalStateException();

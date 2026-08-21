@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -34,74 +34,92 @@ public abstract class AbstractLifecycleListener
     protected void eventOccurred(LifecycleEvent event) {
     }
 
+    @Override
     public void beforePersist(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterPersist(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeClear(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterClear(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterLoad(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeDelete(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterDelete(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeStore(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterStore(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeDirty(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterDirty(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeDirtyFlushed(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterDirtyFlushed(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterRefresh(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeDetach(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterDetach(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void beforeAttach(LifecycleEvent event) {
         eventOccurred(event);
     }
 
+    @Override
     public void afterAttach(LifecycleEvent event) {
         eventOccurred(event);
     }

@@ -14,13 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
 import java.io.ObjectStreamException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -30,7 +29,6 @@ import java.util.List;
  * perform any caching.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class SimpleResultList extends AbstractNonSequentialResultList {
 
@@ -51,14 +49,17 @@ public class SimpleResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     public boolean isProviderOpen() {
         return !_closed;
     }
 
+    @Override
     public boolean isClosed() {
         return _closed;
     }
 
+    @Override
     public void close() {
         if (!_closed) {
             _closed = true;
@@ -69,6 +70,7 @@ public class SimpleResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     public Object getInternal(int index) {
         try {
             if (!_rop.absolute(index))
@@ -84,6 +86,7 @@ public class SimpleResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     public int size() {
         assertOpen();
         if (_size != -1)
@@ -107,8 +110,9 @@ public class SimpleResultList extends AbstractNonSequentialResultList {
 
         // load results into list
         List list = new ArrayList();
-        for (Iterator itr = iterator(); itr.hasNext();)
-            list.add(itr.next());
+        for (Object o : this) {
+            list.add(o);
+        }
         return list;
     }
 }

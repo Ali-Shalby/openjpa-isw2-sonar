@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -30,10 +30,10 @@ import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public class Schema
     implements Comparable<Schema>, Serializable {
 
+    private static final long serialVersionUID = 1L;
     private DBIdentifier _name = DBIdentifier.NULL;
     private SchemaGroup _group = null;
     private Map<DBIdentifier, Table> _tableMap = null;
@@ -56,6 +56,7 @@ public class Schema
      * @param group the schema's owning group
      * @deprecated
      */
+    @Deprecated
     public Schema(String name, SchemaGroup group) {
         this(DBIdentifier.newSchema(name), group);
     }
@@ -71,11 +72,13 @@ public class Schema
      */
     void remove() {
         Table[] tabs = getTables();
-        for (int i = 0; i < tabs.length; i++)
-            removeTable(tabs[i]);
+        for (Table tab : tabs) {
+            removeTable(tab);
+        }
         Sequence[] seqs = getSequences();
-        for (int i = 0; i < seqs.length; i++)
-            removeSequence(seqs[i]);
+        for (Sequence seq : seqs) {
+            removeSequence(seq);
+        }
         _group = null;
     }
 
@@ -90,6 +93,7 @@ public class Schema
      * Return the name of the schema, or null if none.
      * @deprecated
      */
+    @Deprecated
     public String getName() {
         return getIdentifier().getName();
     }
@@ -103,6 +107,7 @@ public class Schema
      * not attached to a group.
      * @deprecated
      */
+    @Deprecated
     public void setName(String name) {
         setIdentifier(DBIdentifier.trimToNull(DBIdentifier.newSchema(name)));
     }
@@ -112,7 +117,7 @@ public class Schema
             throw new IllegalStateException();
         _name = DBIdentifier.trimToNull(name);
     }
-    
+
     /**
      * Return the schema's tables.
      */
@@ -127,6 +132,7 @@ public class Schema
      * Return the table with the given name, or null if none.
      * @deprecated
      */
+    @Deprecated
     public Table getTable(String name) {
         if (name == null || _tableMap == null)
             return null;
@@ -137,17 +143,18 @@ public class Schema
         if (DBIdentifier.isNull(name) || _tableMap == null)
             return null;
         DBIdentifier sName = DBIdentifier.toUpper(name);
-        return (Table) _tableMap.get(sName);
+        return _tableMap.get(sName);
     }
 
     /**
      * Add a table to the schema.
      * @deprecated
      */
+    @Deprecated
     public Table addTable(String name) {
         return addTable(DBIdentifier.newTable(name));
     }
-    
+
     public Table addTable(DBIdentifier name) {
         SchemaGroup group = getSchemaGroup();
         Table tab;
@@ -158,18 +165,19 @@ public class Schema
         } else
             tab = new Table(name, this);
         if (_tableMap == null)
-            _tableMap = new TreeMap<DBIdentifier, Table>();
+            _tableMap = new TreeMap<>();
         DBIdentifier sName = DBIdentifier.toUpper(name);
         _tableMap.put(sName, tab);
         _tables = null;
         return tab;
     }
-    
+
 
     /**
      * Add a table with a shortened (i.e., validated) name to the schema
      * @deprecated
      */
+    @Deprecated
     public Table addTable(String name, String validName) {
         return addTable(DBIdentifier.newTable(name), DBIdentifier.newTable(validName));
     }
@@ -183,7 +191,7 @@ public class Schema
         } else
             tab = new Table(validName, this);
         if (_tableMap == null)
-            _tableMap = new TreeMap<DBIdentifier, Table>();
+            _tableMap = new TreeMap<>();
         DBIdentifier sName = DBIdentifier.toUpper(name);
         _tableMap.put(sName, tab);
         _tables = null;
@@ -200,7 +208,7 @@ public class Schema
             return false;
 
         DBIdentifier sName = DBIdentifier.toUpper(tab.getIdentifier());
-        Table cur = (Table) _tableMap.get(sName);
+        Table cur = _tableMap.get(sName);
         if (!cur.equals(tab))
             return false;
 
@@ -223,8 +231,9 @@ public class Schema
 
         Table copy = addTable(table.getIdentifier());
         Column[] cols = table.getColumns();
-        for (int i = 0; i < cols.length; i++)
-            copy.importColumn(cols[i]);
+        for (Column col : cols) {
+            copy.importColumn(col);
+        }
 
         copy.importPrimaryKey(table.getPrimaryKey());
         return copy;
@@ -244,6 +253,7 @@ public class Schema
      * Return the sequence with the given name, or null if none.
      * @deprecated
      */
+    @Deprecated
     public Sequence getSequence(String name) {
         if (name == null || _seqMap == null)
             return null;
@@ -253,9 +263,9 @@ public class Schema
     public Sequence getSequence(DBIdentifier name) {
         if (DBIdentifier.isNull(name) || _seqMap == null)
             return null;
-        
+
         DBIdentifier sName = DBIdentifier.toUpper(name);
-        Sequence seq = (Sequence) _seqMap.get(sName);
+        Sequence seq = _seqMap.get(sName);
         return seq;
     }
 
@@ -263,6 +273,7 @@ public class Schema
      * Add a sequence to the schema.
      * @deprecated
      */
+    @Deprecated
     public Sequence addSequence(String name) {
         return addSequence(DBIdentifier.newIdentifier(name, DBIdentifierType.SEQUENCE, true));
     }
@@ -276,8 +287,8 @@ public class Schema
         } else
             seq = new Sequence(name, this);
         if (_seqMap == null)
-            _seqMap = new TreeMap<DBIdentifier, Sequence>();
-        
+            _seqMap = new TreeMap<>();
+
         DBIdentifier sName = DBIdentifier.toUpper(name);
         _seqMap.put(sName, seq);
         _seqs = null;
@@ -294,7 +305,7 @@ public class Schema
             return false;
 
         DBIdentifier sName = DBIdentifier.toUpper(seq.getIdentifier());
-        Sequence cur = (Sequence) _seqMap.get(sName);
+        Sequence cur = _seqMap.get(sName);
         if (!cur.equals(seq))
             return false;
 
@@ -321,9 +332,10 @@ public class Schema
         return copy;
     }
 
+    @Override
     public int compareTo(Schema other) {
         DBIdentifier name = getIdentifier();
-        DBIdentifier otherName = ((Schema) other).getIdentifier();
+        DBIdentifier otherName = other.getIdentifier();
         if (DBIdentifier.isNull(name) && DBIdentifier.isNull(otherName)) {
             return 0;
         }
@@ -334,6 +346,7 @@ public class Schema
         return name.compareTo(otherName);
     }
 
+    @Override
     public String toString() {
         return getIdentifier().getName();
     }

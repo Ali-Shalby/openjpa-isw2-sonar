@@ -14,19 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 /**
  * Unary Predicate results from an operator on an Expression.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
-class UnaryExpressionPredicate extends AbstractVisitable 
+class UnaryExpressionPredicate extends AbstractVisitable
 	implements Predicate, Visitable {
-	protected final Expression _e;
+	
+    private static final long serialVersionUID = 1L;
+    protected final Expression _e;
 	protected final UnaryConditionalOperator _op;
 	private final UnaryConditionalOperator _nop;
 
@@ -36,30 +38,34 @@ class UnaryExpressionPredicate extends AbstractVisitable
 		this._op  = op;
 		this._nop = nop;
 	}
-	
+
 	public Expression getOperand() {
 		return _e;
 	}
-	
+
 	public UnaryConditionalOperator getOperator() {
 		return _op;
 	}
 
-	public Predicate and(Predicate predicate) {
+	@Override
+    public Predicate and(Predicate predicate) {
 		return new AndPredicate(this, predicate);
 	}
-	
-	public Predicate or(Predicate predicate) {
+
+	@Override
+    public Predicate or(Predicate predicate) {
 		return new OrPredicate(this, predicate);
 	}
-	
-	public Predicate not() {
+
+	@Override
+    public Predicate not() {
 		if (_nop == null)
             throw new UnsupportedOperationException(this.toString());
 		return new UnaryExpressionPredicate(_e, _nop, _op);
 	}
 
-	public String asExpression(AliasContext ctx) {
+	@Override
+    public String asExpression(AliasContext ctx) {
 		return _op + "(" + ((ExpressionImpl)_e).asExpression(ctx) + ")";
 	}
 }

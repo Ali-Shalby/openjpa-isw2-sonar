@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -26,21 +26,29 @@ public interface AutoDetach {
     /**
      * Detach context on close.
      */
-    public static final int DETACH_CLOSE = 2 << 0;
+    int DETACH_CLOSE = 2 << 0;
 
     /**
      * Detach context on transaction commit.
      */
-    public static final int DETACH_COMMIT = 2 << 1;
+    int DETACH_COMMIT = 2 << 1;
 
     /**
      * Detach context on any nontransctional read, such that each
      * nontransactional operation uses a new persistence context in essence.
      */
-    public static final int DETACH_NONTXREAD = 2 << 2;
+    int DETACH_NONTXREAD = 2 << 2;
 
     /**
      * Detach context on failed transaction commit / rollback.
      */
-    public static final int DETACH_ROLLBACK = 2 << 3;
+    int DETACH_ROLLBACK = 2 << 3;
+
+    /**
+     * Do not detach at all. Skips proxying second-class containers.
+     */
+    int DETACH_NONE = 2 << 4;
+
+    String[] names = {"CLOSE", "COMMIT", "NONTXREAD", "ROLLBACK", "NONE"};
+    int[] values = {DETACH_CLOSE, DETACH_COMMIT, DETACH_NONTXREAD, DETACH_ROLLBACK, DETACH_NONE};
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -22,9 +22,10 @@ import java.lang.reflect.Array;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 
-import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.enhance.StateManager;
 import org.apache.openjpa.lib.util.Localizer;
@@ -40,7 +41,6 @@ import org.apache.openjpa.util.UserException;
  *
  * @author Marc Prud'hommeaux
  * @author Steve Kim
- * @nojavadoc
  */
 abstract class AttachStrategy
     extends TransferFieldManager {
@@ -76,11 +76,11 @@ abstract class AttachStrategy
         int field);
 
     /**
-     * Return a PNew/PNewProvisional managed object for the given detached 
+     * Return a PNew/PNewProvisional managed object for the given detached
      * instance.
      */
     protected StateManagerImpl persist(AttachManager manager,
-        PersistenceCapable pc, ClassMetaData meta, Object appId, 
+        PersistenceCapable pc, ClassMetaData meta, Object appId,
         boolean explicit) {
         PersistenceCapable newInstance;
         if (!manager.getCopyNew())
@@ -91,8 +91,30 @@ abstract class AttachStrategy
         else // application identity: use existing fields
             newInstance = pc.pcNewInstance(null, appId, false);
 
-        return (StateManagerImpl) manager.getBroker().persist
-            (newInstance, appId, explicit, manager.getBehavior());
+        StateManagerImpl sm = (StateManagerImpl) manager.getBroker().persist
+            (newInstance, appId, explicit, manager.getBehavior(), !manager.getCopyNew());
+
+        attachPCKeyFields(pc, sm, meta, manager);
+
+        return sm;
+    }
+
+    private void attachPCKeyFields(PersistenceCapable fromPC,
+        StateManagerImpl sm, ClassMetaData meta, AttachManager manager) {
+
+
+        if (fromPC.pcGetStateManager() == null) {
+            fromPC.pcReplaceStateManager(sm);
+
+            FieldMetaData[] fmds = meta.getDefinedFields();
+            for (FieldMetaData fmd : fmds) {
+                if (fmd.isPrimaryKey() && fmd.getDeclaredTypeCode() == JavaTypes.PC) {
+                    attachField(manager, fromPC, sm, fmd, true);
+                }
+            }
+
+            fromPC.pcReplaceStateManager(null);
+        }
     }
 
     /**
@@ -159,6 +181,11 @@ abstract class AttachStrategy
                 break;
             case JavaTypes.DATE:
             case JavaTypes.CALENDAR:
+            case JavaTypes.LOCAL_DATE:
+            case JavaTypes.LOCAL_TIME:
+            case JavaTypes.LOCAL_DATETIME:
+            case JavaTypes.OFFSET_TIME:
+            case JavaTypes.OFFSET_DATETIME:
             case JavaTypes.NUMBER:
             case JavaTypes.BOOLEAN_OBJ:
             case JavaTypes.BYTE_OBJ:
@@ -185,17 +212,25 @@ abstract class AttachStrategy
                 Object frmpc = fetchObjectField(i);
                 if (frmpc == null && !nullLoaded)
                     return false;
+
                 OpenJPAStateManager tosm = manager.getBroker().getStateManager
                     (sm.fetchObjectField(i));
                 PersistenceCapable topc = (tosm == null) ? null
                     : tosm.getPersistenceCapable();
                 if (frmpc != null || topc != null) {
-                    if (fmd.getCascadeAttach() == ValueMetaData.CASCADE_NONE)
-                        frmpc = getReference(manager, frmpc, sm, fmd);
+                    if (fmd.getCascadeAttach() == ValueMetaData.CASCADE_NONE) {
+                        // Use the attached copy of the object, if available
+                        PersistenceCapable cpy = manager.getAttachedCopy(frmpc);
+                        if (cpy != null) {
+                            frmpc = cpy;
+                        } else {
+                            frmpc = getReference(manager, frmpc, sm, fmd);
+                        }
+                    }
                     else {
                         PersistenceCapable intopc = topc;
                         if (!fmd.isEmbeddedPC() && frmpc != null && topc != null
-                            && !ObjectUtils.equals(topc.pcFetchObjectId(),
+                            && !Objects.equals(topc.pcFetchObjectId(),
                             manager.getDetachedObjectId(frmpc))) {
                             intopc = null;
                         }
@@ -311,8 +346,7 @@ abstract class AttachStrategy
 
         // now add all elements that are in frmc but not toc
         if (frmc.size() != toc.size()) {
-            for (Iterator i = frmc.iterator(); i.hasNext();) {
-                Object ob = i.next();
+            for (Object ob : frmc) {
                 if (!toc.contains(ob))
                     toc.add(ob);
             }
@@ -352,7 +386,7 @@ abstract class AttachStrategy
             throw new UserException(_loc.get("not-copyable", fmd));
         return coll;
     }
-    
+
     /**
      * Copies the given collection.
      */
@@ -379,10 +413,11 @@ abstract class AttachStrategy
         try {
             return manager.getProxyManager().copyMap(orig);
         } catch (Exception e) {
-            Map map = (Map) sm.newFieldProxy(fmd.getIndex());
-            Set keys = orig.keySet();
-            for (Object key : keys) 
-                map.put(key, orig.get(key));
+            Map<Object, Object> map = (Map<Object, Object>) sm.newFieldProxy(fmd.getIndex());
+
+            for (Entry<Object, Object> entry : ((Map<Object, Object>) orig).entrySet()) {
+                map.put(entry.getKey(), entry.getValue());
+            }
             return map;
         }
     }
@@ -402,10 +437,10 @@ abstract class AttachStrategy
         // the end, make the changes directly in tol
         if (frml.size() >= tol.size()) {
             Iterator frmi = frml.iterator();
-            for (Iterator toi = tol.iterator(); toi.hasNext();) {
+            for (Object o : tol) {
                 // if there's an incompatibility, just return a copy of frml
                 // (it's already copied if we attached it)
-                if (!equals(frmi.next(), toi.next(), pc))
+                if (!equals(frmi.next(), o, pc))
                     return (pc) ? frml : copyCollection(manager, frml, fmd, sm);
             }
 
@@ -439,10 +474,10 @@ abstract class AttachStrategy
 
         // make sure all the keys in the from map are in the two map, and
         // that they have the same values
-        for (Iterator i = frmm.entrySet().iterator(); i.hasNext();) {
-            Map.Entry entry = (Map.Entry) i.next();
+        for (Object o : frmm.entrySet()) {
+            Entry entry = (Entry) o;
             if (!tom.containsKey(entry.getKey())
-                || !equals(tom.get(entry.getKey()), entry.getValue(), valPC)) {
+                    || !equals(tom.get(entry.getKey()), entry.getValue(), valPC)) {
                 tom.put(entry.getKey(), entry.getValue());
             }
         }
@@ -476,8 +511,8 @@ abstract class AttachStrategy
         if (keymd.isDeclaredTypePC()) {
             map.clear();
             Object key, val;
-            for (Iterator itr = orig.entrySet().iterator(); itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
+            for (Object o : orig.entrySet()) {
+                entry = (Entry) o;
                 key = entry.getKey();
                 if (keymd.getCascadeAttach() == ValueMetaData.CASCADE_NONE)
                     key = getReference(manager, key, sm, keymd);
@@ -494,13 +529,13 @@ abstract class AttachStrategy
             }
         } else {
             Object val;
-            for (Iterator itr = map.entrySet().iterator(); itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
+            for (Object o : map.entrySet()) {
+                entry = (Entry) o;
                 if (valmd.getCascadeAttach() == ValueMetaData.CASCADE_NONE)
                     val = getReference(manager, entry.getValue(), sm, valmd);
                 else
-                    val = manager.attach(entry.getValue(), null, sm, valmd, 
-                        false);
+                    val = manager.attach(entry.getValue(), null, sm, valmd,
+                            false);
                 entry.setValue(val);
             }
         }

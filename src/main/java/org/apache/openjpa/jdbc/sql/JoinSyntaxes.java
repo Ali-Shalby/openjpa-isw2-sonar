@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -28,15 +28,15 @@ public interface JoinSyntaxes {
     /**
      * ANSI SQL 92 join syntax; outer joins are supported.
      */
-    public static final int SYNTAX_SQL92 = 0;
+    int SYNTAX_SQL92 = 0;
 
     /**
      * Traditional join syntax; outer joins are not supported.
      */
-    public static final int SYNTAX_TRADITIONAL = 1;
+    int SYNTAX_TRADITIONAL = 1;
 
     /**
      * Native database join syntax; outer joins are supported.
      */
-    public static final int SYNTAX_DATABASE = 2;
+    int SYNTAX_DATABASE = 2;
 }

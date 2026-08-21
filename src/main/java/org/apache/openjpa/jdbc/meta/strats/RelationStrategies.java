@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -26,13 +26,16 @@ import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.FieldStrategy;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
+import org.apache.openjpa.jdbc.meta.RelationId;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.kernel.DetachedValueStateManager;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.UserException;
@@ -89,7 +92,7 @@ public class RelationStrategies {
                 store.getContext().getClassLoader(), true);
         }
         if (!rel.isMapped())
-            throw new UserException(_loc.get("unmapped-datastore-value", 
+            throw new UserException(_loc.get("unmapped-datastore-value",
                 rel.getDescribedType()));
 
         Column[] cols;
@@ -110,7 +113,7 @@ public class RelationStrategies {
 
     public static void mapRelationToUnmappedPC(ValueMapping vm,
         DBIdentifier name, boolean adapt) {
-        if (vm.getTypeMapping().getIdentityType() == ClassMapping.ID_UNKNOWN)
+        if (vm.getTypeMapping().getIdentityType() == ClassMetaData.ID_UNKNOWN)
             throw new MetaDataException(_loc.get("rel-to-unknownid", vm));
 
         ValueMappingInfo vinfo = vm.getValueInfo();
@@ -127,7 +130,7 @@ public class RelationStrategies {
     private static Column[] newUnmappedPCTemplateColumns(ValueMapping vm,
         DBIdentifier name) {
         ClassMapping rel = vm.getTypeMapping();
-        if (rel.getIdentityType() == ClassMapping.ID_DATASTORE) {
+        if (rel.getIdentityType() == ClassMetaData.ID_DATASTORE) {
             Column col = new Column();
             col.setIdentifier(name);
             col.setJavaType(JavaTypes.LONG);
@@ -225,4 +228,25 @@ public class RelationStrategies {
             return new DetachedValueStateManager(obj, ctx);
         return sm;
     }
+
+    /**
+     * Affirms if all of the given columns represent a {@linkplain RelationId relationship identifier}.
+     */
+    public static boolean isRelationId(Column[] cols) {
+        if (cols == null || cols.length == 0)
+            return false;
+        for (Column col : cols) {
+            if (!col.isRelationId())
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * Affirms if all of the foreign key columns represent a {@linkplain RelationId relationship identifier}.
+     */
+    public static boolean isRelationId(ForeignKey fk) {
+        return fk != null && isRelationId(fk.getColumns());
+    }
+
 }

@@ -14,16 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice.jdbc;
 
 import java.io.PrintWriter;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.logging.Logger;
 
 import javax.sql.DataSource;
 import javax.sql.XADataSource;
@@ -32,25 +34,25 @@ import org.apache.openjpa.lib.jdbc.DecoratingDataSource;
 
 /**
  * A virtual datasource that contains many physical datasources.
- * 
- * @author Pinaki Poddar 
+ *
+ * @author Pinaki Poddar
  *
  */
 public class DistributedDataSource extends DecoratingDataSource implements
 		Iterable<DataSource> {
-	private List<DataSource> real = new ArrayList<DataSource>();
+	private List<DataSource> real = new ArrayList<>();
 	private DataSource master;
-	
+
 	public DistributedDataSource(List<DataSource> dataSources) {
 		super(dataSources.get(0));
 		real = dataSources;
 		master = dataSources.get(0);
 	}
-	
+
 	public void addDataSource(DataSource ds) {
 	    real.add(ds);
 	}
-	
+
 	Connection getConnection(DataSource ds) throws SQLException {
 		if (ds instanceof DecoratingDataSource)
 			return getConnection(((DecoratingDataSource)ds)
@@ -59,8 +61,8 @@ public class DistributedDataSource extends DecoratingDataSource implements
             return ((XADataSource)ds).getXAConnection().getConnection();
 		return ds.getConnection();
 	}
-	
-	Connection getConnection(DataSource ds, String user, String pwd) 
+
+	Connection getConnection(DataSource ds, String user, String pwd)
 	    throws SQLException {
 		if (ds instanceof DecoratingDataSource)
 			return getConnection(((DecoratingDataSource)ds)
@@ -71,45 +73,51 @@ public class DistributedDataSource extends DecoratingDataSource implements
 		return ds.getConnection(user, pwd);
 	}
 
-	public Iterator<DataSource> iterator() {
+	@Override
+    public Iterator<DataSource> iterator() {
 		return real.iterator();
 	}
 
-	public Connection getConnection() throws SQLException {
-		List<Connection> c = new ArrayList<Connection>();
+	@Override
+    public Connection getConnection() throws SQLException {
+		List<Connection> c = new ArrayList<>();
 		for (DataSource ds : real)
 			c.add(ds.getConnection());
-		return DistributedConnection.newInstance(c);
+		return new DistributedConnection(c);
 	}
 
-	public Connection getConnection(String username, String password)
+	@Override
+    public Connection getConnection(String username, String password)
 			throws SQLException {
-		List<Connection> c = new ArrayList<Connection>();
+		List<Connection> c = new ArrayList<>();
 		for (DataSource ds : real)
 			c.add(ds.getConnection(username, password));
-		return DistributedConnection.newInstance(c);
+		return new DistributedConnection(c);
 	}
 
-	public PrintWriter getLogWriter() throws SQLException {
+	@Override
+    public PrintWriter getLogWriter() throws SQLException {
 		return master.getLogWriter();
 	}
 
-	public int getLoginTimeout() throws SQLException {
+	@Override
+    public int getLoginTimeout() throws SQLException {
 		return master.getLoginTimeout();
 	}
 
-	public void setLogWriter(PrintWriter out) throws SQLException {
+	@Override
+    public void setLogWriter(PrintWriter out) throws SQLException {
 		for (DataSource ds:real)
 			ds.setLogWriter(out);
 	}
 
-	public void setLoginTimeout(int seconds) throws SQLException {
+	@Override
+    public void setLoginTimeout(int seconds) throws SQLException {
 		for (DataSource ds:real)
 			ds.setLoginTimeout(seconds);
 	}
-	
-    protected void enforceAbstract() {
-        
+    @Override
+    public Logger getParentLogger() throws SQLFeatureNotSupportedException {
+        throw new SQLFeatureNotSupportedException();
     }
-
 }

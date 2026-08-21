@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -29,11 +29,12 @@ import org.apache.openjpa.meta.FieldMetaData;
  *
  * @author Patrick Linskey
  * @author Abe White
- * @nojavadoc
  */
 public class PCDataImpl
     extends AbstractPCData {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Object _oid;
     private final Class<?> _type;
     private final String _cache;
@@ -46,7 +47,7 @@ public class PCDataImpl
     public PCDataImpl(Object oid, ClassMetaData meta) {
         this(oid, meta, DataCache.NAME_DEFAULT);
     }
-    
+
     /**
      * Constructor.
      */
@@ -60,18 +61,22 @@ public class PCDataImpl
         _loaded = new BitSet(len);
     }
 
+    @Override
     public Object getId() {
         return _oid;
     }
 
+    @Override
     public Class<?> getType() {
         return _type;
     }
 
+    @Override
     public BitSet getLoaded() {
         return _loaded;
     }
 
+    @Override
     public Object getData(int index) {
         // make sure index is actually loaded to avoid returning an
         // intermediate value
@@ -88,10 +93,12 @@ public class PCDataImpl
         _data[index] = null;
     }
 
+    @Override
     public Object getImplData() {
         return _impl;
     }
 
+    @Override
     public void setImplData(Object val) {
         _impl = val;
     }
@@ -118,6 +125,7 @@ public class PCDataImpl
         _data[index] = val;
     }
 
+    @Override
     public boolean isLoaded(int index) {
         return _loaded.get(index);
     }
@@ -129,14 +137,17 @@ public class PCDataImpl
             _loaded.clear(index);
     }
 
+    @Override
     public Object getVersion() {
         return _version;
     }
 
+    @Override
     public void setVersion(Object version) {
         _version = version;
     }
 
+    @Override
     public void load(OpenJPAStateManager sm, FetchConfiguration fetch,
         Object context) {
         loadVersion(sm);
@@ -149,12 +160,13 @@ public class PCDataImpl
             // fields in configured fetch groups
             if (!isLoaded(i))
                 loadIntermediate(sm, fmds[i]);
-            else if (!sm.getLoaded().get(i) && fetch.requiresFetch(fmds[i]) 
+            else if (!sm.getLoaded().get(i) && fetch.requiresFetch(fmds[i])
                 != FetchConfiguration.FETCH_NONE)
                 loadField(sm, fmds[i], fetch, context);
         }
     }
 
+    @Override
     public void load(OpenJPAStateManager sm, BitSet fields,
         FetchConfiguration fetch, Object context) {
         loadVersion(sm);
@@ -168,8 +180,13 @@ public class PCDataImpl
                 continue;
 
             fmd = sm.getMetaData().getField(i);
-            if (!isLoaded(i))
+            boolean loading = false;
+            if(sm.getContext() != null && sm.getContext() instanceof BrokerImpl) {
+                loading = ((BrokerImpl) sm.getContext()).isLoading(sm.getObjectId());
+            }
+            if (!isLoaded(i) || loading) { // prevent reentrant calls.
                 loadIntermediate(sm, fmd);
+            }
             else {
                 loadField(sm, fmd, fetch, context);
                 loadImplData(sm, fmd);
@@ -198,10 +215,18 @@ public class PCDataImpl
     /**
      * Set field-level information into the given state manager.
      */
-    protected void loadField(OpenJPAStateManager sm, FieldMetaData fmd,
-        FetchConfiguration fetch, Object context) {
+    protected void loadField(OpenJPAStateManager sm, FieldMetaData fmd, FetchConfiguration fetch, Object context) {
         int index = fmd.getIndex();
         Object val = toField(sm, fmd, getData(index), fetch, context);
+
+        // If val is null, make sure that we don't send back a null Embeddable or ElementCollection...perhaps others?
+        // Probably should think about trying to shove this data back into the cache at this point so we don't
+        // continually run through this code.
+        if (val == null && fmd.isEmbeddedPC()) {
+            val = sm.getContext().embed(null, null, sm, fmd).getManagedInstance();
+        } else if (val == null && fmd.isElementCollection()) {
+            val = sm.newProxy(index);
+        }
         sm.storeField(index, val);
     }
 
@@ -225,6 +250,7 @@ public class PCDataImpl
             sm.setIntermediate(index, inter);
     }
 
+    @Override
     public void store(OpenJPAStateManager sm) {
         storeVersion(sm);
         storeImplData(sm);
@@ -239,6 +265,7 @@ public class PCDataImpl
         }
     }
 
+    @Override
     public void store(OpenJPAStateManager sm, BitSet fields) {
         storeVersion(sm);
         storeImplData(sm);
@@ -272,7 +299,7 @@ public class PCDataImpl
      * Store field-level information from the given state manager.
      */
     protected void storeField(OpenJPAStateManager sm, FieldMetaData fmd) {
-        if (fmd.getManagement() != fmd.MANAGE_PERSISTENT)
+        if (fmd.getManagement() != FieldMetaData.MANAGE_PERSISTENT)
             return;
 
         int index = fmd.getIndex();
@@ -323,10 +350,12 @@ public class PCDataImpl
      * Return a new {@link PCData} implementation of the right type for
      * embedded instances. Returns a {@link PCDataImpl} by default.
      */
+    @Override
     public AbstractPCData newEmbeddedPCData(OpenJPAStateManager sm) {
         return new PCDataImpl(sm.getId (), sm.getMetaData (), _cache);
 	}
 
+    @Override
     public String getCache() {
         return _cache;
     }

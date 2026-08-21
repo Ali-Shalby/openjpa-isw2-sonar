@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -36,7 +36,6 @@ import org.apache.openjpa.lib.util.JavaVersions;
  *
  * @author Marc Prud'hommeaux
  * @since 0.2.5
- * @nojavadoc
  */
 public class Exceptions {
 
@@ -45,6 +44,7 @@ public class Exceptions {
     static final String SEP = J2DoPrivHelper.getLineSeparator();
 
     private static final OutputStream DEV_NULL = new OutputStream() {
+        @Override
         public void write(int b) {
         }
     };
@@ -250,7 +250,7 @@ public class Exceptions {
                 newNested[i] = nested[i];
             else
                 // guard against a nasty null in the array by using valueOf
-                // instead of toString to prevent throwing yet another 
+                // instead of toString to prevent throwing yet another
                 // exception
                 newNested[i] = new Exception(String.valueOf(nested[i]));
         }
@@ -271,14 +271,14 @@ public class Exceptions {
         else
             return pc.pcFetchObjectId();
 	}
-    
+
     public static String toClassName(Class<?> cls) {
         if (cls == null) return "";
         if (cls.isArray())
             return toClassName(cls.getComponentType())+"[]";
         return cls.getName();
     }
-    
+
     public static String toClassNames(Collection<? extends Class<?>> classes) {
         if (classes == null) return "";
         StringBuilder buffer = new StringBuilder();

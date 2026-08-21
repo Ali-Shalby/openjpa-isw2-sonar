@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -26,17 +26,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.FieldMapping;
+import org.apache.openjpa.jdbc.meta.Strategy;
+import org.apache.openjpa.jdbc.meta.strats.ContainerFieldStrategy;
+import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
-import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.jdbc.sql.SQLFactory;
 import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.kernel.LockLevels;
+import org.apache.openjpa.kernel.LockScopes;
 import org.apache.openjpa.kernel.MixedLockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.kernel.VersionLockManager;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.LockException;
 import org.apache.openjpa.util.StoreException;
 
@@ -61,11 +65,13 @@ public class PessimisticLockManager
         setVersionUpdateOnWriteLock(false);
     }
 
+    @Override
     public void setContext(StoreContext ctx) {
         super.setContext(ctx);
         _store = (JDBCStore) ctx.getStoreManager().getInnermostDelegate();
     }
 
+    @Override
     public boolean selectForUpdate(Select sel, int lockLevel) {
         if (lockLevel == LOCK_NONE)
             return false;
@@ -87,6 +93,7 @@ public class PessimisticLockManager
         return true;
     }
 
+    @Override
     public void loadedForUpdate(OpenJPAStateManager sm) {
         // we set a low lock level to indicate that we don't need datastore
         // locking, but we don't necessarily have a read or write lock
@@ -95,16 +102,16 @@ public class PessimisticLockManager
             setLockLevel(sm, LOCK_DATASTORE_ONLY);
     }
 
+    @Override
     protected void lockInternal(OpenJPAStateManager sm, int level, int timeout,
         Object sdata, boolean postVersionCheck) {
         // we can skip any already-locked instance regardless of level because
-        // we treat all locks the same (though super doesn't)
-        if (getLockLevel(sm) == LOCK_NONE) {
-            // only need to lock if not loaded from locking result
-            ConnectionInfo info = (ConnectionInfo) sdata;
-            if (info == null || info.result == null || !info.result.isLocking())
-                lockRow(sm, timeout, level);
-        }
+        // we treat all locks the same (though super doesn't).
+
+        // only need to lock if not loaded from locking result
+        ConnectionInfo info = (ConnectionInfo) sdata;
+        if (info == null || info.result == null || !info.result.isLocking())
+            lockRow(sm, timeout, level);
         optimisticLockInternal(sm, level, timeout, sdata, postVersionCheck);
     }
 
@@ -125,7 +132,16 @@ public class PessimisticLockManager
         Object id = sm.getObjectId();
         ClassMapping mapping = (ClassMapping) sm.getMetaData();
 
-        List<SQLBuffer> sqls = getLockRows(dict, id, mapping, fetch, _store.getSQLFactory()); 
+        //Code changed for OPENJPA-2449, code updated for OPENJPA-2547.  OPENJPA-2547 added
+        //one check to determine if the lock is a value of LockLevels.LOCK_NONE.  The first
+        //time a thread attempts to get a lock the lock will be null.  If the thread can't
+        //get the lock because another thread holds it, the lock will be non-null and have
+        //a value of LockLevels.LOCK_NONE.
+        List<SQLBuffer> sqls = (sm.getLock() == null || sm.getLock().equals(LockLevels.LOCK_NONE))
+            ?  getLockRows(dict, id, mapping, fetch, _store.getSQLFactory())
+            : new ArrayList<>();
+        if (ctx.getFetchConfiguration().getLockScope() == LockScopes.LOCKSCOPE_EXTENDED)
+            lockJoinTables(sqls, dict, id, mapping, fetch, _store.getSQLFactory());
 
         ensureStoreManagerTransaction();
         Connection conn = _store.getConnection();
@@ -141,7 +157,7 @@ public class PessimisticLockManager
         } catch (SQLException se) {
             LockException e = new LockException(sm.getPersistenceCapable(), timeout, level);
             e.setCause(se);
-            e.setFatal(dict.isFatalException(StoreException.LOCK, se) 
+            e.setFatal(dict.isFatalException(StoreException.LOCK, se)
                     || level >= MixedLockLevels.LOCK_PESSIMISTIC_READ);
             throw e;
         } finally {
@@ -161,9 +177,24 @@ public class PessimisticLockManager
         Select select = factory.newSelect();
         select.select(mapping.getPrimaryKeyColumns());
         select.wherePrimaryKey(id, mapping, _store);
-        List<SQLBuffer> sqls = new ArrayList<SQLBuffer>();
+        List<SQLBuffer> sqls = new ArrayList<>();
         sqls.add(select.toSelect(true, fetch));
         return sqls;
+    }
+
+    protected void lockJoinTables(List<SQLBuffer> sqls, DBDictionary dict, Object id, ClassMapping mapping,
+            JDBCFetchConfiguration fetch, SQLFactory factory) {
+        FieldMapping[] fms = mapping.getFieldMappings();
+        for (FieldMapping fm : fms) {
+            Strategy strat = fm.getStrategy();
+            if (strat instanceof ContainerFieldStrategy) {
+                ForeignKey fk = ((ContainerFieldStrategy) strat).getJoinForeignKey();
+                Select select = factory.newSelect();
+                select.select(fk.getColumns());
+                select.whereForeignKey(fk, id, fm.getDefiningMapping(), _store);
+                sqls.add(select.toSelect(true, fetch));
+            }
+        }
     }
 
     /**
@@ -175,39 +206,39 @@ public class PessimisticLockManager
     private void ensureStoreManagerTransaction() {
         if (!_store.getContext().isStoreActive()) {
             _store.getContext().beginStore();
-            if (log.isInfoEnabled())
-                log.info(_loc.get("start-trans-for-lock"));
+            if (log.isTraceEnabled())
+                log.trace(_loc.get("start-trans-for-lock"));
         }
     }
-    
+
     public JDBCStore getStore() {
         return _store;
     }
-    
+
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of preparing statement.
      */
     protected PreparedStatement prepareStatement(Connection conn, SQLBuffer sql)
         throws SQLException {
         return sql.prepareStatement(conn);
     }
-    
+
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of executing query.
      */
-    protected ResultSet executeQuery(Connection conn, PreparedStatement stmnt, 
+    protected ResultSet executeQuery(Connection conn, PreparedStatement stmnt,
         SQLBuffer sql) throws SQLException {
         return stmnt.executeQuery();
     }
-    
+
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of checking lock from the result set.
      */
     protected void checkLock(ResultSet rs, OpenJPAStateManager sm, int timeout)
-        throws SQLException { 
+        throws SQLException {
         if (!rs.next())
             throw new LockException(sm.getManagedInstance(), timeout);
         return;

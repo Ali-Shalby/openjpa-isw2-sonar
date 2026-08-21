@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
@@ -42,26 +42,26 @@ public interface ResultList<E> extends List<E>, Serializable, Closeable {
     /**
      * Returns true if the provider backing this list is open.
      */
-    public boolean isProviderOpen();
-    
+    boolean isProviderOpen();
+
     /**
      * Get the opaque user object attached to this receiver.
      */
-    public Object getUserObject();
-    
+    Object getUserObject();
+
     /**
      * Set the opaque user object to this receiver.
      */
-    public void   setUserObject(Object opaque);
+    void   setUserObject(Object opaque);
 
     /**
      * Close the list.
      */
-    public void close();
+    @Override void close();
 
     /**
      * Returns true if the list has been closed.
      */
-    public boolean isClosed();
+    boolean isClosed();
 }
 

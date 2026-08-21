@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
@@ -27,7 +27,6 @@ package org.apache.openjpa.persistence;
  * Set of metadata tags used in JPA.
  *
  * @author Abe White
- * @nojavadoc
  */
 public enum MetaDataTag {
     // sorted by XML order
@@ -73,10 +72,13 @@ public enum MetaDataTag {
     ELEM_DEPENDENT,
     ELEM_TYPE,
     EXTERNAL_VALS,
+    EXTERNAL_VAL,
     EXTERNALIZER,
     FACTORY,
     FETCH_GROUP,
     FETCH_GROUPS,
+    FETCH_ATTRIBUTE,
+    REFERENCED_FETCH_GROUP,
     INVERSE_LOGICAL,
     KEY_DEPENDENT,
     KEY_TYPE,
@@ -85,5 +87,10 @@ public enum MetaDataTag {
     MANAGED_INTERFACE,
     READ_ONLY,
     TYPE,
-    REPLICATED
+    REPLICATED,
+    OPENJPA_VERSION,
+    // JPA 2.1
+    STOREDPROCEDURE_QUERIES,
+    STOREDPROCEDURE_QUERY,
+    CONVERT
 }

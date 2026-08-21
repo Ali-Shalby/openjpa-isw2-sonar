@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -40,6 +40,8 @@ import org.apache.openjpa.meta.ClassMetaData;
 public class SimpleCaseExpression
     extends AbstractVal {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _caseOperand;
     private final Exp[] _exp;
     private final Val _val;
@@ -69,18 +71,20 @@ public class SimpleCaseExpression
         return _val;
     }
 
+    @Override
     public Class getType() {
         if (_cast != null)
             return _cast;
         Class type = _val.getType();
-        for (int i = 0; i < _exp.length; i++)
+        for (Exp exp : _exp)
             type = Filters.promote(type,
-                ((WhenScalar) _exp[i]).getVal2().getType());
+                    ((WhenScalar) exp).getVal2().getType());
         if (type == Raw.class)
             return String.class;
         return type;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         ExpState[] states = new ExpState[_exp.length+2];
         Joins joins = null;
@@ -107,15 +111,16 @@ public class SimpleCaseExpression
 
     private static class SimpleCaseExpState
         extends ExpState {
-        
+
         public ExpState[] states;
-        
+
         public SimpleCaseExpState(Joins joins, ExpState[] states) {
             super(joins);
             this.states = states;
         }
     }
 
+    @Override
     public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf, int index) {
         SimpleCaseExpState cstate = (SimpleCaseExpState) state;
@@ -147,29 +152,34 @@ public class SimpleCaseExpression
         buf.append(" END ");
     }
 
+    @Override
     public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         SimpleCaseExpState cstate = (SimpleCaseExpState) state;
-        
+
         _caseOperand.selectColumns(sel, ctx, cstate.states[0], pks);
         for (int i = 0; i < _exp.length; i++)
             _exp[i].selectColumns(sel, ctx, cstate.states[i+1], pks);
         _val.selectColumns(sel, ctx, cstate.states[_exp.length+1], pks);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _caseOperand.acceptVisit(visitor);
-        for (int i = 0; i < _exp.length; i++)
-            _exp[i].acceptVisit(visitor);
+        for (Exp exp : _exp) {
+            exp.acceptVisit(visitor);
+        }
         _val.acceptVisit(visitor);
         visitor.exit(this);
     }
 
+    @Override
     public int getId() {
         return Val.SIMPLECASE_VAL;
     }
 
+    @Override
     public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         SimpleCaseExpState cstate = (SimpleCaseExpState) state;
@@ -186,10 +196,12 @@ public class SimpleCaseExpression
             otherState);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         sel.groupBy(newSQLBuffer(sel, ctx, state));
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
@@ -201,44 +213,50 @@ public class SimpleCaseExpression
         return buf;
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
         return Filters.convert(res.getObject(this,
             JavaSQLTypes.JDBC_DEFAULT, null), getType());
     }
 
+    @Override
     public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         sel.orderBy(newSQLBuffer(sel, ctx, state), asc, false, getSelectAs());
     }
 
+    @Override
     public void select(Select sel, ExpContext ctx, ExpState state, boolean pks){
         sel.select(newSQLBuffer(sel, ctx, state), this);
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setImplicitType(Class type) {
-        _cast = type;        
+        _cast = type;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
     public void setOtherPath(Value other) {
         this.other = other;
     }
-    
+
     public Value getOtherPath() {
         return other;
     }
-    
+
     public void setOtherState(ExpState otherState) {
         this.otherState = otherState;
     }
-    
+
     public ExpState getOtherState() {
         return otherState;
     }

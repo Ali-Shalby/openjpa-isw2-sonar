@@ -14,12 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
-import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
+import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
@@ -39,16 +39,15 @@ import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Schema;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.sql.JoinSyntaxes;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
-import serp.util.Strings;
 
 /**
  * Supplies default mapping information in accordance with JPA spec.
  *
  * @author Steve Kim
  * @author Abe White
- * @nojavadoc
  */
 public class PersistenceMappingDefaults
     extends MappingDefaultsImpl {
@@ -128,7 +127,7 @@ public class PersistenceMappingDefaults
     public String getTableName(ClassMapping cls, Schema schema) {
         if (cls.getTypeAlias() != null)
             return cls.getTypeAlias();
-        return Strings.getClassName(cls.getDescribedType()).replace('$', '_');
+        return ClassUtil.getClassName(cls.getDescribedType()).replace('$', '_');
     }
 
     @Override
@@ -141,13 +140,13 @@ public class PersistenceMappingDefaults
         // base name is table of defining type + '_'
         ClassMapping clm = fm.getDefiningMapping();
         Table table = getTable(clm);
-        
+
         DBIdentifier sName = DBIdentifier.NULL;
-        if (fm.isElementCollection()) 
+        if (fm.isElementCollection())
             sName = DBIdentifier.newTable(clm.getTypeAlias());
-        else 
+        else
             sName = table.getIdentifier();
-        
+
         // if this is an assocation table, spec says to suffix with table of
         // the related type. spec doesn't cover other cases; we're going to
         // suffix with the field name
@@ -161,12 +160,12 @@ public class PersistenceMappingDefaults
         else {
             sName2 = DBIdentifier.newTable(fm.getName().replace('$', '_'));
         }
-        
+
         sName = DBIdentifier.combine(sName, sName2.getName());
-        
+
         return sName;
     }
-    
+
     private Table getTable(ClassMapping clm) {
         Table table = clm.getTable();
         if (table == null) {
@@ -217,6 +216,7 @@ public class PersistenceMappingDefaults
             foreign, col, target, inverse, pos, cols);
     }
 
+    @Override
     public void populateForeignKeyColumn(ValueMapping vm, DBIdentifier sName,
         Table local, Table foreign, Column col, Object target, boolean inverse,
         int pos, int cols) {
@@ -239,7 +239,7 @@ public class PersistenceMappingDefaults
                     sName = DBIdentifier.newColumn(vm.getFieldMapping().getName());
                 if (isRemoveHungarianNotation())
                     sName = DBIdentifier.newColumn(Normalizer.removeHungarianNotation(sName.getName()));
-                sName = sName.combine(sName, ((Column)target).getIdentifier().getName());
+                sName = DBIdentifier.combine(sName, ((Column)target).getIdentifier().getName());
 
                 // No need to check for uniqueness.
                 sName = dict.getValidColumnName(sName, local, false);

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -26,10 +26,12 @@ package org.apache.openjpa.util;
  */
 public final class LongId extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
     private final long key;
 
     public LongId(Class cls, Long key) {
-        this(cls, (key == null) ? 0L : key.longValue());
+        this(cls, (key == null) ? 0L : key);
     }
 
     public LongId(Class cls, String key) {
@@ -50,14 +52,22 @@ public final class LongId extends OpenJPAId {
         return key;
     }
 
+    @Override
     public Object getIdObject() {
         return key;
     }
 
+    @Override
+    public String toString() {
+        return String.valueOf(key);
+    }
+
+    @Override
     protected int idHash() {
         return (int) (key ^ (key >>> 32));
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId o) {
         return key == ((LongId) o).key;
     }

@@ -19,17 +19,17 @@
 
 package org.apache.openjpa.persistence.criteria;
 
-import javax.persistence.criteria.Expression;
-import javax.persistence.criteria.Join;
-import javax.persistence.criteria.JoinType;
-import javax.persistence.criteria.Path;
-import javax.persistence.metamodel.Bindable;
-import javax.persistence.metamodel.ManagedType;
-import javax.persistence.metamodel.MapAttribute;
-import javax.persistence.metamodel.PluralAttribute;
-import javax.persistence.metamodel.SingularAttribute;
-import javax.persistence.metamodel.Type;
-import javax.persistence.metamodel.Type.PersistenceType;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.metamodel.Bindable;
+import jakarta.persistence.metamodel.ManagedType;
+import jakarta.persistence.metamodel.MapAttribute;
+import jakarta.persistence.metamodel.PluralAttribute;
+import jakarta.persistence.metamodel.SingularAttribute;
+import jakarta.persistence.metamodel.Type;
+import jakarta.persistence.metamodel.Type.PersistenceType;
 
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
 import org.apache.openjpa.kernel.exps.Value;
@@ -39,19 +39,14 @@ import org.apache.openjpa.persistence.meta.Members;
 import org.apache.openjpa.persistence.meta.Members.Member;
 
 /**
- * Represents a simple or compound attribute path from a 
- * bound type or collection, and is a "primitive" expression.
- * @param <X>  Type referenced by the path
- */
-/**
- * Path is an expression often representing a persistent attribute traversed from another (parent) path.
+ * Path is an expression representing a persistent attribute traversed from a parent path.
  * The type of the path is the type of the persistent attribute.
- * If the persistent attribute is bindable, then further path can be traversed from this path. 
- * 
+ * If the persistent attribute is bindable, then further path can be traversed from this path.
+ *
  * @author Pinaki Poddar
  * @author Fay Wang
- * 
- * @param <Z> the type of the parent path 
+ *
+ * @param <Z> the type of the parent path
  * @param <X> the type of this path
  */
 class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
@@ -59,19 +54,22 @@ class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
     protected final Members.Member<? super Z,?> _member;
     private boolean isEmbedded = false;
     private PathImpl<?,?> _correlatedPath;
-    
+
     /**
-     * Protected constructor use by root path which neither represent a member nor has a parent. 
+     * Protected constructor use by root path which neither represent a member nor has a parent.
      */
     protected PathImpl(Class<X> cls) {
         super(cls);
         _parent = null;
         _member = null;
     }
-    
+
     /**
-     * Create a path from the given non-null parent representing the given non-null member. The given class denotes 
-     * the type expressed by this path.
+     * Create a path from the given parent representing the given member.
+     *
+     * @param parent the path from which this path needs to be constructed. Must not be null.
+     * @param member the persistent property that represents this path.
+     * @param cls denotes the type expressed by this path.
      */
     public PathImpl(PathImpl<?,Z> parent, Members.Member<? super Z, ?> member, Class<X> cls) {
         super(cls);
@@ -82,71 +80,79 @@ class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
         } else {
             _member = member;
         }
-        isEmbedded = _member.fmd.isElementCollection() ? _member.fmd.getElement().isEmbedded() : 
+        isEmbedded = _member.fmd.isElementCollection() ? _member.fmd.getElement().isEmbedded() :
             _member.fmd.isEmbedded();
     }
 
-    /** 
-     * Returns the bindable object that corresponds to the path expression.
-     *  
+    /**
+     * Gets the bindable object that corresponds to the path expression.
+     *
+     * @throws IllegalArgumentException if this path is not bindable
      */
-    public Bindable<X> getModel() { 
-        if (_member instanceof Bindable<?> == false) {
+    @Override
+    public Bindable<X> getModel() {
+        if (!(_member instanceof Bindable<?>)) {
             throw new IllegalArgumentException(this + " represents a basic path and not a bindable");
         }
         return (Bindable<X>)_member;
     }
-    
+
     /**
-     *  Return the parent "node" in the path or null if no parent.
+     *  Gets the parent of this path or null if this path is the root.
      */
+    @Override
     public final Path<Z> getParentPath() {
         return _parent;
     }
-    
+
     /**
-     * Gets the path that originates this traversal. Can be itself if this itself is the origin.
+     * Gets the path that originates this traversal. Can be itself if this path is the root.
      */
     public PathImpl<?,?> getInnermostParentPath() {
         return (_parent == null) ? this : _parent.getInnermostParentPath();
     }
 
+    /**
+     * Gets the field that may have been embedded inside the given field.
+     * For example, a given primary key field which is using an embedded class as a complex primary key.
+     * @param fmd a given field
+     * @return the embedded field or the given field itself
+     */
     protected FieldMetaData getEmbeddedFieldMetaData(FieldMetaData fmd) {
         Members.Member<?,?> member = getInnermostMember(_parent,_member);
-        ClassMetaData embeddedMeta = member.fmd.isElementCollection() ? 
-                member.fmd.getElement().getEmbeddedMetaData() :
-                member.fmd.getEmbeddedMetaData();
-        if (embeddedMeta != null)
-            return embeddedMeta.getField(fmd.getName());
-        else
-            return fmd;
+
+        ClassMetaData embeddedMeta = member.fmd.isElementCollection()
+        		? member.fmd.getElement().getEmbeddedMetaData()
+        		: member.fmd.getEmbeddedMetaData();
+
+        return (embeddedMeta != null) ? embeddedMeta.getField(fmd.getName()) : fmd;
     }
-    
+
     protected Members.Member<?,?> getInnermostMember(PathImpl<?,?> parent, Members.Member<?,?> member) {
-        return member != null ? member : getInnermostMember(parent._parent,  parent._member); 
+        return member != null ? member : getInnermostMember(parent._parent,  parent._member);
     }
-    
+
     /**
-     * Makes this path correlated to the given path.  
+     * Makes this path correlated to the given path.
      */
     public void setCorrelatedPath(PathImpl<?,?> correlatedPath) {
         _correlatedPath = correlatedPath;
     }
-    
+
     /**
      * Gets the path correlated to this path, if any.
      */
     public PathImpl<?,?> getCorrelatedPath() {
         return _correlatedPath;
     }
-    
+
     /**
      * Affirms if this path is correlated to another path.
      */
     public boolean isCorrelated() {
         return _correlatedPath != null;
     }
-    
+
     /**
      * Convert this path to a kernel path.
      */
@@ -156,7 +162,7 @@ class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
             return q.getRegisteredValue(this);
         org.apache.openjpa.kernel.exps.Path path = null;
         SubqueryImpl<?> subquery = q.getDelegator();
-        boolean allowNull = _parent == null ? false : _parent instanceof Join 
+        boolean allowNull = _parent == null ? false : _parent instanceof Join
             && ((Join<?,?>)_parent).getJoinType() != JoinType.INNER;
         PathImpl<?,?> corrJoin = getCorrelatedJoin(this);
         PathImpl<?,?> corrRoot = getCorrelatedRoot(subquery);
@@ -193,7 +199,7 @@ class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
         path.setAlias(q.getAlias(this));
         return path;
     }
-    
+
     public PathImpl<?,?> getCorrelatedRoot(SubqueryImpl<?> subquery) {
         if (subquery == null)
             return null;
@@ -202,8 +208,8 @@ class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
             return root;
         return null;
     }
-    
-    
+
+
     public PathImpl<?,?> getCorrelatedJoin(PathImpl<?,?> path) {
         if (path._correlatedPath != null)
             return path._correlatedPath;
@@ -211,82 +217,98 @@ class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
             return null;
         return getCorrelatedJoin(path._parent);
     }
-    
+
     /**
      * Affirms if this receiver occurs in the roots of the given subquery.
      */
     public boolean inSubquery(SubqueryImpl<?> subquery) {
         return subquery != null && (subquery.getRoots() == null ? false : subquery.getRoots().contains(this));
     }
-    
+
     protected void traversePath(PathImpl<?,?> parent,  org.apache.openjpa.kernel.exps.Path path, FieldMetaData fmd) {
-        boolean allowNull = parent == null ? false : parent instanceof Join 
+        boolean allowNull = parent == null ? false : parent instanceof Join
             && ((Join<?,?>)parent).getJoinType() != JoinType.INNER;
         FieldMetaData fmd1 = parent._member == null ? null : parent._member.fmd;
         PathImpl<?,?> parent1 = parent._parent;
         if (parent1 == null || parent1.getCorrelatedPath() != null) {
-            if (fmd != null) 
+            if (fmd != null)
                 path.get(fmd, allowNull);
             return;
         }
         traversePath(parent1, path, fmd1);
-        if (fmd != null) 
+        if (fmd != null)
             path.get(fmd, allowNull);
     }
-    
+
     /**
      *  Gets a new path that represents the given single-valued attribute from this path.
      */
+    @Override
     public <Y> Path<Y> get(SingularAttribute<? super X, Y> attr) {
-        return new PathImpl<X,Y>(this, (Members.SingularAttributeImpl<? super X, Y>)attr, attr.getJavaType());
+    	if (getType() != attr.getDeclaringType()) {
+    		attr = (SingularAttribute)((ManagedType)getType()).getAttribute(attr.getName());
+    	}
+        return new PathImpl<>(this, (Members.SingularAttributeImpl<? super X, Y>)attr, attr.getJavaType());
     }
-    
+
     /**
      *  Gets a new path that represents the given multi-valued attribute from this path.
      */
+    @Override
     public <E, C extends java.util.Collection<E>> Expression<C>  get(PluralAttribute<X, C, E> coll) {
-        return new PathImpl<X,C>(this, (Members.PluralAttributeImpl<? super X, C, E>)coll, coll.getJavaType());
+    	if (getType() != coll.getDeclaringType()) {
+    		coll = (PluralAttribute)((ManagedType)getType()).getAttribute(coll.getName());
+    	}
+        return new PathImpl<>(this, (Members.PluralAttributeImpl<? super X, C, E>)coll, coll.getJavaType());
     }
 
     /**
      *  Gets a new path that represents the given map-valued attribute from this path.
      */
+    @Override
     public <K, V, M extends java.util.Map<K, V>> Expression<M> get(MapAttribute<X, K, V> map) {
-        return new PathImpl<X,M>(this, (Members.MapAttributeImpl<? super X,K,V>)map, (Class<M>)map.getJavaType());
+    	if (getType() != map.getDeclaringType()) {
+    		map = (MapAttribute)((ManagedType)getType()).getAttribute(map.getName());
+    	}
+        return new PathImpl<>(this, (Members.MapAttributeImpl<? super X,K,V>)map, (Class<M>)map.getJavaType());
     }
-    
+
     /**
      * Gets a new path that represents the attribute of the given name from this path.
-     * 
-     * @exception IllegalArgumentException if this path represents a basic attribute that is can not be traversed 
+     *
+     * @exception IllegalArgumentException if this path represents a basic attribute that is can not be traversed
      * further.
      */
+    @Override
     public <Y> Path<Y> get(String attName) {
         Type<?> type = this.getType();
         if (type.getPersistenceType() == PersistenceType.BASIC) {
             throw new IllegalArgumentException(this + " is a basic path and can not be navigated to " + attName);
         }
-        
-        Members.Member<? super X, Y> next = (Members.Member<? super X, Y>) 
+
+        Members.Member<? super X, Y> next = (Members.Member<? super X, Y>)
            ((ManagedType<? super X>)type).getAttribute(attName);
-        return new PathImpl<X,Y>(this, next, next.getJavaType());
+        return new PathImpl<>(this, next, next.getJavaType());
     }
-    
+
     public Type<?> getType() {
         return _member.getType();
     }
 
+    @SuppressWarnings("unchecked")
     public Member<? extends Z, X> getMember() {
         return (Member<? extends Z, X>) _member;
     }
-    
+
     /**
-     * Get the type() expression corresponding to this path. 
+     * Get the type() expression corresponding to this path.
      */
+    @Override
     public Expression<Class<? extends X>> type() {
-        return new Expressions.Type<Class<? extends X>>(this);
+        return new Expressions.Type<>(this);
     }
-    
+
+    @Override
     public StringBuilder asValue(AliasContext q) {
         StringBuilder buffer = new StringBuilder();
         if (_parent != null) {
@@ -295,10 +317,11 @@ class PathImpl<Z,X> extends ExpressionImpl<X> implements Path<X> {
         }
         if (_member != null) {
             buffer.append(_member.fmd.getName());
-        } 
+        }
         return buffer;
     }
-    
+
+    @Override
     public StringBuilder asVariable(AliasContext q) {
         Value var = q.getRegisteredVariable(this);
         return asValue(q).append(" ").append(var == null ? "?" : var.getName());

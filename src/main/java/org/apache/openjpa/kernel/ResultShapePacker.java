@@ -14,14 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
+
+import java.util.Calendar;
+
+import org.apache.openjpa.util.proxy.ProxyCalendar;
 
 
 /**
  * Packs result by delegation to a ResultShape.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
@@ -35,14 +39,26 @@ public class ResultShapePacker extends ResultPacker {
         _types = types;
         _aliases = aliases;
     }
-    
+
     @Override
     public Object pack(Object o) {
         return pack(new Object[]{o});
     }
-    
+
     @Override
     public Object pack(Object[] values) {
+        // Check for proxied calenders and cleanup if any are found.
+        if (_types != null) {
+            for (Class<?> t : _types) {
+                if (t.equals(Calendar.class)) {
+                    for (int i = 0; i < values.length; i++) {
+                        if (values[i] instanceof ProxyCalendar) {
+                            values[i] = ((ProxyCalendar) values[i]).copy((ProxyCalendar) values[i]);
+                        }
+                    }
+                }
+            }
+        }
         if (_shape == null)
             return super.pack(values);
         return _shape.pack(values, _types, _aliases);

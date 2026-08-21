@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -25,18 +25,20 @@ package org.apache.openjpa.kernel;
  *
  * @author Patrick Linskey
  */
-@SuppressWarnings("serial")
-class PNewFlushedDeletedFlushedState
-    extends PNewFlushedDeletedState {
+class PNewFlushedDeletedFlushedState extends PNewFlushedDeletedState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
     }
 
+    @Override
     PCState persist(StateManagerImpl context) {
         context.eraseFlush();
         return PNEW;
     }
-    
+
+    @Override
     public String toString() {
         return "Persistent-New-Flushed-Deleted-Flushed";
     }

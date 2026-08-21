@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -28,11 +28,12 @@ import org.apache.openjpa.lib.util.Localizer.Message;
  *
  * @author Marc Prud'hommeaux
  * @since 0.2.5
- * @nojavadoc
  */
 public class OptimisticException
     extends StoreException {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final transient Localizer _loc = Localizer.forPackage
         (OptimisticException.class);
 
@@ -55,6 +56,7 @@ public class OptimisticException
         setNestedThrowables(nested);
     }
 
+    @Override
     public int getSubtype() {
         return OPTIMISTIC;
     }

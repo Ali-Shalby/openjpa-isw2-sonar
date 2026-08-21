@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -34,12 +34,15 @@ import org.apache.openjpa.util.UnsupportedException;
 class Any
     extends UnaryMathVal {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final Localizer _loc = Localizer.forPackage(Any.class);
 
     public Any(Val val) {
         super(val);
     }
 
+    @Override
     protected Class getType(Class c) {
         Class wrap = Filters.wrap(c);
         if (wrap == Integer.class
@@ -52,6 +55,7 @@ class Any
         return int.class;
     }
 
+    @Override
     protected Object operate(Object o, Class c) {
         throw new UnsupportedException(_loc.get("in-mem-subquery"));
     }

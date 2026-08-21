@@ -18,19 +18,19 @@
  */
 package org.apache.openjpa.persistence;
 
-import javax.persistence.PessimisticLockScope;
+import jakarta.persistence.PessimisticLockScope;
 
 import org.apache.openjpa.kernel.LockScopes;
 
 /**
  * Helper methods translate between JPA-defined pessimistic lock scope and
  * OpenJPA internal lock scope levels.
- * 
+ *
  * @since 2.0.0
  */
 public class LockScopesHelper {
     /**
-     * Translates javax.persistence LockModeType to internal lock level.
+     * Translates jakarta.persistence LockModeType to internal lock level.
      */
     public static int toLockScope(PessimisticLockScope scope) {
         if (scope == null || scope == PessimisticLockScope.NORMAL)
@@ -39,7 +39,7 @@ public class LockScopesHelper {
     }
 
     /**
-     * Translates internal lock level to javax.persistence LockModeType.
+     * Translates internal lock level to jakarta.persistence LockModeType.
      */
     public static PessimisticLockScope fromLockScope(int level) {
         if (level < LockScopes.LOCKSCOPE_EXTENDED)

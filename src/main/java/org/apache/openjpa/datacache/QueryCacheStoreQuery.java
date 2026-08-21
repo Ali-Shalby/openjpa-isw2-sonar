@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
 
@@ -22,7 +22,6 @@ import java.io.ObjectStreamException;
 import java.io.Serializable;
 import java.util.AbstractList;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -31,9 +30,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 
-import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.datacache.AbstractQueryCache.EvictPolicy;
-import org.apache.openjpa.kernel.DelegatingStoreManager;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
@@ -47,6 +44,7 @@ import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.lib.rop.ListResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.OrderedMap;
+import org.apache.openjpa.lib.util.collections.LinkedMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataRepository;
@@ -112,7 +110,7 @@ public class QueryCacheStoreQuery
      * READ_SERIALIZABLE -- to do so, we'd just return false when in
      * a transaction.
      */
-    private List<Object> checkCache(QueryKey qk) {
+    private List<Object> checkCache(QueryKey qk, FetchConfiguration loadFc) {
         if (qk == null)
             return null;
         FetchConfiguration fetch = getContext().getFetchConfiguration();
@@ -123,28 +121,25 @@ public class QueryCacheStoreQuery
 
         // get the cached data
         QueryResult res = _cache.get(qk);
-
-        if (res == null)
-            return null;        
-        if (res.isEmpty())
-            return Collections.emptyList();
+        if (res == null) {
+            return null;
+        }
 
         // this if block is invoked if the evictOnTimestamp is set to true
         if (_cache instanceof AbstractQueryCache) {
             AbstractQueryCache qcache = (AbstractQueryCache) _cache;
             if (qcache.getEvictPolicy() == EvictPolicy.TIMESTAMP) {
                 Set<String> classNames = qk.getAcessPathClassNames();
-                List<String> keyList = new ArrayList<String>();      
-                keyList.addAll(classNames);
+                List<String> keyList = new ArrayList<>(classNames);
 
-                List<Long> timestamps = 
+                List<Long> timestamps =
                     qcache.getAllEntityTimestamp(keyList);
                 long queryTS = res.getTimestamp();
                 if (timestamps != null) {
                     for (Long ts: timestamps) {
-                        // if this is true we have to evict the query 
+                        // if this is true we have to evict the query
                         // from cache
-                        if (queryTS < ts) { 
+                        if (queryTS <= ts) {
                             qcache.remove(qk);
                             return null;
                         }
@@ -153,15 +148,19 @@ public class QueryCacheStoreQuery
             }
         }
 
+        if (res.isEmpty()) {
+            return Collections.emptyList();
+        }
+
         int projs = getContext().getProjectionAliases().length;
         if (projs == 0) {
             // We're only going to return the cached results if we have ALL results cached. This could be improved
             // in the future to be a little more intelligent.
-            if (getContext().getStoreContext().isCached(res) == false) {
+            if (!getContext().getStoreContext().isCached(res)) {
                 return null;
             }
         }
-        return new CachedList(res, projs != 0, _sctx);
+        return new CachedList(res, projs != 0, _sctx, loadFc);
     }
 
     /**
@@ -179,7 +178,7 @@ public class QueryCacheStoreQuery
     /**
      * Copy a projection element for caching / returning.
      */
-    private static Object copyProjection(Object obj, StoreContext ctx) {
+    private static Object copyProjection(Object obj, StoreContext ctx, FetchConfiguration fc) {
         if (obj == null)
             return null;
         switch (JavaTypes.getTypeCode(obj.getClass())) {
@@ -202,7 +201,7 @@ public class QueryCacheStoreQuery
                 return ((Locale) obj).clone();
             default:
                 if (obj instanceof CachedObjectId)
-                    return fromObjectId(((CachedObjectId) obj).oid, ctx);
+                    return fromObjectId(((CachedObjectId) obj).oid, ctx, fc);
                 Object oid = ctx.getObjectId(obj);
                 if (oid != null)
                     return new CachedObjectId(oid);
@@ -213,11 +212,11 @@ public class QueryCacheStoreQuery
     /**
      * Return the result object based on its cached oid.
      */
-    private static Object fromObjectId(Object oid, StoreContext sctx) {
+    private static Object fromObjectId(Object oid, StoreContext sctx, FetchConfiguration fc) {
         if (oid == null)
             return null;
 
-        Object obj = sctx.find(oid, null, null, null, 0);
+        Object obj = sctx.find(oid, fc, null, null, 0);
         if (obj == null)
             throw new ObjectNotFoundException(oid);
         return obj;
@@ -228,81 +227,104 @@ public class QueryCacheStoreQuery
         return _query;
     }
 
+    @Override
     public QueryContext getContext() {
         return _query.getContext();
     }
 
+    @Override
     public void setContext(QueryContext qctx) {
         _query.setContext(qctx);
         _sctx = qctx.getStoreContext();
         _repos = _sctx.getConfiguration().getMetaDataRepositoryInstance();
     }
 
+    @Override
     public boolean setQuery(Object query) {
         return _query.setQuery(query);
     }
 
+    @Override
     public FilterListener getFilterListener(String tag) {
         return _query.getFilterListener(tag);
     }
 
+    @Override
     public AggregateListener getAggregateListener(String tag) {
         return _query.getAggregateListener(tag);
     }
 
+    @Override
     public Object newCompilationKey() {
         return _query.newCompilationKey();
     }
 
+    @Override
     public Object newCompilation() {
         return _query.newCompilation();
     }
 
+    @Override
+    public Object getCompilation() {
+        return _query.getCompilation();
+    }
+
+    @Override
     public void populateFromCompilation(Object comp) {
         _query.populateFromCompilation(comp);
     }
 
+    @Override
     public void invalidateCompilation() {
         _query.invalidateCompilation();
     }
 
+    @Override
     public boolean supportsDataStoreExecution() {
         return _query.supportsDataStoreExecution();
     }
 
+    @Override
     public boolean supportsInMemoryExecution() {
         return _query.supportsInMemoryExecution();
     }
 
+    @Override
     public Executor newInMemoryExecutor(ClassMetaData meta, boolean subs) {
         return _query.newInMemoryExecutor(meta, subs);
     }
 
+    @Override
     public Executor newDataStoreExecutor(ClassMetaData meta, boolean subs) {
         Executor ex = _query.newDataStoreExecutor(meta, subs);
         return new QueryCacheExecutor(ex, meta, subs,
                       getContext().getFetchConfiguration());
     }
 
+    @Override
     public boolean supportsAbstractExecutors() {
         return _query.supportsAbstractExecutors();
     }
 
+    @Override
     public boolean requiresCandidateType() {
         return _query.requiresCandidateType();
     }
 
+    @Override
     public boolean requiresParameterDeclarations() {
         return _query.requiresParameterDeclarations();
     }
 
+    @Override
     public boolean supportsParameterDeclarations() {
         return _query.supportsParameterDeclarations();
     }
- 
+
+    @Override
     public Object evaluate(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
-        return _query.evaluate(value, ob, params, sm);         
+        return _query.evaluate(value, ob, params, sm);
     }
 
     /**
@@ -324,24 +346,49 @@ public class QueryCacheStoreQuery
             _fc = fc;
         }
 
-        public ResultObjectProvider executeQuery(StoreQuery q, Object[] params,
-            Range range) {
+        @Override
+        public ResultObjectProvider executeQuery(StoreQuery q, Object[] params, Range range) {
             QueryCacheStoreQuery cq = (QueryCacheStoreQuery) q;
-            QueryKey key = QueryKey.newInstance(cq.getContext(),
-                _ex.isPacking(q), params, _candidate, _subs, range.start, 
-                range.end);
-            List<Object> cached = cq.checkCache(key);
-            if (cached != null)
-                return new ListResultObjectProvider(cached);
+            Object parsed = cq.getDelegate().getCompilation();
+            QueryKey key =
+                QueryKey.newInstance(cq.getContext(), _ex.isPacking(q), params, _candidate, _subs, range.start,
+                    range.end, parsed);
 
-            ResultObjectProvider rop = _ex.executeQuery(cq.getDelegate(),
-                params, range);
+            // Create a new FetchConfiguration that will be used to ensure that any JOIN FETCHed fields are loaded
+            StoreContext store = q.getContext().getStoreContext();
+            FetchConfiguration cacheFc = store.pushFetchConfiguration();
+
+            // OPENJPA-2586: If the FetchConfig for this executor contains fields,
+            // then add them to the new FetchConfig.
+            if (!_fc.getFields().isEmpty()) {
+              cacheFc.addFields(_fc.getFields());
+            }
+
+            for (QueryExpressions qe : _ex.getQueryExpressions()) {
+                for (String fetchFields : qe.fetchPaths) {
+                    cacheFc.addField(fetchFields);
+                }
+                for (String fetchFields : qe.fetchInnerPaths) {
+                    cacheFc.addField(fetchFields);
+                }
+            }
+            try {
+                List<Object> cached = cq.checkCache(key, cacheFc);
+                if (cached != null) {
+                    return new ListResultObjectProvider(cached);
+                }
+            } finally {
+                store.popFetchConfiguration();
+            }
+
+            ResultObjectProvider rop = _ex.executeQuery(cq.getDelegate(), params, range);
             if (_fc.getQueryCacheEnabled())
                 return cq.wrapResult(rop, key);
             else
                 return rop;
         }
-        
+
+        @Override
         public QueryExpressions[] getQueryExpressions() {
             return _ex.getQueryExpressions();
         }
@@ -360,9 +407,10 @@ public class QueryCacheStoreQuery
             if (cmd == null || cmd.length == 0)
                 return;
 
-            List<Class<?>> classes = new ArrayList<Class<?>>(cmd.length);
-            for (int i = 0; i < cmd.length; i++)
-                classes.add(cmd[i].getDescribedType());
+            List<Class<?>> classes = new ArrayList<>(cmd.length);
+            for (ClassMetaData metaData : cmd) {
+                classes.add(metaData.getDescribedType());
+            }
 
             // evict from the query cache
             QueryCacheStoreQuery cq = (QueryCacheStoreQuery) q;
@@ -370,13 +418,14 @@ public class QueryCacheStoreQuery
                 (q.getContext(), classes));
 
             // evict from the data cache
-            for (int i = 0; i < cmd.length; i++) {
-                if (cmd[i].getDataCache() != null)
-                    cmd[i].getDataCache().removeAll(
-                        cmd[i].getDescribedType(), true);
+            for (ClassMetaData classMetaData : cmd) {
+                if (classMetaData.getDataCache() != null && classMetaData.getDataCache().getEvictOnBulkUpdate())
+                    classMetaData.getDataCache().removeAll(
+                            classMetaData.getDescribedType(), true);
             }
         }
 
+        @Override
         public Number executeDelete(StoreQuery q, Object[] params) {
             try {
                 return _ex.executeDelete(unwrap(q), params);
@@ -385,6 +434,7 @@ public class QueryCacheStoreQuery
             }
         }
 
+        @Override
         public Number executeUpdate(StoreQuery q, Object[] params) {
             try {
                 return _ex.executeUpdate(unwrap(q), params);
@@ -393,85 +443,105 @@ public class QueryCacheStoreQuery
             }
         }
 
+        @Override
         public String[] getDataStoreActions(StoreQuery q, Object[] params,
             Range range) {
             return EMPTY_STRINGS;
         }
 
+        @Override
         public void validate(StoreQuery q) {
             _ex.validate(unwrap(q));
         }
-        
+
+        @Override
         public void getRange(StoreQuery q, Object[] params, Range range) {
-            _ex.getRange(q, params, range); 
+            _ex.getRange(q, params, range);
         }
 
+        @Override
         public Object getOrderingValue(StoreQuery q, Object[] params,
             Object resultObject, int orderIndex) {
             return _ex.getOrderingValue(unwrap(q), params, resultObject,
                 orderIndex);
         }
 
+        @Override
         public boolean[] getAscending(StoreQuery q) {
             return _ex.getAscending(unwrap(q));
         }
 
+        @Override
         public boolean isPacking(StoreQuery q) {
             return _ex.isPacking(unwrap(q));
         }
 
+        @Override
         public String getAlias(StoreQuery q) {
             return _ex.getAlias(unwrap(q));
         }
 
+        @Override
         public Class<?> getResultClass(StoreQuery q) {
             return _ex.getResultClass(unwrap(q));
         }
 
+        @Override
         public ResultShape<?> getResultShape(StoreQuery q) {
             return _ex.getResultShape(q);
         }
-        
+
+        @Override
         public String[] getProjectionAliases(StoreQuery q) {
             return _ex.getProjectionAliases(unwrap(q));
         }
 
+        @Override
         public Class<?>[] getProjectionTypes(StoreQuery q) {
             return _ex.getProjectionTypes(unwrap(q));
         }
 
+        @Override
         public ClassMetaData[] getAccessPathMetaDatas(StoreQuery q) {
             return _ex.getAccessPathMetaDatas(unwrap(q));
         }
 
+        @Override
         public int getOperation(StoreQuery q) {
             return _ex.getOperation(unwrap(q));
         }
 
+        @Override
         public boolean isAggregate(StoreQuery q) {
             return _ex.isAggregate(unwrap(q));
         }
 
+        @Override
         public boolean isDistinct(StoreQuery q) {
             return _ex.isDistinct(unwrap(q));
         }
 
+        @Override
         public boolean hasGrouping(StoreQuery q) {
             return _ex.hasGrouping(unwrap(q));
         }
 
+        @Override
         public OrderedMap<Object, Class<?>> getOrderedParameterTypes(StoreQuery q) {
             return _ex.getOrderedParameterTypes(unwrap(q));
         }
-        
+
+        @Override
         public LinkedMap getParameterTypes(StoreQuery q) {
             return _ex.getParameterTypes(unwrap(q));
         }
-        
+
+        @Override
         public Object[] toParameterArray(StoreQuery q, Map userParams) {
             return _ex.toParameterArray(q, userParams);
         }
 
+        @Override
         public Map getUpdates(StoreQuery q) {
             return _ex.getUpdates(unwrap(q));
         }
@@ -482,7 +552,7 @@ public class QueryCacheStoreQuery
     }
 
     /**
-     * Result list implementation for a cached query result. Package-protected
+     * Result list implementation for a cached query result. Public
      * for testing.
      */
     public static class CachedList extends AbstractList<Object>
@@ -491,33 +561,37 @@ public class QueryCacheStoreQuery
         private final QueryResult _res;
         private final boolean _proj;
         private final StoreContext _sctx;
+        private final FetchConfiguration _fc;
 
-        public CachedList(QueryResult res, boolean proj, StoreContext ctx) {
+        public CachedList(QueryResult res, boolean proj, StoreContext ctx, FetchConfiguration fc) {
             _res = res;
             _proj = proj;
             _sctx = ctx;
+            _fc = fc;
         }
 
+        @Override
         public Object get(int idx) {
             if (!_proj)
-                return fromObjectId(_res.get(idx), _sctx);
+                return fromObjectId(_res.get(idx), _sctx, _fc);
 
             Object[] cached = (Object[]) _res.get(idx);
             if (cached == null)
                 return null;
             Object[] uncached = new Object[cached.length];
             for (int i = 0; i < cached.length; i++)
-                uncached[i] = copyProjection(cached[i], _sctx);
+                uncached[i] = copyProjection(cached[i], _sctx, _fc);
             return uncached;
         }
 
+        @Override
         public int size() {
             return _res.size();
         }
 
         public Object writeReplace()
             throws ObjectStreamException {
-            return new ArrayList<Object>(this);
+            return new ArrayList<>(this);
         }
     }
 
@@ -533,7 +607,7 @@ public class QueryCacheStoreQuery
         private final ResultObjectProvider _rop;
         private final boolean _proj;
         private final QueryKey _qk;
-        private final TreeMap<Integer,Object> _data = new TreeMap<Integer,Object>();
+        private final TreeMap<Integer,Object> _data = new TreeMap<>();
         private boolean _maintainCache = true;
         private int _pos = -1;
 
@@ -592,7 +666,7 @@ public class QueryCacheStoreQuery
                                 Object[] arr = (Object[]) obj;
                                 Object[] cp = new Object[arr.length];
                                 for (int i = 0; i < arr.length; i++)
-                                    cp[i] = copyProjection(arr[i], _sctx);
+                                    cp[i] = copyProjection(arr[i], _sctx, null);
                                 cached = cp;
                             }
                             if (cached != null)
@@ -626,15 +700,18 @@ public class QueryCacheStoreQuery
             }
         }
 
+        @Override
         public boolean supportsRandomAccess() {
             return _rop.supportsRandomAccess();
         }
 
+        @Override
         public void open()
             throws Exception {
             _rop.open();
         }
 
+        @Override
         public Object getResultObject()
             throws Exception {
             Object obj = _rop.getResultObject();
@@ -642,6 +719,7 @@ public class QueryCacheStoreQuery
             return obj;
         }
 
+        @Override
         public boolean next()
             throws Exception {
             _pos++;
@@ -654,6 +732,7 @@ public class QueryCacheStoreQuery
             return next;
         }
 
+        @Override
         public boolean absolute(int pos)
             throws Exception {
             _pos = pos;
@@ -666,6 +745,7 @@ public class QueryCacheStoreQuery
             return valid;
         }
 
+        @Override
         public int size()
             throws Exception {
             if (_size != Integer.MAX_VALUE)
@@ -676,22 +756,26 @@ public class QueryCacheStoreQuery
             return size;
         }
 
+        @Override
         public void reset()
             throws Exception {
             _rop.reset();
             _pos = -1;
         }
 
+        @Override
         public void close()
             throws Exception {
             abortCaching();
             _rop.close();
         }
 
+        @Override
         public void handleCheckedException(Exception e) {
             _rop.handleCheckedException(e);
         }
 
+        @Override
         public void onTypesChanged(TypesChangedEvent ev) {
             if (_qk.changeInvalidatesQuery(ev.getTypes()))
                 abortCaching();
@@ -701,8 +785,10 @@ public class QueryCacheStoreQuery
     /**
      * Struct to recognize cached oids.
      */
-    private static class CachedObjectId {
+    private static class CachedObjectId implements java.io.Serializable {
 
+        
+        private static final long serialVersionUID = 1L;
         public final Object oid;
 
         public CachedObjectId (Object oid)

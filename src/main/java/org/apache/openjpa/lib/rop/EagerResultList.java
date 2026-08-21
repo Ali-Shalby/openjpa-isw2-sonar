@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
@@ -24,9 +24,11 @@ import java.util.ArrayList;
  * Simple, non-lazy ResultList implementation
  *
  * @author Patrick Linskey
- * @nojavadoc
  */
 public class EagerResultList extends ListResultList implements ResultList {
+
+    
+    private static final long serialVersionUID = 1L;
 
     public EagerResultList(ResultObjectProvider rop) {
         super(new ArrayList());

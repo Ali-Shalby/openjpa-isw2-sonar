@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -27,15 +27,15 @@ import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.util.OpenJPAException;
 
 /**
- * <P>Batch update manager that writes the SQL in object-level operation order. 
- * This update manager initiates a BatchPreparedStatementManagerImpl which 
- * will utilize the JDBC addBatch() and executeBatch() APIs to batch the 
+ * <P>Batch update manager that writes the SQL in object-level operation order.
+ * This update manager initiates a BatchPreparedStatementManagerImpl which
+ * will utilize the JDBC addBatch() and executeBatch() APIs to batch the
  * statements for performance improvement.</P>
- * <P>This is the default plug-in class for UpdateManager to support statement 
- * batching. You can plug-in your own statement batch implementation through 
- * the following property: 
+ * <P>This is the default plug-in class for UpdateManager to support statement
+ * batching. You can plug-in your own statement batch implementation through
+ * the following property:
  * <PRE>
- *   < property name="openjpa.jdbc.UpdateManager" 
+ *   < property name="openjpa.jdbc.UpdateManager"
  *     value="org.apache.openjpa.jdbc.kernel.YourOperationOrderUpdateManager" />
  * </PRE></P>
  * @author Teresa Kan
@@ -43,6 +43,7 @@ import org.apache.openjpa.util.OpenJPAException;
 
 public class BatchingConstraintUpdateManager extends ConstraintUpdateManager {
 
+    @Override
     protected PreparedStatementManager newPreparedStatementManager(
         JDBCStore store, Connection conn) {
         int batchLimit = dict.getBatchLimit();
@@ -54,6 +55,7 @@ public class BatchingConstraintUpdateManager extends ConstraintUpdateManager {
      * Override this method to flush any remaining batched row in the
      * PreparedStatementManager.
      */
+    @Override
     protected Collection flush(RowManager rowMgr,
         PreparedStatementManager psMgr, Collection exceps) {
         exceps = super.flush(rowMgr, psMgr, exceps);

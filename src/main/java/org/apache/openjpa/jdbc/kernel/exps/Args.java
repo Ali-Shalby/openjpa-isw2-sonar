@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -40,6 +40,8 @@ public class Args
     extends AbstractVal
     implements Arguments {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val[] _args;
     private ClassMetaData _meta = null;
 
@@ -49,9 +51,9 @@ public class Args
     public Args(Val val1, Val val2) {
         this(new Val[]{val1, val2});
     }
-    
+
     public Args (Val... values) {
-        List<Val> list = new ArrayList<Val>();
+        List<Val> list = new ArrayList<>();
         if (values != null) {
             for (Val v : values) {
                 if (v instanceof Args) {
@@ -67,16 +69,17 @@ public class Args
     /**
      * Return a filter value for each argument.
      */
-    public FilterValue[] newFilterValues(Select sel, ExpContext ctx, 
+    public FilterValue[] newFilterValues(Select sel, ExpContext ctx,
         ExpState state) {
-        ArgsExpState astate = (ArgsExpState) state; 
+        ArgsExpState astate = (ArgsExpState) state;
         FilterValue[] filts = new FilterValue[_args.length];
         for (int i = 0; i < _args.length; i++)
-            filts[i] = new FilterValueImpl(sel, ctx, astate.states[i], 
-                _args[i]); 
+            filts[i] = new FilterValueImpl(sel, ctx, astate.states[i],
+                _args[i]);
         return filts;
     }
 
+    @Override
     public Value[] getValues() {
         return _args;
     }
@@ -85,18 +88,22 @@ public class Args
         return _args;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
 
+    @Override
     public boolean isVariable() {
         return false;
     }
 
+    @Override
     public Class getType() {
         return Object[].class;
     }
@@ -108,9 +115,11 @@ public class Args
         return c;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         ExpState[] states = new ExpState[_args.length];
         Joins joins = null;
@@ -129,7 +138,7 @@ public class Args
      */
     private static class ArgsExpState
         extends ExpState {
-        
+
         public ExpState[] states;
 
         public ArgsExpState(Joins joins, ExpState[] states) {
@@ -138,76 +147,98 @@ public class Args
         }
     }
 
-    public void select(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void select(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         ArgsExpState astate = (ArgsExpState) state;
         for (int i = 0; i < _args.length; i++)
             _args[i].selectColumns(sel, ctx, astate.states[i], pks);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
     }
 
-    public void orderBy(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res) {
         return null;
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         ArgsExpState astate = (ArgsExpState) state;
         for (int i = 0; i < _args.length; i++)
             _args[i].calculateValue(sel, ctx, astate.states[i], null, null);
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 0;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
-        SQLBuffer sql, int index) {
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state, SQLBuffer sql, int index) {
+        appendTo(sel, ctx, state, sql, index, null);
+    }
+
+    public void appendTo(Select sel, ExpContext ctx, ExpState state, SQLBuffer sql, int index, String operator) {
         ArgsExpState astate = (ArgsExpState) state;
         for (int i = 0; i < _args.length; i++) {
             _args[i].appendTo(sel, ctx, astate.states[i], sql, index);
+            if( operator != null ) {
+                sql.addCastForParam(operator, _args[i]);
+            }
             if (i < _args.length-1)
                 sql.append(", ");
         }
     }
 
-    public void appendIsEmpty(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendIsEmpty(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
     }
 
-    public void appendIsNotEmpty(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendIsNotEmpty(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql){
     }
 
-    public void appendSize(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendSize(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
     }
 
-    public void appendIsNull(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendIsNull(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
     }
 
-    public void appendIsNotNull(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendIsNotNull(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
-        for (int i = 0; i < _args.length; i++)
-            _args[i].acceptVisit(visitor);
+        for (Val arg : _args) {
+            arg.acceptVisit(visitor);
+        }
         visitor.exit(this);
     }
 
+    @Override
     public int getId() {
         return Val.ARGS_VAL;
     }

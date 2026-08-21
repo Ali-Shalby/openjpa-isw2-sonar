@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ant;
 
@@ -76,10 +76,12 @@ public class PCEnhancerTask
         flags.tmpClassLoader = tmpClassLoader;
     }
 
+    @Override
     protected ConfigurationImpl newConfiguration() {
         return new OpenJPAConfigurationImpl();
     }
 
+    @Override
     protected void executeOn(String[] files)
         throws IOException {
         flags.directory = (dirName == null) ? null
@@ -87,5 +89,5 @@ public class PCEnhancerTask
         OpenJPAConfiguration conf = (OpenJPAConfiguration) getConfiguration();
         MetaDataRepository repos = conf.newMetaDataRepositoryInstance();
         PCEnhancer.run(conf, files, flags, repos, null, getClassLoader ());
-	}
+    }
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -26,10 +26,8 @@ import org.apache.openjpa.lib.util.Localizer.Message;
  * @author Marc Prud'hommeaux
  * @since 0.2.5
  */
-@SuppressWarnings("serial")
-public class StoreException
-    extends OpenJPAException {
-
+public class StoreException extends OpenJPAException {
+    private static final long serialVersionUID = 1L;
     public static final int LOCK = 1;
     public static final int OBJECT_NOT_FOUND = 2;
     public static final int OPTIMISTIC = 3;
@@ -56,7 +54,8 @@ public class StoreException
     public StoreException(Message msg, Throwable cause) {
         super(msg.getMessage(), cause);
     }
-    
+
+    @Override
     public int getType() {
         return STORE;
     }

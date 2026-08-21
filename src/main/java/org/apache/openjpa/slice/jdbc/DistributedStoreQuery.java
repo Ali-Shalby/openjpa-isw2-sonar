@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice.jdbc;
 
@@ -25,19 +25,13 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.kernel.JDBCStoreQuery;
-import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.ExpressionStoreQuery;
 import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.OrderingMergedResultObjectProvider;
 import org.apache.openjpa.kernel.QueryContext;
-import org.apache.openjpa.kernel.QueryImpl;
 import org.apache.openjpa.kernel.StoreManager;
 import org.apache.openjpa.kernel.StoreQuery;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
@@ -45,18 +39,19 @@ import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.meta.ClassMetaData;
+import org.apache.openjpa.slice.DistributedConfiguration;
 import org.apache.openjpa.slice.SliceThread;
 import org.apache.openjpa.util.StoreException;
 
 /**
  * A query for distributed databases.
- * 
+ *
  * @author Pinaki Poddar
- * 
+ *
  */
-@SuppressWarnings("serial")
 class DistributedStoreQuery extends JDBCStoreQuery {
-	private List<StoreQuery> _queries = new ArrayList<StoreQuery>();
+    private static final long serialVersionUID = 1L;
+    private List<StoreQuery> _queries = new ArrayList<>();
 	private ExpressionParser _parser;
 
 	public DistributedStoreQuery(JDBCStore store, ExpressionParser parser) {
@@ -72,7 +67,8 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 		return (DistributedJDBCStoreManager) getStore();
 	}
 
-	public Executor newDataStoreExecutor(ClassMetaData meta, boolean subs) {
+	@Override
+    public Executor newDataStoreExecutor(ClassMetaData meta, boolean subs) {
 		boolean parallel = !getContext().getStoreContext().getBroker()
 			.getMultithreaded();
         ParallelExecutor ex = new ParallelExecutor(this, meta, subs, _parser,
@@ -83,7 +79,8 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 		return ex;
 	}
 
-	public void setContext(QueryContext ctx) {
+	@Override
+    public void setContext(QueryContext ctx) {
 		super.setContext(ctx);
 		for (StoreQuery q : _queries)
 			q.setContext(ctx);
@@ -91,17 +88,18 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 
 	/**
 	 * Executes queries on multiple databases.
-	 * 
+	 *
 	 * @author Pinaki Poddar
-	 * 
+	 *
 	 */
 	public static class ParallelExecutor extends
 			ExpressionStoreQuery.DataStoreExecutor {
-		private List<Executor> executors = new ArrayList<Executor>();
+        private static final long serialVersionUID = 1L;
+        private List<Executor> executors = new ArrayList<>();
 		private DistributedStoreQuery owner = null;
 
         public ParallelExecutor(DistributedStoreQuery dsq, ClassMetaData meta,
-                boolean subclasses, ExpressionParser parser, Object parsed, 
+                boolean subclasses, ExpressionParser parser, Object parsed,
 				boolean parallel) {
 			super(dsq, meta, subclasses, parser, parsed);
 			owner = dsq;
@@ -115,18 +113,17 @@ class DistributedStoreQuery extends JDBCStoreQuery {
          * Each child query must be executed with slice context and not the
 		 * given query context.
 		 */
-		public ResultObjectProvider executeQuery(StoreQuery q,
+		@Override
+        public ResultObjectProvider executeQuery(StoreQuery q,
 				final Object[] params, final Range range) {
-			List<Future<ResultObjectProvider>> futures = 
-				new ArrayList<Future<ResultObjectProvider>>();
-            final List<Executor> usedExecutors = new ArrayList<Executor>();
-			final List<ResultObjectProvider> rops = 
-				new ArrayList<ResultObjectProvider>();
+			List<Future<ResultObjectProvider>> futures = new ArrayList<>();
+            final List<Executor> usedExecutors = new ArrayList<>();
+			final List<ResultObjectProvider> rops = new ArrayList<>();
 			List<SliceStoreManager> targets = findTargets();
 			QueryContext ctx = q.getContext();
 			boolean isReplicated = containsReplicated(ctx);
-            ExecutorService threadPool = SliceThread.newPool(
-                    owner._queries.size());
+            ExecutorService threadPool = SliceThread.getPool();
+
 			for (int i = 0; i < owner._queries.size(); i++) {
                 // if replicated, then execute only on single slice
 				if (isReplicated && !usedExecutors.isEmpty()) {
@@ -135,16 +132,12 @@ class DistributedStoreQuery extends JDBCStoreQuery {
                 StoreManager sm = owner.getDistributedStore().getSlice(i);
 				if (!targets.contains(sm))
 					continue;
-				StoreQuery query = owner._queries.get(i);
-				Executor executor = executors.get(i);
-				if (!targets.contains(sm))
-					continue;
-				usedExecutors.add(executor);
                 QueryExecutor call = new QueryExecutor();
-                call.executor = executor;
-                call.query = query;
+                call.executor = executors.get(i);
+                call.query = owner._queries.get(i);
                 call.params = params;
                 call.range = range;
+				usedExecutors.add(call.executor);
                 futures.add(threadPool.submit(call));
 			}
 			for (Future<ResultObjectProvider> future : futures) {
@@ -156,17 +149,15 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 					throw new StoreException(e.getCause());
 				}
 			}
-			
-			ResultObjectProvider[] tmp = rops
-                    .toArray(new ResultObjectProvider[rops.size()]);
+
+			ResultObjectProvider[] tmp = rops.toArray(new ResultObjectProvider[rops.size()]);
 			ResultObjectProvider result = null;
 			boolean[] ascending = getAscending(q);
 			boolean isAscending = ascending.length > 0;
 			boolean isAggregate = ctx.isAggregate();
 			boolean hasRange = ctx.getEndRange() != Long.MAX_VALUE;
 			if (isAggregate) {
-				result = new UniqueResultObjectProvider(tmp, q,
-						getQueryExpressions());
+				result = new UniqueResultObjectProvider(tmp, q,	getQueryExpressions());
 			} else if (isAscending) {
                 result = new OrderingMergedResultObjectProvider(tmp, ascending,
                     usedExecutors.toArray(new Executor[usedExecutors.size()]),
@@ -175,8 +166,7 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 				result = new MergedResultObjectProvider(tmp);
 			}
 			if (hasRange) {
-                result = new RangeResultObjectProvider(result,
-                        ctx.getStartRange(), ctx.getEndRange());
+                result = new RangeResultObjectProvider(result, ctx.getStartRange(), ctx.getEndRange());
 			}
 			return result;
 		}
@@ -185,34 +175,35 @@ class DistributedStoreQuery extends JDBCStoreQuery {
          * Scans metadata to find out if a replicated class is the candidate.
 		 */
 		boolean containsReplicated(QueryContext query) {
-			Class candidate = query.getCandidateType();
+			Class<?> candidate = query.getCandidateType();
+			DistributedConfiguration conf = (DistributedConfiguration)query.getStoreContext()
+			    .getConfiguration();
 			if (candidate != null) {
-                ClassMetaData meta = query.getStoreContext().getConfiguration()
-                        .getMetaDataRepositoryInstance().getMetaData(candidate,
-								null, true);
-				if (meta != null && meta.isReplicated())
-					return true;
+			    return conf.isReplicated(candidate);
 			}
 			ClassMetaData[] metas = query.getAccessPathMetaDatas();
 			if (metas == null || metas.length < 1)
 				return false;
-			for (ClassMetaData type : metas)
-				if (type.isReplicated())
+			for (ClassMetaData meta : metas)
+				if (conf.isReplicated(meta.getDescribedType()))
 					return true;
 			return false;
 		}
 
-		public Number executeDelete(StoreQuery q, Object[] params) {
-			Iterator<StoreQuery> qs = owner._queries.iterator();
-			List<Future<Number>> futures = null;
+		@Override
+        public Number executeDelete(StoreQuery q, Object[] params) {
+			List<Future<Number>> futures = new ArrayList<>();
 			int result = 0;
-            ExecutorService threadPool = SliceThread.newPool(executors.size());
-			for (Executor ex : executors) {
-				if (futures == null)
-                    futures = new ArrayList<Future<Number>>();
+            ExecutorService threadPool = SliceThread.getPool();
+			List<SliceStoreManager> targets = findTargets();
+			for (int i = 0; i < owner._queries.size(); i++) {
+                StoreManager sm = owner.getDistributedStore().getSlice(i);
+				if (!targets.contains(sm))
+					continue;
+
 				DeleteExecutor call = new DeleteExecutor();
-				call.executor = ex;
-				call.query = qs.next();
+				call.executor = executors.get(i);
+				call.query = owner._queries.get(i);
 				call.params = params;
 				futures.add(threadPool.submit(call));
 			}
@@ -230,14 +221,15 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 			return result;
 		}
 
-		public Number executeUpdate(StoreQuery q, Object[] params) {
+		@Override
+        public Number executeUpdate(StoreQuery q, Object[] params) {
 			Iterator<StoreQuery> qs = owner._queries.iterator();
 			List<Future<Number>> futures = null;
 			int result = 0;
-            ExecutorService threadPool = SliceThread.newPool(executors.size());
+            ExecutorService threadPool = SliceThread.getPool();
 			for (Executor ex : executors) {
 				if (futures == null)
-                    futures = new ArrayList<Future<Number>>();
+                    futures = new ArrayList<>();
 				UpdateExecutor call = new UpdateExecutor();
 				call.executor = ex;
 				call.query = qs.next();
@@ -258,11 +250,10 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 		}
 
 		List<SliceStoreManager> findTargets() {
-			FetchConfiguration fetch = owner.getContext()
-					.getFetchConfiguration();
+  		    FetchConfiguration fetch = owner.getContext().getFetchConfiguration();
 			return owner.getDistributedStore().getTargets(fetch);
 		}
-		
+
 	}
 
 	static class QueryExecutor implements Callable<ResultObjectProvider> {
@@ -271,7 +262,8 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 		Object[] params;
 		Range range;
 
-		public ResultObjectProvider call() throws Exception {
+		@Override
+        public ResultObjectProvider call() throws Exception {
 			return executor.executeQuery(query, params, range);
 		}
 	}
@@ -281,7 +273,8 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 		Executor executor;
 		Object[] params;
 
-		public Number call() throws Exception {
+		@Override
+        public Number call() throws Exception {
 			return executor.executeDelete(query, params);
 		}
 	}
@@ -291,7 +284,8 @@ class DistributedStoreQuery extends JDBCStoreQuery {
 		Executor executor;
 		Object[] params;
 
-		public Number call() throws Exception {
+		@Override
+        public Number call() throws Exception {
 		    return executor.executeUpdate(query, params);
 		}
 	}

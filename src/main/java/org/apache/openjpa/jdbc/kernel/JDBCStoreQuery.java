@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -42,11 +42,14 @@ import org.apache.openjpa.jdbc.kernel.exps.SQLExpression;
 import org.apache.openjpa.jdbc.kernel.exps.SQLValue;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.Discriminator;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
+import org.apache.openjpa.jdbc.meta.strats.NoneDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.jdbc.sql.PostgresDictionary;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.jdbc.sql.Select;
@@ -64,6 +67,8 @@ import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.kernel.exps.FilterListener;
 import org.apache.openjpa.kernel.exps.Literal;
 import org.apache.openjpa.kernel.exps.QueryExpressions;
+import org.apache.openjpa.kernel.exps.StringContains;
+import org.apache.openjpa.kernel.exps.WildcardMatch;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
@@ -78,10 +83,12 @@ import org.apache.openjpa.util.UserException;
  * JDBC query implementation.
  *
  * @author Abe White
- * @nojavadoc
  */
-public class JDBCStoreQuery 
+public class JDBCStoreQuery
     extends ExpressionStoreQuery {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Table INVALID = new Table();
 
@@ -90,8 +97,8 @@ public class JDBCStoreQuery
 
     static {
         // deprecated extensions
-        _listeners.put(JDBCStringContains.TAG, new JDBCStringContains());
-        _listeners.put(JDBCWildcardMatch.TAG, new JDBCWildcardMatch());
+        _listeners.put(StringContains.TAG, new JDBCStringContains());
+        _listeners.put(WildcardMatch.TAG, new JDBCWildcardMatch());
         _listeners.put(SQLExpression.TAG, new SQLExpression());
         _listeners.put(SQLValue.TAG, new SQLValue());
 
@@ -118,20 +125,24 @@ public class JDBCStoreQuery
         return _store;
     }
 
+    @Override
     public FilterListener getFilterListener(String tag) {
         return (FilterListener) _listeners.get(tag);
     }
 
+    @Override
     public Object newCompilationKey() {
         JDBCFetchConfiguration fetch = (JDBCFetchConfiguration) ctx
             .getFetchConfiguration();
         return fetch.getJoinSyntax();
     }
 
+    @Override
     public boolean supportsDataStoreExecution() {
         return true;
     }
 
+    @Override
     protected ClassMetaData[] getIndependentExpressionCandidates(
         ClassMetaData meta, boolean subclasses) {
         if (!subclasses)
@@ -139,10 +150,15 @@ public class JDBCStoreQuery
         return ((ClassMapping) meta).getIndependentAssignableMappings();
     }
 
+    @Override
     protected ExpressionFactory getExpressionFactory(ClassMetaData meta) {
-        return new JDBCExpressionFactory((ClassMapping) meta);
+        JDBCExpressionFactory factory = new JDBCExpressionFactory((ClassMapping) meta);
+        if (_store.getDBDictionary() instanceof PostgresDictionary)
+            factory.setBooleanLiteralAsNumeric(false);
+        return factory;
     }
-    
+
+    @Override
     protected ResultObjectProvider executeQuery(Executor ex,
         ClassMetaData base, ClassMetaData[] metas, boolean subclasses,
         ExpressionFactory[] facts, QueryExpressions[] exps, Object[] params,
@@ -156,7 +172,7 @@ public class JDBCStoreQuery
                 get("mult-mapping-aggregate", Arrays.asList(metas)));
 
         ClassMapping[] mappings = (ClassMapping[]) metas;
-        JDBCFetchConfiguration fetch = (JDBCFetchConfiguration) 
+        JDBCFetchConfiguration fetch = (JDBCFetchConfiguration)
             ctx.getFetchConfiguration();
         if (exps[0].fetchPaths != null) {
             fetch.addFields(Arrays.asList(exps[0].fetchPaths));
@@ -168,7 +184,7 @@ public class JDBCStoreQuery
         int eager = calculateEagerMode(exps[0], range.start, range.end);
         int subclassMode = fetch.getSubclassFetchMode((ClassMapping) base);
         DBDictionary dict = _store.getDBDictionary();
-        long start = (mappings.length == 1 && dict.supportsSelectStartIndex) 
+        long start = (mappings.length == 1 && dict.supportsSelectStartIndex)
             ? range.start : 0L;
         long end = (dict.supportsSelectEndIndex) ? range.end : Long.MAX_VALUE;
 
@@ -187,14 +203,14 @@ public class JDBCStoreQuery
         boolean unionable = createWhereSelects(sels, mappings, selMappings,
             subclasses, subclassBits, nextBits, facts, exps, states, ctx,
             subclassMode)
-            && subclassMode == JDBCFetchConfiguration.EAGER_JOIN
+            && subclassMode == EagerFetchModes.EAGER_JOIN
             && start == 0
             && end == Long.MAX_VALUE;
 
         // we might want to use lrs settings if we can't use the range
         if (sels.size() > 1)
             start = 0L;
-        boolean lrs = range.lrs || (fetch.getFetchBatchSize() >= 0 
+        boolean lrs = range.lrs || (fetch.getFetchBatchSize() >= 0
             && (start != range.start || end != range.end));
 
         ResultObjectProvider[] rops = null;
@@ -238,7 +254,7 @@ public class JDBCStoreQuery
         }
 
         // need to fake result range?
-        if ((rops != null && range.end != Long.MAX_VALUE) 
+        if ((rops != null && range.end != Long.MAX_VALUE)
             || start != range.start || end != range.end)
             rop = new RangeResultObjectProvider(rop, range.start, range.end);
 
@@ -257,6 +273,7 @@ public class JDBCStoreQuery
         final BitSet[] paged = (exps[0].projections.length > 0) ? null
             : new BitSet[mappings.length];
         union.select(new Union.Selector() {
+            @Override
             public void select(Select sel, int idx) {
                 BitSet bits = populateSelect(sel, mappings[idx], subclasses,
                     (JDBCExpressionFactory) facts[idx], exps[idx], states[idx],
@@ -283,7 +300,7 @@ public class JDBCStoreQuery
             paged = PagingResultObjectProvider.getPagedFields(sel, mapping,
                 _store, ctx.fetch, eager, end - start);
             if (paged != null)
-                eager = JDBCFetchConfiguration.EAGER_JOIN;
+                eager = EagerFetchModes.EAGER_JOIN;
         }
 
         fact.getSelectConstructor().select(sel, ctx, mapping, subclasses, exps,
@@ -295,16 +312,16 @@ public class JDBCStoreQuery
      * Execute the given union.
      */
     private ResultObjectProvider executeUnion(Union union,
-        ClassMapping[] mappings, QueryExpressions[] exps, 
+        ClassMapping[] mappings, QueryExpressions[] exps,
         QueryExpressionsState[] states, ExpContext ctx, BitSet[] paged) {
         if (exps[0].projections.length > 0)
             return new ProjectionResultObjectProvider(union, exps, states, ctx);
 
         if (paged != null)
-            for (int i = 0; i < paged.length; i++)
-                if (paged[i] != null)
+            for (BitSet bitSet : paged)
+                if (bitSet != null)
                     return new PagingResultObjectProvider(union, mappings,
-                        _store, ctx.fetch, paged, Long.MAX_VALUE);
+                            _store, ctx.fetch, paged, Long.MAX_VALUE);
 
         return new InstanceResultObjectProvider(union, mappings[0], _store,
             ctx.fetch);
@@ -314,14 +331,14 @@ public class JDBCStoreQuery
      * Execute the given select.
      */
     private ResultObjectProvider executeSelect(Select sel, ClassMapping mapping,
-        QueryExpressions exps, QueryExpressionsState state, ExpContext ctx, 
+        QueryExpressions exps, QueryExpressionsState state, ExpContext ctx,
         BitSet paged, long start, long end) {
         if (exps.projections.length > 0)
             return new ProjectionResultObjectProvider(sel, exps, state, ctx);
         if (paged != null)
-            return new PagingResultObjectProvider(sel, mapping, _store, 
+            return new PagingResultObjectProvider(sel, mapping, _store,
                 ctx.fetch, paged, end - start);
-        return new InstanceResultObjectProvider(sel, mapping, _store, 
+        return new InstanceResultObjectProvider(sel, mapping, _store,
             ctx.fetch);
     }
 
@@ -345,6 +362,11 @@ public class JDBCStoreQuery
             if (verts.length == 1 && subclasses)
                 subclassBits.set(sels.size());
 
+            Discriminator disc = mappings[i].getDiscriminator();
+            if (mappings.length > 1 && disc != null && disc.getColumns().length == 0 &&
+                disc.getStrategy() instanceof NoneDiscriminatorStrategy)
+                ctx.tpcMeta = mappings[i];
+
             // create criteria select and clone for each vert mapping
             sel = ((JDBCExpressionFactory) facts[i]).getSelectConstructor().
                 evaluate(ctx, null, null, exps[i], states[i]);
@@ -352,21 +374,57 @@ public class JDBCStoreQuery
                sel.setExpectedResultCount(optHint.intValue(), true);
             else if (this.ctx.isUnique())
                 sel.setExpectedResultCount(1, false);
-            for (int j = 0; j < verts.length; j++) {
-                selMappings.add(verts[j]);
-                if (j == verts.length - 1) {
-                    nextBits.set(sels.size());
-                    sels.add(sel);
-                } else
-                    sels.add(sel.fullClone(1));
+
+            List selectFrom = getJoinedTableMeta(sel);
+            int size = 0;
+            if (selectFrom != null) {
+                size = selectFrom.size();
+                for (int j = 0; j < size; j++) {
+                    ClassMapping vert = (ClassMapping)selectFrom.get(j);
+                    selMappings.add(vert);
+                    if (j == size - 1) {
+                        nextBits.set(sels.size());
+                        sel.select(vert.getPrimaryKeyColumns(), null);
+                        sels.add(sel);
+                    } else {
+                        SelectImpl selClone = (SelectImpl)sel.fullClone(1);
+                        selClone.select(vert.getPrimaryKeyColumns(), null);
+                        sels.add(selClone);
+                    }
+                }
+            } else {
+                for (int j = 0; j < verts.length; j++) {
+                    selMappings.add(verts[j]);
+                    if (j == verts.length - 1) {
+                        nextBits.set(sels.size());
+                        sels.add(sel);
+                    } else
+                        sels.add(sel.fullClone(1));
+                }
             }
 
             // turn off unioning if a given independent mapping requires
             // multiple selects, or if we're using FROM selects
-            if (verts.length > 1 || sel.getFromSelect() != null)
+            if (verts.length > 1 || size > 1 || sel.getFromSelect() != null)
                 unionable = false;
         }
         return unionable;
+    }
+
+    private List getJoinedTableMeta(Select sel) {
+        List selectFrom = sel.getJoinedTableClassMeta();
+        List exSelectFrom = sel.getExcludedJoinedTableClassMeta();
+        if (exSelectFrom == null)
+            return selectFrom;
+        if (selectFrom == null)
+            return null;
+        int size = selectFrom.size();
+        List retList = new ArrayList(size);
+        for (Object obj : selectFrom) {
+            if (!exSelectFrom.contains(obj))
+                retList.add(obj);
+        }
+        return retList;
     }
 
     /**
@@ -378,7 +436,7 @@ public class JDBCStoreQuery
         if (!subclasses || exps.projections.length > 0)
             return new ClassMapping[] { mapping };
 
-        if (subclassMode != JDBCFetchConfiguration.EAGER_PARALLEL
+        if (subclassMode != EagerFetchModes.EAGER_PARALLEL
             || !hasVerticalSubclasses(mapping))
             return new ClassMapping[] { mapping };
 
@@ -406,9 +464,9 @@ public class JDBCStoreQuery
 
         // recurse on immediate subclasses
         ClassMapping[] subMappings = mapping.getJoinablePCSubclassMappings();
-        for (int i = 0; i < subMappings.length; i++)
-            if (subMappings[i].getJoinablePCSuperclassMapping() == mapping)
-                addSubclasses(subMappings[i], subs);
+        for (ClassMapping subMapping : subMappings)
+            if (subMapping.getJoinablePCSuperclassMapping() == mapping)
+                addSubclasses(subMapping, subs);
     }
 
     /**
@@ -416,8 +474,8 @@ public class JDBCStoreQuery
      */
     private static boolean hasVerticalSubclasses(ClassMapping mapping) {
         ClassMapping[] subs = mapping.getJoinablePCSubclassMappings();
-        for (int i = 0; i < subs.length; i++)
-            if (subs[i].getStrategy() instanceof VerticalClassStrategy)
+        for (ClassMapping sub : subs)
+            if (sub.getStrategy() instanceof VerticalClassStrategy)
                 return true;
         return false;
     }
@@ -437,6 +495,7 @@ public class JDBCStoreQuery
         return EagerFetchModes.EAGER_PARALLEL;
     }
 
+    @Override
     protected Number executeDelete(Executor ex, ClassMetaData base,
         ClassMetaData[] metas, boolean subclasses, ExpressionFactory[] facts,
         QueryExpressions[] exps, Object[] params) {
@@ -444,6 +503,7 @@ public class JDBCStoreQuery
             params, null);
     }
 
+    @Override
     protected Number executeUpdate(Executor ex, ClassMetaData base,
         ClassMetaData[] metas, boolean subclasses, ExpressionFactory[] facts,
         QueryExpressions[] exps, Object[] params) {
@@ -458,7 +518,7 @@ public class JDBCStoreQuery
         for (int i = 0; i < exps.length; i++)
             ctxs[i] = exps[i].ctx();
         localContext.set(clone(ctxs, null));
-        
+
         // we cannot execute a bulk delete statement when have mappings in
         // multiple tables, so indicate we want to use in-memory with null
         ClassMapping[] mappings = (ClassMapping[]) metas;
@@ -467,21 +527,21 @@ public class JDBCStoreQuery
         // an update query; otherwise, this is a delete statement
         boolean isUpdate = updates != null && updates.size() > 0;
 
-        for (int i = 0; i < mappings.length; i++) {
-            if (!isSingleTableMapping(mappings[i], subclasses) && !isUpdate)
+        for (ClassMapping mapping : mappings) {
+            if (!isSingleTableMapping(mapping, subclasses) && !isUpdate)
                 return null;
 
             if (!isUpdate) {
                 // if there are any delete callbacks, we need to
                 // execute in-memory so the callbacks are invoked
                 LifecycleEventManager mgr = ctx.getStoreContext().getBroker()
-                    .getLifecycleEventManager();
-                if (mgr.hasDeleteListeners(null, mappings[i]))
+                        .getLifecycleEventManager();
+                if (mgr.hasDeleteListeners(null, mapping))
                     return null;
             }
         }
 
-        JDBCFetchConfiguration fetch = (JDBCFetchConfiguration) 
+        JDBCFetchConfiguration fetch = (JDBCFetchConfiguration)
             ctx.getFetchConfiguration();
         ExpContext ctx = new ExpContext(_store, params, fetch);
         DBDictionary dict = _store.getDBDictionary();
@@ -496,9 +556,9 @@ public class JDBCStoreQuery
             jdbcFactory = (JDBCExpressionFactory) facts[i];
             sel = jdbcFactory.getSelectConstructor().evaluate(ctx, null, null,
                 exps[i], state[i]);
-            jdbcFactory.getSelectConstructor().select(sel, ctx, mappings[i], 
-                subclasses, exps[i], state[i], 
-                JDBCFetchConfiguration.EAGER_NONE);
+            jdbcFactory.getSelectConstructor().select(sel, ctx, mappings[i],
+                subclasses, exps[i], state[i],
+                EagerFetchModes.EAGER_NONE);
 
             // The bulk operation will return null to indicate that the database
             // does not support the request bulk delete operation; in
@@ -521,22 +581,32 @@ public class JDBCStoreQuery
         long count = 0;
         try {
             PreparedStatement stmnt;
-            for (int i = 0; i < sql.length; i++) {
+            for (SQLBuffer sqlBuffer : sql) {
                 stmnt = null;
                 try {
-                    stmnt = prepareStatement(conn, sql[i]);
+                    stmnt = prepareStatement(conn, sqlBuffer);
                     dict.setTimeouts(stmnt, fetch, true);
-                    count += executeUpdate(conn, stmnt, sql[i], isUpdate);
-                } catch (SQLException se) {
-                    throw SQLExceptions.getStore(se, sql[i].getSQL(), 
-                        _store.getDBDictionary());
-                } finally {
+                    count += executeUpdate(conn, stmnt, sqlBuffer, isUpdate);
+                }
+                catch (SQLException se) {
+                    throw SQLExceptions.getStore(se, sqlBuffer.getSQL(),
+                            _store.getDBDictionary());
+                }
+                finally {
                     if (stmnt != null)
-                        try { stmnt.close(); } catch (SQLException se) {}
+                        try {
+                            stmnt.close();
+                        }
+                        catch (SQLException se) {
+                        }
                 }
             }
         } finally {
-            try { conn.close(); } catch (SQLException se) {}
+            try {
+                conn.close();
+            } catch (SQLException se) {
+
+            }
         }
 
         localContext.remove();
@@ -584,8 +654,8 @@ public class JDBCStoreQuery
      * use multiple tables.
      */
     private Table getTable(FieldMapping[] fields, Table table) {
-        for (int i = 0; i < fields.length; i++) {
-            table = getTable(fields[i], table);
+        for (FieldMapping field : fields) {
+            table = getTable(field, table);
             if (table == INVALID)
                 break;
         }
@@ -598,7 +668,7 @@ public class JDBCStoreQuery
      * returns INVALID. Also returns INVALID if field is dependent.
      */
     private Table getTable(FieldMapping fm, Table table) {
-        if (fm.getCascadeDelete() != ValueMetaData.CASCADE_NONE 
+        if (fm.getCascadeDelete() != ValueMetaData.CASCADE_NONE
             && !fm.isEmbeddedPC())
             return INVALID;
 
@@ -620,6 +690,7 @@ public class JDBCStoreQuery
         return null;
     }
 
+    @Override
     protected String[] getDataStoreActions(ClassMetaData base,
         ClassMetaData[] metas, boolean subclasses, ExpressionFactory[] facts,
         QueryExpressions[] exps, Object[] params, Range range) {
@@ -638,10 +709,10 @@ public class JDBCStoreQuery
             fetch.addFetchInnerJoins(Arrays.asList(exps[0].fetchInnerPaths));
 
         int eager = calculateEagerMode(exps[0], range.start, range.end);
-        eager = Math.min(eager, JDBCFetchConfiguration.EAGER_JOIN);
+        eager = Math.min(eager, EagerFetchModes.EAGER_JOIN);
         int subclassMode = fetch.getSubclassFetchMode((ClassMapping) base);
         DBDictionary dict = _store.getDBDictionary();
-        long start = (mappings.length == 1 && dict.supportsSelectStartIndex) 
+        long start = (mappings.length == 1 && dict.supportsSelectStartIndex)
             ? range.start : 0L;
         long end = (dict.supportsSelectEndIndex) ? range.end : Long.MAX_VALUE;
 
@@ -656,8 +727,8 @@ public class JDBCStoreQuery
         BitSet subclassBits = new BitSet();
         BitSet nextBits = new BitSet();
         boolean unionable = createWhereSelects(sels, mappings, selMappings,
-            subclasses, subclassBits, nextBits, facts, exps, states, ctx, 
-            subclassMode) && subclassMode == JDBCFetchConfiguration.EAGER_JOIN;
+            subclasses, subclassBits, nextBits, facts, exps, states, ctx,
+            subclassMode) && subclassMode == EagerFetchModes.EAGER_JOIN;
         if (sels.size() > 1)
             start = 0L;
 
@@ -688,32 +759,33 @@ public class JDBCStoreQuery
         localContext.remove();
         return sql;
     }
-    
+
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of executing update.
      */
-    protected int executeUpdate(Connection conn, PreparedStatement stmnt, 
+    protected int executeUpdate(Connection conn, PreparedStatement stmnt,
         SQLBuffer sqlBuf, boolean isUpdate) throws SQLException {
         return stmnt.executeUpdate();
     }
-            
+
     /**
-     * This method is to provide override for non-JDBC or JDBC-like 
+     * This method is to provide override for non-JDBC or JDBC-like
      * implementation of preparing statement.
      */
     protected PreparedStatement prepareStatement(Connection conn, SQLBuffer sql)
         throws SQLException {
         return sql.prepareStatement(conn);
-    }    
+    }
 
-    public Object evaluate(Object value, Object ob, Object[] params, 
+    @Override
+    public Object evaluate(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
         int id = 0;
         if (value instanceof org.apache.openjpa.jdbc.kernel.exps.Val)
             id = ((org.apache.openjpa.jdbc.kernel.exps.Val)value).getId();
         else
-            throw new UnsupportedException(); 
+            throw new UnsupportedException();
 
         switch(id) {
         case Val.MATH_VAL:
@@ -738,12 +810,12 @@ public class JDBCStoreQuery
             return handleAbsVal(value, ob, params, sm);
         case Val.SQRT_VAL:
             return handleSqrtVal(value, ob, params, sm);
-        default:    
+        default:
             throw new UnsupportedException();
         }
     }
 
-    private Object handleMathVal(Object value, Object ob, Object[] params, 
+    private Object handleMathVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
         org.apache.openjpa.jdbc.kernel.exps.Math mathVal =
             (org.apache.openjpa.jdbc.kernel.exps.Math) value;
@@ -756,19 +828,22 @@ public class JDBCStoreQuery
         Class c2 = value2.getType();
 
         String op = mathVal.getOperation();
-        if (op.equals(org.apache.openjpa.jdbc.kernel.exps.Math.ADD)) 
+        if (op.equals(org.apache.openjpa.jdbc.kernel.exps.Math.ADD))
             return Filters.add(val1, c1, val2, c2);
         else if (op.equals(
                 org.apache.openjpa.jdbc.kernel.exps.Math.SUBTRACT))
             return Filters.subtract(val1, c1, val2, c2);
         else if (op.equals(
-                org.apache.openjpa.jdbc.kernel.exps.Math.MULTIPLY)) 
+                org.apache.openjpa.jdbc.kernel.exps.Math.MULTIPLY))
             return Filters.multiply(val1, c1, val2, c2);
         else if (op.equals(
-                org.apache.openjpa.jdbc.kernel.exps.Math.DIVIDE)) 
+                org.apache.openjpa.jdbc.kernel.exps.Math.DIVIDE))
             return Filters.divide(val1, c1, val2, c2);
-        else if (op.equals(org.apache.openjpa.jdbc.kernel.exps.Math.MOD)) 
+        else if (op.equals(org.apache.openjpa.jdbc.kernel.exps.Math.MOD))
             return Filters.mod(val1, c1, val2, c2);
+        else if (op.equals(org.apache.openjpa.jdbc.kernel.exps.Math.POWER)) {
+            return Filters.power(val1, c1, val2, c2);
+        }
         throw new UnsupportedException();
     }
 
@@ -794,7 +869,7 @@ public class JDBCStoreQuery
         Val value2 = substrVal.getVal2();
         Object val2 = getValue(value2, ob, params, sm);
 
-        org.apache.openjpa.kernel.exps.Value[] valAry2 = 
+        org.apache.openjpa.kernel.exps.Value[] valAry2 =
             (org.apache.openjpa.kernel.exps.Value[]) val2;
         Object arg1 = getValue(valAry2[0], ob, params, sm); //starting pos
         Object arg2 = getValue(valAry2[1], ob, params, sm); // length
@@ -804,40 +879,40 @@ public class JDBCStoreQuery
         return val1.substring(startIdx, endIdx);
     }
 
-    private Object handleArgsVal(Object value, Object ob, Object[] params, 
+    private Object handleArgsVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
-        org.apache.openjpa.jdbc.kernel.exps.Args argsVal = 
+        org.apache.openjpa.jdbc.kernel.exps.Args argsVal =
             (org.apache.openjpa.jdbc.kernel.exps.Args) value;
         return argsVal.getValues();
     }
 
-    private Object handleLowerVal(Object value, Object ob, Object[] params, 
+    private Object handleLowerVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
-        org.apache.openjpa.jdbc.kernel.exps.ToLowerCase lowerVal = 
+        org.apache.openjpa.jdbc.kernel.exps.ToLowerCase lowerVal =
             (org.apache.openjpa.jdbc.kernel.exps.ToLowerCase) value;
         Val val = lowerVal.getValue();
         return ((String) getValue(val, ob, params, sm)).toLowerCase();
     }
 
-    private Object handleUpperVal(Object value, Object ob, Object[] params, 
+    private Object handleUpperVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm){
-        org.apache.openjpa.jdbc.kernel.exps.ToUpperCase upperVal = 
+        org.apache.openjpa.jdbc.kernel.exps.ToUpperCase upperVal =
             (org.apache.openjpa.jdbc.kernel.exps.ToUpperCase) value;
         Val val = upperVal.getValue();
         return ((String) getValue(val, ob, params, sm)).toUpperCase();
     }
 
-    private Object handleLengthVal(Object value, Object ob, Object[] params, 
+    private Object handleLengthVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm){
-        org.apache.openjpa.jdbc.kernel.exps.StringLength strLenVal = 
+        org.apache.openjpa.jdbc.kernel.exps.StringLength strLenVal =
             (org.apache.openjpa.jdbc.kernel.exps.StringLength) value;
         Val val = strLenVal.getValue();
         return ((String) getValue(val, ob, params, sm)).length();
     }
 
-    private Object handleTrimVal(Object value, Object ob, Object[] params, 
+    private Object handleTrimVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
-        org.apache.openjpa.jdbc.kernel.exps.Trim trimVal = 
+        org.apache.openjpa.jdbc.kernel.exps.Trim trimVal =
             (org.apache.openjpa.jdbc.kernel.exps.Trim) value;
         Val val = trimVal.getVal();
         String valStr = (String) getValue(val, ob, params, sm);
@@ -847,7 +922,7 @@ public class JDBCStoreQuery
         Boolean where = trimVal.getWhere();
         if (where == null) { //trim both
             return trimLeading(trimTrailing(valStr, trimCharObj), trimCharObj);
-        } else if (where.booleanValue()) { // trim leading
+        } else if (where) { // trim leading
             return trimLeading(valStr, trimCharObj);
         } else { // trim trailing
             return trimTrailing(valStr, trimCharObj);
@@ -880,7 +955,7 @@ public class JDBCStoreQuery
 
     private Object handleIndexOfVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
-        org.apache.openjpa.jdbc.kernel.exps.IndexOf locateVal = 
+        org.apache.openjpa.jdbc.kernel.exps.IndexOf locateVal =
             (org.apache.openjpa.jdbc.kernel.exps.IndexOf) value;
         String val1 = (String) getValue(locateVal.getVal1(), ob, params, sm);
         Val[] val2 = (Val[]) getValue(locateVal.getVal2(), ob, params, sm);
@@ -889,41 +964,39 @@ public class JDBCStoreQuery
         return strVal.indexOf(val1, idx);
     }
 
-    private Object handleAbsVal(Object value, Object ob, Object[] params, 
+    private Object handleAbsVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
-        org.apache.openjpa.jdbc.kernel.exps.Abs absVal = 
+        org.apache.openjpa.jdbc.kernel.exps.Abs absVal =
             (org.apache.openjpa.jdbc.kernel.exps.Abs) value;
         Object val = getValue(absVal.getValue(), ob, params, sm);
         Class c = val.getClass();
         if (c == Integer.class)
-            return new Integer(java.lang.Math.abs(((Integer) val).intValue()));
+            return Math.abs(((Integer) val).intValue());
         else if (c == Float.class)
-            return new Float(java.lang.Math.abs(((Float) val).floatValue()));
+            return Math.abs(((Float) val).floatValue());
         else if (c == Double.class)
-            return new Double(java.lang.Math.abs(((Double) val).doubleValue()));
+            return Math.abs(((Double) val).doubleValue());
         else if (c == Long.class)
-            return new Long(java.lang.Math.abs(((Long) val).longValue()));
+            return Math.abs(((Long) val).longValue());
         throw new UnsupportedException();
     }
 
-    private Object handleSqrtVal(Object value, Object ob, Object[] params, 
+    private Object handleSqrtVal(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
-        org.apache.openjpa.jdbc.kernel.exps.Sqrt sqrtVal = 
+        org.apache.openjpa.jdbc.kernel.exps.Sqrt sqrtVal =
             (org.apache.openjpa.jdbc.kernel.exps.Sqrt) value;
         Object val = getValue(sqrtVal.getValue(), ob, params, sm);
         Class c = val.getClass();
         if (c == Integer.class)
-            return new Double(java.lang.Math.sqrt(((Integer) val).
-                doubleValue()));
+            return Math.sqrt(((Integer) val).doubleValue());
         else if (c == Float.class)
-            return new Double(java.lang.Math.sqrt(((Float) val).floatValue()));
+            return Math.sqrt(((Float) val).floatValue());
         else if (c == Double.class)
-            return new Double(java.lang.Math.sqrt(((Double) val).
-                doubleValue()));
+            return Math.sqrt(((Double) val).doubleValue());
         else if (c == Long.class)
-            return new Double(java.lang.Math.sqrt(((Long) val).doubleValue()));
+            return Math.sqrt(((Long) val).doubleValue());
         throw new UnsupportedException();
-    }    
+    }
 
     private Object getValue(Object value, Object ob, Object[] params,
         OpenJPAStateManager sm) {
@@ -983,6 +1056,7 @@ public class JDBCStoreQuery
     }
 
     private static class ThreadLocalContext extends ThreadLocal<Context[]> {
+        @Override
         public Context[] initialValue() {
           return null;
         }
@@ -994,8 +1068,8 @@ public class JDBCStoreQuery
 
     public static Context getThreadLocalContext(Context orig) {
         Context[] root = localContext.get();
-        for (int i = 0; i < root.length; i++) {
-            Context lctx = getThreadLocalContext(root[i], orig);
+        for (Context context : root) {
+            Context lctx = getThreadLocalContext(context, orig);
             if (lctx != null)
                 return lctx;
         }
@@ -1007,10 +1081,10 @@ public class JDBCStoreQuery
             return null;
         Context[] lctx = JDBCStoreQuery.getThreadLocalContext();
         Context cloneFrom = select.ctx();
-        for (int i = 0; i < lctx.length; i++) {
-            Context cloneTo = getThreadLocalContext(lctx[i], cloneFrom);
+        for (Context context : lctx) {
+            Context cloneTo = getThreadLocalContext(context, cloneFrom);
             if (cloneTo != null)
-                return (Select)cloneTo.getSelect();
+                return (Select) cloneTo.getSelect();
         }
         return select;
     }
@@ -1059,10 +1133,10 @@ public class JDBCStoreQuery
         newCtx.subquery = orig.subquery;
         List<Context> subsels = orig.getSubselContexts();
         if (subsels != null) {
-            for (Context subsel : subsels) 
+            for (Context subsel : subsels)
                 newCtx.addSubselContext(clone(subsel, newCtx));
         }
 
-        return newCtx;        
+        return newCtx;
     }
 }

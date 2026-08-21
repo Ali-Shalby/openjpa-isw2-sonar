@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
@@ -22,31 +22,34 @@ import static org.apache.openjpa.persistence.query.PathOperator.NAVIGATION;
 
 /**
  * Path resulting by joining from a parent path via an attribute.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class JoinPath extends AbstractDomainObject implements DomainObject {
+    
+    private static final long serialVersionUID = 1L;
+
     public JoinPath(AbstractDomainObject parent, PathOperator join, String attr)
     {
 		super(parent.getOwner(), parent, join, attr);
 	}
-	
+
 	@Override
 	public String getAliasHint(AliasContext ctx) {
 		return getLastSegment();
 	}
-	
+
 	@Override
 	public String getLastSegment() {
 		return super.getLastSegment().toString();
 	}
-	
+
 	@Override
 	public AbstractDomainObject getParent() {
 		return (AbstractDomainObject)super.getParent();
 	}
-		
+
 	@Override
 	public String asJoinable(AliasContext ctx) {
 		return new StringBuilder(getOperator().toString())
@@ -56,7 +59,7 @@ public class JoinPath extends AbstractDomainObject implements DomainObject {
 		   .append(" ")
 		   .append(ctx.getAlias(this)).toString();
 	}
-	
+
 	@Override
 	public String asExpression(AliasContext ctx) {
 		if (ctx.hasAlias(this))
@@ -65,7 +68,7 @@ public class JoinPath extends AbstractDomainObject implements DomainObject {
 		       + NAVIGATION
 		       + getLastSegment();
 	}
-	
+
 	@Override
 	public String asProjection(AliasContext ctx) {
 		if (ctx.hasAlias(this))
@@ -74,8 +77,9 @@ public class JoinPath extends AbstractDomainObject implements DomainObject {
 		       + NAVIGATION
 		       + getLastSegment();
 	}
-	
-	public String toString() {
+
+	@Override
+    public String toString() {
         return getOperator() + getParent().toString() + "*" + getLastSegment();
 	}
 

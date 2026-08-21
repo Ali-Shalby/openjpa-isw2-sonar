@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -25,28 +25,27 @@ import java.io.IOException;
  * of a {@link MetaDataIterator}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public interface MetaDataFilter {
 
     /**
      * Return whether the given resource passes the filter.
      */
-    public boolean matches(Resource rsrc) throws IOException;
+    boolean matches(Resource rsrc) throws IOException;
 
     /**
      * Information about a metadata resource.
      */
-    public static interface Resource {
+    public interface Resource {
 
         /**
          * The name of the resource.
          */
-        public String getName();
+        String getName();
 
         /**
          * Resource content.
          */
-        public byte[] getContent() throws IOException;
+        byte[] getContent() throws IOException;
     }
 }

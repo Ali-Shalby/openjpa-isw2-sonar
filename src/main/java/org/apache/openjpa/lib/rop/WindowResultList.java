@@ -14,20 +14,18 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
 import java.io.ObjectStreamException;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 /**
  * ResultList implementation that uses a forward-scrolling window of results.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class WindowResultList extends AbstractNonSequentialResultList {
 
@@ -65,14 +63,17 @@ public class WindowResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     public boolean isProviderOpen() {
         return _state == OPEN;
     }
 
+    @Override
     public boolean isClosed() {
         return _state == CLOSED;
     }
 
+    @Override
     public void close() {
         if (_state != CLOSED) {
             free();
@@ -80,6 +81,7 @@ public class WindowResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     public int size() {
         assertOpen();
         if (_size != -1)
@@ -97,6 +99,7 @@ public class WindowResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     public Object getInternal(int index) {
         // out of range?
         if (index < 0 || (_size != -1 && index >= _size))
@@ -168,8 +171,9 @@ public class WindowResultList extends AbstractNonSequentialResultList {
 
         // load results into list
         List list = new ArrayList();
-        for (Iterator itr = iterator(); itr.hasNext();)
-            list.add(itr.next());
+        for (Object o : this) {
+            list.add(o);
+        }
         return list;
     }
 }

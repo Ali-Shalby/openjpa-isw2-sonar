@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
@@ -35,12 +35,13 @@ public enum LRSSizeAlgorithm implements OpenJPAEnum<Enum<?>> {
 
     private final int lrsConstant;
     private final String[] _names;
-    
+
     private LRSSizeAlgorithm(int value, String...aliases) {
         lrsConstant = value;
         _names = aliases;
     }
 
+    @Override
     public int toKernelConstant() {
         return lrsConstant;
     }
@@ -61,10 +62,12 @@ public enum LRSSizeAlgorithm implements OpenJPAEnum<Enum<?>> {
         }
     }
 
+    @Override
     public int convertToKernelConstant(String s) {
         return LRSSizeAlgorithm.toKernelConstantFromString(s);
     }
-    
+
+    @Override
     public int convertToKernelConstant(int i) {
         try {
             if (i == FetchConfiguration.DEFAULT)
@@ -74,7 +77,7 @@ public enum LRSSizeAlgorithm implements OpenJPAEnum<Enum<?>> {
             throw new IllegalArgumentException(i + " is invalid value for LRSSize Algorithm");
         }
     }
-    
+
     public static int toKernelConstantFromString(String s) {
         for (LRSSizeAlgorithm level : LRSSizeAlgorithm.values()) {
             for (String name : level._names) {

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -23,9 +23,11 @@ import java.io.Serializable;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.kernel.Query;
+import org.apache.openjpa.kernel.jpql.JPQLParser;
 import org.apache.openjpa.lib.meta.SourceTracker;
+import org.apache.openjpa.lib.util.OrderedMap;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.lib.xml.Commentable;
 
 /**
@@ -38,6 +40,8 @@ import org.apache.openjpa.lib.xml.Commentable;
 public class QueryMetaData
     implements MetaDataModes, SourceTracker, Commentable, Serializable {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final String[] EMPTY_KEYS = new String[0];
     private static final Object[] EMPTY_VALS = new Object[0];
 
@@ -56,14 +60,18 @@ public class QueryMetaData
     private List _hintKeys;
     private List _hintVals;
     private String _resultSetMappingName;
-    private int _lineNum;  
-    private int _colNum;  
+    private int _lineNum;
+    private int _colNum;
+    private String _srcName;
+    private boolean _convertPositionalParametersToNamed;
+    private OrderedMap<Object,Class<?>> _paramTypes;
 
     /**
      * Construct with the given name.
      */
-    protected QueryMetaData(String name) {
+    protected QueryMetaData(String name, boolean convertPositionalParametersToNamed) {
         _name = name;
+        _convertPositionalParametersToNamed = convertPositionalParametersToNamed;
     }
 
     /**
@@ -91,7 +99,7 @@ public class QueryMetaData
      * Whether the query has been marked read-only.
      */
     public boolean isReadOnly() {
-        return _readOnly != null && _readOnly.booleanValue();
+        return _readOnly != null && _readOnly;
     }
 
     /**
@@ -154,6 +162,9 @@ public class QueryMetaData
      * The full query string, or null if none.
      */
     public void setQueryString(String query) {
+        if (query != null && _convertPositionalParametersToNamed && JPQLParser.LANG_JPQL.equals(_language)) {
+            query = query.replaceAll("[\\?]", "\\:_");
+        }
         _query = query;
     }
 
@@ -191,7 +202,7 @@ public class QueryMetaData
     public void setResultSetMappingName(String setMappingName) {
         _resultSetMappingName = setMappingName;
     }
-    
+
     /**
      * Set query template information into the given concrete
      * query instance. However, the language, query string, and
@@ -201,12 +212,12 @@ public class QueryMetaData
     public void setInto(Query query) {
         if (_candidate != null)
             query.setCandidateType(_candidate, true);
-        if (!StringUtils.isEmpty(_query))
+        if (!StringUtil.isEmpty(_query))
             query.setQuery(_query);
         if (_res != null)
             query.setResultType(_res);
         if (_readOnly != null)
-            query.setReadOnly(_readOnly.booleanValue());
+            query.setReadOnly(_readOnly);
         if (_resultSetMappingName != null)
             query.setResultMapping(null, _resultSetMappingName);
     }
@@ -236,6 +247,7 @@ public class QueryMetaData
         _mode = mode;
     }
 
+    @Override
     public String toString() {
         return _name;
     }
@@ -244,10 +256,12 @@ public class QueryMetaData
     // Commentable
     ///////////////
 
+    @Override
     public String[] getComments() {
         return (_comments == null) ? EMPTY_COMMENTS : _comments;
     }
 
+    @Override
     public void setComments(String[] comments) {
         _comments = comments;
     }
@@ -256,28 +270,34 @@ public class QueryMetaData
     // SourceTracker implementation
     ////////////////////////////////
 
+    @Override
     public File getSourceFile() {
         return _file;
     }
 
+    @Override
     public Object getSourceScope() {
         return _scope;
     }
 
+    @Override
     public int getSourceType() {
         return _srcType;
     }
 
-    public void setSource(File file, Object scope, int srcType) {
+    public void setSource(File file, Object scope, int srcType, String srcName) {
         _file = file;
         _scope = scope;
         _srcType = srcType;
+        _srcName = srcName;
     }
 
+    @Override
     public String getResourceName() {
         return (_class == null) ? _name : _class.getName () + ":" + _name;
 	}
-    
+
+    @Override
     public int getLineNumber() {
         return _lineNum;
     }
@@ -286,11 +306,27 @@ public class QueryMetaData
         _lineNum = lineNum;
     }
 
+    @Override
     public int getColNumber() {
         return _colNum;
     }
 
     public void setColNumber(int colNum) {
         _colNum = colNum;
+    }
+
+    public String getSourceName() {
+        return _srcName;
+    }
+
+    public void setParamTypes(OrderedMap<Object, Class<?>> paramTypes) {
+        _paramTypes = paramTypes;
+    }
+
+    /**
+     * @return a map of parameter name to type for this named query or <b>null if this data hasn't been set.</b>
+     */
+    public OrderedMap<Object, Class<?>> getParamTypes() {
+        return _paramTypes;
     }
 }

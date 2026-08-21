@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -34,6 +34,8 @@ import org.apache.openjpa.meta.ClassMetaData;
  */
 public class Context implements Serializable {
 
+    
+    private static final long serialVersionUID = 1L;
     public final ParsedJPQL parsed;
     public ClassMetaData meta;
     public String schemaAlias;
@@ -43,10 +45,10 @@ public class Context implements Serializable {
     private final Context parent;
     private List<Context> subsels = null;
     private Object select = null;
-    protected int aliasCount = -1; 
-    private Map<String,Value> variables = new HashMap<String,Value>();
+    protected int aliasCount = -1;
+    private Map<String,Value> variables = new HashMap<>();
     private Map<String,ClassMetaData> schemas =
-        new HashMap<String,ClassMetaData>();
+        new HashMap<>();
 
     public Context(ParsedJPQL parsed, Subquery subquery, Context parent) {
         this.parsed = parsed;
@@ -63,7 +65,7 @@ public class Context implements Serializable {
         this.select = subquery.getSelect();
         parent.addSubselContext(this);
     }
-    
+
     public ClassMetaData meta() {
         return meta;
     }
@@ -78,7 +80,6 @@ public class Context implements Serializable {
 
     /**
      * Returns next table alias to be created.
-     * @return
      */
     public int nextAlias() {
         Context p = this;
@@ -103,7 +104,6 @@ public class Context implements Serializable {
 
     /**
      * Register the select for this context.
-     * @param select
      */
     public void setSelect(Object select) {
         this.select = select;
@@ -111,7 +111,6 @@ public class Context implements Serializable {
 
     /**
      * Returns the select associated with this context.
-     * @return
      */
     public Object getSelect() {
         return select;
@@ -119,19 +118,17 @@ public class Context implements Serializable {
 
     /**
      * Register the subquery context in this context.
-     * @param sub
      */
     public void addSubselContext(Context sub) {
         if (sub == null)
             return;
         if (subsels == null)
-            subsels = new ArrayList<Context>();
+            subsels = new ArrayList<>();
         subsels.add(sub);
     }
 
     /**
      * Returns the subquery context.
-     * @return
      */
     public List<Context> getSubselContexts() {
         return subsels;
@@ -139,7 +136,6 @@ public class Context implements Serializable {
 
     /**
      * Returns the subquery in this context.
-     * @return
      */
     public Subquery getSubquery() {
         return subquery;
@@ -181,11 +177,9 @@ public class Context implements Serializable {
 
     /**
      * Given an alias and return its associated variable.
-     * @param alias
-     * @return
      */
     public Value getVariable(String alias) {
-        Value variable = alias == null ? null 
+        Value variable = alias == null ? null
             : variables.get(alias.toLowerCase());
         return variable;
     }
@@ -193,8 +187,6 @@ public class Context implements Serializable {
     /**
      * Given an alias find the context of its associated
      * variable where it is defined.
-     * @param alias
-     * @return
      */
     public Context findContext(String alias) {
         Value var = getVariable(alias);
@@ -220,8 +212,6 @@ public class Context implements Serializable {
 
     /**
      * Given an alias find the variable in JPQL contexts.
-     * @param alias
-     * @return
      */
     public Value findVariable(String alias) {
         Value var = getVariable(alias);

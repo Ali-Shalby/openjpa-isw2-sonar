@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -25,10 +25,12 @@ package org.apache.openjpa.util;
  */
 public final class ShortId extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
     private final short key;
 
     public ShortId(Class cls, Short key) {
-        this(cls, (key == null) ? (short) 0 : key.shortValue());
+        this(cls, (key == null) ? (short) 0 : key);
     }
 
     public ShortId(Class cls, String key) {
@@ -49,18 +51,22 @@ public final class ShortId extends OpenJPAId {
         return key;
     }
 
+    @Override
     public Object getIdObject() {
-        return new Short(key);
+        return key;
     }
 
+    @Override
     public String toString() {
         return Short.toString(key);
     }
 
+    @Override
     protected int idHash() {
         return key;
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId o) {
         return key == ((ShortId) o).key;
     }

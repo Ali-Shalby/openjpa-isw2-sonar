@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
 import java.sql.Connection;
 
-import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.persistence.OpenJPAEnum;
 
 /**
@@ -52,7 +52,7 @@ public enum IsolationLevel implements OpenJPAEnum<IsolationLevel>{
     public static IsolationLevel fromConnectionConstant(int constant) {
         switch(constant) {
             case -1:
-            case JDBCFetchConfiguration.DEFAULT:
+            case FetchConfiguration.DEFAULT:
                 return DEFAULT;
 
             case Connection.TRANSACTION_NONE:
@@ -80,10 +80,11 @@ public enum IsolationLevel implements OpenJPAEnum<IsolationLevel>{
         return IsolationLevel.fromConnectionConstant(i);
     }
 
+    @Override
     public int toKernelConstant() {
         return getConnectionConstant();
     }
-    
+
     public static int toKernelConstantFromString(String s) {
         for (IsolationLevel level : IsolationLevel.values()) {
             for (String name : level._names) {
@@ -93,11 +94,13 @@ public enum IsolationLevel implements OpenJPAEnum<IsolationLevel>{
         }
         throw new IllegalArgumentException(s + " is not a valid name for " + IsolationLevel.class.getName());
     }
-    
+
+    @Override
     public int convertToKernelConstant(String s) {
         return IsolationLevel.toKernelConstantFromString(s);
     }
-    
+
+    @Override
     public int convertToKernelConstant(int i) {
         return IsolationLevel.fromConnectionConstant(i).toKernelConstant();
     }

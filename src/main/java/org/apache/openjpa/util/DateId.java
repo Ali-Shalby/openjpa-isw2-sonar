@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -28,6 +28,8 @@ import java.util.Date;
 public final class DateId
     extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Date key;
 
     public DateId(Class cls, String key) {
@@ -56,18 +58,22 @@ public final class DateId
         return key;
     }
 
+    @Override
     public Object getIdObject() {
         return getId();
     }
 
+    @Override
     public String toString() {
         return Long.toString(key.getTime());
     }
 
+    @Override
     protected int idHash() {
         return key.hashCode();
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId o) {
         return key.equals(((DateId) o).key);
     }

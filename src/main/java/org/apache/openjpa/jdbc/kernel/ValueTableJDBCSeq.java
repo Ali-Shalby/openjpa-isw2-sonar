@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -75,16 +75,17 @@ public class ValueTableJDBCSeq
         _value = value;
     }
 
+    @Override
     protected Column addPrimaryKeyColumn(Table table) {
         DBDictionary dict = getConfiguration().getDBDictionaryInstance();
-        Column pkColumn = table.addColumn(dict.getValidColumnName
-            (getPrimaryKeyColumnIdentifier(), table));
+        Column pkColumn = table.addColumn(dict.getValidColumnName(getPrimaryKeyColumnIdentifier(), table));
         pkColumn.setType(dict.getPreferredType(Types.VARCHAR));
         pkColumn.setJavaType(JavaTypes.STRING);
         pkColumn.setSize(dict.characterColumnSize);
         return pkColumn;
     }
 
+    @Override
     protected Object getPrimaryKey(ClassMapping mapping) {
         return _value;
     }
@@ -123,6 +124,7 @@ public class ValueTableJDBCSeq
         final String[] arguments = opts.setFromCmdLine(args);
         boolean ret = Configurations.runAgainstAllAnchors(opts,
             new Configurations.Runnable() {
+            @Override
             public boolean run(Options opts) throws Exception {
                 JDBCConfiguration conf = new JDBCConfigurationImpl();
                 try {
@@ -132,8 +134,11 @@ public class ValueTableJDBCSeq
                 }
             }
         });
-        if (!ret)
+        if (!ret) {
+            // START - ALLOW PRINT STATEMENTS
             System.out.println(_loc.get("clstable-seq-usage"));
+            // STOP - ALLOW PRINT STATEMENTS
+        }
     }
 
     /**
@@ -172,9 +177,11 @@ public class ValueTableJDBCSeq
             Connection conn = conf.getDataSource2(null).getConnection();
             try {
                 long cur = seq.getSequence(null, conn);
-                if (ACTION_GET.equals(action))
+                if (ACTION_GET.equals(action)) {
+                    // START - ALLOW PRINT STATEMENTS
                     System.out.println(seq.getPrimaryKeyValue() + ": " + cur);
-                else {
+                    // STOP - ALLOW PRINT STATEMENTS
+                } else {
                     long set;
                     if (args.length > 1)
                         set = Long.parseLong(args[1]);
@@ -188,7 +195,9 @@ public class ValueTableJDBCSeq
                             conn);
                         set = stat.seq;
                     }
+                    // START - ALLOW PRINT STATEMENTS
                     System.err.println(seq.getPrimaryKeyValue() + ": " + set);
+                    // STOP - ALLOW PRINT STATEMENTS
                 }
             }
             catch (NumberFormatException nfe) {

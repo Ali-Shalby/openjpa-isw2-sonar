@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
 
@@ -26,9 +26,8 @@ import java.util.Collection;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public class QueryResult
-    extends ArrayList<Object> {
+public class QueryResult extends ArrayList<Object> {
+    private static final long serialVersionUID = 1L;
 
     private final long _ex;
 

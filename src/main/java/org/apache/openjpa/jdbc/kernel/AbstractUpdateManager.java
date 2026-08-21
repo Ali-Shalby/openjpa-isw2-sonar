@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -34,6 +34,8 @@ import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.Strategy;
 import org.apache.openjpa.jdbc.meta.Version;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.jdbc.sql.Row;
+import org.apache.openjpa.jdbc.sql.RowImpl;
 import org.apache.openjpa.jdbc.sql.RowManager;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
@@ -41,7 +43,6 @@ import org.apache.openjpa.kernel.PCState;
 import org.apache.openjpa.kernel.StateManagerImpl;
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
-import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.OptimisticException;
@@ -57,17 +58,21 @@ public abstract class AbstractUpdateManager
     protected JDBCConfiguration conf = null;
     protected DBDictionary dict = null;
 
+    @Override
     public void setConfiguration(Configuration conf) {
         this.conf = (JDBCConfiguration) conf;
         dict = this.conf.getDBDictionaryInstance();
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 
+    @Override
     public Collection flush(Collection states, JDBCStore store) {
         Connection conn = store.getConnection();
         try {
@@ -86,25 +91,26 @@ public abstract class AbstractUpdateManager
         Collection customs = new LinkedList();
         Collection exceps = psMgr.getExceptions();
         Collection mappedByIdStates = new ArrayList();
-        for (Iterator itr = states.iterator(); itr.hasNext();) {
-            OpenJPAStateManager obj = (OpenJPAStateManager)itr.next();
+        for (Object state : states) {
+            OpenJPAStateManager obj = (OpenJPAStateManager) state;
             if (obj instanceof StateManagerImpl) {
                 StateManagerImpl sm = (StateManagerImpl) obj;
                 if (sm.getMappedByIdFields() != null)
                     mappedByIdStates.add(sm);
                 else exceps = populateRowManager(sm, rowMgr, store, exceps,
                         customs);
-            } else 
+            }
+            else
                 exceps = populateRowManager(obj, rowMgr, store, exceps,
                         customs);
         }
 
         // flush rows
         exceps = flush(rowMgr, psMgr, exceps);
-        
+
         if (mappedByIdStates.size() != 0) {
-            for (Iterator itr = mappedByIdStates.iterator(); itr.hasNext();) {
-                StateManagerImpl sm = (StateManagerImpl) itr.next();
+            for (Object mappedByIdState : mappedByIdStates) {
+                StateManagerImpl sm = (StateManagerImpl) mappedByIdState;
                 exceps = populateRowManager(sm, rowMgr, store, exceps, customs);
             }
             // flush rows
@@ -156,14 +162,17 @@ public abstract class AbstractUpdateManager
     protected Collection populateRowManager(OpenJPAStateManager sm,
         RowManager rowMgr, JDBCStore store, Collection exceps,
         Collection customs) {
+    	int action = Row.ACTION_UPDATE;
         try {
             BitSet dirty;
             if (sm.getPCState() == PCState.PNEW && !sm.isFlushed()) {
-                insert(sm, (ClassMapping) sm.getMetaData(), rowMgr, store,
+            	action = Row.ACTION_INSERT;
+            	insert(sm, (ClassMapping) sm.getMetaData(), rowMgr, store,
                     customs);
             } else if (sm.getPCState() == PCState.PNEWFLUSHEDDELETED
                 || sm.getPCState() == PCState.PDELETED) {
-                delete(sm, (ClassMapping) sm.getMetaData(), rowMgr, store,
+            	action = Row.ACTION_DELETE;
+            	delete(sm, (ClassMapping) sm.getMetaData(), rowMgr, store,
                     customs);
             } else if ((dirty = ImplHelper.getUpdateFields(sm)) != null) {
                 update(sm, dirty, (ClassMapping) sm.getMetaData(), rowMgr,
@@ -180,6 +189,10 @@ public abstract class AbstractUpdateManager
         } catch (SQLException se) {
             exceps = addException(exceps, SQLExceptions.getStore(se, dict));
         } catch (OpenJPAException ke) {
+        	RowImpl row = (RowImpl) rowMgr.getRow(((ClassMapping) sm.getMetaData()).getTable(), action, sm, false);
+            if (row != null) {
+                row.setFlushed(true);
+            }
             exceps = addException(exceps, ke);
         }
         return exceps;
@@ -221,13 +234,13 @@ public abstract class AbstractUpdateManager
             // the id fields. Once the id fields are fully populated,
             // we will then insert the id fields.
             fields = reorderFields(fields);
-        }  
-        
+        }
+
         BitSet dirty = sm.getDirty();
-        for (int i = 0; i < fields.length; i++) {
-            if (dirty.get(fields[i].getIndex())
-                && !bufferCustomInsert(fields[i], sm, store, customs)) {
-                fields[i].insert(sm, store, rowMgr);
+        for (FieldMapping field : fields) {
+            if (dirty.get(field.getIndex())
+                    && !bufferCustomInsert(field, sm, store, customs)) {
+                field.insert(sm, store, rowMgr);
             }
         }
         if (sup == null) {
@@ -239,19 +252,19 @@ public abstract class AbstractUpdateManager
                 dsc.insert(sm, store, rowMgr);
         }
     }
-    
+
     private FieldMapping[] reorderFields(FieldMapping[] fields) {
-        List<FieldMapping> pkFmds = new ArrayList<FieldMapping>();
+        List<FieldMapping> pkFmds = new ArrayList<>();
         FieldMapping[] ret = new FieldMapping[fields.length];
         int j = 0;
-        for (int i = 0; i < fields.length; i++) {
-            if (!fields[i].isPrimaryKey())
-                ret[j++] = fields[i];
+        for (FieldMapping field : fields) {
+            if (!field.isPrimaryKey())
+                ret[j++] = field;
             else
-                pkFmds.add(fields[i]);
+                pkFmds.add(field);
         }
-        for (int i = 0; i <pkFmds.size(); i++) {
-            ret[j++] = pkFmds.get(i);
+        for (FieldMapping pkFmd : pkFmds) {
+            ret[j++] = pkFmd;
         }
         return ret;
     }
@@ -282,9 +295,9 @@ public abstract class AbstractUpdateManager
             return;
 
         FieldMapping[] fields = mapping.getDefinedFieldMappings();
-        for (int i = 0; i < fields.length; i++)
-            if (!bufferCustomDelete(fields[i], sm, store, customs))
-                fields[i].delete(sm, store, rowMgr);
+        for (FieldMapping field : fields)
+            if (!bufferCustomDelete(field, sm, store, customs))
+                field.delete(sm, store, rowMgr);
 
         ClassMapping sup = mapping.getJoinablePCSuperclassMapping();
         if (sup == null) {
@@ -327,20 +340,19 @@ public abstract class AbstractUpdateManager
         // update all fields before all mappings so that the mappings can
         // detect whether any fields in their rows have been modified
         FieldMapping[] fields = mapping.getDefinedFieldMappings();
-        for (int i = 0; i < fields.length; i++) {
-            FieldMapping field = fields[i];
+        for (FieldMapping field : fields) {
             if (dirty.get(field.getIndex())
-                && !bufferCustomUpdate(field, sm, store, customs)) {
+                    && !bufferCustomUpdate(field, sm, store, customs)) {
                 field.update(sm, store, rowMgr);
                 if (!updateIndicators) {
                     FieldMapping[] inverseFieldMappings =
-                        field.getInverseMappings();
+                            field.getInverseMappings();
                     if (inverseFieldMappings.length == 0) {
                         updateIndicators = true;
                     }
                     else {
                         for (FieldMapping inverseFieldMapping :
-                            inverseFieldMappings) {
+                                inverseFieldMappings) {
                             if (inverseFieldMapping.getMappedBy() != null) {
                                 updateIndicators = true;
                                 break;

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -31,7 +31,7 @@ public interface QueryOperations {
      *
      * @see QueryContext#getOperation
      */
-    public static final int OP_SELECT = 1;
+    int OP_SELECT = 1;
 
     /**
      * Symbolic constant that indicates that this query will be
@@ -39,7 +39,7 @@ public interface QueryOperations {
      *
      * @see QueryContext#getOperation
      */
-    public static final int OP_DELETE = 2;
+    int OP_DELETE = 2;
 
     /**
      * Symbolic constant that indicates that this query will be
@@ -47,5 +47,5 @@ public interface QueryOperations {
      *
      * @see QueryContext#getOperation
      */
-    public static final int OP_UPDATE = 3;
+    int OP_UPDATE = 3;
 }

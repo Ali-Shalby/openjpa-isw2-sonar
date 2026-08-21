@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -22,12 +22,13 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.Localizer;
-import serp.util.Strings;
+import org.apache.openjpa.lib.util.StringUtil;
+import org.apache.openjpa.meta.ClassMetaData;
 
 /**
  * Simple {@link ReverseCustomizer} that uses a properties file to
@@ -82,15 +83,18 @@ public class PropertiesReverseCustomizer
     private Properties _props = null;
     private Set _unaccessed = null;
 
+    @Override
     public void setConfiguration(Properties props) {
         _props = props;
         _unaccessed = new TreeSet(props.keySet());
     }
 
+    @Override
     public void setTool(ReverseMappingTool tool) {
         this.tool = tool;
     }
 
+    @Override
     public int getTableType(Table table, int defaultType) {
         String type = getProperty(table.getName() + ".table-type");
         if (type == null && table.getSchemaName() != null)
@@ -113,6 +117,7 @@ public class PropertiesReverseCustomizer
             + type);
     }
 
+    @Override
     public String getClassName(Table table, String defaultName) {
         // check for a rename property or a table-naming property
         String name = getProperty(defaultName + ".rename");
@@ -141,30 +146,34 @@ public class PropertiesReverseCustomizer
         return name;
     }
 
+    @Override
     public void customize(ClassMapping cls) {
         // customize identity type
         String id = getProperty(cls.getDescribedType().getName()
             + ".identity");
         if ("datastore".equals(id)) {
             cls.setObjectIdType(null, false);
-            cls.setIdentityType(ClassMapping.ID_DATASTORE);
+            cls.setIdentityType(ClassMetaData.ID_DATASTORE);
         } else if ("builtin".equals(id)) {
             cls.setObjectIdType(null, false);
-            cls.setIdentityType(ClassMapping.ID_APPLICATION);
+            cls.setIdentityType(ClassMetaData.ID_APPLICATION);
         } else if (id != null)
             cls.setObjectIdType(tool.generateClass(id, null), false);
     }
 
+    @Override
     public String getClassCode(ClassMapping mapping) {
         return null;
     }
 
+    @Override
     public void customize(FieldMapping field) {
         String type = getProperty(field.getFullName(false) + ".type");
         if (type != null)
-            field.setDeclaredType(Strings.toClass(type, null));
+            field.setDeclaredType(ClassUtil.toClass(type, null));
     }
 
+    @Override
     public String getFieldName(ClassMapping dec, Column[] cols, ForeignKey fk,
         String defaultName) {
         // check for a rename property or a column-naming property
@@ -198,22 +207,27 @@ public class PropertiesReverseCustomizer
         return name;
     }
 
+    @Override
     public String getInitialValue(FieldMapping field) {
         return getProperty(field.getFullName(false) + ".value");
     }
 
+    @Override
     public String getDeclaration(FieldMapping field) {
         return null;
     }
 
+    @Override
     public String getFieldCode(FieldMapping field) {
         return null;
     }
 
+    @Override
     public boolean unmappedTable(Table table) {
         return false;
     }
 
+    @Override
     public void close() {
         if (!_unaccessed.isEmpty() && tool.getLog().isTraceEnabled())
             tool.getLog().trace(_loc.get("custom-unused-props", _unaccessed));
@@ -223,7 +237,7 @@ public class PropertiesReverseCustomizer
      * Return the property value for the given key, or null if none.
      */
     protected String getProperty(String key) {
-        String val = StringUtils.trimToNull(_props.getProperty(key));
+        String val = StringUtil.trimToNull(_props.getProperty(key));
         _unaccessed.remove(key);
         return val;
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -41,6 +41,9 @@ public abstract class AbstractDiscriminatorStrategy
     extends AbstractStrategy
     implements DiscriminatorStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage
         (AbstractDiscriminatorStrategy.class);
 
@@ -54,12 +57,14 @@ public abstract class AbstractDiscriminatorStrategy
      */
     protected boolean isFinal = false;
 
+    @Override
     public void setDiscriminator(Discriminator owner) {
         disc = owner;
         ClassMapping cls = disc.getClassMapping();
         isFinal = Modifier.isFinal(cls.getDescribedType().getModifiers());
     }
 
+    @Override
     public boolean select(Select sel, ClassMapping mapping) {
         return false;
     }
@@ -68,6 +73,7 @@ public abstract class AbstractDiscriminatorStrategy
      * By default, logs a warning that this discriminator cannot calculate
      * its list of subclasses on its own.
      */
+    @Override
     public void loadSubclasses(JDBCStore store)
         throws SQLException, ClassNotFoundException {
         if (!isFinal) {
@@ -80,16 +86,19 @@ public abstract class AbstractDiscriminatorStrategy
         disc.setSubclassesLoaded(true);
     }
 
+    @Override
     public Class getClass(JDBCStore store, ClassMapping base, Result result)
         throws SQLException, ClassNotFoundException {
         return base.getDescribedType();
     }
 
+    @Override
     public boolean hasClassConditions(ClassMapping base, boolean subs) {
         return false;
     }
 
-    public SQLBuffer getClassConditions(Select sel, Joins joins, 
+    @Override
+    public SQLBuffer getClassConditions(Select sel, Joins joins,
         ClassMapping base, boolean subs) {
         return null;
     }

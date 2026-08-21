@@ -26,17 +26,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import javax.persistence.Tuple;
-import javax.persistence.TupleElement;
-import javax.persistence.criteria.CompoundSelection;
-import javax.persistence.criteria.Expression;
-import javax.persistence.criteria.Fetch;
-import javax.persistence.criteria.Join;
-import javax.persistence.criteria.JoinType;
-import javax.persistence.criteria.Order;
-import javax.persistence.criteria.Root;
-import javax.persistence.criteria.Selection;
-import javax.persistence.metamodel.Type.PersistenceType;
+import jakarta.persistence.Tuple;
+import jakarta.persistence.TupleElement;
+import jakarta.persistence.criteria.CompoundSelection;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Fetch;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Order;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Selection;
+import jakarta.persistence.metamodel.Type.PersistenceType;
 
 import org.apache.openjpa.kernel.FillStrategy;
 import org.apache.openjpa.kernel.QueryOperations;
@@ -54,21 +54,21 @@ import org.apache.openjpa.persistence.meta.MetamodelImpl;
 
 /**
  * Converts expressions of a CriteriaQuery to kernel Expression.
- * 
- * 
+ *
+ *
  * @author Pinaki Poddar
  * @author Fay Wang
- * 
+ *
  * @since 2.0.0
  */
 class CriteriaExpressionBuilder {
-    
+
     public QueryExpressions getQueryExpressions(ExpressionFactory factory, CriteriaQueryImpl<?> q) {
         QueryExpressions exps = new QueryExpressions();
         exps.setContexts(q.getContexts());
 
         evalAccessPaths(exps, factory, q);
-        exps.alias = null;      // String   
+        exps.alias = null;      // String
         evalDistinct(exps, factory, q);
         evalFetchJoin(exps, factory, q);
         evalCrossJoinRoots(exps, factory, q);
@@ -85,8 +85,8 @@ class CriteriaExpressionBuilder {
     }
 
     protected void evalAccessPaths(QueryExpressions exps, ExpressionFactory factory, CriteriaQueryImpl<?> q) {
-        Set<ClassMetaData> metas = new HashSet<ClassMetaData>();
-        MetamodelImpl metamodel = q.getMetamodel();    
+        Set<ClassMetaData> metas = new HashSet<>();
+        MetamodelImpl metamodel = q.getMetamodel();
         for (Root<?> root : q.getRoots()) {
             metas.add(((AbstractManagedType<?>)root.getModel()).meta);
             for (Join<?,?> join : root.getJoins()) {
@@ -94,14 +94,13 @@ class CriteriaExpressionBuilder {
                 if (join.getAttribute().isAssociation()) {
                     ClassMetaData meta = metamodel.getRepository().getMetaData(cls, null, true);
                     PersistenceType type = MetamodelImpl.getPersistenceType(meta);
-                    if (type == PersistenceType.ENTITY || type == PersistenceType.EMBEDDABLE) 
+                    if (type == PersistenceType.ENTITY || type == PersistenceType.EMBEDDABLE)
                         metas.add(meta);
                 }
             }
-            for (Fetch<?,?> fetch : root.getFetches()) {
-                metas.add(metamodel.getRepository().getCachedMetaData(fetch.getAttribute().getJavaType()));
-            }
         }
+        // TODO -- need to handle subqueries
+
         exps.accessPath = metas.toArray(new ClassMetaData[metas.size()]);
     }
 
@@ -109,27 +108,27 @@ class CriteriaExpressionBuilder {
         Map<ExpressionImpl<?>, Value> exp2Vals = evalOrdering(exps, factory, q);
         evalProjections(exps, factory, q, exp2Vals);
     }
-    
+
     /**
      * Evaluates the ordering expressions by converting them to kernel values.
      * Sets the ordering fields of kernel QueryExpressions.
-     *   
+     *
      * @param exps kernel QueryExpressions
      * @param factory for kernel expressions
      * @param q a criteria query
-     * 
+     *
      * @return map of kernel values indexed by criteria query expressions that created it.
      * These kernel values are required to be held in a map to avoid recomputing for the
      * same CriteriaQuery Expressions appearing in ordering terms as well as projection
-     * term. 
-     * 
+     * term.
+     *
      */
-    protected Map<ExpressionImpl<?>, Value> evalOrdering(QueryExpressions exps, ExpressionFactory factory, 
+    protected Map<ExpressionImpl<?>, Value> evalOrdering(QueryExpressions exps, ExpressionFactory factory,
         CriteriaQueryImpl<?> q) {
         List<Order> orders = q.getOrderList();
-        MetamodelImpl model = q.getMetamodel(); 
+        MetamodelImpl model = q.getMetamodel();
         int ordercount = (orders == null) ? 0 : orders.size();
-        Map<ExpressionImpl<?>, Value> exp2Vals = new HashMap<ExpressionImpl<?>, Value>();
+        Map<ExpressionImpl<?>, Value> exp2Vals = new HashMap<>();
         exps.ordering = new Value[ordercount];
         exps.orderingClauses = new String[ordercount];
         exps.orderingAliases = new String[ordercount];
@@ -155,13 +154,13 @@ class CriteriaExpressionBuilder {
         List<Expression<?>> groups = q.getGroupList();
         MetamodelImpl model = q.getMetamodel();
         PredicateImpl having = q.getGroupRestriction();
-        if (groups == null) 
+        if (groups == null)
             return;
         int groupByCount = groups.size();
         exps.grouping = new Value[groupByCount];
         for (int i = 0; i < groupByCount; i++) {
-            Expression<?> groupBy = groups.get(i);    
-            exps.grouping[i] = Expressions.toValue((ExpressionImpl<?>)groupBy, factory, q);;
+            Expression<?> groupBy = groups.get(i);
+            exps.grouping[i] = Expressions.toValue((ExpressionImpl<?>)groupBy, factory, q);
         }
 
         exps.having = having == null ? null : having.toKernelExpression(factory, q);
@@ -184,22 +183,22 @@ class CriteriaExpressionBuilder {
                     var.setMetaData(((AbstractManagedType<?>)root.getModel()).meta);
                     q.registerRoot(root, var);
                 }
-            }         
+            }
         }
     }
-    
+
     protected void evalFilter(QueryExpressions exps, ExpressionFactory factory, CriteriaQueryImpl<?> q) {
         Set<Root<?>> roots = q.getRoots();
         MetamodelImpl model = q.getMetamodel();
         PredicateImpl where = q.getRestriction();
         SubqueryImpl<?> subQuery = q.getDelegator();
         org.apache.openjpa.kernel.exps.Expression filter = null;
-        if (subQuery == null || subQuery.getCorrelatedJoins().isEmpty()) 
+        if (subQuery == null || subQuery.getCorrelatedJoins().isEmpty())
             q.assertRoot();
-            
+
         for (Root<?> root : roots) {
             for (Join<?, ?> join : root.getJoins()) {
-                filter = Expressions.and(factory, 
+                filter = Expressions.and(factory,
                     ((ExpressionImpl<?>)join).toKernelExpression(factory, q), filter);
             }
             ((RootImpl<?>)root).addToContext(factory, model, q);
@@ -211,7 +210,7 @@ class CriteriaExpressionBuilder {
                     .toKernelExpression(factory, q), filter);
             }
         }
-        
+
         if (where != null) {
             filter = Expressions.and(factory, where.toKernelExpression(factory, q), filter);
         }
@@ -230,9 +229,9 @@ class CriteriaExpressionBuilder {
             return ;
         }
         exps.projections = new Value[selections.size()];
-        List<Value> projections = new ArrayList<Value>();
-        List<String> aliases = new ArrayList<String>();
-        List<String> clauses = new ArrayList<String>();
+        List<Value> projections = new ArrayList<>();
+        List<String> aliases = new ArrayList<>();
+        List<String> clauses = new ArrayList<>();
         getProjections(exps, selections, projections, aliases, clauses, factory, q, model, exp2Vals);
         exps.projections = projections.toArray(new Value[projections.size()]);
         exps.projectionAliases = aliases.toArray(new String[aliases.size()]);
@@ -242,46 +241,46 @@ class CriteriaExpressionBuilder {
     /**
      * Scans the projection terms to populate the kernel QueryExpressions projection clauses
      * and aliases.
-     *   
-     * @param exps 
+     *
+     * @param exps
      * @param selections
-     * @param projections list of kernel values for projections 
-     * @param aliases list of kernel projection aliases 
+     * @param projections list of kernel values for projections
+     * @param aliases list of kernel projection aliases
      * @param clauses list of kernel projection clauses
      * @param factory for kernel expressions
      * @param q a Criteria Query
      * @param model of domain entities
      * @param exp2Vals the evaluated kernel values indexed by the Criteria Expressions
      */
-    private void getProjections(QueryExpressions exps, List<Selection<?>> selections, 
-        List<Value> projections, List<String> aliases, List<String> clauses, 
-        ExpressionFactory factory, CriteriaQueryImpl<?> q, MetamodelImpl model, 
+    private void getProjections(QueryExpressions exps, List<Selection<?>> selections,
+        List<Value> projections, List<String> aliases, List<String> clauses,
+        ExpressionFactory factory, CriteriaQueryImpl<?> q, MetamodelImpl model,
         Map<ExpressionImpl<?>, Value> exp2Vals) {
 
         if (selections.size() == 0 && q.getDelegator() != null) { // this is subquery
             Root<?> r = q.getRoot();
-            selections = new ArrayList<Selection<?>>(1);
+            selections = new ArrayList<>(1);
             selections.add(r);
         }
         for (Selection<?> s : selections) {
             if (s.isCompoundSelection()) {
-                getProjections(exps, s.getCompoundSelectionItems(), projections, aliases, 
+                getProjections(exps, s.getCompoundSelectionItems(), projections, aliases,
                     clauses, factory, q, model, exp2Vals);
             } else {
-                Value val = (exp2Vals != null && exp2Vals.containsKey(s) 
+                Value val = (exp2Vals != null && exp2Vals.containsKey(s)
                         ? exp2Vals.get(s) : ((ExpressionImpl<?>)s).toValue(factory, q));
                 String alias = s.getAlias();
                 val.setAlias(alias);
                 projections.add(val);
                 aliases.add(alias);
                 clauses.add(alias);
-            }         
+            }
         }
     }
 
     protected void evalFetchJoin(QueryExpressions exps, ExpressionFactory factory, CriteriaQueryImpl<?> q) {
-        List<String> iPaths = new ArrayList<String>();
-        List<String> oPaths = new ArrayList<String>();
+        List<String> iPaths = new ArrayList<>();
+        List<String> oPaths = new ArrayList<>();
         Set<Root<?>> roots = q.getRoots();
         for (Root root : roots) {
             Set<Fetch> fetches = root.getFetches();
@@ -292,7 +291,7 @@ class CriteriaExpressionBuilder {
                 oPaths.add(fPath);
                 if (fetch.getJoinType() == JoinType.INNER) {
                    iPaths.add(fPath);
-                } 
+                }
             }
         }
         if (!iPaths.isEmpty()) {
@@ -306,10 +305,10 @@ class CriteriaExpressionBuilder {
     // ===================================================================================
     // Result Shape processing
     // ===================================================================================
-    
+
     /**
      * Gets the shape of a selection item. Creates the shape if necessary.
-     * 
+     *
      * @param q the original query
      * @param parent the parent shape that nests this given selection
      * @param s the selection term for which a result shape to be computed
@@ -330,7 +329,7 @@ class CriteriaExpressionBuilder {
             if (parent.getType().isArray() && q.isMultiselect()) {
                 Class<?> componentType = parent.getType().getComponentType();
                 if (componentType == Tuple.class) {
-                    result = new ResultShape(componentType, 
+                    result = new ResultShape(componentType,
                          new FillStrategy.Factory(new TupleFactory(s), TupleImpl.PUT), false);
                 } else {
                     result = new ResultShape(componentType, new FillStrategy.Assign(), true);
@@ -341,10 +340,10 @@ class CriteriaExpressionBuilder {
         }
         return result;
     }
-    
+
     /**
      * Builds the result shape by creating shape for the complete result and how it nests each selection terms.
-     * The shape varies based on whether the terms were selected based on multiselect() or select(). 
+     * The shape varies based on whether the terms were selected based on multiselect() or select().
      */
     private ResultShape<?> evalResultShape(CriteriaQueryImpl<?> q) {
         List<Selection<?>> selections = q.getSelectionList();
@@ -359,7 +358,7 @@ class CriteriaExpressionBuilder {
             FillStrategy<?> strategy = new FillStrategy.Assign();
             if (Tuple.class.isAssignableFrom(resultClass)) {
                 TupleFactory factory = new TupleFactory(selections.toArray(new TupleElement[selections.size()]));
-                strategy = new FillStrategy.Factory<Tuple>(factory,  TupleImpl.PUT);
+                strategy = new FillStrategy.Factory<>(factory,  TupleImpl.PUT);
             }
             result = new ResultShape(resultClass, strategy);
             if (q.getSelectionList() == null) {
@@ -373,7 +372,7 @@ class CriteriaExpressionBuilder {
                 }
             }
         }
-    
+
         return result;
    }
 }

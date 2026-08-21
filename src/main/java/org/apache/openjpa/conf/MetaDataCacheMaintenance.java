@@ -19,18 +19,18 @@
 package org.apache.openjpa.conf;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.Map;
 
 import org.apache.openjpa.kernel.Bootstrap;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.kernel.Query;
-import org.apache.openjpa.lib.util.Options;
-import org.apache.openjpa.lib.log.Log;
-import org.apache.openjpa.lib.conf.MapConfigurationProvider;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
+import org.apache.openjpa.lib.conf.MapConfigurationProvider;
+import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.meta.ClassMetaData;
+import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.meta.QueryMetaData;
 import org.apache.openjpa.meta.SequenceMetaData;
@@ -79,6 +79,7 @@ public class MetaDataCacheMaintenance {
     /**
      * @deprecated logging is routed to the logging system now.
      */
+    @Deprecated
     public MetaDataCacheMaintenance(BrokerFactory factory, boolean devpath,
         boolean verbose) {
         this(factory, devpath);
@@ -102,8 +103,10 @@ public class MetaDataCacheMaintenance {
     }
 
     private static int usage() {
+        // START - ALLOW PRINT STATEMENTS
         System.err.println("Usage: java MetaDataCacheMaintenance " +
             "[-scanDevPath t|f] [-<openjpa.PropertyName> value] store | dump");
+        // STOP - ALLOW PRINT STATEMENTS
         return -1;
     }
 
@@ -114,10 +117,11 @@ public class MetaDataCacheMaintenance {
      */
     public void store() {
         MetaDataRepository repos = conf.getMetaDataRepositoryInstance();
-        repos.setSourceMode(MetaDataRepository.MODE_ALL);
+        repos.setSourceMode(MetaDataModes.MODE_ALL);
         Collection types = repos.loadPersistentTypes(devpath, null);
-        for (Iterator iter = types.iterator(); iter.hasNext(); )
-            repos.getMetaData((Class) iter.next(), null, true);
+        for (Object type : types) {
+            repos.getMetaData((Class) type, null, true);
+        }
 
         loadQueries();
 
@@ -135,8 +139,9 @@ public class MetaDataCacheMaintenance {
         try {
             QueryMetaData[] qmds =
                 conf.getMetaDataRepositoryInstance().getQueryMetaDatas();
-            for (int i = 0; i < qmds.length; i++)
-                loadQuery(broker, qmds[i]);
+            for (QueryMetaData qmd : qmds) {
+                loadQuery(broker, qmd);
+            }
         } finally {
             broker.close();
         }
@@ -177,26 +182,29 @@ public class MetaDataCacheMaintenance {
         ClassMetaData[] metas = repos.getMetaDatas();
         log.info("  Types: " + metas.length);
         if (log.isTraceEnabled())
-            for (int i = 0; i < metas.length; i++)
-                log.trace("    " + metas[i].getDescribedType().getName());
+            for (ClassMetaData meta : metas) {
+                log.trace("    " + meta.getDescribedType().getName());
+            }
 
         QueryMetaData[] qmds = repos.getQueryMetaDatas();
         log.info("  Queries: " + qmds.length);
         if (log.isTraceEnabled())
-            for (int i = 0; i < qmds.length; i++)
-                log.trace("    " + qmds[i].getName() + ": "
-                    + qmds[i].getQueryString());
+            for (QueryMetaData qmd : qmds)
+                log.trace("    " + qmd.getName() + ": "
+                        + qmd.getQueryString());
 
         SequenceMetaData[] smds = repos.getSequenceMetaDatas();
         log.info("  Sequences: " + smds.length);
         if (log.isTraceEnabled())
-            for (int i = 0; i < smds.length; i++)
-                log.trace("    " + smds[i].getName());
+            for (SequenceMetaData smd : smds) {
+                log.trace("    " + smd.getName());
+            }
 
         log.info("  Compiled queries: "
             + (qcc == null ? "0" : "" + qcc.size()));
         if (log.isTraceEnabled() && qcc != null)
-            for (Iterator iter = qcc.keySet().iterator(); iter.hasNext(); )
-                log.trace("    " + iter.next());
+            for (Object o : qcc.keySet()) {
+                log.trace("    " + o);
+            }
     }
 }

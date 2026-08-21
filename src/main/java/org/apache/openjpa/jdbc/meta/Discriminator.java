@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -43,9 +43,10 @@ import org.apache.openjpa.util.InternalException;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public class Discriminator
     implements DiscriminatorStrategy, MetaDataContext, MetaDataModes {
+
+    private static final long serialVersionUID = 1L;
 
     /**
      * Null discriminator value marker.
@@ -65,8 +66,8 @@ public class Discriminator
     private Index _idx = null;
     private boolean _subsLoaded = false;
     private Object _value = null;
-    
-    private int _javaType = -1; 
+
+    private int _javaType = -1;
 
     /**
      * Constructor. Supply owning mapping.
@@ -76,6 +77,7 @@ public class Discriminator
         _info = getMappingRepository().newMappingInfo(this);
     }
 
+    @Override
     public MetaDataRepository getRepository() {
         return _mapping.getRepository();
     }
@@ -111,7 +113,7 @@ public class Discriminator
             try {
                 strategy.setDiscriminator(this);
                 if (adapt != null)
-                    strategy.map(adapt.booleanValue());
+                    strategy.map(adapt);
             } catch (RuntimeException re) {
                 // reset strategy
                 _strategy = orig;
@@ -189,8 +191,9 @@ public class Discriminator
      * Increment the reference count of used schema components.
      */
     public void refSchemaComponents() {
-        for (int i = 0; i < _cols.length; i++)
-            _cols[i].ref();
+        for (Column col : _cols) {
+            col.ref();
+        }
     }
 
     /**
@@ -326,83 +329,101 @@ public class Discriminator
     // DiscriminatorStrategy implementation
     ////////////////////////////////////////
 
+    @Override
     public String getAlias() {
         return assertStrategy().getAlias();
     }
 
+    @Override
     public void map(boolean adapt) {
         assertStrategy().map(adapt);
     }
 
+    @Override
     public void initialize() {
         assertStrategy().initialize();
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         assertStrategy().insert(sm, store, rm);
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         assertStrategy().update(sm, store, rm);
     }
 
+    @Override
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         assertStrategy().delete(sm, store, rm);
     }
 
+    @Override
     public Boolean isCustomInsert(OpenJPAStateManager sm, JDBCStore store) {
         return assertStrategy().isCustomInsert(sm, store);
     }
 
+    @Override
     public Boolean isCustomUpdate(OpenJPAStateManager sm, JDBCStore store) {
         return assertStrategy().isCustomUpdate(sm, store);
     }
 
+    @Override
     public Boolean isCustomDelete(OpenJPAStateManager sm, JDBCStore store) {
         return assertStrategy().isCustomDelete(sm, store);
     }
 
+    @Override
     public void customInsert(OpenJPAStateManager sm, JDBCStore store)
         throws SQLException {
         assertStrategy().customInsert(sm, store);
     }
 
+    @Override
     public void customUpdate(OpenJPAStateManager sm, JDBCStore store)
         throws SQLException {
         assertStrategy().customUpdate(sm, store);
     }
 
+    @Override
     public void customDelete(OpenJPAStateManager sm, JDBCStore store)
         throws SQLException {
         assertStrategy().customDelete(sm, store);
     }
 
+    @Override
     public void setDiscriminator(Discriminator owner) {
         assertStrategy().setDiscriminator(owner);
     }
 
+    @Override
     public boolean select(Select sel, ClassMapping mapping) {
         return assertStrategy().select(sel, mapping);
     }
 
+    @Override
     public void loadSubclasses(JDBCStore store)
         throws SQLException, ClassNotFoundException {
         assertStrategy().loadSubclasses(store);
     }
 
+    @Override
     public Class<?> getClass(JDBCStore store, ClassMapping base, Result result)
         throws SQLException, ClassNotFoundException {
         return assertStrategy().getClass(store, base, result);
     }
 
+    @Override
     public boolean hasClassConditions(ClassMapping base, boolean subs) {
         return assertStrategy().hasClassConditions(base, subs);
     }
 
-    public SQLBuffer getClassConditions(Select sel, Joins joins, 
+    @Override
+    public SQLBuffer getClassConditions(Select sel, Joins joins,
         ClassMapping base, boolean subs) {
         return assertStrategy().getClassConditions(sel, joins, base, subs);
     }
@@ -413,19 +434,20 @@ public class Discriminator
         return _strategy;
     }
 
+    @Override
     public String toString() {
         return _mapping + "<discriminator>";
     }
-    
+
     public void setJavaType(int javaType) {
         _javaType = javaType;
     }
-    
+
     public int getJavaType() {
         if (_javaType == -1) {
             ClassMapping superMapping = _mapping.getPCSuperclassMapping();
 
-            if (superMapping != null && 
+            if (superMapping != null &&
                 superMapping.getDiscriminator() != null) {
                 _javaType = superMapping.getDiscriminator().getJavaType();
             }

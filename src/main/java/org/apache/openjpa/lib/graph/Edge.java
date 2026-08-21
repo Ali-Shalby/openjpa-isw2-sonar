@@ -26,7 +26,6 @@ import java.util.List;
  *
  * @author Abe White
  * @since 1.0.0
- * @nojavadoc
  */
 public class Edge {
 
@@ -54,7 +53,7 @@ public class Edge {
     private int _type = 0;
     private double _weight = 0;
     private Object _userObj = null;
-    private List _cycle = null;
+    private List<Edge> _cycle = null;
     private boolean _removedFromGraph = false;
 
     /**
@@ -183,15 +182,15 @@ public class Edge {
      * List of edges forming a cycle. Only set for TYPE_BACK and TYPE_FORWARD
      * edges.
      */
-    public List getCycle() {
+    public List<Edge> getCycle() {
         return _cycle;
     }
-    
+
     /**
      * List of edges forming a cycle. Only set for TYPE_BACK and TYPE_FORWARD
      * edges.
      */
-    public void setCycle(List cycle) {
+    public void setCycle(List<Edge> cycle) {
         _cycle = cycle;
     }
 
@@ -217,6 +216,7 @@ public class Edge {
         _cycle = null;
     }
 
+    @Override
     public String toString() {
         return super.toString() + "[from=" + getFrom() + ";to=" + getTo()
             + ";directed=" + isDirected () + ";weight=" + getWeight () + "]";

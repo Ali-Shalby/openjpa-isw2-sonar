@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
@@ -31,15 +31,15 @@ public interface Configurable {
     /**
      * Invoked prior to setting bean properties.
      */
-    public void setConfiguration(Configuration conf);
+    void setConfiguration(Configuration conf);
 
     /**
      * Invoked before bean property configuration is begun on this object.
      */
-    public void startConfiguration();
+    void startConfiguration();
 
     /**
      * Invoked upon completion of bean property configuration for this object.
      */
-    public void endConfiguration();
+    void endConfiguration();
 }

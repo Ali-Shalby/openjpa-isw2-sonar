@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.conf;
 
@@ -29,7 +29,6 @@ import org.apache.openjpa.lib.conf.StringListValue;
  * optimize translation of Strings to bit flags.
  *
  * @author Steve Kim
- * @nojavadoc
  */
 class AutoDetachValue
     extends StringListValue {
@@ -38,17 +37,19 @@ class AutoDetachValue
     public static final String DETACH_COMMIT = "commit";
     public static final String DETACH_ROLLBACK= "rollback";
     public static final String DETACH_NONTXREAD = "nontx-read";
+    public static final String DETACH_NONE = "none";
 
     private static String[] ALIASES = new String[]{
         DETACH_CLOSE, String.valueOf(AutoDetach.DETACH_CLOSE),
         DETACH_COMMIT, String.valueOf(AutoDetach.DETACH_COMMIT),
         DETACH_NONTXREAD, String.valueOf(AutoDetach.DETACH_NONTXREAD),
         DETACH_ROLLBACK, String.valueOf(AutoDetach.DETACH_ROLLBACK),
+        DETACH_NONE, String.valueOf(AutoDetach.DETACH_NONE),
         // for compatibility with JDO DetachAllOnCommit
         "true", String.valueOf(AutoDetach.DETACH_COMMIT),
         "false", "0",
     };
-    
+
     private int _flags;
     private boolean _flagsSet;
 
@@ -58,6 +59,7 @@ class AutoDetachValue
         setAliasListComprehensive(true);
     }
 
+    @Override
     public Class getValueType() {
         return String[].class;
     }
@@ -69,18 +71,20 @@ class AutoDetachValue
     public int getConstant() {
         if (!_flagsSet) {
             String[] vals = get();
-            for (int i = 0; i < vals.length; i++)
-                _flags |= Integer.parseInt(unalias(vals[i]));
+            for (String val : vals) {
+                _flags |= Integer.parseInt(unalias(val));
+            }
             _flagsSet = true;
         }
-            
+
         return _flags;
     }
 
+    @Override
     protected List<String> getAliasList() {
         // We do not document the numeric values and they are not
         // helpful to someone trying to understand the error message
-        ArrayList<String> list = new ArrayList<String>();
+        ArrayList<String> list = new ArrayList<>();
         for (int x = 0; x < ALIASES.length; x += 2)
             list.add(ALIASES[x]);
         return list;

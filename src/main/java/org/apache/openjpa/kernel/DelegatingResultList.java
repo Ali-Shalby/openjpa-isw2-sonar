@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -33,7 +33,6 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  *
  * @since 0.4.0
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class DelegatingResultList<T>
     implements ResultList<T> {
@@ -79,6 +78,7 @@ public class DelegatingResultList<T>
         return _del;
     }
 
+    @Override
     public int hashCode() {
         try {
             return getInnermostDelegate().hashCode();
@@ -87,6 +87,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -106,6 +107,7 @@ public class DelegatingResultList<T>
         return (_trans == null) ? re : _trans.translate(re);
     }
 
+    @Override
     public boolean isProviderOpen() {
         try {
             return _del.isProviderOpen();
@@ -114,6 +116,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public Object getUserObject() {
         try {
             return _del.getUserObject();
@@ -121,7 +124,8 @@ public class DelegatingResultList<T>
             throw translate(re);
         }
     }
-    
+
+    @Override
     public void setUserObject(Object opaque) {
         try {
             _del.setUserObject(opaque);
@@ -130,6 +134,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public void close() {
         try {
             _del.close();
@@ -138,6 +143,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean isClosed() {
         try {
             return _del.isClosed();
@@ -146,6 +152,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public int size() {
         try {
             return _del.size();
@@ -154,6 +161,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean isEmpty() {
         try {
             return _del.isEmpty();
@@ -162,6 +170,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean contains(Object o) {
         try {
             return _del.contains(o);
@@ -170,10 +179,12 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public Iterator<T> iterator() {
         return listIterator();
     }
 
+    @Override
     public Object[] toArray() {
         try {
             return _del.toArray();
@@ -182,6 +193,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public Object[] toArray(Object[] a) {
         try {
             return _del.toArray(a);
@@ -190,6 +202,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean add(T o) {
         try {
             return _del.add(o);
@@ -198,6 +211,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean remove(Object o) {
         try {
             return _del.remove(o);
@@ -206,6 +220,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean containsAll(Collection<?> c) {
         try {
             return _del.containsAll(c);
@@ -214,6 +229,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean addAll(Collection<? extends T> c) {
         try {
             return _del.addAll(c);
@@ -222,6 +238,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean addAll(int index, Collection<? extends T> c) {
         try {
             return _del.addAll(index, c);
@@ -230,6 +247,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean removeAll(Collection<?> c) {
         try {
             return _del.removeAll(c);
@@ -238,6 +256,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public boolean retainAll(Collection<?> c) {
         try {
             return _del.retainAll(c);
@@ -246,6 +265,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public void clear() {
         try {
             _del.clear();
@@ -254,6 +274,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public T get(int index) {
         try {
             return _del.get(index);
@@ -262,6 +283,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public T set(int index, T element) {
         try {
             return _del.set(index, element);
@@ -270,6 +292,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public void add(int index, T element) {
         try {
             _del.add(index, element);
@@ -278,6 +301,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public T remove(int index) {
         try {
             return _del.remove(index);
@@ -286,6 +310,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public int indexOf(Object o) {
         try {
             return _del.indexOf(o);
@@ -294,6 +319,7 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public int lastIndexOf(Object o) {
         try {
             return _del.lastIndexOf(o);
@@ -302,22 +328,25 @@ public class DelegatingResultList<T>
         }
     }
 
+    @Override
     public ListIterator<T> listIterator() {
         try {
-            return new DelegatingListIterator<T>(_del.listIterator());
+            return new DelegatingListIterator<>(_del.listIterator());
         } catch (RuntimeException re) {
             throw translate(re);
         }
     }
 
+    @Override
     public ListIterator<T> listIterator(int index) {
         try {
-            return new DelegatingListIterator<T>(_del.listIterator(index));
+            return new DelegatingListIterator<>(_del.listIterator(index));
         } catch (RuntimeException re) {
             throw translate(re);
         }
     }
 
+    @Override
     public List<T> subList(int fromIndex, int toIndex) {
         try {
             return _del.subList(fromIndex, toIndex);
@@ -325,7 +354,8 @@ public class DelegatingResultList<T>
             throw translate(re);
         }
     }
-    
+
+    @Override
     public String toString() {
         try {
             return _del.toString();
@@ -364,6 +394,7 @@ public class DelegatingResultList<T>
                 ? ((DelegatingListIterator<T>) _del).getInnermostDelegate() : _del;
         }
 
+        @Override
         public int hashCode() {
             try {
                 return getInnermostDelegate().hashCode();
@@ -372,6 +403,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public boolean equals(Object other) {
             if (other == this)
                 return true;
@@ -384,6 +416,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public boolean hasNext() {
             try {
                 return _del.hasNext();
@@ -392,6 +425,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public T next() {
             try {
                 return _del.next();
@@ -400,6 +434,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public boolean hasPrevious() {
             try {
                 return _del.hasPrevious();
@@ -408,6 +443,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public T previous() {
             try {
                 return _del.previous();
@@ -416,6 +452,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public int nextIndex() {
             try {
                 return _del.nextIndex();
@@ -424,6 +461,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public int previousIndex() {
             try {
                 return _del.previousIndex();
@@ -432,6 +470,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public void remove() {
             try {
                 _del.remove();
@@ -440,6 +479,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public void set(T o) {
             try {
                 _del.set(o);
@@ -448,6 +488,7 @@ public class DelegatingResultList<T>
             }
         }
 
+        @Override
         public void add(T o) {
             try {
                 _del.add(o);

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -33,10 +33,12 @@ import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.Row;
 import org.apache.openjpa.jdbc.sql.RowManager;
 import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.kernel.LockLevels;
 import org.apache.openjpa.kernel.MixedLockLevels;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreManager;
@@ -54,6 +56,8 @@ import org.apache.openjpa.util.MetaDataException;
 public abstract class ColumnVersionStrategy
     extends AbstractVersionStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final Localizer _loc = Localizer.forPackage
         (ColumnVersionStrategy.class);
 
@@ -62,17 +66,17 @@ public abstract class ColumnVersionStrategy
      * strategy uses. This method is only used during mapping installation.
      */
     protected abstract int getJavaType();
-    
+
     /**
      * Return the code from {@link JavaTypes} for the version value this given
      * column index uses. Only used if the version strategy employs more than
-     * one column. 
+     * one column.
      */
     protected int getJavaType(int i) {
         throw new AbstractMethodError(_loc.get(
                 "multi-column-version-unsupported",getAlias()).toString());
     }
-    
+
     /**
      * Return the next version given the current one, which may be null.
      */
@@ -91,7 +95,7 @@ public abstract class ColumnVersionStrategy
             return -1;
         if (v2 == null)
             return 1;
-        
+
         if (v1.getClass().isArray()) {
         	if (!v2.getClass().isArray())
         		throw new InternalException();
@@ -110,15 +114,15 @@ public abstract class ColumnVersionStrategy
 
 
 	/**
-	 * Compare each element of the given arrays that must be of equal size. 
+	 * Compare each element of the given arrays that must be of equal size.
      * The given array values represent version values and the result designate
 	 * whether first version is earlier, same or later than the second one.
-	 * 
+	 *
 	 * @return If any element of a1 is later than corresponding element of
      * a2 then returns 1 i.e. the first version is later than the second
      * version. If each element of a1 is equal to corresponding element of a2
      * then return 0 i.e. the first version is same as the second version.
-	 * else return a negative number i.e. the first version is earlier than 
+	 * else return a negative number i.e. the first version is earlier than
 	 * the second version.
 	 */
 	protected int compare(Object[] a1, Object[] a2) {
@@ -127,13 +131,14 @@ public abstract class ColumnVersionStrategy
 		int total = 0;
 		for (int i = 0; i < a1.length; i++) {
 			int c =  compare(a1[i], a2[i]);
-			if (c > 0) 
+			if (c > 0)
 				return 1;
 			total += c;
 		}
 		return total;
 	}
-	
+
+    @Override
     public void map(boolean adapt) {
         ClassMapping cls = vers.getClassMapping();
         if (cls.getJoinablePCSuperclassMapping() != null
@@ -157,8 +162,9 @@ public abstract class ColumnVersionStrategy
         		templates[i].setIdentifier(infoColumn.getIdentifier());
         	}
         	Column[] cols = info.getColumns(vers, templates, adapt);
-        	for (int i = 0; i < cols.length; i++)
-        		cols[i].setVersionStrategy(this);
+            for (Column col : cols) {
+                col.setVersionStrategy(this);
+            }
         	vers.setColumns(cols);
         	vers.setColumnIO(info.getColumnIO());
         } else {
@@ -179,6 +185,7 @@ public abstract class ColumnVersionStrategy
         }
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Column[] cols = vers.getColumns();
@@ -196,6 +203,7 @@ public abstract class ColumnVersionStrategy
         sm.setNextVersion(nextVersion);
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Column[] cols = vers.getColumns();
@@ -229,6 +237,7 @@ public abstract class ColumnVersionStrategy
             sm.setNextVersion(nextVersion);
     }
 
+    @Override
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Column[] cols = vers.getColumns();
@@ -253,28 +262,39 @@ public abstract class ColumnVersionStrategy
         }
     }
 
+    @Override
     public boolean select(Select sel, ClassMapping mapping) {
         sel.select(vers.getColumns());
         return true;
     }
 
+    @Override
     public Object load(OpenJPAStateManager sm, JDBCStore store, Result res)
+        throws SQLException {
+        return this.load(sm, store, res, null);
+    }
+
+    @Override
+    public Object load(OpenJPAStateManager sm, JDBCStore store, Result res, Joins joins)
         throws SQLException {
         // typically if one version column is in the result, they all are, so
         // optimize by checking for the first one before doing any real work
         Column[] cols = vers.getColumns();
-        if (!res.contains(cols[0]))
+        if (!res.contains(cols[0], joins)) {
             return null;
+        }
 
-        Object version = populateFromResult(res);
+        Object version = populateFromResult(res, joins);
 
         // OPENJPA-662 Allow a null StateManager because this method may just be
         // invoked to get the result of projection query
-        if (sm != null)
+        if (sm != null) {
         	sm.setVersion(version);
+        }
         return version;
     }
 
+    @Override
     public boolean checkVersion(OpenJPAStateManager sm, JDBCStore store,
         boolean updateVersion)
         throws SQLException {
@@ -283,11 +303,11 @@ public abstract class ColumnVersionStrategy
         sel.select(cols);
         sel.wherePrimaryKey(sm.getObjectId(), vers.getClassMapping(), store);
 
-        // No need to lock version field (i.e. optimistic), except when version update is required (e.g. refresh) 
+        // No need to lock version field (i.e. optimistic), except when version update is required (e.g. refresh)
         JDBCFetchConfiguration fetch = store.getFetchConfiguration();
         if (!updateVersion && fetch.getReadLockLevel() >= MixedLockLevels.LOCK_PESSIMISTIC_READ) {
             fetch = (JDBCFetchConfiguration) fetch.clone();
-            fetch.setReadLockLevel(MixedLockLevels.LOCK_NONE);
+            fetch.setReadLockLevel(LockLevels.LOCK_NONE);
         }
         Result res = sel.execute(store, fetch);
         try {
@@ -295,7 +315,7 @@ public abstract class ColumnVersionStrategy
                 return false;
 
             Object memVersion = sm.getVersion();
-            Object dbVersion  = populateFromResult(res);
+            Object dbVersion  = populateFromResult(res, null);
             boolean refresh   = compare(memVersion, dbVersion) < 0;
 
             if (updateVersion)
@@ -306,6 +326,7 @@ public abstract class ColumnVersionStrategy
         }
     }
 
+    @Override
     public int compareVersion(Object v1, Object v2) {
         if (v1 == v2)
             return StoreManager.VERSION_SAME;
@@ -319,33 +340,33 @@ public abstract class ColumnVersionStrategy
             return StoreManager.VERSION_LATER;
         return StoreManager.VERSION_SAME;
     }
-        
+
     /**
      * Populate values of a version object from the given result.
-     * 
+     *
      * @return a single Object or an array depending on whether using a single
      * or multiple columns being used for representation.
     */
-    Object populateFromResult(Result res) throws SQLException {
+    Object populateFromResult(Result res, Joins joins) throws SQLException {
         if (res == null)
  		return null;
-    	
+
         Column[] cols = vers.getColumns();
         Object[] values = new Object[cols.length];
         for (int i = 0; i < cols.length; i++) {
-            values[i] = res.getObject(cols[i], -1, null);
+            values[i] = res.getObject(cols[i], null, joins);
         }
         return (cols.length == 1) ? values[0] : values;
     }
-    
+
     Object getColumnValue(Object o, int idx) {
-    	if (o == null) 
+    	if (o == null)
     		return null;
     	if (o.getClass().isArray())
     		return Array.get(o, idx);
     	return o;
     }
-    
+
     boolean isSecondaryColumn(Column col, OpenJPAStateManager sm) {
     	ClassMapping mapping = (ClassMapping)sm.getMetaData();
     	while (mapping != null) {

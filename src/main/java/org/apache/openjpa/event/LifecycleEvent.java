@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -30,6 +30,9 @@ import java.util.EventObject;
  */
 public class LifecycleEvent
     extends EventObject {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Event type before an instance is made persistent

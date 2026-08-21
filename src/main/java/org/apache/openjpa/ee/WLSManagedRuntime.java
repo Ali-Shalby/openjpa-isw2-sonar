@@ -14,13 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ee;
 
 import java.lang.reflect.Method;
-import javax.transaction.Transaction;
-import javax.transaction.TransactionManager;
+
+import jakarta.transaction.Transaction;
+import jakarta.transaction.TransactionManager;
 
 /**
  * {@link ManagedRuntime} implementation that directly accesses the
@@ -42,6 +43,7 @@ public class WLSManagedRuntime extends AbstractManagedRuntime
         _txManagerMeth = txHelper.getMethod("getTransactionManager", null);
     }
 
+    @Override
     public TransactionManager getTransactionManager()
         throws Exception {
         // return TransactionHelper.getTransactionHelper ().
@@ -50,6 +52,7 @@ public class WLSManagedRuntime extends AbstractManagedRuntime
         return (TransactionManager) _txManagerMeth.invoke(o, null);
     }
 
+    @Override
     public void setRollbackOnly(Throwable cause)
         throws Exception {
         Transaction transaction = getTransactionManager().getTransaction();
@@ -65,6 +68,7 @@ public class WLSManagedRuntime extends AbstractManagedRuntime
         }
     }
 
+    @Override
     public Throwable getRollbackCause()
         throws Exception {
         Transaction transaction = getTransactionManager().getTransaction();

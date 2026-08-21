@@ -14,10 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
+import java.io.InputStream;
+import java.io.StringReader;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.security.AccessController;
@@ -31,14 +34,18 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
@@ -47,11 +54,11 @@ import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
+import org.apache.openjpa.jdbc.schema.ForeignKey.FKMapKey;
 import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
-import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
-import org.apache.openjpa.jdbc.schema.ForeignKey.FKMapKey;
+import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.jdbc.DelegatingDatabaseMetaData;
 import org.apache.openjpa.lib.jdbc.DelegatingPreparedStatement;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
@@ -79,18 +86,27 @@ public class OracleDictionary
 
     private static final Localizer _loc = Localizer.forPackage
         (OracleDictionary.class);
-
     /**
      * If true, then simulate auto-assigned values in Oracle by
      * using a trigger that inserts a sequence value into the
      * primary key value when a row is inserted.
      */
+    @Deprecated
     public boolean useTriggersForAutoAssign = false;
 
     /**
      * The global sequence name to use for autoassign simulation.
      */
+    @Deprecated
     public String autoAssignSequenceName = null;
+
+    /**
+     * Whether this JDBC driver has native java.time support for
+     * LocalDate, LocalDateTime, LocalTime, OffsetTime and OffsetDateTime
+     *
+     *
+     */
+    public boolean nativeJavaTimeSupport = true;
 
     /**
      * Flag to use OpenJPA 0.3 style naming for auto assign sequence name and
@@ -105,18 +121,51 @@ public class OracleDictionary
      */
     public boolean useSetFormOfUseForUnicode = true;
 
+    /**
+     * This variable was used prior to 2.1.x to indicate that OpenJPA should attempt to use
+     * a Reader-based JDBC 4.0 method to set Clob or XML data.  It allowed XMLType and
+     * Clob values larger than 4000 bytes to be used.  For 2.1.x+, code was added to allow
+     * said functionality by default (see OPENJPA-1691).  For forward compatibility, this
+     * variable should not be removed.
+     */
+    @Deprecated
+    public boolean supportsSetClob = false;
+
+    /**
+     * If a user sets the previous variable (supportsSetClob) to true, we should log a
+     * warning indicating that the variable no longer has an effect due to the code changes
+     * of OPENJPA-1691.  We only want to log the warning once per instance, thus this
+     * variable will be used to indicate if the warning should be printed or not.
+     */
+    @Deprecated
+    private boolean logSupportsSetClobWarning = true;
+
+    /**
+     * Type constructor for XML column, used in INSERT and UPDATE statements.
+     */
+    public String xmlTypeMarker = "XMLType(?)";
+
     // some oracle drivers have problems with select for update; warn the
     // first time locking is attempted
     private boolean _checkedUpdateBug = false;
+
     private boolean _warnedCharColumn = false;
     private boolean _warnedNcharColumn = false;
     private int _driverBehavior = -1;
-
     // cache lob methods
     private Method _putBytes = null;
+
     private Method _putString = null;
     private Method _putChars = null;
-    
+    // cache some native Oracle classes and methods
+    private Class oraclePreparedStatementClass = null;
+
+    private Field oraclePreparedStatementFormNvarcharField = null;
+    private Method oracleClob_empty_lob_Method = null;
+    private Method oracleBlob_empty_lob_Method = null;
+    private Method oracleClob_isEmptyLob_Method = null;
+
+
     // batch limit
     private int defaultBatchLimit = 100;
 
@@ -133,6 +182,14 @@ public class OracleDictionary
         maxEmbeddedBlobSize = 4000;
         maxEmbeddedClobSize = 4000;
         inClauseLimit = 1000;
+
+        if (supportsAutoAssign && useTriggersForAutoAssign) {
+            log.warn("Both 'supportsAutoAssign' and 'useTriggersForAutoAssign' were specified, such configuration will never work,"
+                    + " please use 'supportsAutoAssign'");
+        }
+        // support auto increment columns jakarta.persistence.GenerationType#IDENTITY
+        supportsAutoAssign = true;
+        autoAssignClause = "GENERATED ALWAYS AS IDENTITY";
 
         supportsDeferredConstraints = true;
         supportsLockingWithDistinctClause = false;
@@ -158,6 +215,11 @@ public class OracleDictionary
         varbinaryTypeName = "BLOB";
         longVarbinaryTypeName = "BLOB";
         timeTypeName = "DATE";
+        timeWithZoneTypeName = "DATE";
+
+        // default TIMESTAMP is TIMESTAMP(6) which means MICROs
+        datePrecision = MICRO;
+
         varcharTypeName = "VARCHAR2{0}";
         fixedSizeTypeNameSet.addAll(Arrays.asList(new String[]{
             "LONG RAW", "RAW", "LONG", "REF",
@@ -171,35 +233,69 @@ public class OracleDictionary
 
         // reservedWordSet subset that CANNOT be used as valid column names
         // (i.e., without surrounding them with double-quotes)
-        invalidColumnWordSet.addAll(Arrays.asList(new String[]{
-            "ACCESS", "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUDIT",
-            "BETWEEN", "BY", "CHAR", "CHECK", "CLUSTER", "COLUMN", "COMMENT",
-            "COMPRESS", "CONNECT", "CREATE", "CURRENT", "DATE", "DECIMAL",
-            "DEFAULT", "DELETE", "DESC", "DISTINCT", "DROP", "ELSE", "END-EXEC",
-            "EXCLUSIVE", "EXISTS", "FILE", "FLOAT", "FOR", "FROM", "GRANT",
-            "GROUP", "HAVING", "IDENTIFIED", "IMMEDIATE", "IN", "INCREMENT",
-            "INDEX", "INITIAL", "INSERT", "INTEGER", "INTERSECT", "INTO",
-            "IS", "LEVEL", "LIKE", "LOCK", "LONG", "MAXEXTENTS", "MINUS",
-            "MODE", "NOAUDIT", "NOCOMPRESS", "NOT", "NOWAIT", "NULL", "NUMBER",
-            "OF", "OFFLINE", "ON", "ONLINE", "OPTION", "OR", "ORDER", "PCTFREE",
-            "PRIOR", "PRIVILEGES", "PUBLIC", "REVOKE", "ROW", "ROWS", "SELECT",
-            "SESSION", "SET", "SIZE", "SMALLINT", "TABLE", "THEN", "TO",
-            "UNION", "UNIQUE", "UPDATE", "USER", "VALUES", "VARCHAR", "VIEW",
-            "WHENEVER", "WHERE", "WITH",
+        // generated at 2021-05-02T16:36:42.608 via org.apache.openjpa.reservedwords.ReservedWordsIT
+        invalidColumnWordSet.addAll(Arrays.asList(new String[] {
+            "ACCESS", "ADD", "ALL", "ALTER", "AND", "ANY", "AS", "ASC", "AUDIT", "BETWEEN", "BY", "CHAR", "CHECK", "CLUSTER",
+            "COLUMN", "COMMENT", "COMPRESS", "CONNECT", "CREATE", "CURRENT", "DATE", "DECIMAL", "DEFAULT", "DELETE", "DESC",
+            "DISTINCT", "DROP", "ELSE", "END-EXEC", "EXCLUSIVE", "EXISTS", "FILE", "FLOAT", "FOR", "FROM", "GRANT", "GROUP",
+            "HAVING", "IDENTIFIED", "IMMEDIATE", "IN", "INCREMENT", "INDEX", "INITIAL", "INSERT", "INTEGER", "INTERSECT", "INTO",
+            "IS", "LEVEL", "LIKE", "LOCK", "LONG", "MAXEXTENTS", "MINUS", "MLSLABEL", "MODE", "MODIFY", "NOAUDIT", "NOCOMPRESS",
+            "NOT", "NOWAIT", "NULL", "NUMBER", "OF", "OFFLINE", "ON", "ONLINE", "OPTION", "OR", "ORDER", "PCTFREE", "PRIOR",
+            "PUBLIC", "RAW", "RENAME", "RESOURCE", "REVOKE", "ROW", "ROWID", "ROWNUM", "ROWS", "SELECT", "SESSION", "SET",
+            "SHARE", "SIZE", "SMALLINT", "START", "SUCCESSFUL", "SYNONYM", "SYSDATE", "TABLE", "THEN", "TO", "TRIGGER", "UID",
+            "UNION", "UNIQUE", "UPDATE", "USER", "VALIDATE", "VALUES", "VARCHAR", "VARCHAR2", "VIEW", "WHENEVER", "WHERE",
+            "WITH",
+            // end generated.
+            // The following keywords used to be defined as reserved words in the past, but now seem to work
+            // we still add them for compat reasons
+            "PRIVILEGES"
         }));
 
         substringFunctionName = "SUBSTR";
         super.setBatchLimit(defaultBatchLimit);
         selectWordSet.add("WITH");
         reportsSuccessNoInfoOnBatchUpdates = true;
-        requiresSearchStringEscapeForLike = false;
+
+        try {
+            oraclePreparedStatementClass = Class.forName("oracle.jdbc.OraclePreparedStatement");
+            try {
+                oraclePreparedStatementFormNvarcharField = oraclePreparedStatementClass.getField("FORM_NCHAR");
+                oraclePreparedStatementFormNvarcharField.setAccessible(true);
+            }
+            catch (NoSuchFieldException e) {
+                log.warn("OraclePreparedStatement without FORM_NCHAR field found");
+            }
+        }
+        catch (ClassNotFoundException e) {
+            // all fine
+        }
+
+        oracleClob_empty_lob_Method = getMethodByReflection("oracle.sql.CLOB", "getEmptyCLOB");
+        oracleBlob_empty_lob_Method = getMethodByReflection("oracle.sql.BLOB", "getEmptyBLOB");
+        oracleClob_isEmptyLob_Method = getMethodByReflection("oracle.sql.CLOB", "isEmptyLob");
+
+        indexPhysicalForeignKeys = true; // Oracle does not automatically create an index for a foreign key so we will
+    }
+
+    private Method getMethodByReflection(String className, String methodName, Class<?>... paramTypes) {
+        try {
+            return Class.forName(className,true,
+                    AccessController.doPrivileged(J2DoPrivHelper
+                            .getContextClassLoaderAction())).
+                    getMethod(methodName, paramTypes);
+        }
+        catch (Exception e) {
+            // all fine
+        }
+
+        return null;
     }
 
     @Override
     public void endConfiguration() {
         super.endConfiguration();
         if (useTriggersForAutoAssign)
-            supportsAutoAssign = true;
+            supportsAutoAssign = false;
     }
 
     @Override
@@ -221,13 +317,23 @@ public class OracleDictionary
             if (metadataClassName.startsWith("oracle.")
                 || url.indexOf("jdbc:oracle:") != -1
                 || "Oracle JDBC driver".equals(driverName)) {
-                driverVendor = VENDOR_ORACLE + meta.getDriverMajorVersion()
-                    + meta.getDriverMinorVersion();
+                int jdbcMajor = meta.getDriverMajorVersion();
+                int jdbcMinor = meta.getDriverMinorVersion();
+                driverVendor = VENDOR_ORACLE + jdbcMajor + jdbcMinor;
 
+                int jdbcVersion = jdbcMajor * 1000 + jdbcMinor;
+                if( jdbcVersion >= 11002) {
+                    maxEmbeddedBlobSize = -1;
+                    maxEmbeddedClobSize = -1;
+                }
+                if (jdbcMajor < 18) {
+                    // no native java.time support for old JDBC drivers.
+                    nativeJavaTimeSupport = false;
+                }
                 String productVersion = meta.getDatabaseProductVersion()
                     .split("Release ",0)[1].split("\\.",0)[0];
                 int release = Integer.parseInt(productVersion);
-                
+
                 // warn sql92
                 if (release <= 8) {
                     if (joinSyntax == SYNTAX_SQL92 && log.isWarnEnabled())
@@ -237,9 +343,9 @@ public class OracleDictionary
                     timestampTypeName = "DATE"; // added oracle 9
                     supportsXMLColumn = false;
                 }
-                    // select of an xml column requires ".getStringVal()"
-                    // suffix. eg. t0.xmlcol.getStringVal()
-                    getStringVal = ".getStringVal()";
+                // select of an xml column requires ".getStringVal()" (for values <= 4000 bytes only)
+                // or ".getClobVal()" suffix. eg. t0.xmlcol.getClobVal()
+                getStringVal = ".getClobVal()";
             } else if (metadataClassName.startsWith("com.ddtek.")
                 || url.indexOf("jdbc:datadirect:oracle:") != -1
                 || "Oracle".equals(driverName)) {
@@ -249,6 +355,7 @@ public class OracleDictionary
                 driverVendor = VENDOR_OTHER;
         }
         cacheDriverBehavior(driverVendor);
+        guessJDBCVersion(conn);
     }
 
     /**
@@ -258,7 +365,7 @@ public class OracleDictionary
         if (_driverBehavior != -1)
             return;
 
-        driverVendor = driverVendor.toLowerCase();
+        driverVendor = driverVendor.toLowerCase(Locale.ENGLISH);
         if (driverVendor.startsWith(VENDOR_ORACLE))
             _driverBehavior = BEHAVE_ORACLE;
         else if (driverVendor.equals(VENDOR_DATADIRECT + "30")
@@ -302,6 +409,41 @@ public class OracleDictionary
             sel.getEndIndex(), sel.isDistinct(), sel.getOrdering());
     }
 
+    /**
+     * Return the declaration SQL for the given column. This method is used
+     * for each column from within {@link #getCreateTableSQL} and
+     * {@link #getAddColumnSQL}.
+     *
+     * Oracle needs a bit special handling for auto assign columns.
+     * For those ("GENERATED ALWAYS AS IDENTITY") we must not generate NOT NULL
+     * as this would create invalid statements for Oracle.
+     */
+    @Override
+    protected String getDeclareColumnSQL(Column col, boolean alter) {
+        StringBuilder buf = new StringBuilder();
+        String columnName = checkNameLength(toDBName(col.getIdentifier()), maxColumnNameLength,
+                "long-column-name");
+        buf.append(columnName).append(" ");
+        buf.append(getTypeName(col));
+
+        // can't add constraints to a column we're adding after table
+        // creation, cause some data might already be inserted
+        if (!alter
+            && !col.isAutoAssigned()) { // this is actually the only 'special' case for oracle
+            if (col.getDefaultString() != null && !col.isAutoAssigned())
+                buf.append(" DEFAULT ").append(col.getDefaultString());
+            if (col.isNotNull() || (!supportsNullUniqueColumn && col.hasConstraint(Unique.class)))
+                buf.append(" NOT NULL");
+        }
+        if (col.isAutoAssigned()) {
+            if (!supportsAutoAssign)
+                log.warn(_loc.get("invalid-autoassign", platform, col));
+            else if (autoAssignClause != null)
+                buf.append(" ").append(autoAssignClause);
+        }
+        return buf.toString();
+    }
+
     @Override
     protected SQLBuffer getSelects(Select sel, boolean distinctIdentifiers,
         boolean forUpdate) {
@@ -330,11 +472,16 @@ public class OracleDictionary
         int i = 0;
         for (Iterator itr = aliases.iterator(); itr.hasNext(); i++) {
             alias = itr.next();
-            if (alias instanceof SQLBuffer)
-                selectSQL.append((SQLBuffer) alias);
-            else
-                selectSQL.append(alias.toString());
-            selectSQL.append(" AS c").append(String.valueOf(i));
+            String asString = null;
+            if (alias instanceof SQLBuffer) {
+                asString = ((SQLBuffer) alias).getSQL();
+                selectSQL.appendParamOnly((SQLBuffer) alias);
+            } else {
+                asString = alias.toString();
+            }
+            selectSQL.append(asString);
+            if (asString.indexOf(" AS ") == -1)
+                selectSQL.append(" AS c").append(String.valueOf(i));
             if (itr.hasNext())
                 selectSQL.append(", ");
         }
@@ -416,9 +563,10 @@ public class OracleDictionary
         }
 
         // if no range, use standard select
-        if (start == 0 && end == Long.MAX_VALUE)
+        if (!isUsingRange(start, end)) {
             return super.toSelect(select, fetch, tables, where, group, having,
                 order, distinct, forUpdate, 0, Long.MAX_VALUE, sel);
+        }
 
         // if no skip, ordering, or distinct can use rownum directly
         SQLBuffer buf = new SQLBuffer(this);
@@ -436,7 +584,7 @@ public class OracleDictionary
             sel);
 
         // if no skip, can use single nested subselect
-        if (start == 0) {
+        if (!isUsingOffset(start)) {
             buf.append(getSelectOperation(fetch) + " * FROM (");
             buf.append(newsel);
             buf.append(") WHERE ROWNUM <= ").appendValue(end);
@@ -445,11 +593,11 @@ public class OracleDictionary
 
         // with a skip, we have to use a double-nested subselect to put
         // where conditions on the rownum
-        buf.append(getSelectOperation(fetch)
-            + " * FROM (SELECT r.*, ROWNUM RNUM FROM (");
+        buf.append(getSelectOperation(fetch))
+           .append(" * FROM (SELECT r.*, ROWNUM RNUM FROM (");
         buf.append(newsel);
         buf.append(") r");
-        if (end != Long.MAX_VALUE)
+        if (isUsingLimit(end))
             buf.append(" WHERE ROWNUM <= ").appendValue(end);
         buf.append(") WHERE RNUM > ").appendValue(start);
         return buf;
@@ -461,16 +609,18 @@ public class OracleDictionary
      */
     private boolean requiresSubselectForRange(long start, long end,
         boolean distinct, SQLBuffer order) {
-        if (start == 0 && end == Long.MAX_VALUE)
+        if (!isUsingRange(start, end)) {
             return false;
-        return start != 0 || distinct || (order != null && !order.isEmpty());
+        }
+        return isUsingOffset(start) || distinct || isUsingOrderBy(order);
     }
 
     /**
      * Check to see if we have set the {@link #SELECT_HINT} in the
-     * fetch configuraiton, and if so, append the Orache hint after the
+     * fetch configuration, and if so, append the Oracle hint after the
      * "SELECT" part of the query.
      */
+    @Override
     public String getSelectOperation(JDBCFetchConfiguration fetch) {
         Object hint = fetch == null ? null : fetch.getHint(SELECT_HINT);
         String select = "SELECT";
@@ -479,6 +629,7 @@ public class OracleDictionary
         return select;
     }
 
+    @Override
     public void setString(PreparedStatement stmnt, int idx, String val,
         Column col)
         throws SQLException {
@@ -488,9 +639,9 @@ public class OracleDictionary
         // sqlj_jdbc/files/9i_jdbc/NCHARsupport4UnicodeSample/Readme.html
         String typeName = (col == null) ? null : col.getTypeIdentifier().getName();
         if (useSetFormOfUseForUnicode && typeName != null &&
-            (typeName.toLowerCase().startsWith("nvarchar") ||
-                typeName.toLowerCase().startsWith("nchar") ||
-                typeName.toLowerCase().startsWith("nclob"))) {
+            (typeName.toLowerCase(Locale.ENGLISH).startsWith("nvarchar") ||
+                typeName.toLowerCase(Locale.ENGLISH).startsWith("nchar") ||
+                typeName.toLowerCase(Locale.ENGLISH).startsWith("nclob"))) {
             Statement inner = stmnt;
             if (inner instanceof DelegatingPreparedStatement)
                 inner = ((DelegatingPreparedStatement) inner).
@@ -501,10 +652,8 @@ public class OracleDictionary
                         new Class[]{ int.class, short.class }).
                         invoke(inner,
                             new Object[]{
-                                new Integer(idx),
-                                Class.forName
-                                    ("oracle.jdbc.OraclePreparedStatement").
-                                    getField("FORM_NCHAR").get(null)
+                                    idx,
+                                oraclePreparedStatementFormNvarcharField.get(null)
                             });
                 } catch (Exception e) {
                     log.warn(e);
@@ -525,9 +674,13 @@ public class OracleDictionary
                     getInnermostDelegate();
             if (isOraclePreparedStatement(inner)) {
                 try {
-                    inner.getClass().getMethod("setFixedCHAR",
-                        new Class[]{ int.class, String.class }).
-                        invoke(inner, new Object[]{ new Integer(idx), val });
+                    Method setFixedCharMethod = inner.getClass().getMethod("setFixedCHAR",
+                                                         new Class[]{int.class, String.class});
+                    if (!setFixedCharMethod.isAccessible()) {
+                        setFixedCharMethod.setAccessible(true);
+                    }
+
+                    setFixedCharMethod.invoke(inner, new Object[]{idx, val });
                     return;
                 } catch (Exception e) {
                     log.warn(e);
@@ -540,6 +693,52 @@ public class OracleDictionary
             }
         }
         super.setString(stmnt, idx, val, col);
+    }
+
+    @Override
+    public void setBinaryStream(PreparedStatement stmnt, int idx,
+        InputStream val, int length, Column col)
+        throws SQLException {
+        if (length == 0)
+            stmnt.setBlob(idx, getEmptyBlob());
+        else {
+            super.setBinaryStream(stmnt, idx, val, length, col);
+        }
+    }
+
+    @Override
+    public void setClobString(PreparedStatement stmnt, int idx, String val,
+        Column col)
+        throws SQLException {
+
+        //We need a place to detect if the user is setting the 'supportsSetClob' property.
+        //While in previous releases this property had meaning, it is no longer useful
+        //given the code added via OPENJPA-1691.  As such, we need to warn user's the
+        //property no longer has meaning.  While it would be nice to have a better way
+        //to detect if the supportsSetClob property has been set, the best we can do
+        //is detect the variable in this code path as this is the path a user's code
+        //would go down if they are still executing code which actually made use of
+        //the support provided via setting supportsSetClob.
+        if (supportsSetClob && logSupportsSetClobWarning){
+            log.warn(_loc.get("oracle-set-clob-warning"));
+            logSupportsSetClobWarning=false;
+        }
+
+        if (col.isXML()) {
+            if (isJDBC4) {
+                // This JDBC 4 method handles values longer than 4000 bytes.
+                stmnt.setClob(idx, new StringReader(val), val.length());
+            } else {
+                // This method is limited to 4000 bytes.
+                setCharacterStream(stmnt, idx, new StringReader(val), val.length(), col);
+            }
+            return;
+        }
+        if (!useSetStringForClobs && val.length() == 0)
+            stmnt.setClob(idx, getEmptyClob());
+        else {
+            super.setClobString(stmnt, idx, val, col);
+        }
     }
 
     @Override
@@ -569,6 +768,46 @@ public class OracleDictionary
     }
 
     @Override
+    public void setLocalDate(PreparedStatement stmnt, int idx, LocalDate val, Column col) throws SQLException {
+        stmnt.setObject(idx, val);
+    }
+
+    @Override
+    public LocalDate getLocalDate(ResultSet rs, int column) throws SQLException {
+        return rs.getObject(column, LocalDate.class);
+    }
+
+    @Override
+    public void setLocalTime(PreparedStatement stmnt, int idx, LocalTime val, Column col) throws SQLException {
+        stmnt.setObject(idx, val);
+    }
+
+    @Override
+    public LocalTime getLocalTime(ResultSet rs, int column) throws SQLException {
+        return rs.getObject(column, LocalTime.class);
+    }
+
+    @Override
+    public void setLocalDateTime(PreparedStatement stmnt, int idx, LocalDateTime val, Column col) throws SQLException {
+        stmnt.setObject(idx, val);
+    }
+
+    @Override
+    public LocalDateTime getLocalDateTime(ResultSet rs, int column) throws SQLException {
+        return rs.getObject(column, LocalDateTime.class);
+    }
+
+    @Override
+    public void setOffsetDateTime(PreparedStatement stmnt, int idx, OffsetDateTime val, Column col) throws SQLException {
+        stmnt.setObject(idx, val);
+    }
+
+    @Override
+    public OffsetDateTime getOffsetDateTime(ResultSet rs, int column) throws SQLException {
+        return rs.getObject(column, OffsetDateTime.class);
+    }
+
+    @Override
     public String getClobString(ResultSet rs, int column)
         throws SQLException {
         if (_driverBehavior != BEHAVE_ORACLE)
@@ -577,13 +816,11 @@ public class OracleDictionary
         Clob clob = getClob(rs, column);
         if (clob == null)
             return null;
-        if (clob.getClass().getName().equals("oracle.sql.CLOB")) {
+        if (oracleClob_isEmptyLob_Method != null && clob.getClass().getName().equals("oracle.sql.CLOB")) {
             try {
-                if (((Boolean) Class.forName("oracle.sql.CLOB").
-                    getMethod("isEmptyLob", new Class[0]).
-                    invoke(clob, new Object[0])).
-                    booleanValue())
+                if ((Boolean) oracleClob_isEmptyLob_Method.invoke(clob, new Object[0])) {
                     return null;
+                }
             } catch (Exception e) {
                 // possibly different version of the driver
             }
@@ -636,8 +873,7 @@ public class OracleDictionary
      * Convert an object from its proprietary Oracle type to the standard
      * Java type.
      */
-    private static Object convertFromOracleType(Object obj,
-        String convertMethod)
+    private static Object convertFromOracleType(Object obj, String convertMethod)
         throws SQLException {
         try {
             Method m = obj.getClass().getMethod(convertMethod, (Class[]) null);
@@ -651,16 +887,18 @@ public class OracleDictionary
         }
     }
 
+    @Override
     public Column[] getColumns(DatabaseMetaData meta, String catalog,
         String schemaName, String tableName, String columnName, Connection conn)
         throws SQLException {
-        return getColumns(meta, 
-            DBIdentifier.newCatalog(catalog), 
-            DBIdentifier.newSchema(schemaName), 
-            DBIdentifier.newTable(tableName), 
+        return getColumns(meta,
+            DBIdentifier.newCatalog(catalog),
+            DBIdentifier.newSchema(schemaName),
+            DBIdentifier.newTable(tableName),
             DBIdentifier.newColumn(columnName),conn);
     }
 
+    @Override
     public Column[] getColumns(DatabaseMetaData meta, DBIdentifier catalog,
         DBIdentifier schemaName, DBIdentifier tableName, DBIdentifier columnName, Connection conn)
         throws SQLException {
@@ -671,7 +909,7 @@ public class OracleDictionary
             String typeName = cols[i].getTypeIdentifier().getName();
             if (typeName == null)
                 continue;
-            if (typeName.toUpperCase().startsWith("TIMESTAMP"))
+            if (typeName.toUpperCase(Locale.ENGLISH).startsWith("TIMESTAMP"))
                 cols[i].setType(Types.TIMESTAMP);
             else if ("BLOB".equalsIgnoreCase(typeName))
                 cols[i].setType(Types.BLOB);
@@ -684,17 +922,40 @@ public class OracleDictionary
                 cols[i].setType(Types.VARCHAR);
             else if ("NCHAR".equalsIgnoreCase(typeName))
                 cols[i].setType(Types.CHAR);
+            else if ("XMLTYPE".equalsIgnoreCase(typeName)) {
+                cols[i].setXML(true);
+            }
         }
         return cols;
     }
+
+    /**
+     * Oracle JDBC is still Java7 at most :(
+     */
+    @Override
+    public int getPreferredType(int type) {
+        if (nativeJavaTimeSupport) {
+            return type;
+        }
+
+        switch (type) {
+            case Types.TIME_WITH_TIMEZONE:
+                return Types.TIME;
+            case Types.TIMESTAMP_WITH_TIMEZONE:
+                return Types.TIMESTAMP;
+            default:
+                return type;
+        }
+    }
+
 
     @Override
     public PrimaryKey[] getPrimaryKeys(DatabaseMetaData meta,
         String catalog, String schemaName, String tableName, Connection conn)
         throws SQLException {
         return getPrimaryKeys(meta,
-            DBIdentifier.newCatalog(catalog), 
-            DBIdentifier.newSchema(schemaName), 
+            DBIdentifier.newCatalog(catalog),
+            DBIdentifier.newSchema(schemaName),
             DBIdentifier.newTable(tableName), conn);
     }
 
@@ -720,26 +981,30 @@ public class OracleDictionary
         ResultSet rs = null;
         try {
             int idx = 1;
-            if (!DBIdentifier.isNull(schemaName))
+            if (!DBIdentifier.isNull(schemaName)) {
                 setString(stmnt, idx++, convertSchemaCase(schemaName), null);
-            if (!DBIdentifier.isNull(tableName))
-                setString(stmnt, idx++, convertSchemaCase(tableName), null);
+            }
+            if (!DBIdentifier.isNull(tableName)) {
+                setString(stmnt, idx++, convertSchemaCase(tableName.getUnqualifiedName()), null);
+            }
             setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
-            List pkList = new ArrayList();
-            while (rs != null && rs.next())
+            List<PrimaryKey> pkList = new ArrayList<>();
+            while (rs != null && rs.next()) {
                 pkList.add(newPrimaryKey(rs));
-            return (PrimaryKey[]) pkList.toArray
-                (new PrimaryKey[pkList.size()]);
+            }
+            return pkList.toArray(new PrimaryKey[pkList.size()]);
         } finally {
             if (rs != null)
                 try {
                     rs.close();
                 } catch (Exception e) {
+                    // ignore cleanup exception
                 }
             try {
                 stmnt.close();
             } catch (Exception e) {
+                // ignore cleanup exception
             }
         }
     }
@@ -750,8 +1015,8 @@ public class OracleDictionary
         Connection conn)
         throws SQLException {
         return getIndexInfo(meta,
-            DBIdentifier.newCatalog(catalog), 
-            DBIdentifier.newSchema(schemaName), 
+            DBIdentifier.newCatalog(catalog),
+            DBIdentifier.newSchema(schemaName),
             DBIdentifier.newTable(tableName), unique, approx, conn);
     }
 
@@ -786,7 +1051,7 @@ public class OracleDictionary
 
             setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
-            List idxList = new ArrayList();
+            List<Index> idxList = new ArrayList<>();
             while (rs != null && rs.next())
                 idxList.add(newIndex(rs));
             return (Index[]) idxList.toArray(new Index[idxList.size()]);
@@ -808,21 +1073,21 @@ public class OracleDictionary
         String schemaName, String tableName, Connection conn, boolean partialKeys)
         throws SQLException {
         return getImportedKeys(meta,
-            DBIdentifier.newCatalog(catalog), 
-            DBIdentifier.newSchema(schemaName), 
+            DBIdentifier.newCatalog(catalog),
+            DBIdentifier.newSchema(schemaName),
             DBIdentifier.newTable(tableName), conn, partialKeys);
     }
-    
+
     @Override
     public ForeignKey[] getImportedKeys(DatabaseMetaData meta, DBIdentifier catalog,
         DBIdentifier schemaName, DBIdentifier tableName, Connection conn, boolean partialKeys)
         throws SQLException {
         StringBuilder delAction = new StringBuilder("DECODE(t1.DELETE_RULE").
-            append(", 'NO ACTION', ").append(meta.importedKeyNoAction).
-            append(", 'RESTRICT', ").append(meta.importedKeyRestrict).
-            append(", 'CASCADE', ").append(meta.importedKeyCascade).
-            append(", 'SET NULL', ").append(meta.importedKeySetNull).
-            append(", 'SET DEFAULT', ").append(meta.importedKeySetDefault).
+            append(", 'NO ACTION', ").append(DatabaseMetaData.importedKeyNoAction).
+            append(", 'RESTRICT', ").append(DatabaseMetaData.importedKeyRestrict).
+            append(", 'CASCADE', ").append(DatabaseMetaData.importedKeyCascade).
+            append(", 'SET NULL', ").append(DatabaseMetaData.importedKeySetNull).
+            append(", 'SET DEFAULT', ").append(DatabaseMetaData.importedKeySetDefault).
             append(")");
 
         StringBuilder buf = new StringBuilder();
@@ -836,9 +1101,9 @@ public class OracleDictionary
             append(delAction).append(" AS DELETE_RULE, ").
             append("t0.CONSTRAINT_NAME AS FK_NAME, ").
             append("DECODE(t1.DEFERRED, 'DEFERRED', ").
-            append(meta.importedKeyInitiallyDeferred).
+            append(DatabaseMetaData.importedKeyInitiallyDeferred).
             append(", 'IMMEDIATE', ").
-            append(meta.importedKeyInitiallyImmediate).
+            append(DatabaseMetaData.importedKeyInitiallyImmediate).
             append(") AS DEFERRABILITY ").
             append("FROM ALL_CONS_COLUMNS t0, ALL_CONSTRAINTS t1, ").
             append("ALL_CONS_COLUMNS t2 ").
@@ -864,8 +1129,8 @@ public class OracleDictionary
                 setString(stmnt, idx++, convertSchemaCase(tableName), null);
             setTimeouts(stmnt, conf, false);
             rs = stmnt.executeQuery();
-            List<ForeignKey> fkList = new ArrayList<ForeignKey>();            
-            Map<FKMapKey, ForeignKey> fkMap = new HashMap<FKMapKey, ForeignKey>();
+            List<ForeignKey> fkList = new ArrayList<>();
+            Map<FKMapKey, ForeignKey> fkMap = new HashMap<>();
 
             while (rs != null && rs.next()) {
                 ForeignKey nfk = newForeignKey(rs);
@@ -901,13 +1166,13 @@ public class OracleDictionary
             return create;
 
         Column[] cols = table.getColumns();
-        List seqs = null;
+        List<String> seqs = null;
         String seq, trig;
         for (int i = 0; cols != null && i < cols.length; i++) {
             if (!cols[i].isAutoAssigned())
                 continue;
             if (seqs == null)
-                seqs = new ArrayList(4);
+                seqs = new ArrayList<String>(4);
 
             seq = autoAssignSequenceName;
             if (seq == null) {
@@ -941,22 +1206,14 @@ public class OracleDictionary
         return sql;
     }
 
-    @Override
-    public String[] getCreateSequenceSQL(Sequence seq) {
-        String[] sql = super.getCreateSequenceSQL(seq);
-        if (seq.getAllocate() > 1)
-            sql[0] += " CACHE " + seq.getAllocate();
-        return sql;
-    }
-    
     /**
      * Return the preferred {@link Types} constant for the given
      * {@link JavaTypes} or {@link JavaSQLTypes} constant.
      */
     @Override
-    public int getJDBCType(int metaTypeCode, boolean lob, int precis, 
-        int scale, boolean xml) {        
-        return getJDBCType(metaTypeCode, lob || xml, precis, scale);        
+    public int getJDBCType(int metaTypeCode, boolean lob, int precis,
+        int scale, boolean xml) {
+        return getJDBCType(metaTypeCode, lob || xml, precis, scale);
     }
 
     @Override
@@ -981,6 +1238,7 @@ public class OracleDictionary
         return buf.toString();
     }
 
+    @Override
     public boolean isSystemSequence(String name, String schema,
         boolean targetSchema) {
         return isSystemSequence(DBIdentifier.newSequence(name),
@@ -998,7 +1256,7 @@ public class OracleDictionary
         return (autoAssignSequenceName != null
             && strName.equalsIgnoreCase(autoAssignSequenceName))
             || (autoAssignSequenceName == null
-            && strName.toUpperCase().startsWith("ST_"));
+            && strName.toUpperCase(Locale.ENGLISH).startsWith("ST_"));
     }
 
     @Override
@@ -1053,7 +1311,7 @@ public class OracleDictionary
      * Returns a OpenJPA 3-compatible name for an auto-assign trigger.
      */
     protected String getOpenJPA3GeneratedKeyTriggerName(Column col) {
-        Table table = col.getTable();        
+        Table table = col.getTable();
         DBIdentifier sName = DBIdentifier.preCombine(table.getIdentifier(), "TRIG");
         return toDBName(getNamingUtil().makeIdentifierValid(sName, table.getSchema().
             getSchemaGroup(), maxTableNameLength, true));
@@ -1143,12 +1401,12 @@ public class OracleDictionary
         throws SQLException {
         if (EMPTY_CLOB != null)
             return EMPTY_CLOB;
+
+        if (oracleClob_empty_lob_Method == null)
+            return null;
+
         try {
-            return EMPTY_CLOB = (Clob) Class.forName("oracle.sql.CLOB",true, 
-                    AccessController.doPrivileged(J2DoPrivHelper
-                            .getContextClassLoaderAction())).
-                getMethod("empty_lob", new Class[0]).
-                invoke(null, new Object[0]);
+            return EMPTY_CLOB = (Clob) oracleClob_empty_lob_Method.invoke(null, new Object[0]);
         } catch (Exception e) {
             throw new SQLException(e.getMessage());
         }
@@ -1158,35 +1416,32 @@ public class OracleDictionary
         throws SQLException {
         if (EMPTY_BLOB != null)
             return EMPTY_BLOB;
+
+	if (oracleBlob_empty_lob_Method == null)
+            return null;
+
         try {
-            return EMPTY_BLOB = (Blob) Class.forName("oracle.sql.BLOB",true, 
-                    AccessController.doPrivileged(J2DoPrivHelper
-                            .getContextClassLoaderAction())).
-                getMethod("empty_lob", new Class[0]).
-                invoke(null, new Object[0]);
+            return EMPTY_BLOB = (Blob) oracleBlob_empty_lob_Method.invoke(null, new Object[0]);
         } catch (Exception e) {
             throw new SQLException(e.getMessage());
         }
     }
 
-    private static boolean isOraclePreparedStatement(Statement stmnt) {
-        try {
-            return Class.forName("oracle.jdbc.OraclePreparedStatement").
-                isInstance(stmnt);
-        } catch (Exception e) {
-            return false;
-        }
+    private boolean isOraclePreparedStatement(Statement stmnt) {
+        return oraclePreparedStatementClass != null &&
+            oraclePreparedStatementClass.isInstance(stmnt);
     }
-    
+
     /**
      * If this dictionary supports XML type,
      * use this method to append xml predicate.
-     * 
+     *
      * @param buf the SQL buffer to write the comparison
      * @param op the comparison operation to perform
      * @param lhs the left hand side of the comparison
      * @param rhs the right hand side of the comparison
      */
+    @Override
     public void appendXmlComparison(SQLBuffer buf, String op, FilterValue lhs,
         FilterValue rhs, boolean lhsxml, boolean rhsxml) {
         super.appendXmlComparison(buf, op, lhs, rhs, lhsxml, rhsxml);
@@ -1194,10 +1449,10 @@ public class OracleDictionary
             appendXmlComparison2(buf, op, lhs, rhs);
         else if (lhsxml)
             appendXmlComparison1(buf, op, lhs, rhs);
-        else 
+        else
             appendXmlComparison1(buf, op, rhs, lhs);
     }
-    
+
     /**
      * Append an xml comparison predicate
      *
@@ -1212,7 +1467,7 @@ public class OracleDictionary
         buf.append(" ").append(op).append(" ");
         rhs.appendTo(buf);
     }
-    
+
     /**
      * Append an xml comparison predicate (both operands map to xml column)
      *
@@ -1221,13 +1476,13 @@ public class OracleDictionary
      * @param lhs the left hand side of the comparison (maps to xml column)
      * @param rhs the right hand side of the comparison (maps to xml column)
      */
-    private void appendXmlComparison2(SQLBuffer buf, String op, 
+    private void appendXmlComparison2(SQLBuffer buf, String op,
         FilterValue lhs, FilterValue rhs) {
         appendXmlExtractValue(buf, lhs);
         buf.append(" ").append(op).append(" ");
         appendXmlExtractValue(buf, rhs);
     }
-    
+
     private void appendXmlExtractValue(SQLBuffer buf, FilterValue val) {
         buf.append("extractValue(").
             append(val.getColumnAlias(
@@ -1236,7 +1491,8 @@ public class OracleDictionary
         val.appendTo(buf);
         buf.append("')");
     }
-    
+
+    @Override
     public void insertClobForStreamingLoad(Row row, Column col, Object ob)
         throws SQLException {
         if (ob == null) {
@@ -1247,6 +1503,7 @@ public class OracleDictionary
         }
     }
 
+    @Override
     public int getBatchUpdateCount(PreparedStatement ps) throws SQLException {
         int updateSuccessCnt = 0;
         if (batchLimit != 0 && ps != null) {
@@ -1257,7 +1514,7 @@ public class OracleDictionary
         }
         return updateSuccessCnt;
     }
-    
+
     @Override
     public boolean isFatalException(int subtype, SQLException ex) {
         String errorState = ex.getSQLState();
@@ -1268,15 +1525,15 @@ public class OracleDictionary
                  errorCode == 4021 || errorCode == 4022))
                 || ("42000".equals(errorState) && errorCode == 2049))) {
             return false;
-        } 
+        }
         if ("72000".equals(errorState) && errorCode == 1013) {
             return false;
         }
         return super.isFatalException(subtype, ex);
     }
-    
+
     @Override
-    public void insertBlobForStreamingLoad(Row row, Column col, 
+    public void insertBlobForStreamingLoad(Row row, Column col,
         JDBCStore store, Object ob, Select sel) throws SQLException {
         if (ob == null) {
             col.setType(Types.OTHER);
@@ -1284,5 +1541,76 @@ public class OracleDictionary
         } else {
             row.setBlob(col, getEmptyBlob());
         }
+    }
+
+    @Override
+    public boolean isImplicitJoin() {
+        return joinSyntax == SYNTAX_DATABASE;
+    }
+
+    /**
+     * Oracle requires special handling of XML column.
+     * Unless the value length is less or equal to 4000 bytes,
+     * the parameter marker must be decorated with type constructor.
+     */
+    @Override
+    public String getMarkerForInsertUpdate(Column col, Object val) {
+        if (col.isXML() && val != RowImpl.NULL) {
+            return xmlTypeMarker;
+        }
+        return super.getMarkerForInsertUpdate(col, val);
+    }
+
+    /**
+     * Oracle drivers, at least in versions 10.2.0.4 and 11.2.0.1, incorrectly return a driver major version from
+     * {@link DatabaseMetaData#getJDBCMajorVersion()}.
+     */
+    protected void guessJDBCVersion(Connection conn) {
+        if (_driverBehavior != BEHAVE_ORACLE) {
+            return;
+        }
+        isJDBC4 = true;
+        try {
+            conn.getClientInfo();   // Try to call a JDBC 4 method.
+        } catch (SQLException e) {
+            // OK, we are on JDBC 4.
+        } catch (Throwable t) {
+            // Most likely an AbstractMethodError from JDBC 3 driver.
+            isJDBC4 = false;
+        }
+    }
+
+    @Override
+    public String getIsNullSQL(String colAlias, int colType)  {
+        switch(colType) {
+            case Types.BLOB:
+            case Types.CLOB:
+                return String.format("length (%s) = 0", colAlias);
+        }
+        return super.getIsNullSQL(colAlias, colType);
+    }
+
+    @Override
+    public String getIsNotNullSQL(String colAlias, int colType) {
+        switch(colType) {
+            case Types.BLOB:
+            case Types.CLOB:
+                return String.format("length (%s) != 0 ",  colAlias);
+        }
+        return super.getIsNotNullSQL(colAlias, colType);
+    }
+
+    @Override
+    public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
+        FilterValue start) {
+        buf.append("INSTR(");
+        str.appendTo(buf);
+        buf.append(", ");
+        find.appendTo(buf);
+        if (start != null) {
+            buf.append(", ");
+            start.appendTo(buf);
+        }
+        buf.append(")");
     }
 }

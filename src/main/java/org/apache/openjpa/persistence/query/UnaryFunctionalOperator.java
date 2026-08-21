@@ -14,16 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 /**
- * Enumeration of operator that operates on a single expression to generate 
+ * Enumeration of operator that operates on a single expression to generate
  * another expression.
- * 
+ *
  * @see UnaryOperatorExpression
- * 
+ *
  * @author Pinaki Poddar
  *
  */
@@ -51,14 +51,15 @@ public enum UnaryFunctionalOperator {
 	TRIM("TRIM"),
 	TYPE("TYPE"),
 	UPPER("UPPER");
-	
+
 	private final String _symbol;
-	
+
 	UnaryFunctionalOperator(String symbol) {
 		_symbol = symbol;
 	}
-	
-	public String toString() {
+
+	@Override
+    public String toString() {
 		return _symbol;
 	}
 }

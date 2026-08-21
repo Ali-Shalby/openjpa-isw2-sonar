@@ -14,11 +14,10 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
-import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Connection;
@@ -27,19 +26,20 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Arrays;
+import java.util.Locale;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
+import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Column;
-import org.apache.openjpa.jdbc.schema.ForeignKey;
 import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.schema.PrimaryKey;
 import org.apache.openjpa.jdbc.schema.Table;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.jdbc.DelegatingConnection;
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.util.StoreException;
 
 /**
  * Dictionary for Sybase.
@@ -65,16 +65,8 @@ public class SybaseDictionary
     private static Localizer _loc = Localizer.forPackage
         (SybaseDictionary.class);
 
-    private static Constructor<SybaseConnection> sybaseConnectionImpl;
-
-    static {
-        try {
-            sybaseConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(SybaseConnection.class, 
-                    Connection.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
+    public static String RIGHT_TRUNCATION_ON_SQL = "set string_rtruncation on";
+    public static String NUMERIC_TRUNCATION_OFF_SQL = "set arithabort numeric_truncation off";
 
     /**
      * If true, then whenever the <code>schematool</code> creates a
@@ -97,7 +89,7 @@ public class SybaseDictionary
      * value, false is in accordance with SQL92.
      */
     public boolean ignoreNumericTruncation = false;
-    
+
     public SybaseDictionary() {
         platform = "Sybase";
         schemaCase = SCHEMA_CASE_PRESERVE;
@@ -131,8 +123,7 @@ public class SybaseDictionary
         }));
 
         // reserved words specified at:
-        // http://manuals.sybase.com/onlinebooks/group-as/asg1250e/
-        // refman/@Generic__BookTextView/26603
+        // http://manuals.sybase.com/onlinebooks/group-as/asg1250e/refman/@Generic__BookTextView/26603
         reservedWordSet.addAll(Arrays.asList(new String[]{
             "ARITH_OVERFLOW", "BREAK", "BROWSE", "BULK", "CHAR_CONVERT",
             "CHECKPOINT", "CLUSTERED", "COMPUTE", "CONFIRM", "CONTROLROW",
@@ -155,6 +146,9 @@ public class SybaseDictionary
             "USER_OPTION", "WAITFOR", "WHILE", "WRITETEXT",
         }));
 
+        // Sybase does not allow reserved words to be used as column names.
+        invalidColumnWordSet.addAll(reservedWordSet);
+
         // Sybase does not support foreign key delete/update action NULL,
         // DEFAULT, CASCADE
         supportsNullDeleteAction = false;
@@ -163,6 +157,8 @@ public class SybaseDictionary
         supportsNullUpdateAction = false;
         supportsDefaultUpdateAction = false;
         supportsCascadeUpdateAction = false;
+
+        fixedSizeTypeNameSet.remove("NUMERIC");
     }
 
     @Override
@@ -189,12 +185,6 @@ public class SybaseDictionary
     }
 
     @Override
-    public String[] getAddForeignKeySQL(ForeignKey fk) {
-        // Sybase has problems with adding foriegn keys via ALTER TABLE command
-        return new String[0];
-    }
-
-    @Override
     public String[] getCreateTableSQL(Table table) {
         if (!createIdentityColumn)
             return super.getCreateTableSQL(table);
@@ -204,11 +194,23 @@ public class SybaseDictionary
             append(" (");
 
         Column[] cols = table.getColumns();
+
         boolean hasIdentity = false;
 
         for (int i = 0; i < cols.length; i++) {
-            if (cols[i].isAutoAssigned())
+            // can only have one identity column
+            if (cols[i].isAutoAssigned()) {
                 hasIdentity = true;
+            }
+
+            // The column may exist if dropping and recreating a table.
+            if(cols[i].getIdentifier().getName().equals(identityColumnName)) {
+                hasIdentity=true;
+                // column type may be lost when recreating - reset to NUMERIC
+                if(cols[i].getType() != Types.NUMERIC) { // should check if compatible
+                    cols[i].setType(Types.NUMERIC);
+                }
+            }
 
             buf.append(i == 0 ? "" : ", ");
             buf.append(getDeclareColumnSQL(cols[i], false));
@@ -225,8 +227,8 @@ public class SybaseDictionary
 
         Unique[] unqs = table.getUniques();
         String unqStr;
-        for (int i = 0; i < unqs.length; i++) {
-            unqStr = getUniqueConstraintSQL(unqs[i]);
+        for (Unique unq : unqs) {
+            unqStr = getUniqueConstraintSQL(unq);
             if (unqStr != null)
                 buf.append(", ").append(unqStr);
         }
@@ -276,9 +278,9 @@ public class SybaseDictionary
         // dynamic schema factory, where getting a column by name creates
         // that column
         Column[] cols = table.getColumns();
-        for (int i = 0; i < cols.length; i++)
-            if (identityColumnName.equalsIgnoreCase(cols[i].getIdentifier().getName()))
-                cols[i].ref();
+        for (Column col : cols)
+            if (identityColumnName.equalsIgnoreCase(col.getIdentifier().getName()))
+                col.ref();
     }
 
     @Override
@@ -287,9 +289,9 @@ public class SybaseDictionary
 
         // warn about jdbc compliant flag
         String url = conf.getConnectionURL();
-        if (!StringUtils.isEmpty(url)
-            && url.toLowerCase().indexOf("jdbc:sybase:tds") != -1
-            && url.toLowerCase().indexOf("be_as_jdbc_compliant_as_possible=")
+        if (!StringUtil.isEmpty(url)
+            && url.toLowerCase(Locale.ENGLISH).indexOf("jdbc:sybase:tds") != -1
+            && url.toLowerCase(Locale.ENGLISH).indexOf("be_as_jdbc_compliant_as_possible=")
             == -1) {
             log.warn(_loc.get("sybase-compliance", url));
         }
@@ -299,56 +301,113 @@ public class SybaseDictionary
     public Connection decorate(Connection conn)
         throws SQLException {
         conn = super.decorate(conn);
-        // In order for Sybase to raise the truncation exception when the 
-        // string length is greater than the column length for Char, VarChar, 
-        // Binary, VarBinary, the "set string_rtruncation on" must be executed. 
+        Connection savedConn = conn;
+
+//        if(ignoreConnectionSetup) {
+//            if(conn instanceof DelegatingConnection) {
+//                conn = ((DelegatingConnection)conn).getInnermostDelegate();
+//            }
+//        }
+
+        // In order for Sybase to raise the truncation exception when the
+        // string length is greater than the column length for Char, VarChar,
+        // Binary, VarBinary, the "set string_rtruncation on" must be executed.
         // This setting is effective for the duration of current connection.
         if (setStringRightTruncationOn) {
-            String str = "set string_rtruncation on";
-            PreparedStatement stmnt = prepareStatement(conn, str);        
+            PreparedStatement stmnt = prepareStatement(conn, RIGHT_TRUNCATION_ON_SQL);
             stmnt.execute();
             stmnt.close();
         }
-        
+
         // By default, Sybase will fail to insert or update if a numeric
         // truncation occurs as a result of, for example, loss of decimal
-        // precision.  This setting specifies that the operation should not 
+        // precision.  This setting specifies that the operation should not
         // fail if a numeric truncation occurs.
         if (ignoreNumericTruncation) {
-            String str = "set arithabort numeric_truncation off";
-            PreparedStatement stmnt = prepareStatement(conn, str);        
+            PreparedStatement stmnt = prepareStatement(conn, NUMERIC_TRUNCATION_OFF_SQL);
             stmnt.execute();
-            stmnt.close();            
-        }        
-        
-        return ConcreteClassGenerator.newInstance(sybaseConnectionImpl, conn);
+            stmnt.close();
+        }
+
+
+        return new SybaseConnection(savedConn);
+    }
+
+    /**
+     * Helper method obtains a string value from a given column in a ResultSet. Strings provided are column names,
+     * jdbcName will be tried first if an SQLException occurs we'll try the sybase name.
+     */
+    protected String getStringFromResultSet(ResultSet rs, String jdbcName, String sybaseName) throws SQLException {
+        try {
+            return rs.getString(jdbcName);
+        }
+        catch(SQLException sqle) {
+            // if the generic JDBC identifier isn't found an SQLException will be thrown
+            // try the Sybase specific id
+            return rs.getString(sybaseName);
+        }
+    }
+    /**
+     * Helper method obtains a boolean value from a given column in a ResultSet. Strings provided are column names,
+     * jdbcName will be tried first if an SQLException occurs we'll try the sybase name.
+     */
+    protected boolean getBooleanFromResultSet(ResultSet rs, String jdbcName, String sybaseName) throws SQLException {
+        try {
+            return rs.getBoolean(jdbcName);
+        }
+        catch(SQLException sqle) {
+            // if the generic JDBC identifier isn't found an SQLException will be thrown
+            // try the Sybase specific id
+            return rs.getBoolean(sybaseName);
+        }
     }
 
     /**
      * Create a new primary key from the information in the schema metadata.
      */
+    @Override
     protected PrimaryKey newPrimaryKey(ResultSet pkMeta)
         throws SQLException {
         PrimaryKey pk = new PrimaryKey();
-        pk.setSchemaIdentifier(fromDBName(pkMeta.getString("table_owner"), DBIdentifierType.SCHEMA));
-        pk.setTableIdentifier(fromDBName(pkMeta.getString("table_name"), DBIdentifierType.TABLE));
-        pk.setColumnIdentifier(fromDBName(pkMeta.getString("column_name"), DBIdentifierType.COLUMN));
-        pk.setIdentifier(fromDBName(pkMeta.getString("index_name"), DBIdentifierType.CONSTRAINT));
+        pk.setSchemaIdentifier(fromDBName(getStringFromResultSet(pkMeta, "TABLE_SCHEM", "table_owner"),
+            DBIdentifierType.SCHEMA));
+        pk.setTableIdentifier(fromDBName(getStringFromResultSet(pkMeta, "TABLE_NAME", "table_name"),
+            DBIdentifierType.TABLE));
+        pk.setColumnIdentifier(fromDBName(getStringFromResultSet(pkMeta, "COLUMN_NAME", "column_name"),
+            DBIdentifierType.COLUMN));
+        pk.setIdentifier(fromDBName(getStringFromResultSet(pkMeta, "PK_NAME", "index_name"),
+            DBIdentifierType.CONSTRAINT));
         return pk;
     }
 
     /**
      * Create a new index from the information in the index metadata.
      */
+    @Override
     protected Index newIndex(ResultSet idxMeta)
         throws SQLException {
         Index idx = new Index();
-        idx.setSchemaIdentifier(fromDBName(idxMeta.getString("table_owner"), DBIdentifierType.SCHEMA));
-        idx.setTableIdentifier(fromDBName(idxMeta.getString("table_name"), DBIdentifierType.TABLE));
-        idx.setColumnIdentifier(fromDBName(idxMeta.getString("column_name"), DBIdentifierType.COLUMN));
-        idx.setIdentifier(fromDBName(idxMeta.getString("index_name"), DBIdentifierType.INDEX));
-        idx.setUnique(!idxMeta.getBoolean("non_unique"));
+        idx.setSchemaIdentifier(fromDBName(getStringFromResultSet(idxMeta, "TABLE_SCHEM", "table_owner"),
+            DBIdentifierType.SCHEMA));
+        idx.setTableIdentifier(fromDBName(getStringFromResultSet(idxMeta, "TABLE_NAME", "table_name"),
+            DBIdentifierType.TABLE));
+        idx.setColumnIdentifier(fromDBName(getStringFromResultSet(idxMeta, "COLUMN_NAME", "column_name"),
+            DBIdentifierType.COLUMN));
+        idx.setIdentifier(fromDBName(getStringFromResultSet(idxMeta, "INDEX_NAME", "index_name"),
+            DBIdentifierType.INDEX));
+        idx.setUnique(!getBooleanFromResultSet(idxMeta, "NON_UNIQUE", "non_unique"));
         return idx;
+    }
+
+    @Override
+    public boolean isFatalException(int subtype, SQLException ex) {
+        if (subtype == StoreException.LOCK) {
+            SQLException next = ex.getNextException();
+            if("JZ0TO".equals(next.getSQLState())) {
+                return false; // query timeout
+            }
+        }
+        return super.isFatalException(subtype, ex);
     }
 
     /**
@@ -356,7 +415,7 @@ public class SybaseDictionary
      * which takes a very long time with the Sybase Connection (and
      * which we frequently invoke).
      */
-    protected abstract static class SybaseConnection
+    protected static class SybaseConnection
         extends DelegatingConnection {
 
         private String _catalog = null;
@@ -365,6 +424,7 @@ public class SybaseDictionary
             super(conn);
         }
 
+        @Override
         public String getCatalog()
             throws SQLException {
             if (_catalog == null)
@@ -372,6 +432,7 @@ public class SybaseDictionary
             return _catalog;
         }
 
+        @Override
         public void setAutoCommit(boolean autocommit)
             throws SQLException {
             // the sybase jdbc driver demands that the Connection always
@@ -390,5 +451,48 @@ public class SybaseDictionary
                 super.setAutoCommit(autocommit);
             }
         }
+    }
+
+    @Override
+    public String getIsNullSQL(String colAlias, int colType)  {
+        switch(colType) {
+            case Types.BLOB:
+            case Types.CLOB:
+                return String.format("datalength(%s) = 0", colAlias);
+        }
+        return super.getIsNullSQL(colAlias, colType);
+    }
+
+    @Override
+    public String getIsNotNullSQL(String colAlias, int colType) {
+        switch(colType) {
+            case Types.BLOB:
+            case Types.CLOB:
+                return String.format("datalength(%s) != 0", colAlias);
+        }
+        return super.getIsNotNullSQL(colAlias, colType);
+    }
+
+    @Override
+    public String getIdentityColumnName() {
+        return identityColumnName;
+    }
+
+    @Override
+    public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
+        FilterValue start) {
+        buf.append("(CHARINDEX(");
+        find.appendTo(buf);
+        buf.append(", ");
+        if (start != null)
+            substring(buf, str, start, null);
+        else
+            str.appendTo(buf);
+        buf.append(")");
+        if (start != null) {
+            buf.append(" - 1 + ");
+            start.appendTo(buf);
+        }
+        buf.append(")");
     }
 }

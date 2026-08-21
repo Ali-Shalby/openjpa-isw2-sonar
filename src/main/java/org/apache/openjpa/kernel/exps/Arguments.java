@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -29,5 +29,5 @@ public interface Arguments
     /**
      * Return the values that make up the arguments.
      */
-    public Value[] getValues();
+    Value[] getValues();
 }

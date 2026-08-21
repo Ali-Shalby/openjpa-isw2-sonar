@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -25,6 +25,7 @@ import java.io.InputStreamReader;
 import java.net.URL;
 import java.net.URLConnection;
 import java.security.AccessController;
+import java.security.PrivilegedActionException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Enumeration;
@@ -48,7 +49,6 @@ import java.util.TreeSet;
  * are returned.
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class Services {
 
@@ -101,10 +101,10 @@ public class Services {
 
             return (String[]) resourceList.toArray(new String[resourceList
                 .size()]);
-        } catch (Exception e) {
+        } catch (PrivilegedActionException | IOException pae) {
             // silently swallow all exceptions.
-            return new String[0];
         }
+        return new String[0];
     }
 
     /**
@@ -121,8 +121,8 @@ public class Services {
             urlCon = url.openConnection();
             urlCon.setUseCaches(false);
             in = urlCon.getInputStream();
-            reader = new BufferedReader(new InputStreamReader(in)); 
-            
+            reader = new BufferedReader(new InputStreamReader(in));
+
             String line;
             while ((line = reader.readLine()) != null) {
                 if (line.trim().startsWith("#")
@@ -140,9 +140,9 @@ public class Services {
                 }
             }
         } finally {
-            try { 
+            try {
                 reader.close();
-            } catch (IOException ioe) { 
+            } catch (IOException ioe) {
                 // silently consume exception
             }
             try {
@@ -164,9 +164,9 @@ public class Services {
 
         // filter out any classes that have any classloader issues wrt.
         // the specified service class.
-        for (int i = 0; i < classes.length; i++)
-            if (!serviceClass.isAssignableFrom(classes[i]))
-                invalid.add(classes[i]);
+        for (Class aClass : classes)
+            if (!serviceClass.isAssignableFrom(aClass))
+                invalid.add(aClass);
         if (invalid.size() != 0) {
             List list = new ArrayList(Arrays.asList(classes));
             list.removeAll(invalid);
@@ -214,18 +214,17 @@ public class Services {
             return new Class[0];
 
         List classes = new ArrayList(names.length);
-        for (int i = 0; i < names.length; i++) {
+        for (String name : names) {
             try {
-                classes.add(Class.forName(names[i], false, loader));
-            } catch (ClassNotFoundException e) {
-                if (!skipMissing)
-                    throw e;
-            } catch (UnsupportedClassVersionError ecve) {
+                classes.add(Class.forName(name, false, loader));
+            }
+            catch (UnsupportedClassVersionError ecve) {
                 if (!skipMissing)
                     throw ecve;
-            } catch (LinkageError le) {
+            }
+            catch (ClassNotFoundException | LinkageError e) {
                 if (!skipMissing)
-                    throw le;
+                    throw e;
             }
         }
         return (Class[]) classes.toArray(new Class[classes.size()]);

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -22,6 +22,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Locale;
 
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier.DBIdentifierType;
@@ -63,8 +64,13 @@ public class PointbaseDictionary
         supportsAutoAssign = true;
         lastGeneratedKeyQuery = "SELECT MAX({0}) FROM {1}";
         autoAssignTypeName = "BIGINT IDENTITY";
+
+        // OpenJPA-2045: NAME has been removed from common reserved words to
+        // only specific dictionaries
+        reservedWordSet.add("NAME");
     }
 
+    @Override
     public int getPreferredType(int type) {
         switch (type) {
             case Types.LONGVARCHAR:
@@ -91,36 +97,34 @@ public class PointbaseDictionary
 
         // pointbase reports the type for a CLOB field as VARCHAR: override it
         for (int i = 0; cols != null && i < cols.length; i++)
-            if (cols[i].getTypeIdentifier().getName().toUpperCase().startsWith("CLOB"))
+            if (cols[i].getTypeIdentifier().getName().toUpperCase(Locale.ENGLISH).startsWith("CLOB"))
                 cols[i].setType(Types.CLOB);
         return cols;
     }
 
     @Override
     public String getFullName(Index index) {
-        return toDBName(getNamingUtil().append(DBIdentifierType.INDEX, 
+        return toDBName(getNamingUtil().append(DBIdentifierType.INDEX,
             getFullIdentifier(index.getTable(), false), index.getIdentifier()));
     }
 
+    @Override
     public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
-        FilterValue end) {
+        FilterValue length) {
         // SUBSTRING in Pointbase is of the form:
         // SELECT SUBSTRING(SOME_COLUMN FROM 1 FOR 5)
         buf.append("SUBSTRING(");
         str.appendTo(buf);
         buf.append(" FROM ");
         start.appendTo(buf);
-        buf.append(" + 1");
-        if (end != null) {
+        if (length != null) {
             buf.append(" FOR ");
-            end.appendTo(buf);
-            buf.append(" - (");
-            start.appendTo(buf);
-            buf.append(")");
+            length.appendTo(buf);
         }
         buf.append(")");
     }
 
+    @Override
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
         FilterValue start) {
         buf.append("(POSITION(");
@@ -130,9 +134,9 @@ public class PointbaseDictionary
             substring(buf, str, start, null);
         else
             str.appendTo(buf);
-        buf.append(") - 1");
+        buf.append(")");
         if (start != null) {
-            buf.append(" + ");
+            buf.append(" - 1 + ");
             start.appendTo(buf);
         }
         buf.append(")");

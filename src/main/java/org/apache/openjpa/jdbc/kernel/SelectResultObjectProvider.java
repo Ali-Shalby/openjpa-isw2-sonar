@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -31,7 +31,6 @@ import org.apache.openjpa.util.StoreException;
  * Abstract provider implementation wrapped around a {@link Select}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public abstract class SelectResultObjectProvider
     implements ResultObjectProvider {
@@ -73,6 +72,7 @@ public abstract class SelectResultObjectProvider
         return _res;
     }
 
+    @Override
     public boolean supportsRandomAccess() {
         if (_ra == null) {
             boolean ra;
@@ -86,24 +86,28 @@ public abstract class SelectResultObjectProvider
                 ra = _sel.supportsRandomAccess(_fetch.getReadLockLevel() > 0);
             _ra = (ra) ? Boolean.TRUE : Boolean.FALSE;
         }
-        return _ra.booleanValue();
+        return _ra;
     }
 
+    @Override
     public void open()
         throws SQLException {
         _res = _sel.execute(_store, _fetch);
     }
 
+    @Override
     public boolean next()
         throws SQLException {
         return _res.next();
     }
 
+    @Override
     public boolean absolute(int pos)
         throws SQLException {
         return _res.absolute(pos);
     }
 
+    @Override
     public int size()
         throws SQLException {
         if (_size == -1) {
@@ -137,12 +141,14 @@ public abstract class SelectResultObjectProvider
             _size = size;
     }
 
+    @Override
     public void reset()
         throws SQLException {
         close();
         open();
     }
 
+    @Override
     public void close() {
         if (_res != null) {
             _res.close();
@@ -150,6 +156,7 @@ public abstract class SelectResultObjectProvider
         }
     }
 
+    @Override
     public void handleCheckedException(Exception e) {
         if (e instanceof SQLException)
             throw SQLExceptions.getStore((SQLException) e, _store.getDBDictionary(), _fetch.getReadLockLevel());

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -26,16 +26,17 @@ import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ColumnIO;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 
 /**
  * Handler for simple type and string values.
  *
- * @nojavadoc
  */
-public class ImmutableValueHandler
-    extends AbstractValueHandler {
+public class ImmutableValueHandler extends AbstractValueHandler {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final ImmutableValueHandler _instance =
         new ImmutableValueHandler();
 
@@ -49,6 +50,8 @@ public class ImmutableValueHandler
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public Column[] map(ValueMapping vm, String name, ColumnIO io,
         boolean adapt) {
         DBDictionary dict = vm.getMappingRepository().getDBDictionary();
@@ -62,11 +65,14 @@ public class ImmutableValueHandler
         col.setIdentifier(name);
         if (vm.getTypeCode() == JavaTypes.DATE)
             col.setJavaType(JavaSQLTypes.getDateTypeCode(vm.getType()));
+        else if (vm.getTypeCode() == JavaTypes.UUID_OBJ) 
+            updateUUIDColumn(vm, col);
         else
             col.setJavaType(vm.getTypeCode());
         return new Column[]{ col };
     }
 
+    @Override
     public boolean isVersionable(ValueMapping vm) {
         switch (vm.getTypeCode()) {
             case JavaTypes.BOOLEAN:
@@ -83,21 +89,28 @@ public class ImmutableValueHandler
             case JavaTypes.SHORT_OBJ:
             case JavaTypes.STRING:
             case JavaTypes.DATE:
+            case JavaTypes.LOCAL_DATE:
+            case JavaTypes.LOCAL_TIME:
+            case JavaTypes.LOCAL_DATETIME:
+            case JavaTypes.OFFSET_TIME:
+            case JavaTypes.OFFSET_DATETIME:
             case JavaTypes.BIGINTEGER:
             case JavaTypes.LOCALE:
+            case JavaTypes.UUID_OBJ:
                 return true;
             default:
                 return false;
         }
     }
 
+    @Override
     public Object toDataStoreValue(ValueMapping vm, Object val,
         JDBCStore store) {
         if (val != null)
             return val;
 
         FieldMapping field = vm.getFieldMapping();
-        if (field.getNullValue() != FieldMapping.NULL_DEFAULT)
+        if (field.getNullValue() != FieldMetaData.NULL_DEFAULT)
             return null;
 
         Column[] cols = vm.getColumns();
@@ -106,5 +119,16 @@ public class ImmutableValueHandler
 
         // honor the user's null-value=default
         return JavaSQLTypes.getEmptyValue(vm.getTypeCode());
+    }
+
+    private void updateUUIDColumn(ValueMapping vm, Column col) {
+        DBDictionary dict = vm.getMappingRepository().getDBDictionary();
+        if (dict.supportsUuidType) {
+            col.setJavaType(vm.getTypeCode());
+            col.setSize(-1);
+        } else {
+            col.setJavaType(JavaTypes.STRING);
+            col.setSize(36);
+        }
     }
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -39,7 +39,7 @@ class FilterValueImpl
     private final ExpState _state;
     private final Val _val;
 
-    public FilterValueImpl(Select sel, ExpContext ctx, ExpState state, 
+    public FilterValueImpl(Select sel, ExpContext ctx, ExpState state,
         Val val) {
         _sel = sel;
         _ctx = ctx;
@@ -47,70 +47,86 @@ class FilterValueImpl
         _val = val;
     }
 
+    @Override
     public Class getType() {
         return _val.getType();
     }
 
+    @Override
     public int length() {
         return _val.length(_sel, _ctx, _state);
     }
 
+    @Override
     public void appendTo(SQLBuffer buf) {
         appendTo(buf, 0);
     }
 
+    @Override
     public void appendTo(SQLBuffer buf, int index) {
         _val.appendTo(_sel, _ctx, _state, buf, index);
     }
 
+    @Override
     public String getColumnAlias(Column col) {
         return _sel.getColumnAlias(col, _state.joins);
     }
 
+    @Override
     public String getColumnAlias(String col, Table table) {
         return _sel.getColumnAlias(col, table, _state.joins);
     }
 
+    @Override
     public Object toDataStoreValue(Object val) {
         return _val.toDataStoreValue(_sel, _ctx, _state, val);
     }
 
+    @Override
     public boolean isConstant() {
         return _val instanceof Const;
     }
 
+    @Override
     public Object getValue() {
         return (isConstant()) ? ((Const) _val).getValue(_ctx.params) : null;
     }
 
+    @Override
     public Object getSQLValue() {
-        return (isConstant()) ? ((Const) _val).getSQLValue(_sel, _ctx, _state) 
+        return (isConstant()) ? ((Const) _val).getSQLValue(_sel, _ctx, _state)
             : null;
     }
 
+    @Override
     public boolean isPath() {
         return _val instanceof PCPath;
     }
 
+    @Override
     public ClassMapping getClassMapping() {
         return (isPath()) ? ((PCPath) _val).getClassMapping(_state) : null;
     }
 
+    @Override
     public FieldMapping getFieldMapping() {
         return (isPath()) ? ((PCPath) _val).getFieldMapping(_state) : null;
     }
-    
+
+    @Override
     public PCPath getXPath() {
         if (isPath() && ((PCPath) _val).isXPath())
             return (PCPath) _val;
         else
             return null;
     }
-    
+
+    @Override
     public XMLMetaData getXmlMapping() {
         return (getXPath() == null) ? null : getXPath().getXmlMapping();
     }
 
+    @Override
     public boolean requiresCast() {
         return !(_val instanceof All || _val instanceof Any || _val instanceof PCPath);
     }

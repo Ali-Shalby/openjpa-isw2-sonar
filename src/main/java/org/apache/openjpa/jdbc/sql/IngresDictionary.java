@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -28,7 +28,7 @@ import org.apache.openjpa.jdbc.kernel.exps.FilterValue;
 import org.apache.openjpa.jdbc.schema.Sequence;
 
 public class IngresDictionary extends DBDictionary {
-    
+
     public IngresDictionary() {
         // Schema Data
         platform = "Ingres";
@@ -75,8 +75,6 @@ public class IngresDictionary extends DBDictionary {
         datePrecision = DBDictionary.NANO;
 
         // Schema Metadata
-        supportsNullTableForGetImportedKeys = true;
-        supportsNullTableForGetImportedKeys = true;
         supportsNullTableForGetIndexInfo = true;
         supportsNullTableForGetPrimaryKeys = true;
         tableTypes = "TABLE,VIEW,SYSTEM TABLE";
@@ -94,12 +92,12 @@ public class IngresDictionary extends DBDictionary {
 
         systemTables =
             "iiaccess, iialt_columns, iiattribute, iiaudit, iiaudittables, "
-                + "iicdbid_idx, iicolumns, iiconstraint_indexes, " 
-                + "iiconstraints, iidatabase, iidatabase_info, iidb_comments, " 
-                + "iidb_subcomments, iidbcapabilities, iidbconstants, " 
-                + "iidbdepends, iidbid_idx, iidbms_comment, iidbpriv, " 
-                + "iidbprivileges, iiddb_netcost, iiddb_nodecosts, iidefault, " 
-                + "iidefaultidx, iidevices, iidistcol, iidistcols, " 
+                + "iicdbid_idx, iicolumns, iiconstraint_indexes, "
+                + "iiconstraints, iidatabase, iidatabase_info, iidb_comments, "
+                + "iidb_subcomments, iidbcapabilities, iidbconstants, "
+                + "iidbdepends, iidbid_idx, iidbms_comment, iidbpriv, "
+                + "iidbprivileges, iiddb_netcost, iiddb_nodecosts, iidefault, "
+                + "iidefaultidx, iidevices, iidistcol, iidistcols, "
                 + "iidistscheme, iidistschemes, iidistval, "
                 + "iievent, iievents, iiextend, iiextend_info, "
                 + "iiextended_relation, iifile_info, iigw06_attribute, "
@@ -148,7 +146,7 @@ public class IngresDictionary extends DBDictionary {
                 + "ENABLE,ENDIF,ENDLOOP,ENDWHILE,EXCLUDING,IF,IMPORT,INDEX,"
                 + "INTEGRITY,MESSAGE,MODIFY,PERMIT,RAISE,REFERENCING,REGISTER,"
                 + "RELOCATE,REMOVE,REPEAT,RETURN,SAVE,SAVEPOINT,UNTIL,WHILE";
-        
+
         /* Don't allow "tid" as a column name; this is an internal column */
         invalidColumnWordSet.add("tid");
     }
@@ -156,20 +154,21 @@ public class IngresDictionary extends DBDictionary {
     /* (non-Javadoc)
      * @see org.apache.openjpa.jdbc.sql.DBDictionary#connectedConfiguration(java.sql.Connection)
      */
+    @Override
     public void connectedConfiguration(Connection conn) throws SQLException {
         super.connectedConfiguration(conn);
-        
+
         if (isVersion9_2orLater(conn))
             supportsSelectStartIndex = true;
     }
-    
+
     boolean isVersion9_2orLater(Connection conn) throws SQLException
     {
         DatabaseMetaData meta = conn.getMetaData();
-        
+
         int dbMajorVersion = meta.getDatabaseMajorVersion();
         int dbMinorVersion = meta.getDatabaseMinorVersion();
-        
+
         if ((dbMajorVersion == 9 && dbMinorVersion >= 2) ||
                 dbMajorVersion > 9)
             return true;
@@ -180,10 +179,10 @@ public class IngresDictionary extends DBDictionary {
     /**
      * Implementation of appendSelectRange for Ingres - uses "SELECT FIRST n"
      * syntax. Not implemented in superclass.
-     * 
+     *
      * @see org.apache.openjpa.jdbc.sql.DBDictionary#appendSelectRange(
      *      org.apache.openjpa.jdbc.sql.SQLBuffer, long, long, boolean)
-     * 
+     *
      * @param buf
      *            - SQL building buffer.
      * @param start
@@ -193,19 +192,20 @@ public class IngresDictionary extends DBDictionary {
      * @param subselect
      *            - Is the SQL query part of a subselect statement?
      */
+    @Override
     protected void appendSelectRange(SQLBuffer buf, long start, long end,
         boolean subselect) {
-        if (!supportsSelectStartIndex && start > 0) 
+        if (!supportsSelectStartIndex && start > 0)
             throw new IllegalArgumentException(
                 "Ingres does not support start indexes for Select Ranges");
-        
+
         if (start > 0 && start != Long.MAX_VALUE && !subselect)
             buf.append(" OFFSET ").append(Long.toString(start));
-        
-        if (end > 0 && end != Long.MAX_VALUE && !subselect) 
+
+        if (end > 0 && end != Long.MAX_VALUE && !subselect)
             buf.append(" FETCH NEXT ").append(Long.toString(end)).append(" ROWS ONLY");
     }
-    
+
     /**
      * Implementation of empty method in DBDictionary.  Returns SQL to find the sequences defined in the database.
      */
@@ -229,10 +229,10 @@ public class IngresDictionary extends DBDictionary {
             buf.append(sequenceNameSQL);
         return buf.toString();
     }
-    
+
     /**
      * Overrides DBDictionary's newSequence method; trims the sequence name.
-     * 
+     *
      * @see org.apache.openjpa.jdbc.sql.DBDictionary#newSequence(ResultSet)
      */
     @Override
@@ -241,17 +241,17 @@ public class IngresDictionary extends DBDictionary {
         seq.setIdentifier(DBIdentifier.trim(seq.getIdentifier()));
         return seq;
     }
-    
+
     /**
      * Invoke Ingres' IndexOf Function (Find the first index of a string in
      * another string, starting at a given index).
-     * 
+     *
      * @see org.apache.openjpa.jdbc.sql.DBDictionary#indexOf(
      *      org.apache.openjpa.jdbc.sql.SQLBuffer,
      *      org.apache.openjpa.jdbc.kernel.exps.FilterValue,
      *      org.apache.openjpa.jdbc.kernel.exps.FilterValue,
      *      org.apache.openjpa.jdbc.kernel.exps.FilterValue)
-     * 
+     *
      * @param buf
      *            - the SQL Buffer to write the indexOf invocation to
      * @param str
@@ -259,10 +259,9 @@ public class IngresDictionary extends DBDictionary {
      * @param find
      *            - a query value representing the search string
      * @param start
-     *            - a query value representing the start index, or null to 
+     *            - a query value representing the start index, or null to
      *            start at the beginning
      */
-
     @Override
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
         FilterValue start) {
@@ -274,11 +273,11 @@ public class IngresDictionary extends DBDictionary {
             substring(buf, str, start, null);
         else
             str.appendTo(buf);
-        
-        buf.append(")) - 1");
+
+        buf.append("))");
 
         if (start != null) {
-            buf.append(" + ");
+            buf.append(" - 1 + ");
             start.appendTo(buf);
         }
         buf.append(")");
@@ -286,40 +285,34 @@ public class IngresDictionary extends DBDictionary {
 
     /**
      * @see org.apache.openjpa.jdbc.sql.DBDictionary#substring(
-     *  org.apache.openjpa.jdbc.sql.SQLBuffer, 
-     *  org.apache.openjpa.jdbc.kernel.exps.FilterValue, 
-     *  org.apache.openjpa.jdbc.kernel.exps.FilterValue, 
+     *  org.apache.openjpa.jdbc.sql.SQLBuffer,
+     *  org.apache.openjpa.jdbc.kernel.exps.FilterValue,
+     *  org.apache.openjpa.jdbc.kernel.exps.FilterValue,
      *  org.apache.openjpa.jdbc.kernel.exps.FilterValue)
      */
     @Override
     public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
-        FilterValue end) {
+        FilterValue length) {
         buf.append(substringFunctionName).append("(");
         str.appendTo(buf);
         buf.append(", ");
         if (start.getValue() instanceof Number) {
-            long startLong = toLong(start);
-            buf.append(Long.toString(startLong + 1));
+            buf.append(Long.toString(toLong(start)));
         } else {
             buf.append("(CAST ((");
             start.appendTo(buf);
-            buf.append(" + 1) AS INTEGER))");
+            buf.append(") AS INTEGER))");
         }
-        if (end != null) {
+        if (length != null) {
             buf.append(", ");
-            if (start.getValue() instanceof Number
-                && end.getValue() instanceof Number) {
-                long startLong = toLong(start);
-                long endLong = toLong(end);
-                buf.append(Long.toString(endLong - startLong));
+            if (length.getValue() instanceof Number) {
+                buf.append(Long.toString(toLong(length)));
             } else {
-                buf.append("(CAST (");
-                end.appendTo(buf);
-                buf.append(" - (");
-                start.appendTo(buf);
+                buf.append("(CAST ((");
+                length.appendTo(buf);
                 buf.append(") AS INTEGER))");
             }
         }
         buf.append(")");
-    }  
+    }
 }

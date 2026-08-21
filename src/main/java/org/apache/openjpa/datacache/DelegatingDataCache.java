@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
 
@@ -22,9 +22,9 @@ import java.util.BitSet;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
-import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 
 /**
@@ -33,7 +33,6 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  * case it returns default values for all operations.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class DelegatingDataCache
     implements DataCache {
@@ -75,18 +74,20 @@ public class DelegatingDataCache
         return (_del == null) ? _cache : _del.getInnermostDelegate();
     }
 
+    @Override
     public int hashCode() {
         if (_cache == null)
             return super.hashCode();
         return getInnermostDelegate().hashCode();
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
         if (other instanceof DelegatingDataCache)
             other = ((DelegatingDataCache) other).getInnermostDelegate();
-        return ObjectUtils.equals(getInnermostDelegate(), other);
+        return Objects.equals(getInnermostDelegate(), other);
     }
 
     /**
@@ -96,6 +97,7 @@ public class DelegatingDataCache
         return (_trans == null) ? re : _trans.translate(re);
     }
 
+    @Override
     public String getName() {
         if (_cache == null)
             return null;
@@ -106,6 +108,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void setName(String name) {
         if (_cache == null)
             return;
@@ -116,6 +119,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void initialize(DataCacheManager manager) {
         if (_cache == null)
             return;
@@ -126,6 +130,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void commit(Collection<DataCachePCData> additions, Collection<DataCachePCData> newUpdates,
         Collection<DataCachePCData> existingUpdates, Collection<Object> deletes) {
         if (_cache == null)
@@ -137,6 +142,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public boolean contains(Object oid) {
         if (_cache == null)
             return false;
@@ -147,6 +153,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public BitSet containsAll(Collection<Object> oids) {
         if (_cache == null)
             return EMPTY_BITSET;
@@ -157,6 +164,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public DataCachePCData get(Object oid) {
         if (_cache == null)
             return null;
@@ -167,6 +175,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public DataCachePCData put(DataCachePCData value) {
         if (_cache == null)
             return null;
@@ -177,6 +186,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void update(DataCachePCData value) {
         if (_cache == null)
             return;
@@ -187,6 +197,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public DataCachePCData remove(Object oid) {
         if (_cache == null)
             return null;
@@ -197,6 +208,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public BitSet removeAll(Collection<Object> oids) {
         if (_cache == null)
             return EMPTY_BITSET;
@@ -207,6 +219,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void removeAll(Class<?> cls, boolean subclasses) {
         if (_cache == null)
             return;
@@ -217,6 +230,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void clear() {
         if (_cache == null)
             return;
@@ -227,6 +241,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public boolean pin(Object oid) {
         if (_cache == null)
             return false;
@@ -237,6 +252,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public BitSet pinAll(Collection<Object> oids) {
         if (_cache == null)
             return EMPTY_BITSET;
@@ -247,6 +263,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void pinAll(Class<?> cls, boolean subs) {
         if (_cache == null)
             return;
@@ -257,6 +274,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public boolean unpin(Object oid) {
         if (_cache == null)
             return false;
@@ -267,6 +285,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public BitSet unpinAll(Collection<Object> oids) {
         if (_cache == null)
             return EMPTY_BITSET;
@@ -277,6 +296,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void unpinAll(Class<?> cls, boolean subs) {
         if (_cache == null)
             return;
@@ -287,6 +307,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void writeLock() {
         if (_cache == null)
             return;
@@ -297,6 +318,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void writeUnlock() {
         if (_cache == null)
             return;
@@ -307,6 +329,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void addExpirationListener(ExpirationListener listen) {
         if (_cache == null)
             return;
@@ -317,6 +340,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public boolean removeExpirationListener(ExpirationListener listen) {
         if (_cache == null)
             return false;
@@ -327,6 +351,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public void close() {
         if (_cache == null)
             return;
@@ -337,6 +362,7 @@ public class DelegatingDataCache
 		}
 	}
 
+    @Override
     public Map<Object,DataCachePCData> getAll(List<Object> keys) {
         if (_cache == null)
             return null;
@@ -346,12 +372,14 @@ public class DelegatingDataCache
             throw translate(re);
         }
     }
-    
+
+    @Override
     public CacheStatistics getStatistics() {
     	return (_cache == null) ? null : _cache.getStatistics();
     }
 
-    
+
+    @Override
     public DataCache getPartition(String name, boolean create) {
         if (_cache == null)
             return null;
@@ -362,6 +390,7 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public Set<String> getPartitionNames() {
         if (_cache == null)
             return null;
@@ -372,11 +401,23 @@ public class DelegatingDataCache
         }
     }
 
+    @Override
     public boolean isPartitioned() {
         if (_cache == null)
             return false;
         try {
             return _cache.isPartitioned();
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+    }
+
+    @Override
+    public boolean getEvictOnBulkUpdate() {
+        if (_cache == null)
+            return false;
+        try {
+            return _cache.getEvictOnBulkUpdate();
         } catch (RuntimeException re) {
             throw translate(re);
         }

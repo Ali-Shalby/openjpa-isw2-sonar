@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.enhance;
 
@@ -36,32 +36,33 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.ClassArgParser;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.CodeFormat;
 import org.apache.openjpa.lib.util.Files;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
-import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.AccessCode;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.DelegatingMetaDataFactory;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.MetaDataFactory;
+import org.apache.openjpa.meta.MetaDataModes;
 import org.apache.openjpa.meta.MetaDataRepository;
+import org.apache.openjpa.util.GeneratedClasses;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.UserException;
-import serp.bytecode.BCClass;
-import serp.bytecode.BCClassLoader;
-import serp.bytecode.Project;
-import serp.util.Strings;
+import org.apache.xbean.asm9.ClassWriter;
+import org.apache.xbean.asm9.Opcodes;
+import org.apache.xbean.asm9.Type;
 
 /**
  * Generates a class appropriate for use as an application identity class.
@@ -100,8 +101,8 @@ public class ApplicationIdTool {
         _type = type;
 
         MetaDataRepository repos = conf.newMetaDataRepositoryInstance();
-        repos.setValidate(repos.VALIDATE_NONE);
-        repos.setSourceMode(repos.MODE_MAPPING, false);
+        repos.setValidate(MetaDataRepository.VALIDATE_NONE);
+        repos.setSourceMode(MetaDataModes.MODE_MAPPING, false);
         loadObjectIds(repos, true);
         _meta = repos.getMetaData(type, null, false);
         if (_meta != null) {
@@ -115,8 +116,7 @@ public class ApplicationIdTool {
      * Constructs a new tool instance capable of generating an
      * object id class for <code>meta</code>.
      */
-    public ApplicationIdTool(OpenJPAConfiguration conf, Class type,
-        ClassMetaData meta) {
+    public ApplicationIdTool(OpenJPAConfiguration conf, Class type, ClassMetaData meta) {
         _log = conf.getLog(OpenJPAConfiguration.LOG_ENHANCE);
 
         _type = type;
@@ -140,9 +140,9 @@ public class ApplicationIdTool {
         // in the current class
         FieldMetaData[] fields = meta.getPrimaryKeyFields();
         List decs = new ArrayList(fields.length);
-        for (int i = 0; i < fields.length; i++)
-            if (fields[i].getDeclaringType() == meta.getDescribedType())
-                decs.add(fields[i]);
+        for (FieldMetaData field : fields)
+            if (field.getDeclaringType() == meta.getDescribedType())
+                decs.add(field);
         return (FieldMetaData[]) decs.toArray(new FieldMetaData[decs.size()]);
     }
 
@@ -264,7 +264,7 @@ public class ApplicationIdTool {
             return null;
 
         // convert from SomeClass$ID to ID
-        String className = Strings.getClassName(_meta.getObjectIdType());
+        String className = ClassUtil.getClassName(_meta.getObjectIdType());
         if (isInnerClass())
             className = className.substring(className.lastIndexOf('$') + 1);
         return className;
@@ -318,7 +318,7 @@ public class ApplicationIdTool {
 
         // collect info on id type
         String className = getClassName();
-        String packageName = Strings.getPackageName(oidClass);
+        String packageName = ClassUtil.getPackageName(oidClass);
         String packageDec = "";
         if (packageName.length() > 0)
             packageDec = "package " + packageName + ";";
@@ -358,7 +358,7 @@ public class ApplicationIdTool {
             code.endl().tab();
 
         if (superOidClass != null) {
-            code.append("extends " + Strings.getClassName(superOidClass));
+            code.append("extends " + ClassUtil.getClassName(superOidClass));
             if (code.getBraceOnSameLine())
                 code.append(" ");
             else
@@ -380,15 +380,12 @@ public class ApplicationIdTool {
         // static block to register class
         code.tab().append("static").openBrace(2).endl();
         code.tab(2).append("// register persistent class in JVM").endl();
-        if (JavaVersions.VERSION >= 5) {
-            code.tab(2).append("try { Class.forName").openParen(true).
+        code.tab(2).append("try { Class.forName").openParen(true).
                 append("\"").append(_type.getName()).append("\"").
                 closeParen().append(";").append(" }").endl();
-            code.tab(2).append("catch").openParen(true).
+        code.tab(2).append("catch").openParen(true).
                 append("Exception e").closeParen().append(" {}").endl();
-        } else
-            code.tab(2).append("Class c = ").append(_type.getName()).
-                append(".class;").endl();
+
         code.closeBrace(2);
 
         // field declarations
@@ -440,9 +437,10 @@ public class ApplicationIdTool {
         if (isInnerClass()) {
             // indent the entire code block one level to make it
             // a propertly indented innder class
-            _code = code.getTab() + Strings.replace(_code,
-                J2DoPrivHelper.getLineSeparator(),
-                J2DoPrivHelper.getLineSeparator() + code.getTab());
+            _code = code.getTab() +
+                    StringUtil.replace(_code,
+                                       J2DoPrivHelper.getLineSeparator(),
+                                       J2DoPrivHelper.getLineSeparator() + code.getTab());
         }
 
         return true;
@@ -478,12 +476,12 @@ public class ApplicationIdTool {
         Set pkgs = getImportPackages();
 
         CodeFormat imports = newCodeFormat();
-        String base = Strings.getPackageName(_meta.getObjectIdType());
+        String base = ClassUtil.getPackageName(_meta.getObjectIdType());
         String pkg;
-        for (Iterator itr = pkgs.iterator(); itr.hasNext();) {
-            pkg = (String) itr.next();
+        for (Object o : pkgs) {
+            pkg = (String) o;
             if (pkg.length() > 0 && !"java.lang".equals(pkg)
-                && !base.equals(pkg)) {
+                    && !base.equals(pkg)) {
                 if (imports.length() > 0)
                     imports.endl();
                 imports.append("import ").append(pkg).append(".*;");
@@ -497,22 +495,22 @@ public class ApplicationIdTool {
      */
     public Set getImportPackages() {
         Set pkgs = new TreeSet();
-        pkgs.add(Strings.getPackageName(_type));
+        pkgs.add(ClassUtil.getPackageName(_type));
 
         Class superOidClass = null;
         if (_meta != null && _meta.getPCSuperclassMetaData() != null)
             superOidClass = _meta.getPCSuperclassMetaData().getObjectIdType();
         if (superOidClass != null)
-            pkgs.add(Strings.getPackageName(superOidClass));
+            pkgs.add(ClassUtil.getPackageName(superOidClass));
 
         pkgs.add("java.io");
         pkgs.add("java.util");
         Class type;
-        for (int i = 0; i < _fields.length; i++) {
-            type = _fields[i].getObjectIdFieldType();
+        for (FieldMetaData field : _fields) {
+            type = field.getObjectIdFieldType();
             if (type != byte[].class && type != char[].class
-                && !type.getName().startsWith("java.sql.")) {
-                pkgs.add(Strings.getPackageName(type));
+                    && !type.getName().startsWith("java.sql.")) {
+                pkgs.add(ClassUtil.getPackageName(type));
             }
         }
         return pkgs;
@@ -543,14 +541,14 @@ public class ApplicationIdTool {
             return "char[]";
         if (type.getName().startsWith("java.sql."))
             return type.getName();
-        return Strings.getClassName(type);
+        return ClassUtil.getClassName(type);
     }
 
     /**
      * Return the getters and setters for all primary key fields.
      */
     private String getProperties() {
-        if (AccessCode.isExplicit(_meta.getAccessType()) 
+        if (AccessCode.isExplicit(_meta.getAccessType())
          && AccessCode.isField(_meta.getAccessType()))
             return "";
 
@@ -561,7 +559,7 @@ public class ApplicationIdTool {
             if (i > 0)
                 code.afterSection();
             typeName = getTypeName(_fields[i]);
-            propName = StringUtils.capitalize(_fields[i].getName());
+            propName = StringUtil.capitalize(_fields[i].getName());
 
             code.tab().append("public ").append(typeName).append(" ");
             if (_fields[i].getDeclaredTypeCode() == JavaTypes.BOOLEAN
@@ -632,15 +630,15 @@ public class ApplicationIdTool {
         code.openParen(true).append("String str").closeParen();
         code.openBrace(2).endl();
 
-        // if we have any Object-type fields, die immediately 
-        for (int i = 0; i < _fields.length; i++) {
-            if (_fields[i].getObjectIdFieldType() != Object.class)
+        // if we have any Object-type fields, die immediately
+        for (FieldMetaData fieldMetaData : _fields) {
+            if (fieldMetaData.getObjectIdFieldType() != Object.class)
                 continue;
             code.tab(2).append("throw new UnsupportedOperationException").
-                parens().append(";").endl();
-            code.closeBrace(2); 
+                    parens().append(";").endl();
+            code.closeBrace(2);
             return code.toString();
-        } 
+        }
 
         if (toke != null) {
             code.tab(2).append(toke).append(" toke = ");
@@ -660,12 +658,12 @@ public class ApplicationIdTool {
             code.append(";").endl();
         }
 
-        for (int i = 0; i < _fields.length; i++) {
+        for (FieldMetaData field : _fields) {
             if (toke != null) {
                 code.tab(2).append("str = toke.nextToken").parens().
-                    append(";").endl();
+                        append(";").endl();
             }
-            code.tab(2).append(getConversionCode(_fields[i], "str")).endl();
+            code.tab(2).append(getConversionCode(field, "str")).endl();
         }
         if (_abstract || hasSuperclass)
             code.tab(2).append("return toke;").endl();
@@ -714,7 +712,7 @@ public class ApplicationIdTool {
         else if (type == char[].class)
             parse.append(var).append(".toCharArray").parens();
         else if (!type.isPrimitive()) {
-            parse.append("new ").append(Strings.getClassName(type)).
+            parse.append("new ").append(ClassUtil.getClassName(type)).
                 openParen(true).append(var).closeParen();
         } else // primitive
         {
@@ -829,8 +827,8 @@ public class ApplicationIdTool {
                     append(name).closeParen().closeParen();
             } else if (type == char[].class) {
                 // ((name == null && other.name == null)
-                //	|| (name != null && String.valueOf (name).
-                //	equals (String.valueOf (other.name))))
+                //    || (name != null && String.valueOf (name).
+                //    equals (String.valueOf (other.name))))
                 code.append("(").openParen(false).append(name).
                     append(" == null && other.").append(name).
                     append(" == null").closeParen().endl();
@@ -844,7 +842,7 @@ public class ApplicationIdTool {
                     closeParen().append(")");
             } else {
                 // ((name == null && other.name == null)
-                //	|| (name != null && name.equals (other.name)))
+                //    || (name != null && name.equals (other.name)))
                 code.append("(").openParen(false).append(name).
                     append(" == null && other.").append(name).
                     append(" == null").closeParen().endl();
@@ -896,9 +894,9 @@ public class ApplicationIdTool {
                 code.append("17;");
             code.endl();
 
-            for (int i = 0; i < _fields.length; i++) {
+            for (FieldMetaData field : _fields) {
                 code.tab(2).append("rs = rs * 37 + ");
-                appendHashCodeCode(_fields[i], code);
+                appendHashCodeCode(field, code);
                 code.append(";").endl();
             }
             code.tab(2).append("return rs;").endl();
@@ -1215,13 +1213,13 @@ public class ApplicationIdTool {
         if (_meta == null)
             return null;
 
-        String packageName = Strings.getPackageName(_meta.getObjectIdType());
-        String fileName = Strings.getClassName(_meta.getObjectIdType())
+        String packageName = ClassUtil.getPackageName(_meta.getObjectIdType());
+        String fileName = ClassUtil.getClassName(_meta.getObjectIdType())
             + ".java";
 
         // if pc class in same package as oid class, try to find pc .java file
         File dir = null;
-        if (_dir == null && Strings.getPackageName(_type).equals(packageName)) {
+        if (_dir == null && ClassUtil.getPackageName(_type).equals(packageName)) {
             dir = Files.getSourceFile(_type);
             if (dir != null)
                 dir = dir.getParentFile();
@@ -1287,6 +1285,7 @@ public class ApplicationIdTool {
         final String[] arguments = opts.setFromCmdLine(args);
         boolean ret = Configurations.runAgainstAllAnchors(opts,
             new Configurations.Runnable() {
+            @Override
             public boolean run(Options opts)
                 throws ClassNotFoundException, IOException {
                 OpenJPAConfiguration conf = new OpenJPAConfigurationImpl();
@@ -1297,8 +1296,10 @@ public class ApplicationIdTool {
                 }
             }
         });
+        // START - ALLOW PRINT STATEMENTS
         if (!ret)
             System.err.println(_loc.get("appid-usage"));
+        // STOP - ALLOW PRINT STATEMENTS
     }
 
     /**
@@ -1350,7 +1351,7 @@ public class ApplicationIdTool {
         Flags flags, ClassLoader loader)
         throws IOException, ClassNotFoundException {
         MetaDataRepository repos = conf.newMetaDataRepositoryInstance();
-        repos.setValidate(repos.VALIDATE_NONE, true);
+        repos.setValidate(MetaDataRepository.VALIDATE_NONE, true);
         loadObjectIds(repos, flags.name == null && flags.suffix == null);
 
         Log log = conf.getLog(OpenJPAConfiguration.LOG_TOOL);
@@ -1363,8 +1364,9 @@ public class ApplicationIdTool {
                 getMetaDataFactory().newClassArgParser();
             cap.setClassLoader(loader);
             classes = new HashSet();
-            for (int i = 0; i < args.length; i++)
-                classes.addAll(Arrays.asList(cap.parseTypes(args[i])));
+            for (String arg : args) {
+                classes.addAll(Arrays.asList(cap.parseTypes(arg)));
+            }
         }
         if (flags.name != null && classes.size() > 1)
             throw new UserException(_loc.get("name-mult-args", classes));
@@ -1372,14 +1374,12 @@ public class ApplicationIdTool {
         ApplicationIdTool tool;
         Class cls;
         ClassMetaData meta;
-        BCClassLoader bc = AccessController
-            .doPrivileged(J2DoPrivHelper.newBCClassLoaderAction(new Project()));
-        for (Iterator itr = classes.iterator(); itr.hasNext();) {
-            cls = (Class) itr.next();
+        for (Object aClass : classes) {
+            cls = (Class) aClass;
             log.info(_loc.get("appid-running", cls));
 
             meta = repos.getMetaData(cls, null, false);
-            setObjectIdType(meta, flags, bc);
+            setObjectIdType(meta, flags);
 
             tool = new ApplicationIdTool(conf, cls, meta);
             tool.setDirectory(flags.directory);
@@ -1389,18 +1389,17 @@ public class ApplicationIdTool {
             if (tool.run()) {
                 log.info(_loc.get("appid-output", tool.getFile()));
                 tool.record();
-            } else
+            }
+            else
                 log.info(_loc.get("appid-norun"));
         }
-        bc.getProject().clear();
         return true;
     }
 
     /**
      * Set the object id type of the given metadata.
      */
-    private static void setObjectIdType(ClassMetaData meta, Flags flags,
-        BCClassLoader bc)
+    private static void setObjectIdType(ClassMetaData meta, Flags flags)
         throws ClassNotFoundException {
         if (meta == null || (meta.getObjectIdType() != null
             && (!meta.isOpenJPAIdentity() || flags.name == null))
@@ -1409,37 +1408,40 @@ public class ApplicationIdTool {
 
         Class desc = meta.getDescribedType();
         Class cls = null;
-        if (flags.name != null)
-            cls = loadClass(desc, flags.name, bc);
-        else if (flags.suffix != null)
-            cls = loadClass(desc, desc.getName() + flags.suffix, bc);
+        if (flags.name != null) {
+            cls = loadClass(desc, flags.name);
+        }
+        else if (flags.suffix != null) {
+            cls = loadClass(desc, desc.getName() + flags.suffix);
+        }
         meta.setObjectIdType(cls, false);
     }
 
     /**
      * Load the given class name even if it does not exist.
      */
-    private static Class loadClass(Class context, String name,
-        BCClassLoader bc)
+    private static Class loadClass(Class context, String name)
         throws ClassNotFoundException {
         if (name.indexOf('.') == -1 && context.getName().indexOf('.') != -1)
-            name = Strings.getPackageName(context) + "." + name;
+            name = ClassUtil.getPackageName(context) + "." + name;
 
         // first try with regular class loader
         ClassLoader loader = AccessController.doPrivileged(
-            J2DoPrivHelper.getClassLoaderAction(context)); 
+            J2DoPrivHelper.getClassLoaderAction(context));
         if (loader == null)
             loader = AccessController.doPrivileged(
-                J2DoPrivHelper.getContextClassLoaderAction()); 
+                J2DoPrivHelper.getContextClassLoaderAction());
         try {
             return Class.forName(name, false, loader);
         } catch (Throwable t) {
         }
 
         // create class
-        BCClass oid = bc.getProject().loadClass(name, null);
-        oid.addDefaultConstructor();
-        return Class.forName(name, false, bc);
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_FRAMES);
+        cw.visit(Opcodes.V11, Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER, name.replace(".", "/"),
+                null, Type.getInternalName(Object.class), null);
+
+        return GeneratedClasses.loadAsmClass(name, cw.toByteArray(), context, context.getClassLoader());
     }
 
     /**
@@ -1474,12 +1476,12 @@ public class ApplicationIdTool {
      * Interface implemented by metadata factories that can load non-existant
      * object id classes.
      */
-    public static interface ObjectIdLoader
-	{
-		/**
+    public interface ObjectIdLoader
+    {
+        /**
          * Turn on the loading of all identity classes, even if they don't
          * exist.
-	 	 */
-		public void setLoadObjectIds ();
-	}
+          */
+        void setLoadObjectIds ();
+    }
 }

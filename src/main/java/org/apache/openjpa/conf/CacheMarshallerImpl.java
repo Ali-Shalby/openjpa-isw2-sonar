@@ -27,9 +27,9 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.OutputStream;
 import java.net.URL;
+import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.ArrayList;
 
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
@@ -59,9 +59,10 @@ public class CacheMarshallerImpl
 
     // temporary storage for resource location specification
     private String _inputResourceLocation;
-    
+
     private boolean _consumeErrors = true;
 
+    @Override
     public Object load() {
         if (_inputURL == null) {
             _log.trace(_loc.get("cache-marshaller-no-inputs", getId()));
@@ -79,8 +80,9 @@ public class CacheMarshallerImpl
 
             if (o != null && o.getClass().isArray()) {
                 Object[] array = (Object[]) o;
-                for (int i = 0; i < array.length; i++)
-                    configure(array[i]);
+                for (Object value : array) {
+                    configure(value);
+                }
             } else {
                 configure(o);
             }
@@ -115,6 +117,7 @@ public class CacheMarshallerImpl
         }
     }
 
+    @Override
     public void store(Object o) {
         if (_outputFile == null) {
             _log.trace(_loc.get("cache-marshaller-no-output-file", getId()));
@@ -170,14 +173,17 @@ public class CacheMarshallerImpl
         _consumeErrors = consume;
     }
 
+    @Override
     public String getId() {
         return _id;
     }
 
+    @Override
     public void setId(String id) {
         _id = id;
     }
 
+    @Override
     public void setValidationPolicy(String policy)
         throws InstantiationException, IllegalAccessException {
         String name = Configurations.getClassName(policy);
@@ -190,14 +196,17 @@ public class CacheMarshallerImpl
         return _validationPolicy;
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = (OpenJPAConfiguration) conf;
         _log = conf.getConfigurationLog();
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
         if (_inputResourceLocation != null && _inputURL != null)
             throw new IllegalStateException(
@@ -223,7 +232,7 @@ public class CacheMarshallerImpl
             List list = new ArrayList();
             for (Enumeration e = cl.getResources(_inputResourceLocation);
                 e.hasMoreElements(); )
-                list.add(e);
+                list.add(e.nextElement());
 
             if (list.size() > 1) {
                 if (_consumeErrors) {
@@ -245,8 +254,7 @@ public class CacheMarshallerImpl
         } catch (IOException ioe) {
             IllegalStateException ise = new IllegalStateException(
                 _loc.get("cache-marshaller-bad-url", getId(),
-                    _inputResourceLocation).getMessage());
-            ise.initCause(ioe);
+                    _inputResourceLocation).getMessage(), ioe);
             throw ise;
         }
     }

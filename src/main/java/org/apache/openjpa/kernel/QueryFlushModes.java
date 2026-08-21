@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -32,11 +32,11 @@ public interface QueryFlushModes {
      * Constant denoting that queries should flush data to the
      * database automatically whenever OpenJPA determines that relevant
      * modifications have been made and IgnoreCache is
-     * <code>false</code>. See 
+     * <code>false</code>. See
      * {@link OpenJPAConfiguration#getFlushBeforeQueries}
      * for more info.
      */
-    public static final int FLUSH_TRUE = 0;
+    int FLUSH_TRUE = 0;
 
     /**
      * Constant denoting that queries should never flush data
@@ -44,7 +44,7 @@ public interface QueryFlushModes {
      * should instead execute queries in-memory if necessary. See
      * {@link OpenJPAConfiguration#getFlushBeforeQueries} for more info.
      */
-    public static final int FLUSH_FALSE = 1;
+    int FLUSH_FALSE = 1;
 
     /**
      * Constant denoting that queries should flush data to the
@@ -53,5 +53,5 @@ public interface QueryFlushModes {
      * context already has a dedicated connection. See
      * {@link OpenJPAConfiguration#getFlushBeforeQueries} for more info.
      */
-    public static final int FLUSH_WITH_CONNECTION = 2;
+    int FLUSH_WITH_CONNECTION = 2;
 }

@@ -14,17 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
-import java.lang.reflect.Constructor;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Statement;
-
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 
 /**
  * Connection decorator that can configure some properties of the
@@ -36,20 +33,8 @@ import org.apache.openjpa.lib.util.ConcreteClassGenerator;
  * </ul>
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ConfiguringConnectionDecorator implements ConnectionDecorator {
-
-   static final Constructor<ConfiguringConnection> configuringConnectionImpl;
-
-    static {
-        try {
-            configuringConnectionImpl = ConcreteClassGenerator.getConcreteConstructor(ConfiguringConnection.class, 
-                    ConfiguringConnectionDecorator.class, Connection.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
 
     private int _isolation = -1;
     private int _queryTimeout = -1;
@@ -101,11 +86,11 @@ public class ConfiguringConnectionDecorator implements ConnectionDecorator {
         _autoCommit = autoCommit;
     }
 
+    @Override
     public Connection decorate(Connection conn) throws SQLException {
         if (_isolation == Connection.TRANSACTION_NONE || _queryTimeout != -1
             || _autoCommit != null)
-            conn = ConcreteClassGenerator.
-                newInstance(configuringConnectionImpl, this, conn);
+            conn = new ConfiguringConnection(conn);
         if (_isolation != -1 && _isolation != Connection.TRANSACTION_NONE)
             conn.setTransactionIsolation(_isolation);
         return conn;
@@ -114,7 +99,7 @@ public class ConfiguringConnectionDecorator implements ConnectionDecorator {
     /**
      * Decorator to configure connection components correctly.
      */
-    public abstract class ConfiguringConnection extends DelegatingConnection {
+    public class ConfiguringConnection extends DelegatingConnection {
 
         private boolean _curAutoCommit = false;
 
@@ -122,11 +107,12 @@ public class ConfiguringConnectionDecorator implements ConnectionDecorator {
             super(conn);
             if (_autoCommit != null) {
                 _curAutoCommit = ConfiguringConnection.this.getAutoCommit();
-                if (_curAutoCommit != _autoCommit.booleanValue())
-                    setAutoCommit(_autoCommit.booleanValue());
+                if (_curAutoCommit != _autoCommit)
+                    setAutoCommit(_autoCommit);
             }
         }
 
+        @Override
         public void setAutoCommit(boolean auto) throws SQLException {
             if (_isolation != TRANSACTION_NONE) {
                 super.setAutoCommit(auto);
@@ -134,22 +120,25 @@ public class ConfiguringConnectionDecorator implements ConnectionDecorator {
             }
         }
 
+        @Override
         public void commit() throws SQLException {
             if (_isolation != TRANSACTION_NONE)
                 super.commit();
             if (_autoCommit != null
-                && _autoCommit.booleanValue() != _curAutoCommit)
-                setAutoCommit(_autoCommit.booleanValue());
+                && _autoCommit != _curAutoCommit)
+                setAutoCommit(_autoCommit);
         }
 
+        @Override
         public void rollback() throws SQLException {
             if (_isolation != TRANSACTION_NONE)
                 super.rollback();
             if (_autoCommit != null
-                && _autoCommit.booleanValue() != _curAutoCommit)
-                setAutoCommit(_autoCommit.booleanValue());
+                && _autoCommit != _curAutoCommit)
+                setAutoCommit(_autoCommit);
         }
 
+        @Override
         protected PreparedStatement prepareStatement(String sql, boolean wrap)
             throws SQLException {
             PreparedStatement stmnt = super.prepareStatement(sql, wrap);
@@ -158,6 +147,7 @@ public class ConfiguringConnectionDecorator implements ConnectionDecorator {
             return stmnt;
         }
 
+        @Override
         protected PreparedStatement prepareStatement(String sql, int rsType,
             int rsConcur, boolean wrap) throws SQLException {
             PreparedStatement stmnt = super.prepareStatement(sql, rsType,
@@ -167,6 +157,7 @@ public class ConfiguringConnectionDecorator implements ConnectionDecorator {
             return stmnt;
         }
 
+        @Override
         protected Statement createStatement(boolean wrap) throws SQLException {
             Statement stmnt = super.createStatement(wrap);
             if (_queryTimeout != -1)
@@ -174,6 +165,7 @@ public class ConfiguringConnectionDecorator implements ConnectionDecorator {
             return stmnt;
         }
 
+        @Override
         protected Statement createStatement(int rsType, int rsConcur,
             boolean wrap) throws SQLException {
             Statement stmnt = super.createStatement(rsType, rsConcur, wrap);

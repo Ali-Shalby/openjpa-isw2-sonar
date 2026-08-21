@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -29,25 +29,25 @@ public interface CallbackModes {
     /**
      * Flag to stop executing callbacks on exception immediately.
      */
-    public static final int CALLBACK_FAIL_FAST = 2 << 0;
+    int CALLBACK_FAIL_FAST = 2 << 0;
 
     /**
      * Flag to ignore exceptions made during callback.
      */
-    public static final int CALLBACK_IGNORE = 2 << 1;
+    int CALLBACK_IGNORE = 2 << 1;
 
     /**
      * Flag to log exceptions made during callback.
      */
-    public static final int CALLBACK_LOG = 2 << 2;
+    int CALLBACK_LOG = 2 << 2;
 
     /**
      * Flag to re-throw exceptions made during callback.
      */
-    public static final int CALLBACK_RETHROW = 2 << 3;
+    int CALLBACK_RETHROW = 2 << 3;
 
     /**
      * Flag to always rollback on a callback exception.
      */
-    public static final int CALLBACK_ROLLBACK = 2 << 4;
+    int CALLBACK_ROLLBACK = 2 << 4;
 }

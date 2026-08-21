@@ -14,11 +14,9 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
-
-import java.util.List;
 
 import org.apache.openjpa.event.RemoteCommitListener;
 import org.apache.openjpa.lib.util.Localizer;
@@ -37,10 +35,16 @@ public class ConcurrentDataCache
     extends AbstractDataCache
     implements RemoteCommitListener {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage
         (ConcurrentDataCache.class);
 
-    private CacheMap _cache = newCacheMap();
+    private CacheMap _cache;
+    private int _cacheSize = Integer.MIN_VALUE;
+    private int _softRefs = Integer.MIN_VALUE;
+    protected boolean _lru = false;
 
     /**
      * Returns the underlying {@link CacheMap} that this cache is using.
@@ -60,7 +64,7 @@ public class ConcurrentDataCache
      * flushing old values.
      */
     public void setCacheSize(int size) {
-        _cache.setCacheSize(size);
+        _cacheSize = size;
     }
 
     /**
@@ -78,7 +82,7 @@ public class ConcurrentDataCache
      * flushing values.
      */
     public void setSoftReferenceSize(int size) {
-        _cache.setSoftReferenceSize(size);
+        _softRefs = size;
     }
 
     /**
@@ -89,21 +93,33 @@ public class ConcurrentDataCache
         return _cache.getSoftReferenceSize();
     }
 
+    @Override
     public void initialize(DataCacheManager mgr) {
         super.initialize(mgr);
         conf.getRemoteCommitEventManager().addInternalListener(this);
+        // Wait to instantiate _cache so that we know the proper value of _cache
+        _cache = newCacheMap();
+        if (_cacheSize != Integer.MIN_VALUE) {
+            _cache.setCacheSize(_cacheSize);
+        }
+        if (_softRefs != Integer.MIN_VALUE) {
+            _cache.setSoftReferenceSize(_softRefs);
+        }
     }
 
+    @Override
     public void unpinAll(Class<?> cls, boolean subs) {
         if (log.isWarnEnabled())
             log.warn(_loc.get("cache-class-unpin-all", getName()));
         unpinAll(_cache.getPinnedKeys());
     }
 
+    @Override
     public void writeLock() {
         _cache.writeLock();
     }
 
+    @Override
     public void writeUnlock() {
         _cache.writeUnlock();
     }
@@ -113,26 +129,32 @@ public class ConcurrentDataCache
      * invoke {@link AbstractDataCache#keyRemoved}.
      */
     protected CacheMap newCacheMap() {
-        return new CacheMap() {
-            protected void entryRemoved(Object key, Object value,
-                boolean expired) {
+        CacheMap res = new CacheMap(_lru) {
+            @Override
+            protected void entryRemoved(Object key, Object value, boolean expired) {
                 keyRemoved(key, expired);
             }
         };
+
+        return res;
     }
 
+    @Override
     protected DataCachePCData getInternal(Object key) {
         return (DataCachePCData) _cache.get(key);
     }
 
+    @Override
     protected DataCachePCData putInternal(Object key, DataCachePCData pc) {
         return (DataCachePCData) _cache.put(key, pc);
     }
 
+    @Override
     protected DataCachePCData removeInternal(Object key) {
         return (DataCachePCData) _cache.remove(key);
     }
 
+    @Override
     protected void removeAllInternal(Class<?> cls, boolean subs) {
         // The performance in this area can be improved upon, however it seems
         // unlikely that this method will be called in a performance intensive
@@ -141,20 +163,31 @@ public class ConcurrentDataCache
         _cache.clear();
     }
 
+    @Override
     protected void clearInternal() {
         _cache.clear();
     }
 
+    @Override
     protected boolean pinInternal(Object key) {
         return _cache.pin(key);
     }
 
+    @Override
     protected boolean unpinInternal(Object key) {
         return _cache.unpin (key);
 	}
-    
+
+    @Override
     protected boolean recacheUpdates() {
         return true;
     }
 
+    public void setLru(boolean l) {
+        _lru = l;
+    }
+
+    public boolean getLru() {
+        return _lru;
+    }
 }

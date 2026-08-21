@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -29,11 +29,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.concurrent.locks.ReentrantLock;
 
-import org.apache.commons.collections.map.LinkedMap;
-import org.apache.commons.lang.ObjectUtils;
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.kernel.exps.AggregateListener;
@@ -44,16 +43,20 @@ import org.apache.openjpa.kernel.exps.Path;
 import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.kernel.exps.Val;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.rop.BatchedResultObjectProvider;
 import org.apache.openjpa.lib.rop.EagerResultList;
-import org.apache.openjpa.lib.rop.ListResultList;
 import org.apache.openjpa.lib.rop.MergedResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultList;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
+import org.apache.openjpa.lib.util.StringUtil;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap;
+import org.apache.openjpa.lib.util.collections.LinkedMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -67,17 +70,14 @@ import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Strings;
 
 /**
  * Implementation of the {@link Query} interface.
  *
  * @author Abe White
- * @nojavadoc
  */
-@SuppressWarnings("serial")
-public class QueryImpl
-    implements Query {
+public class QueryImpl implements Query {
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage(QueryImpl.class);
 
@@ -126,9 +126,10 @@ public class QueryImpl
 
     // remember the list of all the results we have returned so we
     // can free their resources when close or closeAll is called
-    private transient final Collection<RemoveOnCloseResultList> _resultLists = 
-        new ReferenceHashSet(ReferenceHashSet.WEAK);
+    private transient final Collection<RemoveOnCloseResultList> _resultLists =
+        new ReferenceHashSet(AbstractReferenceMap.ReferenceStrength.WEAK);
 
+    private boolean _printParameters = false;
     /**
      * Construct a query managed by the given broker.
      */
@@ -139,7 +140,7 @@ public class QueryImpl
         _fc = (FetchConfiguration) broker.getFetchConfiguration().clone();
         _log = broker.getConfiguration().getLog(OpenJPAConfiguration.LOG_QUERY);
         _storeQuery.setContext(this);
-
+        _printParameters = _broker.getPrintParameters();
         if (_broker != null && _broker.getMultithreaded())
             _lock = new ReentrantLock();
     }
@@ -151,35 +152,43 @@ public class QueryImpl
         return _storeQuery;
     }
 
+    @Override
     public Broker getBroker() {
         return _broker;
     }
 
+    @Override
     public Query getQuery() {
         return this;
     }
 
+    @Override
     public StoreContext getStoreContext() {
         return _broker;
     }
 
+    @Override
     public String getLanguage() {
         return _language;
     }
 
+    @Override
     public FetchConfiguration getFetchConfiguration() {
         return _fc;
     }
 
+    @Override
     public String getQueryString() {
         return _query;
     }
 
+    @Override
     public boolean getIgnoreChanges() {
         assertOpen();
         return _ignoreChanges;
     }
 
+    @Override
     public void setIgnoreChanges(boolean flag) {
         lock();
         try {
@@ -191,11 +200,13 @@ public class QueryImpl
         }
     }
 
+    @Override
     public boolean isReadOnly() {
         assertOpen();
         return _readOnly;
     }
 
+    @Override
     public void setReadOnly(boolean flag) {
         lock();
         try {
@@ -206,19 +217,21 @@ public class QueryImpl
         }
     }
 
+    @Override
     public void addFilterListener(FilterListener listener) {
         lock();
         try {
             assertOpen();
             assertNotReadOnly();
             if (_filtListeners == null)
-                _filtListeners = new HashMap<String,FilterListener>(5);
+                _filtListeners = new HashMap<>(5);
             _filtListeners.put(listener.getTag(), listener);
         } finally {
             unlock();
         }
     }
 
+    @Override
     public void removeFilterListener(FilterListener listener) {
         lock();
         try {
@@ -231,17 +244,19 @@ public class QueryImpl
         }
     }
 
+    @Override
     public Collection<FilterListener> getFilterListeners() {
-        if (_filtListeners == null) 
+        if (_filtListeners == null)
             return Collections.emptyList();
         else
             return _filtListeners.values();
     }
 
+    @Override
     public FilterListener getFilterListener(String tag) {
         // first check listeners for this query
         if (_filtListeners != null) {
-            FilterListener listen = (FilterListener) _filtListeners.get(tag);
+            FilterListener listen = _filtListeners.get(tag);
             if (listen != null)
                 return listen;
         }
@@ -249,27 +264,29 @@ public class QueryImpl
         // check user-defined listeners from configuration
         FilterListener[] confListeners = _broker.getConfiguration().
             getFilterListenerInstances();
-        for (int i = 0; i < confListeners.length; i++)
-            if (confListeners[i].getTag().equals(tag))
-                return confListeners[i];
+        for (FilterListener confListener : confListeners)
+            if (confListener.getTag().equals(tag))
+                return confListener;
 
         // check store listeners
         return _storeQuery.getFilterListener(tag);
     }
 
+    @Override
     public void addAggregateListener(AggregateListener listener) {
         lock();
         try {
             assertOpen();
             assertNotReadOnly();
             if (_aggListeners == null)
-                _aggListeners = new HashMap<String,AggregateListener>(5);
+                _aggListeners = new HashMap<>(5);
             _aggListeners.put(listener.getTag(), listener);
         } finally {
             unlock();
         }
     }
 
+    @Override
     public void removeAggregateListener(AggregateListener listener) {
         lock();
         try {
@@ -282,17 +299,19 @@ public class QueryImpl
         }
     }
 
+    @Override
     public Collection<AggregateListener> getAggregateListeners() {
-        if (_aggListeners == null) 
+        if (_aggListeners == null)
             return Collections.emptyList();
         else
             return _aggListeners.values();
     }
 
+    @Override
     public AggregateListener getAggregateListener(String tag) {
         // first check listeners for this query
         if (_aggListeners != null) {
-            AggregateListener listen = (AggregateListener) _aggListeners.
+            AggregateListener listen = _aggListeners.
                 get(tag);
             if (listen != null)
                 return listen;
@@ -301,14 +320,15 @@ public class QueryImpl
         // check user-defined listeners from configuration
         AggregateListener[] confListeners = _broker.getConfiguration().
             getAggregateListenerInstances();
-        for (int i = 0; i < confListeners.length; i++)
-            if (confListeners[i].getTag().equals(tag))
-                return confListeners[i];
+        for (AggregateListener confListener : confListeners)
+            if (confListener.getTag().equals(tag))
+                return confListener;
 
         // check store listeners
         return _storeQuery.getAggregateListener(tag);
     }
 
+    @Override
     public Extent getCandidateExtent() {
         // if just the class is set, fetch the corresponding extent; if the
         // extent is already set but its ignore cache setting is wrong,
@@ -332,6 +352,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public void setCandidateExtent(Extent candidateExtent) {
         lock();
         try {
@@ -366,11 +387,13 @@ public class QueryImpl
         }
     }
 
+    @Override
     public Collection<?> getCandidateCollection() {
         assertOpen();
         return _collection;
     }
 
+    @Override
     public void setCandidateCollection(Collection<?> candidateCollection) {
         if (!_storeQuery.supportsInMemoryExecution())
             throw new UnsupportedException(_loc.get("query-nosupport",
@@ -389,6 +412,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public Class getCandidateType() {
         lock();
         try {
@@ -405,6 +429,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public void setCandidateType(Class candidateClass, boolean subs) {
         lock();
         try {
@@ -419,20 +444,24 @@ public class QueryImpl
         }
     }
 
+    @Override
     public boolean hasSubclasses() {
         return _subclasses;
     }
 
+    @Override
     public String getResultMappingName() {
         assertOpen();
         return _resultMappingName;
     }
 
+    @Override
     public Class getResultMappingScope() {
         assertOpen();
         return _resultMappingScope;
     }
 
+    @Override
     public void setResultMapping(Class<?> scope, String name) {
         lock();
         try {
@@ -445,12 +474,13 @@ public class QueryImpl
         }
     }
 
+    @Override
     public boolean isUnique() {
         lock();
         try {
             assertOpen();
             if (_unique != null)
-                return _unique.booleanValue();
+                return _unique;
             if ((_query == null && _language.endsWith("JPQL")) || _compiling || _broker == null)
                 return false;
 
@@ -458,7 +488,7 @@ public class QueryImpl
             if (_compiled == null) {
                 compileForCompilation();
                 if (_unique != null)
-                    return _unique.booleanValue();
+                    return _unique;
             }
 
             // no explicit setting; default
@@ -470,7 +500,7 @@ public class QueryImpl
             unlock();
         }
     }
-    
+
     /**
      * Affirms if this query has originated by parsing a string-based query.
      */
@@ -478,6 +508,7 @@ public class QueryImpl
         return getQueryString() != null;
     }
 
+    @Override
     public void setUnique(boolean unique) {
         lock();
         try {
@@ -489,6 +520,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public Class getResultType() {
         lock();
         try {
@@ -505,6 +537,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public void setResultType(Class cls) {
         lock();
         try {
@@ -517,16 +550,19 @@ public class QueryImpl
         }
     }
 
+    @Override
     public long getStartRange() {
         assertOpen();
         return _startIdx;
     }
 
+    @Override
     public long getEndRange() {
         assertOpen();
         return _endIdx;
     }
 
+    @Override
     public void setRange(long start, long end) {
         if (start < 0 || end < 0)
             throw new UserException(_loc.get("invalid-range",
@@ -548,6 +584,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public String getParameterDeclaration() {
         lock();
         try {
@@ -564,6 +601,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public void declareParameters(String params) {
         if (!_storeQuery.supportsParameterDeclarations())
             throw new UnsupportedException(_loc.get("query-nosupport",
@@ -573,13 +611,14 @@ public class QueryImpl
         try {
             assertOpen();
             assertNotReadOnly();
-            _params = StringUtils.trimToNull(params);
+            _params = StringUtil.trimToNull(params);
             invalidateCompilation();
         } finally {
             unlock();
         }
     }
 
+    @Override
     public void compile() {
         lock();
         try {
@@ -592,6 +631,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public Object getCompilation() {
         lock();
         try {
@@ -631,9 +671,9 @@ public class QueryImpl
      * Find the cached compilation for the current query, creating one if it
      * does not exist.
      */
+    @SuppressWarnings("unchecked")
     protected Compilation compilationFromCache() {
-        Map compCache =
-            _broker.getConfiguration().getQueryCompilationCacheInstance();
+        Map compCache = _broker.getConfiguration().getQueryCompilationCacheInstance();
         if (compCache == null || !isParsedQuery()) {
             return newCompilation();
         } else {
@@ -647,21 +687,28 @@ public class QueryImpl
             Compilation comp = (Compilation) compCache.get(key);
 
             // parse declarations if needed
-            boolean cache = false;
             if (comp == null) {
                 comp = newCompilation();
                 // only cache those queries that can be compiled
-                cache = comp.storeData != null;
-            } else
-                _storeQuery.populateFromCompilation(comp.storeData);
+                if (comp.storeData != null) {
 
-            // cache parsed state if needed
-            if (cache)
-                compCache.put(key, comp);
+                    synchronized (compCache) {
+                        Compilation existingComp = (Compilation) compCache.get(key);
+                        if (existingComp == null) {
+                            compCache.put(key, comp);
+                        } else {
+                            comp = existingComp;
+                        }
+                    }
+                }
+            } else {
+                _storeQuery.populateFromCompilation(comp.storeData);
+            }
+
             return comp;
         }
     }
-    
+
     /**
      * Create and populate a new compilation.
      */
@@ -780,14 +827,17 @@ public class QueryImpl
         return true;
     }
 
+    @Override
     public Object execute() {
         return execute((Object[]) null);
     }
 
+    @Override
     public Object execute(Object[] params) {
         return execute(OP_SELECT, params);
     }
 
+    @Override
     public Object execute(Map params) {
         return execute(OP_SELECT, params);
     }
@@ -867,8 +917,8 @@ public class QueryImpl
             } catch (OpenJPAException ke) {
                 throw ke;
             } catch (Exception e) {
-                throw new UserException(_loc.get("query-execution-error", 
-                		_query), e);
+                throw new UserException(_loc.get("query-execution-error",
+                        _query), e);
             } finally {
                 _broker.endOperation();
             }
@@ -878,26 +928,32 @@ public class QueryImpl
         }
     }
 
+    @Override
     public long deleteAll() {
         return deleteAll((Object[]) null);
     }
 
+    @Override
     public long deleteAll(Object[] params) {
         return ((Number) execute(OP_DELETE, params)).longValue();
     }
 
+    @Override
     public long deleteAll(Map params) {
         return ((Number) execute(OP_DELETE, params)).longValue();
     }
 
+    @Override
     public long updateAll() {
         return updateAll((Object[]) null);
     }
 
+    @Override
     public long updateAll(Object[] params) {
         return ((Number) execute(OP_UPDATE, params)).longValue();
     }
 
+    @Override
     public long updateAll(Map params) {
         return ((Number) execute(OP_UPDATE, params)).longValue();
     }
@@ -905,32 +961,32 @@ public class QueryImpl
     /**
      * Converts the values of given <code>params</code> Map into an array in
      * consultation of the <code>paramTypes</code> Map.
-     * 
-     * The indexing of the resultant array is significant for following 
+     *
+     * The indexing of the resultant array is significant for following
      * interrelated but tacit assumptions:
      * The values in the returned Object[] is consumed by {@link Parameter}
      * expressions. Query parsing creates these Parameters and sets their
      * key and index. The index set on the Parameter by the parser is the
      * same index used to access the Object[] elements returned by this method.
-     * 
+     *
      * {@link JPQLExpressionBuilder} creates and populates parameters as
-     * follows: 
-     * The parameter key is not the token encountered by the parser, but 
-     * converted to Integer or String based on the context in which the token 
-     * appeared. 
-     * The index for positional (Integer) parameter is the value of the key   
-     * minus 1. 
-     * The index for named (String) parameter is the order in which the  
-     * token appeared to parser during scanning. 
-     * 
-     * 
+     * follows:
+     * The parameter key is not the token encountered by the parser, but
+     * converted to Integer or String based on the context in which the token
+     * appeared.
+     * The index for positional (Integer) parameter is the value of the key
+     * minus 1.
+     * The index for named (String) parameter is the order in which the
+     * token appeared to parser during scanning.
+     *
+     *
      * The first LinkedMap argument to this method is the result of parsing.
-     * This LinkedMap contains the parameter key and their expected 
-     * (if determinable) value types. That it is a LinkedMap points to the 
-     * fact that an ordering is implicit. The ordering of the keys in this Map 
+     * This LinkedMap contains the parameter key and their expected
+     * (if determinable) value types. That it is a LinkedMap points to the
+     * fact that an ordering is implicit. The ordering of the keys in this Map
      * is the same as the order in which parser encountered the parameter
      * tokens.
-     * 
+     *
      * For example, parsing result of the following two JPQL queries
      *   a) UPDATE CompUser e SET e.name= ?1, e.age = ?2 WHERE e.userid = ?3
      *   b) UPDATE CompUser e SET e.name= :name, e.age = :age WHERE e.userid =
@@ -941,14 +997,14 @@ public class QueryImpl
      * following key and index:
      *    a) 1:0, 2:1, 3:2
      *    b) name:1, age:2, id:0
-     *    
+     *
      * The purpose of this method is to produce an Object[] with an indexing
      * scheme that matches the indexing of the Parameter Expression.
      * The user map (the second argument) should produce the following Object[]
      * in two above-mentioned cases
      *   a) {1:"Shannon",2:29,3:5032} --> ["Shannon", 29, 5032]
      *   b) {"name":"Shannon", "age":29, "id":5032} --> [5032, "Shannon", 29]
-     *   
+     *
      */
 
     /**
@@ -985,9 +1041,9 @@ public class QueryImpl
     /**
      * Execute the query using the given compilation, executor, and parameter
      * values. All other execute methods delegate to this one or to
-     * {@link #execute(StoreQuery.Executor,Map)} after validation and locking.
+     * {@link #execute(int, Map)} after validation and locking.
      */
-    private Object execute(StoreQuery q, StoreQuery.Executor ex, 
+    private Object execute(StoreQuery q, StoreQuery.Executor ex,
         Object[] params)
         throws Exception {
         // if this is an impossible result range, return null / empty list
@@ -1013,7 +1069,7 @@ public class QueryImpl
     /**
      * Delete the query using the given executor, and parameter
      * values. All other execute methods delegate to this one or to
-     * {@link #delete(StoreQuery.Executor,Map)} after validation and locking.
+     * {@link #delete(StoreQuery, StoreQuery.Executor, Object[])} after validation and locking.
      * The return value will be a Number indicating the number of
      * instances deleted.
      */
@@ -1023,6 +1079,7 @@ public class QueryImpl
         return ex.executeDelete(q, params);
     }
 
+    @Override
     public Number deleteInMemory(StoreQuery q, StoreQuery.Executor executor,
         Object[] params) {
         try {
@@ -1044,7 +1101,7 @@ public class QueryImpl
     /**
      * Update the query using the given compilation, executor, and parameter
      * values. All other execute methods delegate to this one or to
-     * {@link #update(StoreQuery.Executor,Map)} after validation and locking.
+     * {@link #update(StoreQuery, StoreQuery.Executor, Object[])} after validation and locking.
      * The return value will be a Number indicating the number of
      * instances updated.
      */
@@ -1054,6 +1111,7 @@ public class QueryImpl
         return ex.executeUpdate(q, params);
     }
 
+    @Override
     public Number updateInMemory(StoreQuery q, StoreQuery.Executor executor,
         Object[] params) {
         try {
@@ -1079,26 +1137,29 @@ public class QueryImpl
      * @param params the parameters passed to the query
      */
     private void updateInMemory(Object ob, Object[] params, StoreQuery q) {
-        for (Iterator it = getUpdates().entrySet().iterator();
-            it.hasNext();) {
-            Map.Entry e = (Map.Entry) it.next();
+        for (Object o : getUpdates().entrySet()) {
+            Entry e = (Entry) o;
             Path path = (Path) e.getKey();
-            FieldMetaData fmd = (FieldMetaData) path.last();
+            FieldMetaData fmd = path.last();
             OpenJPAStateManager sm = _broker.getStateManager(ob);
 
             Object val;
             Object value = e.getValue();
             if (value instanceof Val) {
                 val = ((Val) value).
-                    evaluate(ob, null, getStoreContext(), params);
-            } else if (value instanceof Literal) {
+                        evaluate(ob, null, getStoreContext(), params);
+            }
+            else if (value instanceof Literal) {
                 val = ((Literal) value).getValue();
-            } else if (value instanceof Constant) {
+            }
+            else if (value instanceof Constant) {
                 val = ((Constant) value).getValue(params);
-            } else {
+            }
+            else {
                 try {
                     val = q.evaluate(value, ob, params, sm);
-                } catch (UnsupportedException e1) {
+                }
+                catch (UnsupportedException e1) {
                     throw new UserException(
                             _loc.get("fail-to-get-update-value"));
                 }
@@ -1106,47 +1167,47 @@ public class QueryImpl
 
             int i = fmd.getIndex();
             PersistenceCapable into = ImplHelper.toPersistenceCapable(ob,
-                _broker.getConfiguration());
+                    _broker.getConfiguration());
 
             // set the actual field in the instance
             int set = OpenJPAStateManager.SET_USER;
             switch (fmd.getDeclaredTypeCode()) {
                 case JavaTypes.BOOLEAN:
                     sm.settingBooleanField(into, i, sm.fetchBooleanField(i),
-                        val == null ? false : ((Boolean) val).booleanValue(),
-                        set);
+                            val == null ? false : (Boolean) val,
+                            set);
                     break;
                 case JavaTypes.BYTE:
                     sm.settingByteField(into, i, sm.fetchByteField(i),
-                        val == null ? 0 : ((Number) val).byteValue(), set);
+                            val == null ? 0 : ((Number) val).byteValue(), set);
                     break;
                 case JavaTypes.CHAR:
                     sm.settingCharField(into, i, sm.fetchCharField(i),
-                        val == null ? 0 : val.toString().charAt(0), set);
+                            val == null ? 0 : val.toString().charAt(0), set);
                     break;
                 case JavaTypes.DOUBLE:
                     sm.settingDoubleField(into, i, sm.fetchDoubleField(i),
-                        val == null ? 0 : ((Number) val).doubleValue(), set);
+                            val == null ? 0 : ((Number) val).doubleValue(), set);
                     break;
                 case JavaTypes.FLOAT:
                     sm.settingFloatField(into, i, sm.fetchFloatField(i),
-                        val == null ? 0 : ((Number) val).floatValue(), set);
+                            val == null ? 0 : ((Number) val).floatValue(), set);
                     break;
                 case JavaTypes.INT:
                     sm.settingIntField(into, i, sm.fetchIntField(i),
-                        val == null ? 0 : ((Number) val).intValue(), set);
+                            val == null ? 0 : ((Number) val).intValue(), set);
                     break;
                 case JavaTypes.LONG:
                     sm.settingLongField(into, i, sm.fetchLongField(i),
-                        val == null ? 0 : ((Number) val).longValue(), set);
+                            val == null ? 0 : ((Number) val).longValue(), set);
                     break;
                 case JavaTypes.SHORT:
                     sm.settingShortField(into, i, sm.fetchShortField(i),
-                        val == null ? 0 : ((Number) val).shortValue(), set);
+                            val == null ? 0 : ((Number) val).shortValue(), set);
                     break;
                 case JavaTypes.STRING:
                     sm.settingStringField(into, i, sm.fetchStringField(i),
-                        val == null ? null : val.toString(), set);
+                            val == null ? null : val.toString(), set);
                     break;
                 case JavaTypes.DATE:
                 case JavaTypes.NUMBER:
@@ -1165,7 +1226,7 @@ public class QueryImpl
                 case JavaTypes.OID:
                 case JavaTypes.ENUM:
                     sm.settingObjectField(into, i, sm.fetchObjectField(i), val,
-                        set);
+                            set);
                     break;
                 default:
                     throw new UserException(_loc.get("only-update-primitives"));
@@ -1177,12 +1238,13 @@ public class QueryImpl
      * Trace log that the query is executing.
      */
     private void logExecution(int op, OrderedMap<Object, Class<?>> types, Object[] params) {
-        OrderedMap<Object, Object> pmap = new OrderedMap<Object, Object>();
+        OrderedMap<Object, Object> pmap = new OrderedMap<>();
         if (params.length > 0) {
             if (types != null && types.size() == params.length) {
                 int i = 0;
-                for (Iterator<Object> itr = types.keySet().iterator(); itr.hasNext();)
-                    pmap.put(itr.next(), params[i++]);
+                for (Object o : types.keySet()) {
+                    pmap.put(o, params[i++]);
+                }
             } else {
                 for (int i = 0; i < params.length; i++)
                     pmap.put(String.valueOf(i), params[i]);
@@ -1194,16 +1256,19 @@ public class QueryImpl
     /**
      * Trace log that the query is executing.
      */
-    private void logExecution(int op, Map<?, ?> params) {
+    private void logExecution(int op, Map<Object, Object> params) {
         String s = _query;
-        if (StringUtils.isEmpty(s))
+        if (StringUtil.isEmpty(s))
             s = toString();
 
         String msg = "executing-query";
-        if (!params.isEmpty())
-            msg += "-with-params";
+        if (!params.isEmpty()) {
+            msg = "executing-query-with-params";
+        }
 
-        _log.trace(_loc.get(msg, s, params));
+        // If we aren't supposed to print parameters, replace values with '?'
+        Object p = (_printParameters) ? params : "?";
+        _log.trace(_loc.get(msg, s, p));
     }
 
     /**
@@ -1219,9 +1284,12 @@ public class QueryImpl
     /**
      * Return the query result for the given result object provider.
      */
-    protected Object toResult(StoreQuery q, StoreQuery.Executor ex, 
+    protected Object toResult(StoreQuery q, StoreQuery.Executor ex,
         ResultObjectProvider rop, StoreQuery.Range range)
         throws Exception {
+        if (rop instanceof BatchedResultObjectProvider) {
+            return new QueryResultCallback(this, q, ex, (BatchedResultObjectProvider) rop, range);
+        }
         // pack projections if necessary
         String[] aliases = ex.getProjectionAliases(q);
         if (!ex.isPacking(q)) {
@@ -1241,7 +1309,7 @@ public class QueryImpl
         boolean detach = (_broker.getAutoDetach() &
             AutoDetach.DETACH_NONTXREAD) > 0 && !_broker.isActive();
         boolean lrs = range.lrs && !ex.isAggregate(q) && !ex.hasGrouping(q);
-        ResultList<?> res = new ListResultList(Collections.emptyList());
+        ResultList<?> res;
         try {
             res = (!detach && lrs) ? _fc.newResultList(rop) : new EagerResultList(rop);
             res.setUserObject(new Object[]{rop,ex});
@@ -1309,7 +1377,7 @@ public class QueryImpl
      * Extract an expected single result from the given provider. Used when
      * the result is an ungrouped aggregate or the unique flag is set to true.
      */
-    private Object singleResult(ResultObjectProvider rop, 
+    private Object singleResult(ResultObjectProvider rop,
         StoreQuery.Range range)
         throws Exception {
         rop.open();
@@ -1327,7 +1395,7 @@ public class QueryImpl
                     throw new NonUniqueResultException(_loc.get("not-unique",
                         _class, _query));
             } else if (_unique == Boolean.TRUE)
-                throw new NoResultException(_loc.get("no-result", 
+                throw new NoResultException(_loc.get("no-result",
                     _class, _query));
 
             // if unique set to false, use collection
@@ -1337,7 +1405,7 @@ public class QueryImpl
                 // Collections.singletonList is JDK 1.3, so...
                 return Arrays.asList(new Object[]{ single });
             }
-            
+
             // return single result
             return single;
         } finally {
@@ -1368,24 +1436,24 @@ public class QueryImpl
 
         // compare dirty classes to the access path classes
         Class<?> accClass;
-        for (int i = 0; i < accessMetas.length; i++) {
-            if (accessMetas[i] == null)
+        for (ClassMetaData accessMeta : accessMetas) {
+            if (accessMeta == null)
                 continue;
             // shortcut if actual class is dirty
-            accClass = accessMetas[i].getDescribedType();
+            accClass = accessMeta.getDescribedType();
             if (persisted.contains(accClass) || updated.contains(accClass)
-                || deleted.contains(accClass))
+                    || deleted.contains(accClass))
                 return true;
 
             // check for dirty subclass
-            for (Iterator<Class<?>> dirty = persisted.iterator(); dirty.hasNext();)
-                if (accClass.isAssignableFrom(dirty.next()))
+            for (Class<?> item : persisted)
+                if (accClass.isAssignableFrom(item))
                     return true;
-            for (Iterator<Class<?>> dirty = updated.iterator(); dirty.hasNext();)
-                if (accClass.isAssignableFrom(dirty.next()))
+            for (Class<?> value : updated)
+                if (accClass.isAssignableFrom(value))
                     return true;
-            for (Iterator<Class<?>> dirty = deleted.iterator(); dirty.hasNext();)
-                if (accClass.isAssignableFrom(dirty.next()))
+            for (Class<?> aClass : deleted)
+                if (accClass.isAssignableFrom(aClass))
                     return true;
         }
 
@@ -1393,10 +1461,12 @@ public class QueryImpl
         return false;
     }
 
+    @Override
     public void closeAll() {
         closeResults(true);
     }
 
+    @Override
     public void closeResources() {
         closeResults(false);
     }
@@ -1410,8 +1480,8 @@ public class QueryImpl
             assertOpen();
 
             RemoveOnCloseResultList res;
-            for (Iterator<RemoveOnCloseResultList> itr = _resultLists.iterator(); itr.hasNext();) {
-                res = itr.next();
+            for (RemoveOnCloseResultList resultList : _resultLists) {
+                res = resultList;
                 if (force || res.isProviderOpen())
                     res.close(false);
             }
@@ -1421,6 +1491,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public String[] getDataStoreActions(Map params) {
         if (params == null)
             params = Collections.EMPTY_MAP;
@@ -1446,6 +1517,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public boolean setQuery(Object query) {
         lock();
         try {
@@ -1479,27 +1551,29 @@ public class QueryImpl
             // don't share mutable objects
             _fc.copy(q._fc);
             if (q._filtListeners != null)
-                _filtListeners = new HashMap<String,FilterListener>(q._filtListeners);
+                _filtListeners = new HashMap<>(q._filtListeners);
             if (q._aggListeners != null)
-                _aggListeners = new HashMap<String,AggregateListener>(q._aggListeners);
+                _aggListeners = new HashMap<>(q._aggListeners);
             return true;
         } finally {
             unlock();
         }
     }
 
+    @Override
     public String getAlias() {
         lock();
         try {
             String alias = compileForExecutor().getAlias(_storeQuery);
             if (alias == null)
-                alias = Strings.getClassName(_class);
+                alias = ClassUtil.getClassName(_class);
             return alias;
         } finally {
             unlock();
         }
     }
 
+    @Override
     public String[] getProjectionAliases() {
         lock();
         try {
@@ -1509,6 +1583,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public Class<?>[] getProjectionTypes() {
         lock();
         try {
@@ -1518,6 +1593,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public int getOperation() {
         lock();
         try {
@@ -1527,6 +1603,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public boolean isAggregate() {
         lock();
         try {
@@ -1535,7 +1612,8 @@ public class QueryImpl
             unlock();
         }
     }
-    
+
+    @Override
     public boolean isDistinct() {
         lock();
         try {
@@ -1546,6 +1624,7 @@ public class QueryImpl
     }
 
 
+    @Override
     public boolean hasGrouping() {
         lock();
         try {
@@ -1555,6 +1634,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public ClassMetaData[] getAccessPathMetaDatas() {
         lock();
         try {
@@ -1566,6 +1646,7 @@ public class QueryImpl
         }
     }
 
+    @Override
     public OrderedMap<Object,Class<?>> getOrderedParameterTypes() {
         lock();
         try {
@@ -1574,7 +1655,8 @@ public class QueryImpl
             unlock();
         }
     }
-    
+
+    @Override
     public LinkedMap getParameterTypes() {
         lock();
         try {
@@ -1587,6 +1669,7 @@ public class QueryImpl
     }
 
 
+    @Override
     public Map getUpdates() {
         lock();
         try {
@@ -1596,33 +1679,36 @@ public class QueryImpl
         }
     }
 
+    @Override
     public void lock() {
         if (_lock != null)
             _lock.lock();
     }
 
+    @Override
     public void unlock() {
         if (_lock != null)
             _lock.unlock();
     }
-    
+
     public synchronized void startLocking() {
     	if (_lock == null) {
     		_lock = new ReentrantLock();
     	}
     }
-    
+
     public synchronized void stopLocking() {
     	if (_lock != null && !_broker.getMultithreaded())
     		_lock = null;
     }
-    
-    
+
+
 
     /////////
     // Utils
     /////////
 
+    @Override
     public Class classForName(String name, String[] imports) {
         // full class name or primitive type?
         Class type = toClass(name);
@@ -1632,7 +1718,7 @@ public class QueryImpl
         // first check the aliases map in the MetaDataRepository
         ClassLoader loader = (_class == null) ? _loader
             : AccessController.doPrivileged(
-                J2DoPrivHelper.getClassLoaderAction(_class)); 
+                J2DoPrivHelper.getClassLoaderAction(_class));
         ClassMetaData meta = _broker.getConfiguration().
             getMetaDataRepositoryInstance().getMetaData(name, loader, false);
         if (meta != null)
@@ -1656,8 +1742,8 @@ public class QueryImpl
         if (imports != null && imports.length > 0) {
             String dotName = "." + name;
             String importName;
-            for (int i = 0; i < imports.length; i++) {
-                importName = imports[i];
+            for (String anImport : imports) {
+                importName = anImport;
 
                 // full class name import
                 if (importName.endsWith(dotName))
@@ -1665,7 +1751,7 @@ public class QueryImpl
                     // wildcard; strip to package
                 else if (importName.endsWith(".*")) {
                     importName = importName.substring
-                        (0, importName.length() - 1);
+                            (0, importName.length() - 1);
                     type = toClass(importName + name);
                 }
                 if (type != null)
@@ -1683,23 +1769,25 @@ public class QueryImpl
             _loader = _broker.getConfiguration().getClassResolverInstance().
                 getClassLoader(_class, _broker.getClassLoader());
         try {
-            return Strings.toClass(name, _loader);
-        } catch (RuntimeException re) {
-        } catch (NoClassDefFoundError ncdfe) {
+            return ClassUtil.toClass(name, _loader);
+        } catch (RuntimeException | NoClassDefFoundError re) {
         }
         return null;
     }
 
+    @Override
     public void assertOpen() {
         if (_broker != null)
             _broker.assertOpen();
     }
 
+    @Override
     public void assertNotReadOnly() {
         if (_readOnly)
             throw new InvalidStateException(_loc.get("read-only"));
     }
 
+    @Override
     public void assertNotSerialized() {
         if (_broker == null)
             throw new InvalidStateException(_loc.get("serialized"));
@@ -1717,7 +1805,7 @@ public class QueryImpl
      * Check that we are in a state to be able to perform a bulk operation;
      * also flush the current modfications if any elements are currently dirty.
      */
-    private void assertBulkModify(StoreQuery q, StoreQuery.Executor ex, 
+    private void assertBulkModify(StoreQuery q, StoreQuery.Executor ex,
         Object[] params) {
         _broker.assertActiveTransaction();
         if (_startIdx != 0 || _endIdx != Long.MAX_VALUE)
@@ -1733,7 +1821,7 @@ public class QueryImpl
     /**
      * Checks that the passed parameters match the declarations.
      */
-    protected void assertParameters(StoreQuery q, StoreQuery.Executor ex, 
+    protected void assertParameters(StoreQuery q, StoreQuery.Executor ex,
         Object[] params) {
         if (!q.requiresParameterDeclarations() || !isParsedQuery())
             return;
@@ -1752,7 +1840,7 @@ public class QueryImpl
                 throw new UserException(_loc.get("null-primitive-param", entry.getKey()));
         }
     }
-    
+
     protected void assertParameters(StoreQuery q, StoreQuery.Executor ex, Map params) {
         if (!q.requiresParameterDeclarations())
             return;
@@ -1769,17 +1857,15 @@ public class QueryImpl
                 expected, paramTypes.keySet()));
         }
 
-        Iterator<Map.Entry<Object, Class<?>>> itr = paramTypes.entrySet().iterator();
-        Map.Entry<Object, Class<?>> entry;
-        for (int i = 0; itr.hasNext(); i++) {
-            entry = itr.next();
-            if (entry.getValue().isPrimitive() 
+        for (Entry<Object, Class<?>> entry : paramTypes.entrySet()) {
+            if (entry.getValue().isPrimitive()
                 && params.get(entry.getKey()) == null)
                 throw new UserException(_loc.get("null-primitive-param", entry.getKey()));
         }
     }
 
 
+    @Override
     public String toString() {
         StringBuilder buf = new StringBuilder(255);
         buf.append("Query: ").append(super.toString());
@@ -1794,6 +1880,8 @@ public class QueryImpl
     protected static class Compilation
         implements Serializable {
 
+        
+        private static final long serialVersionUID = 1L;
         public StoreQuery.Executor memory = null;
         public StoreQuery.Executor datastore = null;
         public Object storeData = null;
@@ -1805,6 +1893,8 @@ public class QueryImpl
     private static class CompilationKey
         implements Serializable {
 
+        
+        private static final long serialVersionUID = 1L;
         public Class queryType = null;
         public Class candidateType = null;
         public boolean subclasses = true;
@@ -1812,6 +1902,7 @@ public class QueryImpl
         public String language = null;
         public Object storeKey = null;
 
+        @Override
         public int hashCode() {
             int rs = 17;
             rs = 37 * rs + ((queryType == null) ? 0 : queryType.hashCode());
@@ -1823,6 +1914,7 @@ public class QueryImpl
             return rs;
         }
 
+        @Override
         public boolean equals(Object other) {
             if (other == this)
                 return true;
@@ -1831,12 +1923,12 @@ public class QueryImpl
 
             CompilationKey key = (CompilationKey) other;
             if (key.queryType != queryType
-                || !StringUtils.equals(key.query, query)
-                || !StringUtils.equals(key.language, language))
+                || !Objects.equals(key.query, query)
+                || !Objects.equals(key.language, language))
                 return false;
             if (key.subclasses != subclasses)
                 return false;
-            if (!ObjectUtils.equals(key.storeKey, storeKey))
+            if (!Objects.equals(key.storeKey, storeKey))
                 return false;
 
             // allow either candidate type to be null because it might be
@@ -1864,8 +1956,7 @@ public class QueryImpl
      * </ul>
      *
      * @author Marc Prud'hommeaux
-     * @nojavadoc
-     */
+         */
     private static class MergedExecutor
         implements StoreQuery.Executor {
 
@@ -1874,11 +1965,13 @@ public class QueryImpl
         public MergedExecutor(StoreQuery.Executor[] executors) {
             _executors = executors;
         }
-        
+
+        @Override
         public QueryExpressions[] getQueryExpressions() {
             return _executors[0].getQueryExpressions();
         }
 
+        @Override
         public ResultObjectProvider executeQuery(StoreQuery q,
             Object[] params, StoreQuery.Range range) {
             if (_executors.length == 1)
@@ -1907,25 +2000,30 @@ public class QueryImpl
 
             // if there is a lower bound, wrap in range rop
             if (range.start != 0)
-                rop = new RangeResultObjectProvider(rop, range.start, 
+                rop = new RangeResultObjectProvider(rop, range.start,
                     range.end);
             return rop;
         }
 
+        @Override
         public Number executeDelete(StoreQuery q, Object[] params) {
             long num = 0;
-            for (int i = 0; i < _executors.length; i++)
-                num += _executors[i].executeDelete(q, params).longValue();
+            for (StoreQuery.Executor executor : _executors) {
+                num += executor.executeDelete(q, params).longValue();
+            }
             return num;
         }
 
+        @Override
         public Number executeUpdate(StoreQuery q, Object[] params) {
             long num = 0;
-            for (int i = 0; i < _executors.length; i++)
-                num += _executors[i].executeUpdate(q, params).longValue();
+            for (StoreQuery.Executor executor : _executors) {
+                num += executor.executeUpdate(q, params).longValue();
+            }
             return num;
         }
 
+        @Override
         public String[] getDataStoreActions(StoreQuery q, Object[] params,
             StoreQuery.Range range) {
             if (_executors.length == 1)
@@ -1934,23 +2032,26 @@ public class QueryImpl
             List results = new ArrayList(_executors.length);
             StoreQuery.Range ropRange = new StoreQuery.Range(0L, range.end);
             String[] actions;
-            for (int i = 0; i < _executors.length; i++) {
-                actions = _executors[i].getDataStoreActions(q, params,ropRange);
+            for (StoreQuery.Executor executor : _executors) {
+                actions = executor.getDataStoreActions(q, params, ropRange);
                 if (actions != null && actions.length > 0)
                     results.addAll(Arrays.asList(actions));
             }
             return (String[]) results.toArray(new String[results.size()]);
         }
 
+        @Override
         public void validate(StoreQuery q) {
             _executors[0].validate(q);
         }
 
-        public void getRange(StoreQuery q, Object[] params, 
+        @Override
+        public void getRange(StoreQuery q, Object[] params,
             StoreQuery.Range range) {
             _executors[0].getRange(q, params, range);
         }
 
+        @Override
         public Object getOrderingValue(StoreQuery q, Object[] params,
             Object resultObject, int idx) {
             // unfortunately, at this point (must be a merged rop containing
@@ -1959,49 +2060,58 @@ public class QueryImpl
             return _executors[0].getOrderingValue(q, params, resultObject, idx);
         }
 
+        @Override
         public boolean[] getAscending(StoreQuery q) {
             return _executors[0].getAscending(q);
         }
 
+        @Override
         public String getAlias(StoreQuery q) {
             return _executors[0].getAlias(q);
         }
 
+        @Override
         public String[] getProjectionAliases(StoreQuery q) {
             return _executors[0].getProjectionAliases(q);
         }
 
+        @Override
         public Class getResultClass(StoreQuery q) {
             return _executors[0].getResultClass(q);
         }
 
+        @Override
         public ResultShape<?> getResultShape(StoreQuery q) {
             return _executors[0].getResultShape(q);
         }
-        
+
+        @Override
         public Class[] getProjectionTypes(StoreQuery q) {
             return _executors[0].getProjectionTypes(q);
         }
 
+        @Override
         public boolean isPacking(StoreQuery q) {
             return _executors[0].isPacking(q);
         }
 
+        @Override
         public ClassMetaData[] getAccessPathMetaDatas(StoreQuery q) {
             if (_executors.length == 1)
                 return _executors[0].getAccessPathMetaDatas(q);
 
             // create set of base class metadatas in access path
             List metas = null;
-            for (int i = 0; i < _executors.length; i++)
-                metas = Filters.addAccessPathMetaDatas(metas, _executors[i].
-                    getAccessPathMetaDatas(q));
+            for (StoreQuery.Executor executor : _executors)
+                metas = Filters.addAccessPathMetaDatas(metas, executor.
+                        getAccessPathMetaDatas(q));
             if (metas == null)
                 return StoreQuery.EMPTY_METAS;
             return (ClassMetaData[]) metas.toArray
                 (new ClassMetaData[metas.size()]);
         }
 
+        @Override
         public boolean isAggregate(StoreQuery q) {
             if (!_executors[0].isAggregate(q))
                 return false;
@@ -2011,32 +2121,39 @@ public class QueryImpl
                 q.getContext().getCandidateType(),
                 q.getContext().getQueryString()));
         }
-        
+
+        @Override
         public boolean isDistinct(StoreQuery q) {
             return _executors[0].isDistinct(q);
         }
 
+        @Override
         public int getOperation(StoreQuery q) {
             return _executors[0].getOperation(q);
         }
 
+        @Override
         public boolean hasGrouping(StoreQuery q) {
             return _executors[0].hasGrouping(q);
         }
 
+        @Override
         public OrderedMap<Object,Class<?>> getOrderedParameterTypes(StoreQuery q) {
             return _executors[0].getOrderedParameterTypes(q);
         }
-        
+
+        @Override
         public LinkedMap getParameterTypes(StoreQuery q) {
             return _executors[0].getParameterTypes(q);
         }
-        
+
+        @Override
         public Object[] toParameterArray(StoreQuery q, Map userParams) {
             return _executors[0].toParameterArray(q, userParams);
         }
 
 
+        @Override
         public Map getUpdates(StoreQuery q) {
             return _executors[0].getUpdates(q);
         }
@@ -2059,15 +2176,18 @@ public class QueryImpl
             _len = resultLength;
         }
 
+        @Override
         public boolean supportsRandomAccess() {
             return _delegate.supportsRandomAccess();
         }
 
+        @Override
         public void open()
             throws Exception {
             _delegate.open();
         }
 
+        @Override
         public Object getResultObject()
             throws Exception {
             Object ob = _delegate.getResultObject();
@@ -2080,35 +2200,41 @@ public class QueryImpl
             return _packer.pack((Object[]) ob);
         }
 
+        @Override
         public boolean next()
             throws Exception {
             return _delegate.next();
         }
 
+        @Override
         public boolean absolute(int pos)
             throws Exception {
             return _delegate.absolute(pos);
         }
 
+        @Override
         public int size()
             throws Exception {
             return _delegate.size();
         }
 
+        @Override
         public void reset()
             throws Exception {
             _delegate.reset();
         }
 
+        @Override
         public void close()
             throws Exception {
             _delegate.close();
         }
 
+        @Override
         public void handleCheckedException(Exception e) {
             _delegate.handleCheckedException(e);
         }
-        
+
         public ResultObjectProvider getDelegate() {
             return _delegate;
         }
@@ -2121,6 +2247,8 @@ public class QueryImpl
     public class RemoveOnCloseResultList
         implements ResultList {
 
+        
+        private static final long serialVersionUID = 1L;
         private final ResultList _res;
 
         public RemoveOnCloseResultList(ResultList res) {
@@ -2131,22 +2259,27 @@ public class QueryImpl
             return _res;
         }
 
+        @Override
         public boolean isProviderOpen() {
             return _res.isProviderOpen();
         }
-        
+
+        @Override
         public Object getUserObject() {
             return _res.getUserObject();
         }
-        
+
+        @Override
         public void setUserObject(Object opaque) {
             _res.setUserObject(opaque);
         }
 
+        @Override
         public boolean isClosed() {
             return _res.isClosed();
         }
 
+        @Override
         public void close() {
             close(true);
         }
@@ -2175,106 +2308,132 @@ public class QueryImpl
             }
         }
 
+        @Override
         public int size() {
             return _res.size();
         }
 
+        @Override
         public boolean isEmpty() {
             return _res.isEmpty();
         }
 
+        @Override
         public boolean contains(Object o) {
             return _res.contains(o);
         }
 
+        @Override
         public Iterator iterator() {
             return _res.iterator();
         }
 
+        @Override
         public Object[] toArray() {
             return _res.toArray();
         }
 
+        @Override
         public Object[] toArray(Object[] a) {
             return _res.toArray(a);
         }
 
+        @Override
         public boolean add(Object o) {
             return _res.add(o);
         }
 
+        @Override
         public boolean remove(Object o) {
             return _res.remove(o);
         }
 
+        @Override
         public boolean containsAll(Collection c) {
             return _res.containsAll(c);
         }
 
+        @Override
         public boolean addAll(Collection c) {
             return _res.addAll(c);
         }
 
+        @Override
         public boolean addAll(int idx, Collection c) {
             return _res.addAll(idx, c);
         }
 
+        @Override
         public boolean removeAll(Collection c) {
             return _res.removeAll(c);
         }
 
+        @Override
         public boolean retainAll(Collection c) {
             return _res.retainAll(c);
         }
 
+        @Override
         public void clear() {
             _res.clear();
         }
 
+        @Override
         public Object get(int idx) {
             return _res.get(idx);
         }
 
+        @Override
         public Object set(int idx, Object o) {
             return _res.set(idx, o);
         }
 
+        @Override
         public void add(int idx, Object o) {
             _res.add(idx, o);
         }
 
+        @Override
         public Object remove(int idx) {
             return _res.remove(idx);
         }
 
+        @Override
         public int indexOf(Object o) {
             return _res.indexOf(o);
         }
 
+        @Override
         public int lastIndexOf(Object o) {
             return _res.lastIndexOf(o);
         }
 
+        @Override
         public ListIterator listIterator() {
             return _res.listIterator();
         }
 
+        @Override
         public ListIterator listIterator(int idx) {
             return _res.listIterator(idx);
         }
 
+        @Override
         public List subList(int start, int end) {
             return _res.subList(start, end);
         }
 
+        @Override
         public boolean equals(Object o) {
             return _res.equals(o);
         }
 
+        @Override
         public int hashCode() {
             return _res.hashCode();
         }
 
+        @Override
         public String toString ()
 		{
 			return _res.toString ();

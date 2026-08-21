@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
@@ -29,8 +29,8 @@ import java.util.EventObject;
  * @author Abe White
  * @see JDBCListener
  */
-@SuppressWarnings("serial")
 public class JDBCEvent extends EventObject {
+    private static final long serialVersionUID = 1L;
 
     /**
      * Type code indicating that a {@link Statement} is being prepared.

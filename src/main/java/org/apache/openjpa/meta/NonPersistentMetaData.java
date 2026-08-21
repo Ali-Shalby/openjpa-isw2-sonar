@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -29,38 +29,41 @@ import org.apache.openjpa.lib.xml.Commentable;
  *
  * @author Pinaki Poddar
  */
-public class NonPersistentMetaData 
+public class NonPersistentMetaData
 	implements Comparable, SourceTracker, Commentable, MetaDataContext,
         Serializable {
+    
+    private static final long serialVersionUID = 1L;
     public static final int TYPE_PERSISTENCE_AWARE = 1;
     public static final int TYPE_NON_MAPPED_INTERFACE = 2;
 
     private final MetaDataRepository _repos;
 	private final Class _class;
     private final int _type;
-	
+
     private File _srcFile = null;
-    private int _lineNum = 0;  
-    private int _colNum = 0;  
-    
+    private int _lineNum = 0;
+    private int _colNum = 0;
+
     private int _srcType = SRC_OTHER;
     private String[] _comments = null;
     private int _listIndex = -1;
-	
-	protected NonPersistentMetaData(Class cls, MetaDataRepository repos, 
+
+	protected NonPersistentMetaData(Class cls, MetaDataRepository repos,
         int type) {
 		_repos = repos;
 		_class = cls;
         _type = type;
 	}
-	
+
     /**
      * Owning repository.
      */
-	public MetaDataRepository getRepository() {
+	@Override
+    public MetaDataRepository getRepository() {
 		return _repos;
 	}
-	
+
     /**
      * Persistence-aware type.
      */
@@ -74,7 +77,7 @@ public class NonPersistentMetaData
     public int getType() {
         return _type;
     }
-	
+
     /**
      * The index in which this class was listed in the metadata. Defaults to
      * <code>-1</code> if this class was not listed in the metadata.
@@ -91,14 +94,17 @@ public class NonPersistentMetaData
         _listIndex = index;
     }
 
+    @Override
     public File getSourceFile() {
         return _srcFile;
     }
 
+    @Override
     public Object getSourceScope() {
         return null;
     }
 
+    @Override
     public int getSourceType() {
         return _srcType;
     }
@@ -108,6 +114,7 @@ public class NonPersistentMetaData
         _srcType = srcType;
     }
 
+    @Override
     public int getLineNumber() {
         return _lineNum;
     }
@@ -116,6 +123,7 @@ public class NonPersistentMetaData
         _lineNum = lineNum;
     }
 
+    @Override
     public int getColNumber() {
         return _colNum;
     }
@@ -123,19 +131,23 @@ public class NonPersistentMetaData
     public void setColNumber(int colNum) {
         _colNum = colNum;
     }
-    
+
+    @Override
     public String getResourceName() {
         return _class.getName();
     }
 
+    @Override
     public String[] getComments() {
-        return (_comments == null) ? ClassMetaData.EMPTY_COMMENTS : _comments;
+        return (_comments == null) ? Commentable.EMPTY_COMMENTS : _comments;
     }
 
+    @Override
     public void setComments(String[] comments) {
         _comments = comments;
     }
-    
+
+    @Override
     public int compareTo(Object o) {
         if (o == this)
             return 0;

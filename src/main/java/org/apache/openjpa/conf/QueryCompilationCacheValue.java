@@ -14,17 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.conf;
 
 import java.util.Collections;
 import java.util.Hashtable;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.openjpa.lib.conf.Configuration;
 import org.apache.openjpa.lib.conf.PluginValue;
-import java.util.concurrent.ConcurrentHashMap;
 import org.apache.openjpa.lib.util.ParseException;
 import org.apache.openjpa.util.CacheMap;
 
@@ -33,7 +33,6 @@ import org.apache.openjpa.util.CacheMap;
  *
  * @author Abe White
  * @since 0.9.6 (also existed in prior versions of Kodo)
- * @nojavadoc
  */
 public class QueryCompilationCacheValue
     extends PluginValue {
@@ -51,14 +50,15 @@ public class QueryCompilationCacheValue
         setClassName(ALIASES[1]);
     }
 
+    @Override
     public Object newInstance(String clsName, Class type,
         Configuration conf, boolean fatal) {
         // make sure map handles concurrency
         Map map;
-        
+
         try {
             map = (Map) super.newInstance(clsName, type, conf, fatal);
-        } catch (ParseException pe) {
+        } catch (ParseException | IllegalArgumentException pe) {
             // OPENJPA256: this class differs from most plugins in that
             // the plugin type is the standard java interface Map.class (rather
             // than an openjpa-specific interface), which means that the
@@ -70,19 +70,8 @@ public class QueryCompilationCacheValue
             // this class' ClassLoader.
             map = (Map) super.newInstance(clsName,
                 QueryCompilationCacheValue.class, conf, fatal);
-        } catch (IllegalArgumentException iae) {
-            // OPENJPA256: this class differs from most plugins in that
-            // the plugin type is the standard java interface Map.class (rather
-            // than an openjpa-specific interface), which means that the
-            // ClassLoader used to load the implementation will be the system
-            // class loader; this presents a problem if OpenJPA is not in the
-            // system classpath, so work around the problem by catching
-            // the IllegalArgumentException (which is what we wrap the
-            // ClassNotFoundException in) and try again, this time using
-            // this class' ClassLoader.
-            map = (Map) super.newInstance(clsName,
-                QueryCompilationCacheValue.class, conf, fatal);
-        }
+        } // the IllegalArgumentException (which is what we wrap the
+
 
         if (map != null && !(map instanceof Hashtable)
             && !(map instanceof CacheMap)

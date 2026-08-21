@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -25,12 +25,15 @@ import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.util.HashSet;
+import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.identifier.QualifiedDBIdentifier;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
 import org.apache.openjpa.jdbc.meta.VersionStrategy;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.JavaTypes;
 
 /**
@@ -40,10 +43,8 @@ import org.apache.openjpa.meta.JavaTypes;
  * @author Abe White
  * @author Stephen Kim
  */
-@SuppressWarnings("serial")
-public class Column
-    extends ReferenceCounter {
-
+public class Column extends ReferenceCounter {
+    private static final long serialVersionUID = 1L;
     public static final int FLAG_UNINSERTABLE = 2 << 0;
     public static final int FLAG_UNUPDATABLE = 2 << 1;
     public static final int FLAG_DIRECT_INSERT = 2 << 2;
@@ -60,6 +61,9 @@ public class Column
     private DBIdentifier _typeName = DBIdentifier.NULL;
     private int _javaType = JavaTypes.OBJECT;
     private int _size = 0;
+    private int _precision = -1;
+    private int _scale     = -1;
+    private int _radix     = 10;
     private int _decimals = 0;
     private String _defaultStr = null;
     private Object _default = null;
@@ -78,7 +82,8 @@ public class Column
     private String _comment = null;
     private boolean _XML = false;
     private boolean _isUni1MFK = false;
-    
+    private Set<Constraint> _constraints = new HashSet<>();
+
     /**
      * Default constructor.
      */
@@ -92,6 +97,7 @@ public class Column
      * @param table the column's table
      * @deprecated
      */
+    @Deprecated
     public Column(String name, Table table) {
         this(DBIdentifier.newColumn(name), table);
     }
@@ -121,44 +127,44 @@ public class Column
             ForeignKey[] fks;
             Column[] cols;
             Column[] pks;
-            for (int i = 0; i < schemas.length; i++) {
-                tabs = schemas[i].getTables();
-                for (int j = 0; j < tabs.length; j++) {
-                    fks = tabs[j].getForeignKeys();
-                    for (int k = 0; k < fks.length; k++) {
-                        cols = fks[k].getColumns();
-                        pks = fks[k].getPrimaryKeyColumns();
+            for (Schema value : schemas) {
+                tabs = value.getTables();
+                for (Table tab : tabs) {
+                    fks = tab.getForeignKeys();
+                    for (ForeignKey fk : fks) {
+                        cols = fk.getColumns();
+                        pks = fk.getPrimaryKeyColumns();
                         for (int l = 0; l < cols.length; l++)
                             if (this.equals(cols[l]) || this.equals(pks[l]))
-                                fks[k].removeJoin(cols[l]);
+                                fk.removeJoin(cols[l]);
 
-                        cols = fks[k].getConstantColumns();
-                        for (int l = 0; l < cols.length; l++)
-                            if (this.equals(cols[l]))
-                                fks[k].removeJoin(cols[l]);
+                        cols = fk.getConstantColumns();
+                        for (Column col : cols)
+                            if (this.equals(col))
+                                fk.removeJoin(col);
 
-                        pks = fks[k].getConstantPrimaryKeyColumns();
-                        for (int l = 0; l < pks.length; l++)
-                            if (this.equals(pks[l]))
-                                fks[k].removeJoin(pks[l]);
+                        pks = fk.getConstantPrimaryKeyColumns();
+                        for (Column pk : pks)
+                            if (this.equals(pk))
+                                fk.removeJoin(pk);
 
-                        if (fks[k].getColumns().length == 0
-                            && fks[k].getConstantColumns().length == 0)
-                            tabs[j].removeForeignKey(fks[k]);
+                        if (fk.getColumns().length == 0
+                                && fk.getConstantColumns().length == 0)
+                            tab.removeForeignKey(fk);
                     }
                 }
             }
         }
 
         Index[] idxs = table.getIndexes();
-        for (int i = 0; i < idxs.length; i++)
-            if (idxs[i].removeColumn(this) && idxs[i].getColumns().length == 0)
-                table.removeIndex(idxs[i]);
+        for (Index idx : idxs)
+            if (idx.removeColumn(this) && idx.getColumns().length == 0)
+                table.removeIndex(idx);
 
         Unique[] unqs = table.getUniques();
-        for (int i = 0; i < unqs.length; i++)
-            if (unqs[i].removeColumn(this) && unqs[i].getColumns().length == 0)
-                table.removeUnique(unqs[i]);
+        for (Unique unq : unqs)
+            if (unq.removeColumn(this) && unq.getColumns().length == 0)
+                table.removeUnique(unq);
 
         PrimaryKey pk = table.getPrimaryKey();
         if (pk != null && pk.removeColumn(this) && pk.getColumns().length == 0)
@@ -178,6 +184,7 @@ public class Column
      * The column's table name.
      * @deprecated
      */
+    @Deprecated
     public String getTableName() {
         return getTableIdentifier().getName();
     }
@@ -191,6 +198,7 @@ public class Column
      * whose table object is not set.
      * @deprecated
      */
+    @Deprecated
     public void setTableName(String name) {
         setTableIdentifier(DBIdentifier.newTable(name));
     }
@@ -207,10 +215,11 @@ public class Column
      * includes the schema name
      * @deprecated
      */
+    @Deprecated
     public void resetTableName(String name) {
         _tableName = DBIdentifier.newTable(name);
     }
-    
+
     public void resetTableIdentifier(DBIdentifier table) {
         _tableName = table == null ? DBIdentifier.NULL : table;
     }
@@ -219,6 +228,7 @@ public class Column
      * The column's schema name.
      * @deprecated
      */
+    @Deprecated
     public String getSchemaName() {
         return getSchemaIdentifier().getName();
     }
@@ -232,6 +242,7 @@ public class Column
      * whose table object is not set.
      * @deprecated use setSchemaIdentifier(DBIdentifier name)
      */
+    @Deprecated
     public void setSchemaName(String name) {
         setSchemaIdentifier(DBIdentifier.newSchema(name));
     }
@@ -246,6 +257,7 @@ public class Column
      * Return the column's name.
      * @deprecated use getIdentifier()
      */
+    @Deprecated
     public String getName() {
         return getIdentifier().getName();
     }
@@ -254,12 +266,13 @@ public class Column
         return _name == null ? DBIdentifier.NULL : _name;
     }
 
-    
+
     /**
      * Set the column's name. You can only call this method on columns
      * whose table object is not set.
      * @deprecated use setIdentifier(DBIdentifier name)
      */
+    @Deprecated
     public void setName(String name) {
         setIdentifier(DBIdentifier.newColumn(name));
     }
@@ -275,6 +288,7 @@ public class Column
      * Return the column's full name, in the form &lt;table&gt;.&lt;name&gt;.
      * @deprecated use getFullDBIdentifier()
      */
+    @Deprecated
     public String getFullName() {
         return getFullDBIdentifier().getName();
     }
@@ -282,7 +296,7 @@ public class Column
     public DBIdentifier getFullDBIdentifier() {
         return getQualifiedPath().getIdentifier();
     }
-    
+
     public QualifiedDBIdentifier getQualifiedPath() {
         if (_fullPath  == null) {
             _fullPath = QualifiedDBIdentifier.newPath(getTableIdentifier(), getIdentifier() );
@@ -310,6 +324,7 @@ public class Column
      * The database-specific SQL type of this column.
      * @deprecated
      */
+    @Deprecated
     public String getTypeName() {
         return getTypeIdentifier().getName();
     }
@@ -322,6 +337,7 @@ public class Column
      * The database-specific SQL type of this column.
      * @deprecated
      */
+    @Deprecated
     public void setTypeName(String typeName) {
         setTypeIdentifier(DBIdentifier.newColumnDefinition(typeName));
     }
@@ -374,6 +390,29 @@ public class Column
         _decimals = digits;
     }
 
+    public int getPrecision() {
+        return _precision;
+    }
+
+    public void setPrecision(int p) {
+        _precision = p;
+    }
+
+    public int getScale() {
+        return _scale;
+    }
+
+    public void setScale(int s) {
+        _scale = s;
+    }
+    public int getRadix() {
+        return _radix;
+    }
+
+    public void setRadix(int r) {
+        _radix = r;
+    }
+
     /**
      * Return the default value set for the column, if any.
      */
@@ -412,7 +451,7 @@ public class Column
                 break;
             case JavaTypes.CHAR:
             case JavaTypes.CHAR_OBJ:
-                _default = new Character(_defaultStr.charAt(0));
+                _default = _defaultStr.charAt(0);
                 break;
             case JavaTypes.DOUBLE:
             case JavaTypes.DOUBLE_OBJ:
@@ -471,7 +510,7 @@ public class Column
      * Return true if this is a NOT NULL column.
      */
     public boolean isNotNull() {
-        return _notNull == Boolean.TRUE;
+        return Boolean.TRUE.equals(_notNull);
     }
 
     /**
@@ -486,6 +525,22 @@ public class Column
      */
     public boolean isNotNullExplicit() {
         return _notNull != null;
+    }
+
+    /**
+     * Sets nullability of this receiver by the given flag.
+     * @param flag one of the JDBC nullability flag namely
+     * <LI> {@link DatabaseMetaData#columnNullableUnknown} : not known if the column can be set to null value
+     * <LI> {@link DatabaseMetaData#columnNullable} : the column can be set to null value
+     * <LI> {@link DatabaseMetaData#columnNoNulls} : the column can not be set to null value
+     */
+    public void setNullability(short flag) {
+        switch (flag) {
+            case DatabaseMetaData.columnNullableUnknown : _notNull = null; break;
+            case DatabaseMetaData.columnNullable : _notNull = false; break;
+            case DatabaseMetaData.columnNoNulls : _notNull = true; break;
+
+        }
     }
 
     /**
@@ -528,6 +583,7 @@ public class Column
      * The name of the column this column joins to, if any. Used for mapping.
      * @deprecated use getTargetIdentifier()
      */
+    @Deprecated
     public String getTarget() {
         return getTargetIdentifier().getName();
     }
@@ -540,8 +596,9 @@ public class Column
      * The name of the column this column joins to, if any. Used for mapping.
      * @deprecated use setTargetIdentifier(DBIdentifier target)
      */
+    @Deprecated
     public void setTarget(String target) {
-        setTargetIdentifier(DBIdentifier.newColumn(StringUtils.trimToNull(target)));
+        setTargetIdentifier(DBIdentifier.newColumn(StringUtil.trimToNull(target)));
     }
 
     public void setTargetIdentifier(DBIdentifier target) {
@@ -607,7 +664,7 @@ public class Column
     /**
      * Set the column's 0-based index in the owning table.
      */
-    void setIndex(int index) {
+    public void setIndex(int index) {
         _index = index;
     }
 
@@ -631,7 +688,7 @@ public class Column
      * Return true if this column is compatible with the given JDBC type
      * from {@link Types} and size.
      */
-    public boolean isCompatible(int type, String typeName, int size, 
+    public boolean isCompatible(int type, String typeName, int size,
         int decimals) {
         if (type == Types.OTHER || getType() == Types.OTHER)
             return true;
@@ -705,19 +762,44 @@ public class Column
                     case Types.DATE:
                     case Types.TIME:
                     case Types.TIMESTAMP:
+                    case Types.TIMESTAMP_WITH_TIMEZONE:
                         return true;
                     default:
                         return false;
                 }
-            case 2007:  // Oracle-defined opaque type code for XMLType
+            case Types.TIMESTAMP_WITH_TIMEZONE:
+                switch (type) {
+                    case Types.DATE:
+                    case Types.TIMESTAMP:
+                        return true;
+                    default:
+                        return false;
+                }
+            case Types.TIME_WITH_TIMEZONE:
+                switch (type) {
+                    case Types.DATE:
+                    case Types.TIME:
+                    case Types.TIMESTAMP:
+                        return true;
+                    default:
+                        return false;
+                }
+
+            case Types.SQLXML:  // All XML Types
+            case 2007:          // Oracle-defined opaque type code for XMLType treated the same way
                 switch (type) {
                     case Types.CHAR:
                     case Types.LONGVARCHAR:
                     case Types.VARCHAR:
+                    case Types.CLOB:
+                    case Types.BLOB:
                         return true;
                      default:
                          return false;
                 }
+
+
+
             default:
                 return type == getType();
         }
@@ -726,6 +808,7 @@ public class Column
     /**
      * Returns the column name.
      */
+    @Override
     public String toString() {
         return getIdentifier().getName();
     }
@@ -747,7 +830,7 @@ public class Column
     /**
      * Tests compatibility.
      */
-    public boolean equalsColumn(Column col) {
+    public boolean equalsColumn(DBDictionary dict, Column col) {
         if (col == this)
             return true;
         if (col == null)
@@ -756,8 +839,14 @@ public class Column
         if (!getQualifiedPath().equals(col.getQualifiedPath()))
             return false;
         if (!isCompatible(col.getType(), col.getTypeIdentifier().getName(), col.getSize(),
-            col.getDecimalDigits()))
+            col.getDecimalDigits())) {
+            // do an additional lookup in case the java.sql.Types are different but
+            // they map to the same representation in the DB
+            if (dict.getTypeName(this).equals(dict.getTypeName(col))) {
+                return true;
+            }
             return false;
+        }
         if (getType() == Types.VARCHAR && getSize() > 0 && col.getSize() > 0
             && getSize() != col.getSize())
             return false;
@@ -802,8 +891,11 @@ public class Column
             setXML(from.isXML());
         if (!isUni1MFK())
             setUni1MFK(from.isUni1MFK());
+        for (Constraint c : _constraints) {
+            addConstraint(c);
+        }
     }
-    
+
     /**
      * Whether this column is of XML type.
      */
@@ -837,8 +929,8 @@ public class Column
     public void setComment(String comment) {
         _comment = comment;
     }
-    
-    /** 
+
+    /**
      *  Affirms if this instance represents an implicit relation. For example, a
      *  relation expressed as the value of primary key of the related class and
 	 *  not as object reference.
@@ -848,39 +940,101 @@ public class Column
     public boolean isImplicitRelation() {
     	return _implicitRelation;
     }
-    
+
     /**
      * Sets a marker to imply a logical relation that can not have any physical
      * manifest in the database. For example, a relation expressed as the value
      * of primary key of the related class and not as object reference.
      * Populated from @ForeignKey(implicit=true) annotation.
      * The mutator can only transit from false to true but not vice versa.
-     * 
+     *
      * @since 1.3.0
      */
     public void setImplicitRelation(boolean flag) {
     	_implicitRelation |= flag;
     }
-    
+
     /**
-     * Sets a marker to indicate that this instance represents a uni-directional 
-     * one to many relation using the foreign key strategy. This non-default 
-     * mapping of uni-directional one-to-many is supported in JPA 2.0.  
-     * 
+     * Sets a marker to indicate that this instance represents a uni-directional
+     * one to many relation using the foreign key strategy. This non-default
+     * mapping of uni-directional one-to-many is supported in JPA 2.0.
+     *
      * @since 2.0
      */
     public boolean isUni1MFK() {
         return _isUni1MFK;
     }
-    
-    /** 
+
+    /**
      *  Affirms if this instance represents a uni-directional one to many relation
-     *  using the foreign key strategy. This non-default mapping of uni-directional 
-     *  one-to-many is supported in JPA 2.0.  
+     *  using the foreign key strategy. This non-default mapping of uni-directional
+     *  one-to-many is supported in JPA 2.0.
      *
      * @since 2.0
      */
     public void setUni1MFK(boolean isUni1MFK) {
         _isUni1MFK = isUni1MFK;
+    }
+
+    /**
+     * Adds the given constraint to this column.
+     */
+    public void addConstraint(Constraint c) {
+        _constraints.add(c);
+    }
+
+    /**
+     * Removes the given constraint from this column.
+     */
+    public void removeConstraint(Constraint c) {
+        _constraints.remove(c);
+    }
+
+    /**
+     * Affirms if this column has any constraint of given type.
+     */
+    public boolean hasConstraint(Class<? extends Constraint> type) {
+        return !getConstraints(type).isEmpty();
+    }
+
+    /**
+     * Gets all constrains attached this column.
+     */
+    public Set<Constraint> getConstraints() {
+        return _constraints;
+    }
+
+    /**
+     * Gets all constrains of the given type attached to this column.
+     */
+    public <T extends Constraint> Set<T> getConstraints(Class<T> type) {
+        Set<T> result = new HashSet<>();
+        for (Constraint c : _constraints) {
+            if (c.getClass() == type) {
+                result.add((T)c);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Affirms if any unique constraint is attached to this column.
+     */
+    public boolean isUniqueConstraint() {
+        return hasConstraint(Unique.class);
+    }
+
+    /**
+     * Affirms if any index constraint is attached to this column.
+     */
+    public boolean isIndex() {
+        return hasConstraint(Index.class);
+    }
+
+    /**
+     * Affirms if any foreign key constraint is attached to this column.
+     */
+    public boolean isForeignKey() {
+        return hasConstraint(ForeignKey.class);
     }
 }

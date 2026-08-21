@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -44,13 +44,13 @@ import org.apache.openjpa.meta.JavaTypes;
  *
  * @author Abe White
  */
-public class ClassTableJDBCSeq 
+public class ClassTableJDBCSeq
     extends TableJDBCSeq {
 
     private static final Localizer _loc = Localizer.forPackage
         (ClassTableJDBCSeq.class);
 
-    private final Map<String, Status> _stats = new HashMap<String, Status>();
+    private final Map<String, Status> _stats = new HashMap<>();
     private boolean _ignore = false;
     private boolean _aliases = false;
 
@@ -78,6 +78,7 @@ public class ClassTableJDBCSeq
      * @deprecated Use {@link #setIgnoreUnmapped}. Retained for
      * backwards-compatibility for auto-configuration.
      */
+    @Deprecated
     public void setIgnoreVirtual(boolean ignore) {
         setIgnoreUnmapped(ignore);
     }
@@ -98,6 +99,7 @@ public class ClassTableJDBCSeq
         _aliases = aliases;
     }
 
+    @Override
     protected synchronized Status getStatus(ClassMapping mapping) {
         if (mapping == null)
             return null;
@@ -110,16 +112,17 @@ public class ClassTableJDBCSeq
         return stat;
     }
 
+    @Override
     protected Column addPrimaryKeyColumn(Table table) {
         DBDictionary dict = getConfiguration().getDBDictionaryInstance();
-        Column pkColumn = table.addColumn(dict.getValidColumnName(
-            getPrimaryKeyColumnIdentifier(), table));
+        Column pkColumn = table.addColumn(dict.getValidColumnName(getPrimaryKeyColumnIdentifier(), table));
         pkColumn.setType(dict.getPreferredType(Types.VARCHAR));
         pkColumn.setJavaType(JavaTypes.STRING);
         pkColumn.setSize(dict.characterColumnSize);
         return pkColumn;
     }
 
+    @Override
     protected Object getPrimaryKey(ClassMapping mapping) {
         if (mapping == null)
             return null;
@@ -171,6 +174,7 @@ public class ClassTableJDBCSeq
         final String[] arguments = opts.setFromCmdLine(args);
         boolean ret = Configurations.runAgainstAllAnchors(opts,
             new Configurations.Runnable() {
+            @Override
             public boolean run(Options opts) throws Exception {
                 JDBCConfiguration conf = new JDBCConfigurationImpl();
                 try {
@@ -180,8 +184,11 @@ public class ClassTableJDBCSeq
                 }
             }
         });
-        if (!ret)
+        if (!ret) {
+            // START - ALLOW PRINT STATEMENTS
             System.out.println(_loc.get("clstable-seq-usage"));
+            // STOP - ALLOW PRINT STATEMENTS
+        }
     }
 
     /**
@@ -232,9 +239,11 @@ public class ClassTableJDBCSeq
             Connection conn = conf.getDataSource2(null).getConnection();
             try {
                 long cur = seq.getSequence(mapping, conn);
-                if (ACTION_GET.equals(action))
+                if (ACTION_GET.equals(action)) {
+                    // START - ALLOW PRINT STATEMENTS
                     System.out.println(mapping + ": " + cur);
-                else {
+                    // STOP - ALLOW PRINT STATEMENTS
+                }else {
                     long set;
                     if (args.length > 1)
                         set = Long.parseLong(args[1]);
@@ -248,7 +257,9 @@ public class ClassTableJDBCSeq
                             conn);
                         set = stat.seq;
                     }
+                    // START - ALLOW PRINT STATEMENTS
                     System.err.println(mapping + ": " + set);
+                    // STOP - ALLOW PRINT STATEMENTS
                 }
             } catch (NumberFormatException nfe) {
                 return false;

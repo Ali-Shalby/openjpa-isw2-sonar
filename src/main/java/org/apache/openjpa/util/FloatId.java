@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -23,13 +23,15 @@ package org.apache.openjpa.util;
  *
  * @author Abe White
  */
-public final class FloatId 
+public final class FloatId
     extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
     private final float key;
 
     public FloatId(Class cls, Float key) {
-        this(cls, (key == null) ? 0F : key.floatValue());
+        this(cls, (key == null) ? 0F : key);
     }
 
     public FloatId(Class cls, String key) {
@@ -50,18 +52,22 @@ public final class FloatId
         return key;
     }
 
+    @Override
     public Object getIdObject() {
-        return new Float(key);
+        return key;
     }
 
+    @Override
     public String toString() {
         return Float.toString(key);
     }
 
+    @Override
     protected int idHash() {
         return Float.floatToIntBits(key);
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId o) {
         return key == ((FloatId) o).key;
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -31,9 +31,8 @@ import org.apache.openjpa.util.MetaDataException;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class JDBCRelatedFieldOrder
-    implements JDBCOrder {
+class JDBCRelatedFieldOrder implements JDBCOrder {
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage
         (JDBCRelatedFieldOrder.class);
@@ -54,26 +53,33 @@ class JDBCRelatedFieldOrder
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public String getName() {
         return _fm.getName();
     }
 
+    @Override
     public DBIdentifier getIdentifier() {
         return DBIdentifier.newColumn(_fm.getName());
     }
 
+    @Override
     public boolean isAscending() {
         return _asc;
     }
 
+    @Override
     public Comparator<?> getComparator() {
         return null;
     }
 
+    @Override
     public boolean isInRelation() {
         return true;
     }
 
+    @Override
     public void order(Select sel, ClassMapping elem, Joins joins) {
         FieldMapping fm = _fm;
         if (elem != null) {
@@ -83,20 +89,21 @@ class JDBCRelatedFieldOrder
         }
         sel.orderBy(fm.getColumns(), _asc, joins, false);
     }
-    
+
     private FieldMapping getOrderByField(ClassMapping elem, FieldMapping fm) {
         ClassMapping owner = (ClassMapping)_fm.getDefiningMetaData();
         if (owner.getDescribedType() == elem.getDescribedType())
             return elem.getFieldMapping(_fm.getIndex());
         else {
             FieldMapping fms[] = elem.getFieldMappings();
-            for (int i = 0; i < fms.length; i++) {
-                ValueMapping vm = (ValueMapping)fms[i].getValue();
-                ClassMapping clm = (ClassMapping)vm.getEmbeddedMetaData();
+            for (FieldMapping fieldMapping : fms) {
+                ValueMapping vm = (ValueMapping) fieldMapping.getValue();
+                ClassMapping clm = (ClassMapping) vm.getEmbeddedMetaData();
                 if (clm != null) {
                     if (clm.getDescribedType() == owner.getDescribedType()) {
                         return owner.getFieldMapping(_fm.getIndex());
-                    } else {
+                    }
+                    else {
                         FieldMapping fm1 = getOrderByField(clm, fm);
                         if (fm1 != null)
                             return fm1;

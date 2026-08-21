@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -33,6 +33,6 @@ public interface RelationId {
      * Return the serialized value for the given related object, now that
      * its id has been assigned.
      */
-    public Object toRelationDataStoreValue(OpenJPAStateManager sm, Column col);
+    Object toRelationDataStoreValue(OpenJPAStateManager sm, Column col);
 }
 

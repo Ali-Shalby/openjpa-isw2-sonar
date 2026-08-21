@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -26,16 +26,20 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.Map;
+import java.util.TimeZone;
 
+import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.meta.ValueMetaData;
+import org.apache.openjpa.meta.ValueStrategies;
 import org.apache.openjpa.util.ChangeTracker;
 import org.apache.openjpa.util.Exceptions;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InvalidStateException;
+import org.apache.openjpa.util.LRSProxy;
 import org.apache.openjpa.util.MapChangeTracker;
 import org.apache.openjpa.util.ObjectId;
 import org.apache.openjpa.util.Proxies;
@@ -47,22 +51,22 @@ import org.apache.openjpa.util.UserException;
  * FieldManager type used to hold onto a single field value and then
  * dispense it via the fetch methods. The manager can also perform actions
  * on the held field.
- *
- * @author Abe White
  */
-class SingleFieldManager
-    extends TransferFieldManager
-    implements Serializable {
+class SingleFieldManager extends TransferFieldManager implements Serializable {
+    
+    private static final long serialVersionUID = 1L;
 
-    private static final Localizer _loc = Localizer.forPackage
-        (SingleFieldManager.class);
+    private static final Localizer _loc = Localizer.forPackage(SingleFieldManager.class);
 
     private final StateManagerImpl _sm;
     private final BrokerImpl _broker;
+    private final boolean _checkDbOnCascadePersist;
 
     public SingleFieldManager(StateManagerImpl sm, BrokerImpl broker) {
         _sm = sm;
         _broker = broker;
+        _checkDbOnCascadePersist =
+            _broker.getConfiguration().getCompatibilityInstance().getCheckDatabaseForCascadePersistToDetachedEntity();
     }
 
     /**
@@ -77,31 +81,34 @@ class SingleFieldManager
             case JavaTypes.DATE:
                 if (objval == null)
                     return false;
-                proxy = checkProxy();
+                proxy = checkProxy(fmd);
                 if (proxy == null) {
                     proxy = (Proxy) _sm.newFieldProxy(field);
                     ((Date) proxy).setTime(((Date) objval).getTime());
-                    if (proxy instanceof Timestamp 
-                        && objval instanceof Timestamp)
-                        ((Timestamp) proxy).setNanos(((Timestamp) objval).
-                            getNanos());
+                    if (proxy instanceof Timestamp && objval instanceof Timestamp)
+                        ((Timestamp) proxy).setNanos(((Timestamp) objval).getNanos());
                     ret = true;
                 }
                 break;
             case JavaTypes.CALENDAR:
                 if (objval == null)
                     return false;
-                proxy = checkProxy();
+                proxy = checkProxy(fmd);
                 if (proxy == null) {
                     proxy = (Proxy) _sm.newFieldProxy(field);
                     ((Calendar) proxy).setTime(((Calendar) objval).getTime());
                     ret = true;
+                } else {
+                    Object init = fmd.getInitializer();
+                    if (init != null && init instanceof TimeZone) {
+                        ((Calendar) proxy).setTimeZone((TimeZone)init);
+                    }
                 }
                 break;
             case JavaTypes.COLLECTION:
                 if (objval == null && !replaceNull)
                     return false;
-                proxy = checkProxy();
+                proxy = checkProxy(fmd);
                 if (proxy == null) {
                     proxy = (Proxy) _sm.newFieldProxy(field);
                     if (objval != null)
@@ -112,7 +119,7 @@ class SingleFieldManager
             case JavaTypes.MAP:
                 if (objval == null && !replaceNull)
                     return false;
-                proxy = checkProxy();
+                proxy = checkProxy(fmd);
                 if (proxy == null) {
                     proxy = (Proxy) _sm.newFieldProxy(field);
                     if (objval != null)
@@ -123,7 +130,7 @@ class SingleFieldManager
             case JavaTypes.OBJECT:
                 if (objval == null)
                     return false;
-                proxy = checkProxy();
+                proxy = checkProxy(fmd);
                 if (proxy == null) {
                     proxy = getProxyManager().newCustomProxy(objval,
                         _sm.getBroker().getConfiguration().
@@ -150,15 +157,21 @@ class SingleFieldManager
     }
 
     /**
-     * If the current field is a usable proxy, return it; else return null.
+     * If the current field is a usable proxy and it should be a proxy, return it; else return null.
+     *
+     * This method will skim out Calendar instances that were proxied before we knew if they need to be proxied.
      */
-    private Proxy checkProxy() {
+    private Proxy checkProxy(FieldMetaData fmd) {
         if (!(objval instanceof Proxy))
             return null;
 
         Proxy proxy = (Proxy) objval;
-        if (proxy.getOwner() == null || Proxies.isOwner(proxy, _sm, field))
-            return proxy;
+        if (proxy.getOwner() == null || Proxies.isOwner(proxy, _sm, field)) {
+            if (fmd.getProxyType().isAssignableFrom(proxy.getClass())
+                    || (fmd.isLRS() && (objval instanceof LRSProxy))) {
+                return proxy;
+            }
+        }
         return null;
     }
 
@@ -218,16 +231,18 @@ class SingleFieldManager
      * Release the given embedded objects.
      */
     private void releaseEmbedded(ValueMetaData vmd, Object[] objs) {
-        for (int i = 0; i < objs.length; i++)
-            releaseEmbedded(vmd, objs[i]);
+        for (Object obj : objs) {
+            releaseEmbedded(vmd, obj);
+        }
     }
 
     /**
      * Release the given embedded objects.
      */
     private void releaseEmbedded(ValueMetaData vmd, Collection objs) {
-        for (Iterator itr = objs.iterator(); itr.hasNext();)
-            releaseEmbedded(vmd, itr.next());
+        for (Object obj : objs) {
+            releaseEmbedded(vmd, obj);
+        }
     }
 
     /**
@@ -256,12 +271,12 @@ class SingleFieldManager
         switch (fmd.getDeclaredTypeCode()) {
             case JavaTypes.PC:
             case JavaTypes.PC_UNTYPED:
-                if (!_broker.isDetachedNew() && _broker.isDetached(objval))
+                if (!_broker.isDetachedNew() && _broker.isDetached(objval, _checkDbOnCascadePersist))
                     return; // allow but ignore
                 _broker.persist(objval, true, call);
                 break;
             case JavaTypes.ARRAY:
-                _broker.persistAll(Arrays.asList((Object[]) objval), true, 
+                _broker.persistAll(Arrays.asList((Object[]) objval), true,
                     call);
                 break;
             case JavaTypes.COLLECTION:
@@ -295,7 +310,7 @@ class SingleFieldManager
     private void delete(boolean immediate, OpCallbacks call) {
         delete(immediate, call, false);
     }
-        
+
     /**
      * Delete or dereference the stored field as necessary.
      */
@@ -309,8 +324,11 @@ class SingleFieldManager
             // works on external value
             if ((immediate || fmd.isEmbeddedPC())
                 && fmd.getCascadeDelete() == ValueMetaData.CASCADE_IMMEDIATE) {
-                if (fmd.isEmbeddedPC() && deref)
-                    dereferenceEmbedDependent(_broker.getStateManagerImpl(objval, false));
+                if (fmd.isEmbeddedPC() && deref) {
+                    StateManagerImpl sm = _broker.getStateManagerImpl(objval, false);
+                    if (sm != null)
+                        dereferenceEmbedDependent(sm);
+                }
                 delete(fmd, objval, call);
             }
             else if (fmd.getCascadeDelete() == ValueMetaData.CASCADE_AUTO)
@@ -369,16 +387,18 @@ class SingleFieldManager
      * Delete the objects in the given value.
      */
     private void delete(ValueMetaData vmd, Object[] objs, OpCallbacks call) {
-        for (int i = 0; i < objs.length; i++)
-            delete(vmd, objs[i], call);
+        for (Object obj : objs) {
+            delete(vmd, obj, call);
+        }
     }
 
     /**
      * Delete the objects embedded in the given value.
      */
     private void delete(ValueMetaData vmd, Collection objs, OpCallbacks call) {
-        for (Iterator itr = objs.iterator(); itr.hasNext();)
-            delete(vmd, itr.next(), call);
+        for (Object obj : objs) {
+            delete(vmd, obj, call);
+        }
     }
 
     /**
@@ -400,16 +420,18 @@ class SingleFieldManager
      * Dereference all valid persistent objects in the given collection.
      */
     private void dereferenceDependent(Object[] objs) {
-        for (int i = 0; i < objs.length; i++)
-            dereferenceDependent(objs[i]);
+        for (Object obj : objs) {
+            dereferenceDependent(obj);
+        }
     }
 
     /**
      * Dereference all valid persistent objects in the given collection.
      */
     private void dereferenceDependent(Collection objs) {
-        for (Iterator itr = objs.iterator(); itr.hasNext();)
-            dereferenceDependent(itr.next());
+        for (Object obj : objs) {
+            dereferenceDependent(obj);
+        }
     }
 
     /**
@@ -422,11 +444,11 @@ class SingleFieldManager
         if (sm != null)
             sm.setDereferencedDependent(true, true);
     }
-    
+
     void dereferenceEmbedDependent(StateManagerImpl sm) {
-    	sm.setDereferencedEmbedDependent(true);
+        sm.setDereferencedEmbedDependent(true);
     }
-    
+
     /**
      * Recursively invoke the broker to gather cascade-refresh objects in
      * the current field into the given set. This method is only called
@@ -463,16 +485,18 @@ class SingleFieldManager
      * Gather each element.
      */
     private void gatherCascadeRefresh(Object[] arr, OpCallbacks call) {
-        for (int i = 0; i < arr.length; i++)
-            _broker.gatherCascadeRefresh(arr[i], call);
+        for (Object o : arr) {
+            _broker.gatherCascadeRefresh(o, call);
+        }
     }
 
     /**
      * Gather each element.
      */
     private void gatherCascadeRefresh(Collection coll, OpCallbacks call) {
-        for (Iterator itr = coll.iterator(); itr.hasNext();)
-            _broker.gatherCascadeRefresh(itr.next(), call);
+        for (Object o : coll) {
+            _broker.gatherCascadeRefresh(o, call);
+        }
     }
 
     /**
@@ -487,14 +511,13 @@ class SingleFieldManager
         if (fmd.getDeclaredTypeCode() < JavaTypes.OBJECT)
             return false;
 
-        // perform pers-by-reach and dependent refs
-        boolean ret = preFlush(fmd, logical, call);
-
         // manage inverses
         InverseManager manager = _broker.getInverseManager();
         if (manager != null)
             manager.correctRelations(_sm, fmd, objval);
-        return ret;
+
+        // perform pers-by-reach and dependent refs
+        return preFlush(fmd, logical, call);
     }
 
     /**
@@ -544,15 +567,16 @@ class SingleFieldManager
     /**
      * Helper method to perform pre flush actions on the current object.
      */
-    private boolean preFlush(FieldMetaData fmd, boolean logical, 
-        OpCallbacks call) {
+    private boolean preFlush(FieldMetaData fmd, boolean logical, OpCallbacks call) {
         // check for illegal nulls
         if (objval == null) {
-            if (fmd.getNullValue() == FieldMetaData.NULL_EXCEPTION
-                || fmd.getDeclaredTypeCode() == JavaTypes.OID)
-                throw new InvalidStateException(_loc.get("null-value",
-                    fmd.getName(), _sm.getManagedInstance())).
-                    setFatal(true);
+            // If we have an AUTOASSIGN strategy that means that we have a field that is GenerationType.IDENTITY so
+            // skip checking to see if the value is null as it will get assigned later in flush processing.
+            if (fmd.getValueStrategy() != ValueStrategies.AUTOASSIGN) {
+                if (fmd.getNullValue() == FieldMetaData.NULL_EXCEPTION || fmd.getDeclaredTypeCode() == JavaTypes.OID)
+                    throw new InvalidStateException(_loc.get("null-value", fmd.getName(), _sm.getManagedInstance()))
+                        .setFatal(true);
+            }
             return false;
         }
 
@@ -621,7 +645,7 @@ class SingleFieldManager
                     if (external)
                         val = fmd.getExternalValue(val, _broker);
                     if (val != null)
-                        preFlushPCs(fmd.getElement(), (Object[]) val, logical, 
+                        preFlushPCs(fmd.getElement(), (Object[]) val, logical,
                             call);
                 }
                 break;
@@ -635,11 +659,11 @@ class SingleFieldManager
                     if (external)
                         val = fmd.getExternalValue(val, _broker);
                     else if (val instanceof Proxy) {
-                        // shortcut change trackers; also ensures we don't 
+                        // shortcut change trackers; also ensures we don't
                         // iterate lrs fields
                         ChangeTracker ct = ((Proxy) val).getChangeTracker();
                         if (ct != null && ct.isTracking()) {
-                            preFlushPCs(fmd.getElement(), ct.getAdded(), 
+                            preFlushPCs(fmd.getElement(), ct.getAdded(),
                                 logical, call);
                             preFlushPCs(fmd.getElement(), ct.getChanged(),
                                 logical, call);
@@ -666,7 +690,7 @@ class SingleFieldManager
                         val = fmd.getExternalValue(val, _broker);
                         external = false;
                     } else if (val instanceof Proxy) {
-                        // shortcut change trackers; also ensures we don't 
+                        // shortcut change trackers; also ensures we don't
                         // iterate lrs fields
                         MapChangeTracker ct = (MapChangeTracker) ((Proxy) val).
                             getChangeTracker();
@@ -690,7 +714,7 @@ class SingleFieldManager
                     if (external)
                         val = fmd.getExternalValue(val, _broker);
                     else if (val instanceof Proxy) {
-                        // shortcut change trackers; also ensures we don't 
+                        // shortcut change trackers; also ensures we don't
                         // iterate lrs fields
                         MapChangeTracker ct = (MapChangeTracker) ((Proxy) val).
                             getChangeTracker();
@@ -724,8 +748,9 @@ class SingleFieldManager
      */
     private void preFlushPCs(ValueMetaData vmd, Collection keys, Map map,
         boolean logical, OpCallbacks call) {
-        for (Iterator itr = keys.iterator(); itr.hasNext();)
-            preFlushPC(vmd, map.get(itr.next()), logical, call);
+        for (Object key : keys) {
+            preFlushPC(vmd, map.get(key), logical, call);
+        }
     }
 
     /**
@@ -734,8 +759,9 @@ class SingleFieldManager
      */
     private void preFlushPCs(ValueMetaData vmd, Object[] objs,
         boolean logical, OpCallbacks call) {
-        for (int i = 0; i < objs.length; i++)
-            preFlushPC(vmd, objs[i], logical, call);
+        for (Object obj : objs) {
+            preFlushPC(vmd, obj, logical, call);
+        }
     }
 
     /**
@@ -744,40 +770,56 @@ class SingleFieldManager
      */
     private void preFlushPCs(ValueMetaData vmd, Collection objs,
         boolean logical, OpCallbacks call) {
-        for (Iterator itr = objs.iterator(); itr.hasNext();)
-            preFlushPC(vmd, itr.next(), logical, call);
+        for (Object obj : objs) {
+            preFlushPC(vmd, obj, logical, call);
+        }
     }
 
     /**
      * Perform pre flush operations on the given object.
      */
-    private void preFlushPC(ValueMetaData vmd, Object obj, boolean logical,
-        OpCallbacks call) {
+    private void preFlushPC(ValueMetaData vmd, Object obj, boolean logical, OpCallbacks call) {
         if (obj == null)
             return;
 
-        OpenJPAStateManager sm;        
+        OpenJPAStateManager sm;
 
         if (vmd.getCascadePersist() == ValueMetaData.CASCADE_NONE) {
-            if (!_broker.isDetachedNew() && _broker.isDetached(obj))
+            if (!_broker.isDetachedNew() && _broker.isDetached(obj, _checkDbOnCascadePersist)) {
                 return; // allow but ignore
+            }
 
             sm = _broker.getStateManager(obj);
-            if (sm == null || !sm.isPersistent())
-                throw new InvalidStateException(
-                    _loc.get("cant-cascade-persist", vmd))
+            if (sm == null || !sm.isPersistent()) {
+                if (((StoreContext)_broker).getAllowReferenceToSiblingContext()
+                 && ImplHelper.isManageable(obj)
+                 && ((PersistenceCapable)obj).pcGetStateManager() != null) {
+                    return;
+                } else {
+                    throw new InvalidStateException(_loc.get("cant-cascade-persist",
+                            vmd.toString(), Exceptions.toString(obj),
+                            sm == null ? " unmanaged" : sm.getPCState().getClass().getSimpleName()))
                     .setFailedObject(obj);
+                }
+            }
         } else {
             if (vmd.getCascadePersist() == ValueMetaData.CASCADE_IMMEDIATE) {
-                if (!_broker.isDetachedNew() && _broker.isDetached(obj))
+                if (!_broker.isDetachedNew() && _broker.isDetached(obj, _checkDbOnCascadePersist)) {
                     return; // allow but ignore
-            }        	
+                }
+            }
             sm = _broker.getStateManager(obj);
-            if (sm == null || !sm.isProvisional()) { 
+            if (sm == null || !sm.isProvisional()) {
                 sm = _broker.persist(obj, null, true, call);
                 // ensure generated IDs get assigned properly
                 if (!logical)
                     ((StateManagerImpl)sm).assignObjectId(false, true);
+
+                // Call preFetch on this and any related persistent fields.
+                // This will ensure IDs get assigned to those that need them.
+                if (_broker.isFlushing()) {
+                    ((StateManagerImpl)sm).preFlush(logical, call);
+                }
             }
         }
 
@@ -820,8 +862,9 @@ class SingleFieldManager
             coll = (Collection) _sm.newFieldProxy(vmd.getFieldMetaData().getIndex());
         }
         coll.clear();
-        for (Iterator itr = orig.iterator(); itr.hasNext();)
-            coll.add(embed(vmd, itr.next()));
+        for (Object o : orig) {
+            coll.add(embed(vmd, o));
+        }
         return coll;
     }
 
@@ -847,8 +890,8 @@ class SingleFieldManager
             }
             map.clear();
             Object key, val;
-            for (Iterator itr = orig.entrySet().iterator(); itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
+            for (Object o : orig.entrySet()) {
+                entry = (Map.Entry) o;
                 key = embed(fmd.getKey(), entry.getKey());
                 val = entry.getValue();
                 if (valEmbed)
@@ -857,10 +900,10 @@ class SingleFieldManager
             }
         } else {
             map = orig;
-            for (Iterator itr = map.entrySet().iterator(); itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
+            for (Object o : map.entrySet()) {
+                entry = (Map.Entry) o;
                 entry.setValue(embed(fmd.getElement(),
-                    entry.getValue()));
+                        entry.getValue()));
             }
         }
         return map;

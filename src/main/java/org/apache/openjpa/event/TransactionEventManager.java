@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -27,15 +27,17 @@ import org.apache.openjpa.lib.util.concurrent.AbstractConcurrentEventManager;
  * @author Patrick Linskey
  * @author Abe White
  * @since 0.3.0
- * @nojavadoc
  */
 public class TransactionEventManager
     extends AbstractConcurrentEventManager {
 
+    
+    private static final long serialVersionUID = 1L;
     private int _begin = 0;
     private int _flush = 0;
     private int _end = 0;
 
+    @Override
     public void addListener(Object listener) {
         super.addListener(listener);
         if (listener instanceof BeginTransactionListener)
@@ -46,6 +48,7 @@ public class TransactionEventManager
             _end++;
     }
 
+    @Override
     public boolean removeListener(Object listener) {
         if (!super.removeListener(listener))
             return false;
@@ -83,6 +86,7 @@ public class TransactionEventManager
     /**
      * Fire the given event to all registered listeners.
      */
+    @Override
     protected void fireEvent(Object event, Object listener) {
         TransactionEvent ev = (TransactionEvent) event;
         switch (ev.getType()) {

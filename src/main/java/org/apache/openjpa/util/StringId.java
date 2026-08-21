@@ -14,9 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
+
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * {@link OpenJPAId} subclass appropriate for String fields.
@@ -25,34 +27,40 @@ package org.apache.openjpa.util;
  */
 public final class StringId extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
     private final String key;
 
-    public StringId(Class cls, String key) {
+    public StringId(Class<?> cls, String key) {
         super(cls);
-        this.key = (key == null) ? "" : key;
+        this.key = (key == null) ? "" : StringUtil.stripEnd(key, null);
     }
 
-    public StringId(Class cls, String key, boolean subs) {
+    public StringId(Class<?> cls, String key, boolean subs) {
         super(cls, subs);
-        this.key = (key == null) ? "" : key;
+        this.key = (key == null) ? "" : StringUtil.stripEnd(key, null);
     }
 
     public String getId() {
         return key;
     }
 
+    @Override
     public Object getIdObject() {
         return key;
     }
 
+    @Override
     public String toString() {
         return key;
     }
 
+    @Override
     protected int idHash() {
         return key.hashCode();
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId o) {
         return key.equals(((StringId) o).key);
     }

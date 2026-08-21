@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -30,9 +30,11 @@ import org.apache.openjpa.jdbc.sql.Select;
 class Count
     extends UnaryOp {
 
+    
+    private static final long serialVersionUID = 1L;
     private boolean isCountMultiColumns = false;
     private boolean isCountDistinct = false;
-    
+
     /**
      * Constructor. Provide the value to operate on.
      */
@@ -42,6 +44,7 @@ class Count
             isCountDistinct = true;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         // join into related object if present
         ExpState expState = initializeValue(sel, ctx, JOIN_REL);
@@ -52,18 +55,21 @@ class Count
                 isCountMultiColumns = true;
             }
         }
-            
+
         return expState;
     }
 
+    @Override
     protected Class getType(Class c) {
         return long.class;
     }
 
+    @Override
     protected String getOperator() {
         return "COUNT";
     }
 
+    @Override
     public boolean isAggregate() {
         return true;
     }

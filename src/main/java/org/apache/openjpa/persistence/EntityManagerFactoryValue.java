@@ -14,19 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
+
+import jakarta.persistence.EntityManagerFactory;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.lib.conf.PluginValue;
 
 /**
- * Plugin type used to represent the {@link EntityManagerFactory}. 
+ * Plugin type used to represent the {@link EntityManagerFactory}.
  *
  * @since 0.4.1
- * @nojavadoc
  */
 public class EntityManagerFactoryValue
     extends PluginValue {
@@ -45,7 +46,7 @@ public class EntityManagerFactoryValue
      */
     public static OpenJPAEntityManagerFactory newFactory(BrokerFactory bf) {
         OpenJPAConfiguration conf = bf.getConfiguration();
-        PluginValue val = (PluginValue) conf.getValue(KEY); 
+        PluginValue val = (PluginValue) conf.getValue(KEY);
         if (val == null)
             return null;
         EntityManagerFactoryImpl emf = (EntityManagerFactoryImpl) val.

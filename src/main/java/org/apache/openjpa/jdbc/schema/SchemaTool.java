@@ -14,28 +14,33 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.Writer;
+import java.net.URL;
+import java.security.AccessController;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Set;
+
 import javax.sql.DataSource;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl;
@@ -43,12 +48,14 @@ import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.SQLExceptions;
 import org.apache.openjpa.lib.conf.Configurations;
-import org.apache.openjpa.lib.identifier.IdentifierUtil;
+import org.apache.openjpa.lib.jdbc.DelegatingDataSource;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.MetaDataSerializer;
 import org.apache.openjpa.lib.util.Files;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.util.InvalidStateException;
 
 /**
@@ -64,6 +71,7 @@ public class SchemaTool {
 
     public static final String ACTION_ADD = "add";
     public static final String ACTION_DROP = "drop";
+    public static final String ACTION_DROP_SCHEMA = "dropSchema";
     public static final String ACTION_RETAIN = "retain";
     public static final String ACTION_REFRESH = "refresh";
     public static final String ACTION_BUILD = "build";
@@ -72,12 +80,13 @@ public class SchemaTool {
     public static final String ACTION_DROPDB = "dropDB";
     public static final String ACTION_IMPORT = "import";
     public static final String ACTION_EXPORT = "export";
-    public static final String ACTION_DELETE_TABLE_CONTENTS = 
-        "deleteTableContents";
+    public static final String ACTION_DELETE_TABLE_CONTENTS = "deleteTableContents";
+    public static final String ACTION_EXECUTE_SCRIPT = "executeScript";
 
     public static final String[] ACTIONS = new String[]{
         ACTION_ADD,
         ACTION_DROP,
+        ACTION_DROP_SCHEMA,
         ACTION_RETAIN,
         ACTION_REFRESH,
         ACTION_BUILD,
@@ -87,15 +96,15 @@ public class SchemaTool {
         ACTION_IMPORT,
         ACTION_EXPORT,
         ACTION_DELETE_TABLE_CONTENTS,
+        ACTION_EXECUTE_SCRIPT
     };
 
-    private static final Localizer _loc = Localizer.forPackage
-        (SchemaTool.class);
+    protected static final Localizer _loc = Localizer.forPackage(SchemaTool.class);
 
-    private final JDBCConfiguration _conf;
-    private final DataSource _ds;
-    private final Log _log;
-    private final DBDictionary _dict;
+    protected final JDBCConfiguration _conf;
+    protected final DataSource _ds;
+    protected final Log _log;
+    protected final DBDictionary _dict;
     private final String _action;
     private boolean _ignoreErrs = false;
     private boolean _openjpaTables = false;
@@ -105,10 +114,13 @@ public class SchemaTool {
     private boolean _fks = true;
     private boolean _indexes = true;
     private boolean _seqs = true;
+    private boolean _rollbackBeforeDDL = true;
     private PrintWriter _writer = null;
     private SchemaGroup _group = null;
     private SchemaGroup _db = null;
-    private boolean _fullDB = false;
+    protected boolean _fullDB = false;
+    protected String _sqlTerminator = ";";
+    protected String _scriptToExecute = null;
 
     /**
      * Default constructor. Tools constructed this way will not have an
@@ -135,6 +147,19 @@ public class SchemaTool {
         // try to take a connection to initialize when we've already got one:
         // bad news if the max pool is 1
         _dict = _conf.getDBDictionaryInstance();
+    }
+
+    /**
+     * Cleanup DataSource after run()/record()
+     */
+    public void clear() {
+        if (_ds != null && _ds instanceof DelegatingDataSource) {
+            try {
+                ((DelegatingDataSource)_ds).close();
+            } catch (Exception e) {
+                // no-op
+            }
+        }
     }
 
     /**
@@ -208,6 +233,20 @@ public class SchemaTool {
         _dropSeqs = dropSeqs;
         if (dropSeqs)
             setSequences(true);
+    }
+
+    /**
+     * If true, rollback will be performed before each DDL statement is executed. Defaults to true.
+     */
+    public boolean getRollbackBeforeDDL() {
+        return _rollbackBeforeDDL;
+    }
+
+    /**
+     * If true, rollback will be performed before each DDL statement is executed. Defaults to true.
+     */
+    public void setRollbackBeforeDDL(boolean rollbackBeforeDDL) {
+        _rollbackBeforeDDL = rollbackBeforeDDL;
     }
 
     /**
@@ -295,6 +334,14 @@ public class SchemaTool {
             _writer = new PrintWriter(writer);
     }
 
+    public void setSQLTerminator(String t) {
+    	_sqlTerminator = t;
+    }
+
+    public void setScriptToExecute(String scriptToExecute) {
+        _scriptToExecute = scriptToExecute;
+    }
+
     /**
      * Return the schema group the tool will act on.
      */
@@ -325,6 +372,8 @@ public class SchemaTool {
             add();
         else if (ACTION_DROP.equals(_action))
             drop();
+        else if (ACTION_DROP_SCHEMA.equals(_action))
+            dropSchema();
         else if (ACTION_RETAIN.equals(_action))
             retain();
         else if (ACTION_REFRESH.equals(_action))
@@ -337,31 +386,42 @@ public class SchemaTool {
             dropDB();
         else if (ACTION_DELETE_TABLE_CONTENTS.equals(_action))
             deleteTableContents();
+        else if (ACTION_EXECUTE_SCRIPT.equals(_action)) {
+            executeScript();
+        }
     }
 
     /**
      * Adds any components present in the schema repository but absent from
-     * the database. Package-private for testing.
+     * the database.
      */
-    void add()
+    protected void add()
         throws SQLException {
         add(getDBSchemaGroup(false), assertSchemaGroup());
     }
 
     /**
      * Drops all schema components in the schema repository that also exist
-     * in the database. Package-private for testing.
+     * in the database.
      */
-    void drop()
+    protected void drop()
         throws SQLException {
         drop(getDBSchemaGroup(false), assertSchemaGroup());
     }
 
     /**
-     * Drops database components that are not mentioned in the schema
-     * repository. Package-private for testing.
+     * Drops all schema components in the schema repository.
      */
-    void retain()
+    protected void dropSchema()
+        throws SQLException {
+        drop(getDBSchemaGroup(false), assertSchemaGroup(), false);
+    }
+
+    /**
+     * Drops database components that are not mentioned in the schema
+     * repository.
+     */
+    protected void retain()
         throws SQLException {
         retain(getDBSchemaGroup(true), assertSchemaGroup(),
             getDropTables(), getDropSequences());
@@ -370,9 +430,8 @@ public class SchemaTool {
     /**
      * Adds any components present in the schema repository but absent from
      * the database, and drops unused database components.
-     * Package-private for testing.
      */
-    void refresh()
+    protected void refresh()
         throws SQLException {
         SchemaGroup local = assertSchemaGroup();
         SchemaGroup db = getDBSchemaGroup(true);
@@ -383,9 +442,8 @@ public class SchemaTool {
     /**
      * Re-execute all SQL used for the creation of the current database;
      * this action is usually used when creating SQL scripts.
-     * Package-private for testing.
      */
-    void createDB()
+    protected void createDB()
         throws SQLException {
         SchemaGroup group = new SchemaGroup();
         group.addSchema();
@@ -395,19 +453,18 @@ public class SchemaTool {
     /**
      * Re-execute all SQL used for the creation of the current database;
      * this action is usually used when creating SQL scripts.
-     * Package-private for testing.
      */
-    void build()
+    protected void build()
         throws SQLException {
         SchemaGroup group = new SchemaGroup();
         group.addSchema();
-        add(group, assertSchemaGroup());
+        buildSchema(group, assertSchemaGroup(), true);
     }
 
     /**
-     * Drop the current database. Package-private for testing.
+     * Drop the current database.
      */
-    void dropDB()
+    protected void dropDB()
         throws SQLException {
         retain(getDBSchemaGroup(true), new SchemaGroup(), true, true);
     }
@@ -415,21 +472,79 @@ public class SchemaTool {
     /**
      * Issue DELETE statement against all known tables.
      */
-    private void deleteTableContents() 
+    protected void deleteTableContents()
         throws SQLException {
         SchemaGroup group = getSchemaGroup();
         Schema[] schemas = group.getSchemas();
-        Collection<Table> tables = new LinkedHashSet<Table>();
-        for (int i = 0; i < schemas.length; i++) {
-            Table[] ts = schemas[i].getTables();
-            for (int j = 0; j < ts.length; j++)
-                tables.add(ts[j]);
+        Collection<Table> tables = new LinkedHashSet<>();
+        for (Schema schema : schemas) {
+            Table[] ts = schema.getTables();
+            for (Table t : ts) {
+                tables.add(t);
+            }
         }
-        Table[] tableArray = (Table[]) tables.toArray(new Table[tables.size()]);
-        String[] sql = _conf.getDBDictionaryInstance()
-            .getDeleteTableContentsSQL(tableArray,_ds.getConnection());
-        if (!executeSQL(sql))
-            _log.warn(_loc.get("delete-table-contents"));
+        Table[] tableArray = tables.toArray(new Table[tables.size()]);
+        Connection conn = _ds.getConnection();
+        try {
+            String[] sql = _conf.getDBDictionaryInstance()
+                .getDeleteTableContentsSQL(tableArray, conn);
+            if (!executeSQL(sql)) {
+                _log.warn(_loc.get("delete-table-contents"));
+            }
+        } finally {
+            closeConnection(conn);
+        }
+    }
+
+    protected void executeScript() throws SQLException {
+        if (_scriptToExecute == null) {
+            _log.warn(_loc.get("generating-execute-script-not-defined"));
+            return;
+        }
+
+        URL url = AccessController.doPrivileged(
+                J2DoPrivHelper.getResourceAction(_conf.getClassResolverInstance().
+                        getClassLoader(SchemaTool.class, null), _scriptToExecute));
+
+        if (url == null) {
+            _log.error(_loc.get("generating-execute-script-not-found", _scriptToExecute));
+            return;
+        }
+
+        _log.info(_loc.get("generating-execute-script", _scriptToExecute));
+        BufferedReader reader = null;
+        try {
+            reader = new BufferedReader(new InputStreamReader(url.openStream()));
+            String sql;
+            List<String> script = new ArrayList<>();
+            while ((sql = reader.readLine()) != null) {
+                sql = sql.trim();
+                if (sql.startsWith("--") || sql.startsWith("/*") || sql.startsWith("//")) {
+                    continue;
+                }
+
+                int semiColonPosition = sql.indexOf(";"); // ';' can be in string, don't blindly drop it
+                if (sql.endsWith(";")) {
+                    sql = sql.substring(0, sql.length() - 1);
+                }
+                if (sql.isEmpty()) {
+                    continue;
+                }
+                script.add(sql);
+            }
+
+            executeSQL(script.toArray(new String[script.size()]));
+        } catch (IOException e) {
+            _log.error(e.getMessage(), e);
+        } finally {
+            try {
+                if (reader != null) {
+                    reader.close();
+                }
+            } catch (IOException e) {
+                _log.error(e.getMessage(), e);
+            }
+        }
     }
 
     /**
@@ -444,56 +559,65 @@ public class SchemaTool {
      * Adds all database components in the repository schema that are not
      * present in the given database schema to the database.
      */
-    private void add(SchemaGroup db, SchemaGroup repos)
+    protected void add(SchemaGroup db, SchemaGroup repos)
         throws SQLException {
+
+        buildSchema(db, repos, true);
+    }
+
+    protected void buildSchema(SchemaGroup db, SchemaGroup repos, boolean considerDatabaseState) throws SQLException {
         // add sequences
         Schema[] schemas = repos.getSchemas();
         Schema schema;
         if (_seqs) {
             Sequence[] seqs;
-            for (int i = 0; i < schemas.length; i++) {
-                seqs = schemas[i].getSequences();
-                for (int j = 0; j < seqs.length; j++) {
-                    if (db.findSequence(schemas[i], seqs[j].getQualifiedPath()) !=
-                            null)
+            for (Schema value : schemas) {
+                seqs = value.getSequences();
+                for (Sequence seq : seqs) {
+                    if (considerDatabaseState && db.findSequence(value, seq.getQualifiedPath()) != null) {
                         continue;
+                    }
 
-                    if (createSequence(seqs[j])) {
-                        schema = db.getSchema(seqs[j].getSchemaIdentifier());
+                    if (createSequence(seq)) {
+                        schema = db.getSchema(seq.getSchemaIdentifier());
                         if (schema == null)
-                            schema = db.addSchema(seqs[j].getSchemaIdentifier());
-                        schema.importSequence(seqs[j]);
-                    } else
-                        _log.warn(_loc.get("add-seq", seqs[j]));
+                            schema = db.addSchema(seq.getSchemaIdentifier());
+                        schema.importSequence(seq);
+                    }
+                    else
+                        _log.warn(_loc.get("add-seq", seq));
                 }
             }
         }
 
         // order is important in this method; start with columns
         Table[] tabs;
-        Table dbTable;
+        Table dbTable = null;
         Column[] cols;
         Column col;
         DBIdentifier defaultSchemaName = DBIdentifier.newSchema(_dict.getDefaultSchemaName());
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                cols = tabs[j].getColumns();
-                dbTable = db.findTable(schemas[i], tabs[j].getQualifiedPath(), defaultSchemaName);
-                for (int k = 0; k < cols.length; k++) {
+        for (Schema schema2 : schemas) {
+            tabs = schema2.getTables();
+            for (Table tab : tabs) {
+                cols = tab.getColumns();
+                if (considerDatabaseState) {
+                    dbTable = db.findTable(schema2, tab.getQualifiedPath(), defaultSchemaName);
+                }
+                for (Column column : cols) {
                     if (dbTable != null) {
-                        DBIdentifier colName = cols[k].getIdentifier();
+                        DBIdentifier colName = column.getIdentifier();
                         col = dbTable.getColumn(colName);
                         if (col == null) {
-                            if (addColumn(cols[k]))
-                                dbTable.importColumn(cols[k]);
+                            if (addColumn(column))
+                                dbTable.importColumn(column);
                             else
-                                _log.warn(_loc.get("add-col", cols[k],
-                                    tabs[j]));
-                        } else if (!cols[k].equalsColumn(col)) {
+                                _log.warn(_loc.get("add-col", column,
+                                        tab));
+                        }
+                        else if (!column.equalsColumn(_dict, col)) {
                             _log.warn(_loc.get("bad-col", new Object[]{
-                                col, dbTable, col.getDescription(),
-                                cols[k].getDescription() }));
+                                    col, dbTable, col.getDescription(),
+                                    column.getDescription()}));
                         }
                     }
                 }
@@ -503,67 +627,74 @@ public class SchemaTool {
         // primary keys
         if (_pks) {
             PrimaryKey pk;
-            for (int i = 0; i < schemas.length; i++) {
-                tabs = schemas[i].getTables();
-                for (int j = 0; j < tabs.length; j++) {
-                    pk = tabs[j].getPrimaryKey();
-                    dbTable = db.findTable(schemas[i], tabs[j].getQualifiedPath());
+            for (Schema value : schemas) {
+                tabs = value.getTables();
+                for (Table tab : tabs) {
+                    pk = tab.getPrimaryKey();
+                    if (considerDatabaseState) {
+                        dbTable = db.findTable(value, tab.getQualifiedPath());
+                    }
                     if (pk != null && !pk.isLogical() && dbTable != null) {
                         if (dbTable.getPrimaryKey() == null
-                            && addPrimaryKey(pk))
+                                && addPrimaryKey(pk))
                             dbTable.importPrimaryKey(pk);
                         else if (dbTable.getPrimaryKey() == null)
-                            _log.warn(_loc.get("add-pk", pk, tabs[j]));
+                            _log.warn(_loc.get("add-pk", pk, tab));
                         else if (!pk.equalsPrimaryKey(dbTable.getPrimaryKey()))
                             _log.warn(_loc.get("bad-pk",
-                                dbTable.getPrimaryKey(), dbTable));
+                                    dbTable.getPrimaryKey(), dbTable));
                     }
                 }
             }
         }
 
         // tables
-        Set<Table> newTables = new HashSet<Table>();
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                if (db.findTable(schemas[i], tabs[j].getQualifiedPath()) != null)
+        Set<Table> newTables = new HashSet<>();
+        for (Schema schema1 : schemas) {
+            tabs = schema1.getTables();
+            for (Table tab : tabs) {
+                if (considerDatabaseState && db.findTable(schema1, tab.getQualifiedPath()) != null) {
                     continue;
+                }
 
-                if (createTable(tabs[j])) {
-                    newTables.add(tabs[j]);
-                    schema = db.getSchema(tabs[j].getSchemaIdentifier());
+                if (createTable(tab)) {
+                    newTables.add(tab);
+                    schema = db.getSchema(tab.getSchemaIdentifier());
                     if (schema == null)
-                        schema = db.addSchema(tabs[j].getSchemaIdentifier());
-                    schema.importTable(tabs[j]);
-                } else
-                    _log.warn(_loc.get("add-table", tabs[j]));
+                        schema = db.addSchema(tab.getSchemaIdentifier());
+                    schema.importTable(tab);
+                }
+                else
+                    _log.warn(_loc.get("add-table", tab));
             }
         }
 
         // indexes
         Index[] idxs;
         Index idx;
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
+        for (Schema element : schemas) {
+            tabs = element.getTables();
+            for (Table tab : tabs) {
                 // create indexes on new tables even if indexes
                 // have been turned off
-                if (!_indexes && !newTables.contains(tabs[j]))
+                if (!_indexes && !newTables.contains(tab))
                     continue;
 
-                idxs = tabs[j].getIndexes();
-                dbTable = db.findTable(schemas[i], tabs[j].getQualifiedPath());
-                for (int k = 0; k < idxs.length; k++) {
+                idxs = tab.getIndexes();
+                if (considerDatabaseState) {
+                    dbTable = db.findTable(element, tab.getQualifiedPath());
+                }
+                for (Index index : idxs) {
                     if (dbTable != null) {
-                        idx = findIndex(dbTable, idxs[k]);
+                        idx = findIndex(dbTable, index);
                         if (idx == null) {
-                            if (createIndex(idxs[k], dbTable))
-                                dbTable.importIndex(idxs[k]);
+                            if (createIndex(index, dbTable, tab.getUniques()))
+                                dbTable.importIndex(index);
                             else
-                                _log.warn(_loc.get("add-index", idxs[k],
-                                    tabs[j]));
-                        } else if (!idxs[k].equalsIndex(idx))
+                                _log.warn(_loc.get("add-index", index,
+                                        tab));
+                        }
+                        else if (!index.equalsIndex(idx))
                             _log.warn(_loc.get("bad-index", idx, dbTable));
                     }
                 }
@@ -572,48 +703,55 @@ public class SchemaTool {
 
         // Unique Constraints on group of columns
         Unique[] uniques;
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                // create unique constraints only on new tables 
-                if (!newTables.contains(tabs[j]))
+        for (Schema item : schemas) {
+            tabs = item.getTables();
+            for (Table tab : tabs) {
+                // create unique constraints only on new tables
+                if (!newTables.contains(tab)) {
                     continue;
+                }
 
-                uniques = tabs[j].getUniques();
+                uniques = tab.getUniques();
                 if (uniques == null || uniques.length == 0)
                     continue;
-                dbTable = db.findTable(tabs[j]);
+                if (considerDatabaseState) {
+                    dbTable = db.findTable(tab);
+                }
                 if (dbTable == null)
                     continue;
-                for (int k = 0; k < uniques.length; k++) {
-                    dbTable.importUnique(uniques[k]);
+                for (Unique unique : uniques) {
+                    dbTable.importUnique(unique);
                 }
             }
         }
-        
+
         // foreign keys
         ForeignKey[] fks;
         ForeignKey fk;
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
+        for (Schema value : schemas) {
+            tabs = value.getTables();
+            for (Table tab : tabs) {
                 // create foreign keys on new tables even if fks
                 // have been turned off
-                if (!_fks && !newTables.contains(tabs[j]))
+                if (!_fks && !newTables.contains(tab)) {
                     continue;
+                }
 
-                fks = tabs[j].getForeignKeys();
-                dbTable = db.findTable(schemas[i],tabs[j].getQualifiedPath());
-                for (int k = 0; k < fks.length; k++) {
-                    if (!fks[k].isLogical() && dbTable != null) {
-                        fk = findForeignKey(dbTable, fks[k]);
+                fks = tab.getForeignKeys();
+                if (considerDatabaseState) {
+                    dbTable = db.findTable(value, tab.getQualifiedPath());
+                }
+                for (ForeignKey foreignKey : fks) {
+                    if (!foreignKey.isLogical() && dbTable != null) {
+                        fk = findForeignKey(dbTable, foreignKey);
                         if (fk == null) {
-                            if (addForeignKey(fks[k]))
-                                dbTable.importForeignKey(fks[k]);
+                            if (addForeignKey(foreignKey))
+                                dbTable.importForeignKey(foreignKey);
                             else
                                 _log.warn(_loc.get("add-fk",
-                                    fks[k], tabs[j]));
-                        } else if (!fks[k].equalsForeignKey(fk))
+                                        foreignKey, tab));
+                        }
+                        else if (!foreignKey.equalsForeignKey(fk))
                             _log.warn(_loc.get("bad-fk", fk, dbTable));
                     }
                 }
@@ -625,22 +763,22 @@ public class SchemaTool {
      * Drops all database components that are in the given database schema
      * but not in the repository schema.
      */
-    private void retain(SchemaGroup db, SchemaGroup repos, boolean tables,
+    protected void retain(SchemaGroup db, SchemaGroup repos, boolean tables,
         boolean sequences)
         throws SQLException {
         Schema[] schemas = db.getSchemas();
         if (_seqs && sequences) {
             Sequence[] seqs;
-            for (int i = 0; i < schemas.length; i++) {
-                seqs = schemas[i].getSequences();
-                for (int j = 0; j < seqs.length; j++) {
-                    if (!isDroppable(seqs[j]))
+            for (Schema schema : schemas) {
+                seqs = schema.getSequences();
+                for (Sequence seq : seqs) {
+                    if (!isDroppable(seq))
                         continue;
-                    if (repos.findSequence(seqs[j]) == null) {
-                        if (dropSequence(seqs[j]))
-                            schemas[i].removeSequence(seqs[j]);
+                    if (repos.findSequence(seq) == null) {
+                        if (dropSequence(seq))
+                            schema.removeSequence(seq);
                         else
-                            _log.warn(_loc.get("drop-seq", seqs[j]));
+                            _log.warn(_loc.get("drop-seq", seq));
                     }
                 }
             }
@@ -652,30 +790,30 @@ public class SchemaTool {
         if (_fks) {
             ForeignKey[] fks;
             ForeignKey fk;
-            for (int i = 0; i < schemas.length; i++) {
-                tabs = schemas[i].getTables();
-                for (int j = 0; j < tabs.length; j++) {
-                    if (!isDroppable(tabs[j]))
+            for (Schema schema : schemas) {
+                tabs = schema.getTables();
+                for (Table tab : tabs) {
+                    if (!isDroppable(tab))
                         continue;
-                    fks = tabs[j].getForeignKeys();
-                    reposTable = repos.findTable(tabs[j]);
+                    fks = tab.getForeignKeys();
+                    reposTable = repos.findTable(tab);
                     if (!tables && reposTable == null)
                         continue;
 
-                    for (int k = 0; k < fks.length; k++) {
-                        if (fks[k].isLogical())
+                    for (ForeignKey foreignKey : fks) {
+                        if (foreignKey.isLogical())
                             continue;
 
                         fk = null;
                         if (reposTable != null)
-                            fk = findForeignKey(reposTable, fks[k]);
+                            fk = findForeignKey(reposTable, foreignKey);
                         if (reposTable == null || fk == null
-                            || !fks[k].equalsForeignKey(fk)) {
-                            if (dropForeignKey(fks[k]))
-                                tabs[j].removeForeignKey(fks[k]);
+                                || !foreignKey.equalsForeignKey(fk)) {
+                            if (dropForeignKey(foreignKey))
+                                tab.removeForeignKey(foreignKey);
                             else
-                                _log.warn(_loc.get("drop-fk", fks[k],
-                                    tabs[j]));
+                                _log.warn(_loc.get("drop-fk", foreignKey,
+                                        tab));
                         }
                     }
                 }
@@ -685,23 +823,23 @@ public class SchemaTool {
         // primary keys
         if (_pks) {
             PrimaryKey pk;
-            for (int i = 0; i < schemas.length; i++) {
-                tabs = schemas[i].getTables();
-                for (int j = 0; j < tabs.length; j++) {
-                    if (!isDroppable(tabs[j]))
+            for (Schema schema : schemas) {
+                tabs = schema.getTables();
+                for (Table tab : tabs) {
+                    if (!isDroppable(tab))
                         continue;
-                    pk = tabs[j].getPrimaryKey();
+                    pk = tab.getPrimaryKey();
                     if (pk != null && pk.isLogical())
                         continue;
 
-                    reposTable = repos.findTable(tabs[j]);
+                    reposTable = repos.findTable(tab);
                     if (pk != null && reposTable != null
-                        && (reposTable.getPrimaryKey() == null
-                        || !pk.equalsPrimaryKey(reposTable.getPrimaryKey()))) {
+                            && (reposTable.getPrimaryKey() == null
+                            || !pk.equalsPrimaryKey(reposTable.getPrimaryKey()))) {
                         if (dropPrimaryKey(pk))
-                            tabs[j].removePrimaryKey();
+                            tab.removePrimaryKey();
                         else
-                            _log.warn(_loc.get("drop-pk", pk, tabs[j]));
+                            _log.warn(_loc.get("drop-pk", pk, tab));
                     }
                 }
             }
@@ -710,25 +848,25 @@ public class SchemaTool {
         // columns
         Column[] cols;
         Column col;
-        Collection<Table> drops = new LinkedList<Table>();
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                if (!isDroppable(tabs[j]))
+        Collection<Table> drops = new LinkedList<>();
+        for (Schema value : schemas) {
+            tabs = value.getTables();
+            for (Table tab : tabs) {
+                if (!isDroppable(tab))
                     continue;
-                cols = tabs[j].getColumns();
-                reposTable = repos.findTable(tabs[j]);
+                cols = tab.getColumns();
+                reposTable = repos.findTable(tab);
                 if (reposTable != null) {
-                    for (int k = 0; k < cols.length; k++) {
-                        col = reposTable.getColumn(cols[k].getIdentifier());
-                        if (col == null || !cols[k].equalsColumn(col)) {
-                            if (tabs[j].getColumns().length == 1)
-                                drops.add(tabs[j]);
-                            else if (dropColumn(cols[k]))
-                                tabs[j].removeColumn(cols[k]);
+                    for (Column column : cols) {
+                        col = reposTable.getColumn(column.getIdentifier());
+                        if (col == null || !column.equalsColumn(_dict, col)) {
+                            if (tab.getColumns().length == 1)
+                                drops.add(tab);
+                            else if (dropColumn(column))
+                                tab.removeColumn(column);
                             else
-                                _log.warn(_loc.get("drop-col", cols[k],
-                                    tabs[j]));
+                                _log.warn(_loc.get("drop-col", column,
+                                        tab));
                         }
                     }
                 }
@@ -737,38 +875,47 @@ public class SchemaTool {
 
         // now tables
         if (tables) {
-            for (int i = 0; i < schemas.length; i++) {
-                tabs = schemas[i].getTables();
-                for (int j = 0; j < tabs.length; j++)
-                    if (!!isDroppable(tabs[j])
-                        && repos.findTable(tabs[j]) == null)
-                        drops.add(tabs[j]);
+            for (Schema schema : schemas) {
+                tabs = schema.getTables();
+                for (Table tab : tabs)
+                    if (isDroppable(tab)
+                            && repos.findTable(tab) == null)
+                        drops.add(tab);
             }
         }
         dropTables(drops, db);
     }
 
+    protected void drop(SchemaGroup db, SchemaGroup repos)
+        throws SQLException {
+
+        drop(db, repos, true);
+    }
+
     /**
      * Drops all database components in the given repository schema.
      */
-    private void drop(SchemaGroup db, SchemaGroup repos)
+    private void drop(SchemaGroup db, SchemaGroup repos, boolean considerDatabaseState)
         throws SQLException {
         // drop sequences
         Schema[] schemas = repos.getSchemas();
         if (_seqs) {
             Sequence[] seqs;
             Sequence dbSeq;
-            for (int i = 0; i < schemas.length; i++) {
-                seqs = schemas[i].getSequences();
-                for (int j = 0; j < seqs.length; j++) {
-                    if (!isDroppable(seqs[j]))
+            for (Schema schema : schemas) {
+                seqs = schema.getSequences();
+                for (Sequence seq : seqs) {
+                    if (!isDroppable(seq))
                         continue;
-                    dbSeq = db.findSequence(seqs[j]);
+                    dbSeq = db.findSequence(seq);
                     if (dbSeq != null) {
-                        if (dropSequence(seqs[j]))
+                        if (dropSequence(seq))
                             dbSeq.getSchema().removeSequence(dbSeq);
                         else
-                            _log.warn(_loc.get("drop-seq", seqs[j]));
+                            _log.warn(_loc.get("drop-seq", seq));
+                    }
+                    else if (_writer != null) {
+                        dropSequence(seq);
                     }
                 }
             }
@@ -777,26 +924,37 @@ public class SchemaTool {
         // calculate tables to drop; we can only drop tables if we're sure
         // the user listed the entire table definition in the stuff they want
         // dropped; else they might just want to drop a few columns
-        Collection<Table> drops = new LinkedList<Table>();
+        Collection<Table> drops = new LinkedList<>();
         Table[] tabs;
         Table dbTable;
         Column[] dbCols;
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
+        for (Schema value : schemas) {
+            tabs = value.getTables();
             tables:
-            for (int j = 0; j < tabs.length; j++) {
-                if (!isDroppable(tabs[j]))
+            for (Table tab : tabs) {
+                if (!isDroppable(tab))
                     continue;
-                dbTable = db.findTable(tabs[j]);
-                if (dbTable == null)
+
+                if (!considerDatabaseState) {
+                    drops.add(tab);
                     continue;
+                }
+
+                dbTable = db.findTable(tab);
+                if (dbTable == null) {
+                    if (_writer != null) {
+                        drops.add(tab);
+                    }
+                    continue;
+                }
 
                 dbCols = dbTable.getColumns();
-                for (int k = 0; k < dbCols.length; k++)
-                    if (tabs[j].getColumn(dbCols[k].getIdentifier()) == null)
+                for (Column dbCol : dbCols) {
+                    if (!dbCol.getIdentifier().getName().equals(_dict.getIdentityColumnName()) &&
+                            !tab.containsColumn(dbCol))
                         continue tables;
-
-                drops.add(tabs[j]);
+                }
+                drops.add(tab);
             }
         }
 
@@ -805,46 +963,46 @@ public class SchemaTool {
         if (_fks) {
             ForeignKey[] fks;
             ForeignKey fk;
-            for (int i = 0; i < schemas.length; i++) {
-                tabs = schemas[i].getTables();
-                for (int j = 0; j < tabs.length; j++) {
-                    if (!isDroppable(tabs[j]))
+            for (Schema schema : schemas) {
+                tabs = schema.getTables();
+                for (Table tab : tabs) {
+                    if (!isDroppable(tab))
                         continue;
-                    fks = tabs[j].getForeignKeys();
-                    dbTable = db.findTable(tabs[j]);
-                    for (int k = 0; k < fks.length; k++) {
-                        if (fks[k].isLogical())
+                    fks = tab.getForeignKeys();
+                    dbTable = db.findTable(tab);
+                    for (ForeignKey foreignKey : fks) {
+                        if (foreignKey.isLogical())
                             continue;
 
                         fk = null;
                         if (dbTable != null)
-                            fk = findForeignKey(dbTable, fks[k]);
+                            fk = findForeignKey(dbTable, foreignKey);
                         if (dbTable == null || fk == null)
                             continue;
 
-                        if (dropForeignKey(fks[k]))
+                        if (dropForeignKey(foreignKey))
                             if (dbTable != null)
                                 dbTable.removeForeignKey(fk);
                             else
-                                _log.warn(_loc.get("drop-fk", fks[k], tabs[j]));
+                                _log.warn(_loc.get("drop-fk", foreignKey, tab));
                     }
                 }
             }
 
             // also drop imported foreign keys for tables that will be dropped
             Table tab;
-            for (Iterator<Table> itr = drops.iterator(); itr.hasNext();) {
-                tab = itr.next();
+            for (Table drop : drops) {
+                tab = drop;
                 dbTable = db.findTable(tab);
                 if (dbTable == null)
                     continue;
 
                 fks = db.findExportedForeignKeys(dbTable.getPrimaryKey());
-                for (int i = 0; i < fks.length; i++) {
-                    if (dropForeignKey(fks[i]))
-                        dbTable.removeForeignKey(fks[i]);
+                for (ForeignKey foreignKey : fks) {
+                    if (dropForeignKey(foreignKey))
+                        dbTable.removeForeignKey(foreignKey);
                     else
-                        _log.warn(_loc.get("drop-fk", fks[i], dbTable));
+                        _log.warn(_loc.get("drop-fk", foreignKey, dbTable));
                 }
             }
         }
@@ -852,28 +1010,27 @@ public class SchemaTool {
         // drop the tables we calculated above
         dropTables(drops, db);
 
-        // columns
-        Column[] cols;
-        Column col;
-        for (int i = 0; i < schemas.length; i++) {
-            tabs = schemas[i].getTables();
-            for (int j = 0; j < tabs.length; j++) {
-                if (!isDroppable(tabs[j]))
-                    continue;
-                cols = tabs[j].getColumns();
-                dbTable = db.findTable(tabs[j]);
-                for (int k = 0; k < cols.length; k++) {
-                    col = null;
-                    if (dbTable != null)
-                        col = dbTable.getColumn(cols[k].getIdentifier());
-                    if (dbTable == null || col == null)
+        if (considerDatabaseState) {
+            // columns
+            Column[] cols;
+            Column col;
+            for (Schema schema : schemas) {
+                tabs = schema.getTables();
+                for (Table tab : tabs) {
+                    if (!isDroppable(tab))
                         continue;
-
-                    if (dropColumn(cols[k])) {
+                    cols = tab.getColumns();
+                    dbTable = db.findTable(tab);
+                    for (Column column : cols) {
+                        col = null;
                         if (dbTable != null)
+                            col = dbTable.getColumn(column.getIdentifier());
+                        if (dbTable == null || col == null)
+                            continue;
+
+                        if (dropColumn(column)) {
                             dbTable.removeColumn(col);
-                        else
-                            _log.warn(_loc.get("drop-col", cols[k], tabs[j]));
+                        }
                     }
                 }
             }
@@ -883,7 +1040,7 @@ public class SchemaTool {
     /**
      * Return true if the table is droppable.
      */
-    private boolean isDroppable(Table table) {
+    protected boolean isDroppable(Table table) {
         return _openjpaTables
             || (!DBIdentifier.toUpper(table.getIdentifier()).getName().startsWith("OPENJPA_")
             && !DBIdentifier.toUpper(table.getIdentifier()).getName().startsWith("JDO_")); // legacy
@@ -892,7 +1049,7 @@ public class SchemaTool {
     /**
      * Return true if the sequence is droppable.
      */
-    private boolean isDroppable(Sequence seq) {
+    protected boolean isDroppable(Sequence seq) {
         return _openjpaTables
             || (!DBIdentifier.toUpper(seq.getIdentifier()).getName().startsWith("OPENJPA_")
             && !DBIdentifier.toUpper(seq.getIdentifier()).getName().startsWith("JDO_")); // legacy
@@ -901,26 +1058,26 @@ public class SchemaTool {
     /**
      * Find an index in the given table that matches the given one.
      */
-    private Index findIndex(Table dbTable, Index idx) {
+    protected Index findIndex(Table dbTable, Index idx) {
         Index[] idxs = dbTable.getIndexes();
-        for (int i = 0; i < idxs.length; i++)
-            if (idx.columnsMatch(idxs[i].getColumns()))
-                return idxs[i];
+        for (Index index : idxs)
+            if (idx.columnsMatch(index.getColumns()))
+                return index;
         return null;
     }
 
     /**
      * Find a foreign key in the given table that matches the given one.
      */
-    private ForeignKey findForeignKey(Table dbTable, ForeignKey fk) {
+    protected ForeignKey findForeignKey(Table dbTable, ForeignKey fk) {
         if (fk.getConstantColumns().length > 0
             || fk.getConstantPrimaryKeyColumns().length > 0)
             return null;
         ForeignKey[] fks = dbTable.getForeignKeys();
-        for (int i = 0; i < fks.length; i++)
-            if (fk.columnsMatch(fks[i].getColumns(),
-                fks[i].getPrimaryKeyColumns()))
-                return fks[i];
+        for (ForeignKey foreignKey : fks)
+            if (fk.columnsMatch(foreignKey.getColumns(),
+                    foreignKey.getPrimaryKeyColumns()))
+                return foreignKey;
         return null;
     }
 
@@ -928,20 +1085,21 @@ public class SchemaTool {
      * Remove the given collection of tables from the database schema. Orders
      * the removals according to foreign key constraints on the tables.
      */
-    private void dropTables(Collection<Table> tables, SchemaGroup change)
+    protected void dropTables(Collection<Table> tables, SchemaGroup change)
         throws SQLException {
         if (tables.isEmpty())
             return;
 
         Table table;
         Table changeTable;
-        for (Iterator<Table> itr = tables.iterator(); itr.hasNext();) {
-            table = itr.next();
+        for (Table value : tables) {
+            table = value;
             if (dropTable(table)) {
                 changeTable = change.findTable(table);
                 if (changeTable != null)
                     changeTable.getSchema().removeTable(changeTable);
-            } else
+            }
+            else
                 _log.warn(_loc.get("drop-table", table));
         }
     }
@@ -953,7 +1111,7 @@ public class SchemaTool {
      */
     public boolean createTable(Table table)
         throws SQLException {
-        return executeSQL(_dict.getCreateTableSQL(table));
+        return executeSQL(_dict.getCreateTableSQL(table, _db));
     }
 
     /**
@@ -993,10 +1151,15 @@ public class SchemaTool {
      */
     public boolean createIndex(Index idx, Table table)
         throws SQLException {
-        // Informix will automatically create a unique index for the 
+        return createIndex(idx, table, null);
+    }
+
+    public boolean createIndex(Index idx, Table table, Unique[] uniques)
+        throws SQLException {
+        // Informix will automatically create a unique index for the
         // primary key, so don't create another index again
 
-        if (!_dict.needsToCreateIndex(idx,table))
+        if (!_dict.needsToCreateIndex(idx,table,uniques))
             return false;
 
         int max = _dict.maxIndexesPerTable;
@@ -1080,7 +1243,13 @@ public class SchemaTool {
      */
     public boolean dropForeignKey(ForeignKey fk)
         throws SQLException {
-        return executeSQL(_dict.getDropForeignKeySQL(fk,_ds.getConnection()));
+        Connection conn = _ds.getConnection();
+        try {
+            return executeSQL(_dict.getDropForeignKeySQL(fk,conn));
+        } finally {
+            closeConnection(conn);
+        }
+
     }
 
     /**
@@ -1109,7 +1278,7 @@ public class SchemaTool {
      * @param full if false, only the tables named in the set schema
      * repository will be generated
      */
-    private SchemaGroup getDBSchemaGroup(boolean full)
+    protected SchemaGroup getDBSchemaGroup(boolean full)
         throws SQLException {
         if (_db == null || (full && !_fullDB)) {
             SchemaGenerator gen = new SchemaGenerator(_conf);
@@ -1123,31 +1292,31 @@ public class SchemaTool {
                 // group; some may not exist yet, which is OK; we just need
                 // to make sure we can detect the changes to the ones that
                 // do exist
-                Collection<DBIdentifier> tables = new LinkedList<DBIdentifier>();
+                Collection<DBIdentifier> tables = new LinkedList<>();
                 SchemaGroup group = assertSchemaGroup();
                 Schema[] schemas = group.getSchemas();
                 Table[] tabs;
-                for (int i = 0; i < schemas.length; i++) {
-                    tabs = schemas[i].getTables();
-                    for (int j = 0; j < tabs.length; j++) {
-                        if (DBIdentifier.isNull(tabs[j].getSchemaIdentifier())) {
-                            tables.add(tabs[j].getIdentifier());
-                        } else {
-                            DBIdentifier sName = tabs[j].getFullIdentifier();
+                for (Schema schema : schemas) {
+                    tabs = schema.getTables();
+                    for (Table tab : tabs) {
+                        if (DBIdentifier.isNull(tab.getSchemaIdentifier())) {
+                            tables.add(tab.getIdentifier());
+                        }
+                        else {
+                            DBIdentifier sName = tab.getFullIdentifier();
                             tables.add(sName);
                         }
                     }
                 }
                 if (!tables.isEmpty())
-                    gen.generateSchemas((DBIdentifier[]) tables.toArray
-                        (new DBIdentifier[tables.size()]));
+                    gen.generateSchemas(tables.toArray(new DBIdentifier[tables.size()]));
             }
             _db = gen.getSchemaGroup();
         }
         return _db;
     }
 
-    private SchemaGroup assertSchemaGroup() {
+    protected SchemaGroup assertSchemaGroup() {
         SchemaGroup local = getSchemaGroup();
         if (local == null)
             throw new InvalidStateException(_loc.get("tool-norepos"));
@@ -1165,7 +1334,7 @@ public class SchemaTool {
      * @return true if there was SQL to execute and the calls were
      * successful, false otherwise
      */
-    private boolean executeSQL(String[] sql)
+    protected boolean executeSQL(String[] sql)
         throws SQLException {
         // if no sql, probably b/c dictionary doesn't support operation
         if (sql.length == 0)
@@ -1179,25 +1348,31 @@ public class SchemaTool {
             Statement statement = null;
             boolean wasAuto = true;
             try {
-                wasAuto = conn.getAutoCommit();
-                if (!wasAuto)
-                    conn.setAutoCommit(true);
-                for (int i = 0; i < sql.length; i++) {
+                if (_rollbackBeforeDDL) {
+                    wasAuto = conn.getAutoCommit();
+                    if (!wasAuto) {
+                        conn.setAutoCommit(true);
+                    }
+                }
+                for (String s : sql) {
                     try {
-                        // some connections require that rollback be
-                        // called on the connection before any DDL statements
-                        // can be run on it, even when autocommit is on.
-                        // This is sometimes because the connection does not
-                        // allow DDL statements when there are multiple
-                        // commands issued on the connection, and the
-                        // connection pool may have issued some validation SQL.
-                        try {
-                            conn.rollback();
-                        } catch (Exception e) {
+                        if (_rollbackBeforeDDL) {
+                            // some connections require that rollback be
+                            // called on the connection before any DDL statements
+                            // can be run on it, even when autocommit is on.
+                            // This is sometimes because the connection does not
+                            // allow DDL statements when there are multiple
+                            // commands issued on the connection, and the
+                            // connection pool may have issued some validation SQL.
+                            try {
+                                conn.rollback();
+                            }
+                            catch (Exception e) {
+                            }
                         }
 
                         statement = conn.createStatement();
-                        statement.executeUpdate(sql[i]);
+                        statement.executeUpdate(s);
 
                         // some connections seem to require an explicit
                         // commit for DDL statements, even when autocommit
@@ -1205,32 +1380,39 @@ public class SchemaTool {
                         // this limitation.
                         try {
                             conn.commit();
-                        } catch (Exception e) {
+                        }
+                        catch (Exception e) {
                         }
                     }
                     catch (SQLException se) {
                         err = true;
                         handleException(se);
-                    } finally {
+                    }
+                    finally {
                         if (statement != null)
                             try {
                                 statement.close();
-                            } catch (SQLException se) {
+                            }
+                            catch (SQLException se) {
                             }
                     }
                 }
             }
             finally {
-                if (!wasAuto)
+                if (_rollbackBeforeDDL && !wasAuto) {
                     conn.setAutoCommit(false);
+                }
+
                 try {
-                    conn.close();
+                    closeConnection(conn);
                 } catch (SQLException se) {
+                    //X TODO why catch silently?
                 }
             }
         } else {
-            for (int i = 0; i < sql.length; i++)
-                _writer.println(sql[i] + ";");
+            for (String s : sql) {
+                _writer.println(s + _sqlTerminator);
+            }
             _writer.flush();
         }
 
@@ -1241,7 +1423,7 @@ public class SchemaTool {
      * Handle the given exception, logging it and optionally ignoring it,
      * depending on the flags this SchemaTool was created with.
      */
-    private void handleException(SQLException sql)
+    protected void handleException(SQLException sql)
         throws SQLException {
         if (!_ignoreErrs)
             throw sql;
@@ -1286,6 +1468,9 @@ public class SchemaTool {
      * to true to drop sequences that appear to be unused during
      * <code>retain</code>	and <code>refresh</code> actions. Defaults to
      * <code>true</code>.</li>
+     * <li><i>-rollbackBeforeDDL/-rbddl &lt;true/t | false/f&gt;</i>: Set this option
+     * to true to send an initail rollback on the connection before any DDL statement
+     * is sent</li>
      * <li><i>-primaryKeys/-pk &lt;true/t | false/f&gt;</i>: Whether primary
      * keys on existing tables are manipulated. Defaults to true.</li>
      * <li><i>-foreignKeys/-fk &lt;true/t | false/f&gt;</i>: Whether foreign
@@ -1298,7 +1483,7 @@ public class SchemaTool {
      * <code>false</code> to prevent writing the schema changes to the
      * current {@link SchemaFactory}.</li>
      * </ul>
-     *  Actions can be composed in a comma-separated list. The various actions 
+     *  Actions can be composed in a comma-separated list. The various actions
      *  are as follows.
      * <ul>
      * <li><i>add</i>: Bring the schema up-to-date with the latest
@@ -1321,7 +1506,7 @@ public class SchemaTool {
      * <code>file</code> option, or to stdout if no file is given.</li>
      * <li><i>dropDB</i>: Execute SQL to drop the current database. This
      * action implies <code>dropTables</code>.</li>
-     * <li><i>deleteTableContents</i>: Execute SQL to delete all rows from 
+     * <li><i>deleteTableContents</i>: Execute SQL to delete all rows from
      * all tables that OpenJPA knows about.</li>
      * <li><i>import</i>: Import the given XML schema definition into the
      * current {@link SchemaFactory}.</li>
@@ -1332,16 +1517,16 @@ public class SchemaTool {
      * <ul>
      * <li>Write a script to stdout to re-create the current database
      * schema:<br />
-     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool -f stdout 
+     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool -f stdout
      * -a createDB</code></li>
      * <li>Drop the current database schema:<br />
-     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool 
+     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool
      * -a dropDB</code></li>
      * <li>Refresh the schema and delete all records in all tables:<br />
-     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool 
+     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool
      * -a refresh,deleteTableContents</code></li>
      * <li>Create a schema based on an XML schema definition file:<br />
-     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool 
+     * <code>java org.apache.openjpa.jdbc.schema.SchemaTool
      * myschema.xml</code></li>
      * </ul>
      */
@@ -1351,6 +1536,7 @@ public class SchemaTool {
         final String[] arguments = opts.setFromCmdLine(args);
         boolean ret = Configurations.runAgainstAllAnchors(opts,
             new Configurations.Runnable() {
+            @Override
             public boolean run(Options opts) throws Exception {
                 JDBCConfiguration conf = new JDBCConfigurationImpl();
                 try {
@@ -1360,8 +1546,11 @@ public class SchemaTool {
                 }
             }
         });
-        if (!ret)
+        if (!ret) {
+            // START - ALLOW PRINT STATEMENTS
             System.out.println(_loc.get("tool-usage"));
+            // STOP - ALLOW PRINT STATEMENTS
+        }
     }
 
     /**
@@ -1377,6 +1566,8 @@ public class SchemaTool {
             ("dropTables", "dt", flags.dropTables);
         flags.dropSequences = opts.removeBooleanProperty
             ("dropSequences", "dsq", flags.dropSequences);
+        flags.rollbackBeforeDDL = opts.removeBooleanProperty
+            ("rollbackBeforeDDL", "rbddl", flags.rollbackBeforeDDL);
         flags.ignoreErrors = opts.removeBooleanProperty
             ("ignoreErrors", "i", flags.ignoreErrors);
         flags.openjpaTables = opts.removeBooleanProperty
@@ -1397,7 +1588,7 @@ public class SchemaTool {
 
         String[] actions = opts.removeProperty("action", "a", flags.action)
             .split(",");
-        
+
         // setup a configuration instance with cmd-line info
         Configurations.populateConfiguration(conf, opts);
 
@@ -1407,11 +1598,11 @@ public class SchemaTool {
         flags.writer = Files.getWriter(fileName, loader);
 
         boolean returnValue = true;
-        for (int i = 0; i < actions.length; i++) {
-            flags.action = actions[i];
+        for (String action : actions) {
+            flags.action = action;
             returnValue &= run(conf, args, flags, loader);
         }
-        
+
         return returnValue;
     }
 
@@ -1436,7 +1627,7 @@ public class SchemaTool {
             gen.setOpenJPATables(flags.openjpaTables);
 
             String schemas = conf.getSchemas();
-            if (StringUtils.isEmpty(schemas))
+            if (StringUtil.isEmpty(schemas))
                 schemas = "all";
             log.info(_loc.get("sch-reflect", schemas));
             gen.generateSchemas();
@@ -1460,8 +1651,8 @@ public class SchemaTool {
         SchemaParser parser = new XMLSchemaParser(conf);
         parser.setDelayConstraintResolve(true);
         File file;
-        for (int i = 0; i < args.length; i++) {
-            file = Files.getFile(args[i], loader);
+        for (String arg : args) {
+            file = Files.getFile(arg, loader);
             log.info(_loc.get("tool-running", file));
             parser.parse(file);
         }
@@ -1492,6 +1683,7 @@ public class SchemaTool {
         tool.setDropTables(flags.dropTables);
         tool.setSequences(flags.sequences); // set before dropseqs
         tool.setDropSequences(flags.dropSequences);
+        tool.setRollbackBeforeDDL(flags.rollbackBeforeDDL);
         tool.setPrimaryKeys(flags.primaryKeys);
         tool.setForeignKeys(flags.foreignKeys);
         tool.setIndexes(flags.indexes);
@@ -1516,6 +1708,12 @@ public class SchemaTool {
         return true;
     }
 
+    private void closeConnection(Connection conn) throws SQLException {
+        if (conn != null && !conn.isClosed()) {
+            conn.close();
+        }
+    }
+
     /**
      * Run flags.
      */
@@ -1524,6 +1722,7 @@ public class SchemaTool {
         public String action = ACTION_ADD;
         public Writer writer = null;
         public boolean dropTables = true;
+        public boolean rollbackBeforeDDL = true;
         public boolean dropSequences = true;
         public boolean ignoreErrors = false;
         public boolean openjpaTables = false;

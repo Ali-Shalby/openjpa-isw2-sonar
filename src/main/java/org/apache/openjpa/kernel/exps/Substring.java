@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -28,6 +28,8 @@ import org.apache.openjpa.kernel.StoreContext;
 class Substring
     extends Val {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
     private final Val _args;
 
@@ -40,27 +42,31 @@ class Substring
         _args = args;
     }
 
+    @Override
     public Class getType() {
         return String.class;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         Object str = _val.eval(candidate, orig, ctx, params);
         Object arg = _args.eval(candidate, orig, ctx, params);
         if (arg instanceof Object[]) {
             Object[] args = (Object[]) arg;
-            int start = ((Number) args[0]).intValue();
-            int end = ((Number) args[1]).intValue();
+            int start = ((Number) args[0]).intValue() - 1;
+            int length = ((Number) args[1]).intValue();
             String string = str == null ? "" : str.toString();
-            return string.substring(start, Math.min(end, string.length()));
+            return string.substring(start, Math.min(start + length, string.length()));
         }
-        return str.toString().substring(((Number) arg).intValue());
+        return str.toString().substring(((Number) arg).intValue() - 1);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

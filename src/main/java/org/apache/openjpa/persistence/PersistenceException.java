@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
@@ -33,12 +33,13 @@ import org.apache.openjpa.util.Exceptions;
  *
  * @author Abe White
  * @since 0.4.0
- * @nojavadoc
  */
 public class PersistenceException
-    extends javax.persistence.PersistenceException
+    extends jakarta.persistence.PersistenceException
     implements Serializable, ExceptionInfo {
 
+    
+    private static final long serialVersionUID = 1L;
     private transient boolean _fatal = false;
     private transient Object _failed = null;
     private transient Throwable[] _nested = null;
@@ -51,43 +52,53 @@ public class PersistenceException
         _fatal = fatal;
     }
 
+    @Override
     public int getType() {
         return GENERAL;
     }
 
+    @Override
     public int getSubtype() {
         return 0;
     }
 
+    @Override
     public boolean isFatal() {
         return _fatal;
     }
 
+    @Override
     public Throwable getCause() {
         return PersistenceExceptions.getCause(_nested);
     }
 
+    @Override
     public Throwable[] getNestedThrowables() {
         return (_nested == null) ? Exceptions.EMPTY_THROWABLES : _nested;
     }
 
+    @Override
     public Object getFailedObject() {
         return _failed;
     }
 
+    @Override
     public String toString() {
         return Exceptions.toString(this);
     }
 
+    @Override
     public void printStackTrace() {
         printStackTrace(System.err);
     }
 
+    @Override
     public void printStackTrace(PrintStream out) {
         super.printStackTrace(out);
         Exceptions.printNestedThrowables(this, out);
     }
 
+    @Override
     public void printStackTrace(PrintWriter out) {
         super.printStackTrace(out);
         Exceptions.printNestedThrowables(this, out);

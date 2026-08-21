@@ -14,20 +14,21 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.collections.map.IdentityMap;
 import org.apache.openjpa.enhance.PersistenceCapable;
 import org.apache.openjpa.event.CallbackModes;
 import org.apache.openjpa.event.LifecycleEvent;
@@ -37,11 +38,11 @@ import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.ValueMetaData;
 import org.apache.openjpa.util.CallbackException;
 import org.apache.openjpa.util.Exceptions;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.OptimisticException;
 import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.UserException;
-import org.apache.openjpa.util.ImplHelper;
 
 /**
  * Handles attaching instances.
@@ -58,12 +59,12 @@ public class AttachManager {
     private final OpCallbacks _call;
     private final boolean _copyNew;
     private final boolean _failFast;
-    private final IdentityMap _attached = new IdentityMap();
-    private final Collection _visitedNodes = new ArrayList();
+    private final IdentityHashMap _attached = new IdentityHashMap();
+    private final Collection<StateManagerImpl> _visitedNodes = new ArrayList();
 
     // reusable strategies
-    private AttachStrategy _version = null;
-    private AttachStrategy _detach = null;
+    private AttachStrategy _version;
+    private AttachStrategy _detach;
 
     /**
      * Constructor. Supply broker attaching to.
@@ -165,16 +166,17 @@ public class AttachManager {
      */
     private List invokeAfterAttach(List exceps) {
         Set entries = _attached.entrySet();
-        for (Iterator i = entries.iterator(); i.hasNext();) {
-            Map.Entry entry = (Map.Entry) i.next();
+        for (Object o : entries) {
+            Map.Entry entry = (Map.Entry) o;
             Object attached = entry.getValue();
             StateManagerImpl sm = _broker.getStateManagerImpl(attached, true);
             if (sm.isNew())
                 continue;
             try {
                 _broker.fireLifecycleEvent(attached, entry.getKey(),
-                    sm.getMetaData(), LifecycleEvent.AFTER_ATTACH);
-            } catch (RuntimeException re) {
+                        sm.getMetaData(), LifecycleEvent.AFTER_ATTACH);
+            }
+            catch (RuntimeException re) {
                 exceps = add(exceps, re);
                 if (_failFast && re instanceof CallbackException)
                     break;
@@ -253,23 +255,24 @@ public class AttachManager {
     }
 
     private Object handleCascade(Object toAttach, OpenJPAStateManager owner) {
-        FieldMetaData[] fields = _broker.getStateManager(toAttach).getMetaData()
-            .getDefinedFields();
-        for (int i = 0; i < fields.length; i++) {
-            FieldMetaData fd = (FieldMetaData) fields[i];
-            if (fd.getElement().getCascadeAttach() == fd.CASCADE_IMMEDIATE) {
-                FieldMetaData[] inverseFieldMappings = fd.getInverseMetaDatas();
+        StateManagerImpl sm = _broker.getStateManagerImpl(toAttach, true);
+        BitSet loaded = sm.getLoaded();
+        FieldMetaData[] fmds = sm.getMetaData().getDefinedFields();
+        for (FieldMetaData fmd : fmds) {
+            if (fmd.getElement().getCascadeAttach() == ValueMetaData.CASCADE_IMMEDIATE) {
+                FieldMetaData[] inverseFieldMappings = fmd.getInverseMetaDatas();
                 if (inverseFieldMappings.length != 0) {
-                    OpenJPAStateManager sm = _broker.getStateManager(toAttach);
                     _visitedNodes.add(sm);
-                    getStrategy(toAttach).attachField(this, toAttach,
-                        _broker.getStateManagerImpl(toAttach, true), fd, true);
+                    // Only try to attach this field is it is loaded
+                    if (loaded.get(fmd.getIndex())) {
+                        getStrategy(toAttach).attachField(this, toAttach, sm, fmd, true);
+                    }
                 }
             }
         }
         return toAttach;
     }
-    
+
     /**
      * Determine the action to take on the given argument.
      */

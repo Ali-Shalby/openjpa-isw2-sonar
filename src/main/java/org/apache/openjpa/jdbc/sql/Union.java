@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -29,37 +29,37 @@ public interface Union
     /**
      * Return the selects that make up this union.
      */
-    public Select[] getSelects();
+    Select[] getSelects();
 
     /**
      * Get the union-level ordering, if any.
      */
-    public String getOrdering();
+    String getOrdering();
 
     /**
      * Whether this is a true UNION, rather than a logical combination of
      * independent selects.
      */
-    public boolean isUnion();
+    boolean isUnion();
 
     /**
      * Force the use of a series of standard selects rather than a true UNION.
      */
-    public void abortUnion();
+    void abortUnion();
 
     /**
      * Select data using the given selector.
      */
-    public void select(Selector selector);
+    void select(Selector selector);
 
     /**
      * A callback used to create the selects in a SQL union.
      */
-    public static interface Selector {
+    public interface Selector {
 
         /**
          * Populate the <code>i</code>th select in the union.
          */
-        public void select(Select sel, int i);
+        void select(Select sel, int i);
     }
 }

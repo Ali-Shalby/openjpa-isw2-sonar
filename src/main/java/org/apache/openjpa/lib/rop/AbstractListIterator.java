@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
@@ -26,23 +26,25 @@ import org.apache.openjpa.lib.util.Localizer;
  * Abstract read-only list iterator.
  *
  * @author Abe White
- * @nojavadoc
  */
 abstract class AbstractListIterator<E> implements ListIterator<E> {
 
     private static final Localizer _loc = Localizer.forPackage
         (AbstractListIterator.class);
 
+    @Override
     public void add(E o) {
         throw new UnsupportedOperationException(_loc.get("read-only")
             .getMessage());
     }
 
+    @Override
     public void set(E o) {
         throw new UnsupportedOperationException(_loc.get("read-only")
             .getMessage());
     }
 
+    @Override
     public void remove() {
         throw new UnsupportedOperationException(_loc.get("read-only")
             .getMessage());

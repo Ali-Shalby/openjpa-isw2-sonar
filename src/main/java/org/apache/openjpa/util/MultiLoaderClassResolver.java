@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -38,14 +38,16 @@ public class MultiLoaderClassResolver implements ClassResolver {
     }
 
     public MultiLoaderClassResolver(ClassLoader[] loaders) {
-        for (int i = 0; i < loaders.length; i++)
-            _loader.addClassLoader(loaders[i]);
+        for (ClassLoader loader : loaders) {
+            _loader.addClassLoader(loader);
+        }
     }
 
     public boolean addClassLoader(ClassLoader loader) {
         return _loader.addClassLoader(loader);
     }
 
+    @Override
     public ClassLoader getClassLoader(Class ctx, ClassLoader envLoader) {
         return _loader;
     }

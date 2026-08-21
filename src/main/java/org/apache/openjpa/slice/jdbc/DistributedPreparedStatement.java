@@ -14,254 +14,384 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice.jdbc;
 
 import java.io.InputStream;
 import java.io.Reader;
-import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 import java.net.URL;
 import java.sql.Array;
 import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Date;
+import java.sql.NClob;
 import java.sql.ParameterMetaData;
 import java.sql.PreparedStatement;
 import java.sql.Ref;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.RowId;
 import java.sql.SQLException;
+import java.sql.SQLXML;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.util.Calendar;
 
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
-
 /**
  * A virtual PreparedStaement that delegates to a set of actual
  * PreparedStatements.
- * 
- * @author Pinaki Poddar 
+ *
+ * @author Pinaki Poddar
  *
  */
-public abstract class DistributedPreparedStatement 
-    extends DistributedTemplate<PreparedStatement> 
+public class DistributedPreparedStatement
+    extends DistributedTemplate<PreparedStatement>
     implements PreparedStatement {
 
-    static final Constructor<DistributedPreparedStatement> concreteImpl;
-    static {
-        try {
-            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DistributedPreparedStatement.class, 
-                    DistributedConnection.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
-    
 	public DistributedPreparedStatement(DistributedConnection c) {
 		super(c);
 	}
-	
-    public static DistributedPreparedStatement newInstance(DistributedConnection conn) {
-        return ConcreteClassGenerator.newInstance(concreteImpl, conn);
-    }
 
-	public void clearParameters() throws SQLException {
+	@Override
+    public void clearParameters() throws SQLException {
 		for (PreparedStatement s : this)
 			s.clearParameters();
 	}
 
-	public boolean execute() throws SQLException {
+	@Override
+    public boolean execute() throws SQLException {
 		boolean ret = true;
 		for (PreparedStatement s : this)
 			ret = s.execute() & ret;
 		return ret;
 	}
 
-	public ResultSet executeQuery() throws SQLException {
-		DistributedResultSet mrs = DistributedResultSet.newInstance();
+	@Override
+    public ResultSet executeQuery() throws SQLException {
+		DistributedResultSet mrs = new DistributedResultSet();
 		for (PreparedStatement t : this)
 			mrs.add(t.executeQuery());
 		return mrs;
 	}
 
-	public int executeUpdate() throws SQLException {
+	@Override
+    public int executeUpdate() throws SQLException {
 		int ret = 0;
 		for (PreparedStatement t : this)
 			ret += t.executeUpdate();
 		return ret;
 	}
 
-	public ResultSetMetaData getMetaData() throws SQLException {
+	@Override
+    public ResultSetMetaData getMetaData() throws SQLException {
 		return master.getMetaData();
 	}
 
-	public ParameterMetaData getParameterMetaData() throws SQLException {
+	@Override
+    public ParameterMetaData getParameterMetaData() throws SQLException {
 		throw new UnsupportedOperationException();
 	}
 
-	public void setArray(int i, Array x) throws SQLException {
+	@Override
+    public void setArray(int i, Array x) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setArray(i, x);
 	}
 
-	public void setAsciiStream(int arg0, InputStream arg1, int arg2)
+	@Override
+    public void setAsciiStream(int arg0, InputStream arg1, int arg2)
 			throws SQLException {
 		for (PreparedStatement t : this)
 			t.setAsciiStream(arg0, arg1, arg2);
 	}
 
+    @Override
     public void setBigDecimal(int arg0, BigDecimal arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setBigDecimal(arg0, arg1);
 	}
 
-	public void setBinaryStream(int arg0, InputStream arg1, int arg2)
+	@Override
+    public void setBinaryStream(int arg0, InputStream arg1, int arg2)
 			throws SQLException {
 		for (PreparedStatement t : this)
 			t.setBinaryStream(arg0, arg1, arg2);
 	}
 
-	public void setBlob(int arg0, Blob arg1) throws SQLException {
+	@Override
+    public void setBlob(int arg0, Blob arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setBlob(arg0, arg1);
 	}
 
-	public void setBoolean(int arg0, boolean arg1) throws SQLException {
+	@Override
+    public void setBoolean(int arg0, boolean arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setBoolean(arg0, arg1);
 	}
 
-	public void setByte(int arg0, byte arg1) throws SQLException {
+	@Override
+    public void setByte(int arg0, byte arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setByte(arg0, arg1);
 	}
 
-	public void setBytes(int arg0, byte[] arg1) throws SQLException {
+	@Override
+    public void setBytes(int arg0, byte[] arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setBytes(arg0, arg1);
 	}
 
-	public void setCharacterStream(int arg0, Reader arg1, int arg2)
+	@Override
+    public void setCharacterStream(int arg0, Reader arg1, int arg2)
 			throws SQLException {
 		for (PreparedStatement t : this)
 			t.setCharacterStream(arg0, arg1, arg2);
 	}
 
-	public void setClob(int arg0, Clob arg1) throws SQLException {
+	@Override
+    public void setClob(int arg0, Clob arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setClob(arg0, arg1);
 	}
 
-	public void setDate(int arg0, Date arg1) throws SQLException {
+	@Override
+    public void setDate(int arg0, Date arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setDate(arg0, arg1);
 	}
 
+    @Override
     public void setDate(int arg0, Date arg1, Calendar arg2) throws SQLException
     {
 		for (PreparedStatement t : this)
 			t.setDate(arg0, arg1, arg2);
 	}
 
-	public void setDouble(int arg0, double arg1) throws SQLException {
+	@Override
+    public void setDouble(int arg0, double arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setDouble(arg0, arg1);
 	}
 
-	public void setFloat(int arg0, float arg1) throws SQLException {
+	@Override
+    public void setFloat(int arg0, float arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setFloat(arg0, arg1);
 	}
 
-	public void setInt(int arg0, int arg1) throws SQLException {
+	@Override
+    public void setInt(int arg0, int arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setInt(arg0, arg1);
 	}
 
-	public void setLong(int arg0, long arg1) throws SQLException {
+	@Override
+    public void setLong(int arg0, long arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setLong(arg0, arg1);
 	}
 
-	public void setNull(int arg0, int arg1) throws SQLException {
+	@Override
+    public void setNull(int arg0, int arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setNull(arg0, arg1);
 	}
 
+    @Override
     public void setNull(int arg0, int arg1, String arg2) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setNull(arg0, arg1, arg2);
 	}
 
-	public void setObject(int arg0, Object arg1) throws SQLException {
+	@Override
+    public void setObject(int arg0, Object arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setObject(arg0, arg1);
 	}
 
+    @Override
     public void setObject(int arg0, Object arg1, int arg2) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setObject(arg0, arg1, arg2);
 	}
 
-	public void setObject(int arg0, Object arg1, int arg2, int arg3)
+	@Override
+    public void setObject(int arg0, Object arg1, int arg2, int arg3)
 			throws SQLException {
 		for (PreparedStatement t : this)
 			t.setObject(arg0, arg1, arg2, arg3);
 	}
 
-	public void setRef(int arg0, Ref arg1) throws SQLException {
+	@Override
+    public void setRef(int arg0, Ref arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setRef(arg0, arg1);
 	}
 
-	public void setShort(int arg0, short arg1) throws SQLException {
+	@Override
+    public void setShort(int arg0, short arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setShort(arg0, arg1);
 	}
 
-	public void setString(int arg0, String arg1) throws SQLException {
+	@Override
+    public void setString(int arg0, String arg1) throws SQLException {
 		for (PreparedStatement t : this)
 			t.setString(arg0, arg1);
 	}
 
-	 public void setTime(int arg0, Time arg1) throws SQLException {
+	 @Override
+    public void setTime(int arg0, Time arg1) throws SQLException {
 			for (PreparedStatement t : this)
 				t.setTime(arg0, arg1);
 	 }
-	
-	 public void setTime(int arg0, Time arg1, Calendar arg2) throws
+
+	 @Override
+    public void setTime(int arg0, Time arg1, Calendar arg2) throws
 	 SQLException {
 			for (PreparedStatement t : this)
 				t.setTime(arg0, arg1, arg2);
 	 }
-	
-     public void setTimestamp(int arg0, Timestamp arg1) throws SQLException {
+
+     @Override
+    public void setTimestamp(int arg0, Timestamp arg1) throws SQLException {
 			for (PreparedStatement t : this)
 				t.setTimestamp(arg0, arg1);
 	 }
-	
-	 public void setTimestamp(int arg0, Timestamp arg1, Calendar arg2)
+
+	 @Override
+    public void setTimestamp(int arg0, Timestamp arg1, Calendar arg2)
 	 throws SQLException {
 			for (PreparedStatement t : this)
 				t.setTimestamp(arg0, arg1, arg2);
 	 }
-	
-	 public void setURL(int arg0, URL arg1) throws SQLException {
+
+	 @Override
+    public void setURL(int arg0, URL arg1) throws SQLException {
 			for (PreparedStatement t : this)
 				t.setURL(arg0, arg1);
 	 }
-	
-	 public void setUnicodeStream(int arg0, InputStream arg1, int arg2)
+
+	 @Override
+    public void setUnicodeStream(int arg0, InputStream arg1, int arg2)
 	     throws SQLException {
 			for (PreparedStatement t : this)
 				t.setUnicodeStream(arg0, arg1, arg2);
 	 }
-	
-	 public void addBatch() throws SQLException {
+
+	 @Override
+    public void addBatch() throws SQLException {
 		for (PreparedStatement t:this)
 		    t.addBatch();
 	 }
+
+    @Override
+    public void setAsciiStream(int arg0, InputStream arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setAsciiStream(int arg0, InputStream arg1, long arg2)
+        throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setBinaryStream(int arg0, InputStream arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setBinaryStream(int arg0, InputStream arg1, long arg2)
+        throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setBlob(int arg0, InputStream arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setBlob(int arg0, InputStream arg1, long arg2)
+        throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setCharacterStream(int arg0, Reader arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setCharacterStream(int arg0, Reader arg1, long arg2)
+        throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setClob(int arg0, Reader arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setClob(int arg0, Reader arg1, long arg2) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setNCharacterStream(int arg0, Reader arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setNCharacterStream(int arg0, Reader arg1, long arg2)
+        throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setNClob(int arg0, NClob arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setNClob(int arg0, Reader arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setNClob(int arg0, Reader arg1, long arg2) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setNString(int arg0, String arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setRowId(int arg0, RowId arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setSQLXML(int arg0, SQLXML arg1) throws SQLException {
+        throw new UnsupportedOperationException();
+    }
+
+    // Java 7 methods follow
+
+    @Override
+    public boolean isCloseOnCompletion() throws SQLException{
+    	throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void closeOnCompletion() throws SQLException{
+    	throw new UnsupportedOperationException();
+    }
 }

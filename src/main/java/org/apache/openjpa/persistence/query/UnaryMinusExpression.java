@@ -14,19 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 /**
  * Denotes (-e) Expression.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class UnaryMinusExpression extends UnaryOperatorExpression {
 
-	public UnaryMinusExpression(Expression expr) {
+	
+    private static final long serialVersionUID = 1L;
+
+    public UnaryMinusExpression(Expression expr) {
 		super(expr, UnaryFunctionalOperator.MINUS);
 	}
 

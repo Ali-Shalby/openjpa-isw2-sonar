@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -47,6 +47,8 @@ import org.apache.openjpa.util.UserException;
 public class VersionMappingInfo
     extends MappingInfo {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final Localizer _loc = Localizer.forPackage
     	(VersionMappingInfo.class);
     /**
@@ -61,9 +63,9 @@ public class VersionMappingInfo
             (version, table, templates);
         return createColumns(version, null, templates, table, adapt);
     }
-    
+
     /**
-     * Return the columns set for this version when the columns are spread 
+     * Return the columns set for this version when the columns are spread
      * across multiple tables.
      */
     public Column[] getMultiTableColumns(Version vers, Column[] templates,
@@ -71,12 +73,11 @@ public class VersionMappingInfo
     	Table primaryTable = vers.getClassMapping().getTable();
     	List<DBIdentifier> secondaryTableNames = Arrays.asList(vers
                 .getClassMapping().getMappingInfo().getSecondaryTableIdentifiers());
-        Map<Table, List<Column>> assign = new LinkedHashMap<Table,
-                List<Column>>();
+        Map<Table, List<Column>> assign = new LinkedHashMap<>();
     	for (Column col : templates) {
     	    DBIdentifier tableName = col.getTableIdentifier();
     	    Table table;
-    		if (DBIdentifier.isEmpty(tableName) 
+    		if (DBIdentifier.isEmpty(tableName)
     		  || tableName.equals(primaryTable.getIdentifier())) {
     			table = primaryTable;
     		} else if (secondaryTableNames.contains(tableName)) {
@@ -86,21 +87,24 @@ public class VersionMappingInfo
     					col.getIdentifier().toString(), tableName));
     		}
     		if (!assign.containsKey(table))
-    			assign.put(table, new ArrayList<Column>());
+    			assign.put(table, new ArrayList<>());
     		assign.get(table).add(col);
     	}
     	MappingDefaults def = vers.getMappingRepository().getMappingDefaults();
-    	List<Column> result = new ArrayList<Column>();
-    	for (Table table : assign.keySet()) {
-    		List<Column> cols = assign.get(table);
-    		Column[] partTemplates = cols.toArray(new Column[cols.size()]);
-    		def.populateColumns(vers, table, partTemplates);
+    	List<Column> result = new ArrayList<>();
+
+        Set<Map.Entry<Table,List<Column>>> assignSet = assign.entrySet();
+        for (Map.Entry<Table,List<Column>> assignEntry : assignSet) {
+            Table table = assignEntry.getKey();
+            List<Column> cols = assignEntry.getValue();
+            Column[] partTemplates = cols.toArray(new Column[cols.size()]);
+            def.populateColumns(vers, table, partTemplates);
             result.addAll(Arrays.asList(createColumns(vers, null, partTemplates,
     				table, adapt)));
     	}
     	return result.toArray(new Column[result.size()]);
     }
-    
+
     /**
      * Return the index to set on the version columns, or null if none.
      */
@@ -140,25 +144,25 @@ public class VersionMappingInfo
             && cls.getJoinablePCSuperclassMapping() == null))
             setStrategy(strat);
     }
-    
+
     /**
      * Affirms if the given columns belong to more than one tables.
      */
     boolean spansMultipleTables(Column[] cols) {
-    	if (cols == null || cols.length <= 1) 
+    	if (cols == null || cols.length <= 1)
     		return false;
-    	Set<DBIdentifier> tables = new HashSet<DBIdentifier>();
+    	Set<DBIdentifier> tables = new HashSet<>();
     	for (Column col : cols)
     		if (tables.add(col.getTableIdentifier()) && tables.size() > 1)
     			return true;
     	return false;
     }
-    
+
     /**
      * Gets the table where this version columns are mapped.
      */
     private Table getSingleTable(Version version, Column[] cols) {
-    	if (cols == null || cols.length == 0 
+    	if (cols == null || cols.length == 0
     	 || DBIdentifier.isEmpty(cols[0].getTableIdentifier()))
     		return version.getClassMapping().getTable();
     	return version.getClassMapping().getTable().getSchema()

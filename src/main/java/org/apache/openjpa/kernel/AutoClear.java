@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -29,10 +29,10 @@ public interface AutoClear {
     /**
      * Clear state when entering a datastore transaction.
      */
-    public static final int CLEAR_DATASTORE = 0;
+    int CLEAR_DATASTORE = 0;
 
     /**
      * Clear state when entering any transaction.
      */
-    public static final int CLEAR_ALL = 1;
+    int CLEAR_ALL = 1;
 }

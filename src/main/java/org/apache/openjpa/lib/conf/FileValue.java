@@ -14,14 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
 import java.io.File;
 import java.security.AccessController;
+import java.util.Objects;
 
-import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 
 /**
@@ -37,6 +37,7 @@ public class FileValue extends Value {
         super(prop);
     }
 
+    @Override
     public Class<File> getValueType() {
         return File.class;
     }
@@ -48,26 +49,30 @@ public class FileValue extends Value {
         assertChangeable();
         File oldValue = this.value;
         this.value = value;
-        if (!ObjectUtils.equals(oldValue, value))
+        if (!Objects.equals(oldValue, value))
             valueChanged();
     }
 
     /**
      * The internal value.
      */
+    @Override
     public File get() {
         return value;
     }
 
+    @Override
     protected String getInternalString() {
         return (value == null) ? null : AccessController.doPrivileged(
             J2DoPrivHelper.getAbsolutePathAction(value));
     }
 
+    @Override
     protected void setInternalString(String val) {
         set(new File(val));
     }
 
+    @Override
     protected void setInternalObject(Object obj) {
         set((File) obj);
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -22,16 +22,19 @@ import org.apache.openjpa.jdbc.meta.strats.NoneClassStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneFieldStrategy;
 import org.apache.openjpa.jdbc.meta.strats.NoneVersionStrategy;
+import org.apache.openjpa.meta.MetaDataModes;
 
 /**
  * Clears all mapping information from classes and installs none strategies.
  *
  * @author Abe White
- * @nojavadoc
  * @since 0.4.0
  */
 public class NoneStrategyInstaller
     extends StrategyInstaller {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Constructor; supply configuration.
@@ -40,22 +43,26 @@ public class NoneStrategyInstaller
         super(repos);
     }
 
+    @Override
     public void installStrategy(ClassMapping cls) {
         cls.clearMapping();
         cls.setStrategy(NoneClassStrategy.getInstance(), null);
-        cls.setSourceMode(cls.MODE_MAPPING, true);
+        cls.setSourceMode(MetaDataModes.MODE_MAPPING, true);
     }
 
+    @Override
     public void installStrategy(FieldMapping field) {
         field.clearMapping();
         field.setStrategy(NoneFieldStrategy.getInstance(), null);
     }
 
+    @Override
     public void installStrategy(Version version) {
         version.clearMapping();
         version.setStrategy(NoneVersionStrategy.getInstance(), null);
     }
 
+    @Override
     public void installStrategy(Discriminator discrim) {
         discrim.clearMapping();
         discrim.setStrategy(NoneDiscriminatorStrategy.getInstance(), null);

@@ -14,24 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
 import java.io.Serializable;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.StringDistance;
-import serp.util.Strings;
+import org.apache.openjpa.lib.util.StringUtil;
+
 
 /**
  * Vendor extensions. This class is thread safe for reads, but not for
@@ -41,6 +41,9 @@ import serp.util.Strings;
  */
 public abstract class Extensions
     implements Serializable {
+
+    
+    private static final long serialVersionUID = 1L;
 
     public static final String OPENJPA = "openjpa";
 
@@ -66,8 +69,9 @@ public abstract class Extensions
             return new String[0];
 
         Set vendors = new TreeSet();
-        for (Iterator itr = _exts.keySet().iterator(); itr.hasNext();)
-            vendors.add(getVendor(itr.next()));
+        for (Object o : _exts.keySet()) {
+            vendors.add(getVendor(o));
+        }
         return (String[]) vendors.toArray(new String[vendors.size()]);
     }
 
@@ -87,8 +91,8 @@ public abstract class Extensions
 
         Collection keys = new TreeSet();
         Object key;
-        for (Iterator itr = _exts.keySet().iterator(); itr.hasNext();) {
-            key = itr.next();
+        for (Object o : _exts.keySet()) {
+            key = o;
             if (vendor.equals(getVendor(key)))
                 keys.add(getKey(key));
         }
@@ -216,7 +220,7 @@ public abstract class Extensions
      */
     public boolean getBooleanExtension(String vendor, String key) {
         String str = getStringExtension(vendor, key);
-        return (str == null) ? false : Boolean.valueOf(str).booleanValue();
+        return (str == null) ? false : Boolean.valueOf(str);
     }
 
     /**
@@ -275,9 +279,8 @@ public abstract class Extensions
                 _exts = new HashMap();
 
             Map.Entry entry;
-            for (Iterator itr = exts._exts.entrySet().iterator();
-                itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
+            for (Object o : exts._exts.entrySet()) {
+                entry = (Map.Entry) o;
                 if (!_exts.containsKey(entry.getKey()))
                     _exts.put(entry.getKey(), entry.getValue());
             }
@@ -289,9 +292,8 @@ public abstract class Extensions
 
             Map.Entry entry;
             Extensions embedded;
-            for (Iterator itr = exts._embed.entrySet().iterator();
-                itr.hasNext();) {
-                entry = (Map.Entry) itr.next();
+            for (Object o : exts._embed.entrySet()) {
+                entry = (Map.Entry) o;
                 embedded = (Extensions) _embed.get(entry.getKey());
                 if (embedded == null) {
                     embedded = new EmbeddedExtensions(this);
@@ -313,7 +315,7 @@ public abstract class Extensions
             return;
 
         OpenJPAConfiguration conf = getRepository().getConfiguration();
-        Log log = conf.getLog(conf.LOG_METADATA);
+        Log log = conf.getLog(OpenJPAConfiguration.LOG_METADATA);
         if (!log.isWarnEnabled())
             return;
 
@@ -328,13 +330,13 @@ public abstract class Extensions
         String prefixes = _loc.get("extension-datastore-prefix").getMessage();
         String[] allowedPrefixes = null;
         if (prefixes != null)
-            allowedPrefixes = Strings.split(prefixes, ",", 0);
+            allowedPrefixes = StringUtil.split(prefixes, ",", 0);
 
         Object next;
         String key;
         outer:
-        for (Iterator itr = _exts.keySet().iterator(); itr.hasNext();) {
-            next = itr.next();
+        for (Object o : _exts.keySet()) {
+            next = o;
             if (!OPENJPA.equals(getVendor(next)))
                 continue;
             key = getKey(next);
@@ -342,10 +344,10 @@ public abstract class Extensions
                 continue;
 
             if (allowedPrefixes != null) {
-                for (int j = 0; j < allowedPrefixes.length; j++) {
-                    if (key.startsWith(allowedPrefixes[j])
-                        && !validateDataStoreExtensionPrefix
-                        (allowedPrefixes[j]))
+                for (String allowedPrefix : allowedPrefixes) {
+                    if (key.startsWith(allowedPrefix)
+                            && !validateDataStoreExtensionPrefix
+                            (allowedPrefix))
                         continue outer;
                 }
             }
@@ -353,14 +355,14 @@ public abstract class Extensions
             // try to determine if there are any other names that are
             // similiar to this one, so we can add in a hint
             String closestName = StringDistance.getClosestLevenshteinDistance
-                (key, validNames, 0.5f);
+                    (key, validNames, 0.5f);
 
             if (closestName == null)
                 log.warn(_loc.get("unrecognized-extension", this,
-                    key, validNames));
+                        key, validNames));
             else
                 log.warn(_loc.get("unrecognized-extension-hint",
-                    new Object[]{ this, key, validNames, closestName }));
+                        new Object[]{this, key, validNames, closestName}));
         }
     }
 
@@ -417,9 +419,11 @@ public abstract class Extensions
     /**
      * Key class.
      */
-    private static class HashKey 
+    private static class HashKey
         implements Serializable {
 
+        
+        private static final long serialVersionUID = 1L;
         public final String vendor;
         public final String key;
 
@@ -428,6 +432,7 @@ public abstract class Extensions
             this.key = key;
         }
 
+        @Override
         public int hashCode() {
             int i = 0;
             if (vendor != null)
@@ -437,12 +442,13 @@ public abstract class Extensions
             return i;
         }
 
+        @Override
         public boolean equals(Object other) {
             if (other == this)
                 return true;
             HashKey hk = (HashKey) other;
-            return StringUtils.equals(vendor, hk.vendor)
-                && StringUtils.equals(key, hk.key);
+            return Objects.equals(vendor, hk.vendor)
+                && Objects.equals(key, hk.key);
         }
     }
 
@@ -452,12 +458,15 @@ public abstract class Extensions
     private static class EmbeddedExtensions
         extends Extensions {
 
+        
+        private static final long serialVersionUID = 1L;
         private final Extensions _parent;
 
         public EmbeddedExtensions(Extensions parent) {
             _parent = parent;
         }
 
+        @Override
         public MetaDataRepository getRepository ()
 		{
 			return _parent.getRepository ();

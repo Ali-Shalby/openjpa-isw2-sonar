@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -28,6 +28,8 @@ import org.apache.openjpa.kernel.StoreContext;
 class ValuePath
     extends CandidatePath {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
 
     /**
@@ -37,10 +39,12 @@ class ValuePath
         _val = val;
     }
 
+    @Override
     public Class getCandidateType() {
         return _val.getType();
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         // evaluate with the value's value
@@ -48,6 +52,7 @@ class ValuePath
             ctx, params);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

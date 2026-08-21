@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -28,7 +28,6 @@ import org.apache.openjpa.lib.rop.ResultObjectProvider;
  * values from results for comparison.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class OrderingMergedResultObjectProvider
     extends MergedResultObjectProvider {
@@ -54,6 +53,7 @@ public class OrderingMergedResultObjectProvider
         _params = params;
     }
 
+    @Override
     protected Object getOrderingValue(Object val, int idx,
         ResultObjectProvider rop) {
         StoreQuery.Executor exec = (_execs.length == 1) ? _execs[0]
@@ -79,6 +79,7 @@ public class OrderingMergedResultObjectProvider
             _asc = asc;
         }
 
+        @Override
         public int compare(Object o1, Object o2) {
             if (_asc.length == 1)
                 return cmp(o1, o2, _asc[0]);

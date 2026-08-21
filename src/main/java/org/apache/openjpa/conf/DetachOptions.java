@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.conf;
 
@@ -24,7 +24,6 @@ import org.apache.openjpa.kernel.DetachState;
  * Detach options.
  *
  * @author Abe White
- * @nojavadoc
  */
 public abstract class DetachOptions
     implements DetachState {
@@ -33,8 +32,9 @@ public abstract class DetachOptions
     private boolean _transient = true;
     private boolean _manager = true;
     private boolean _access = true;
-    
+
     private boolean _liteAutoDetach = false;
+    private boolean _detachProxyFields = true;
 
     /**
      * The {@link DetachState} constant.
@@ -126,7 +126,7 @@ public abstract class DetachOptions
     public void setAccessUnloaded(boolean val) {
         _access = val;
     }
-    
+
     /**
      * Whether to use lite detachment when auto detaching. This setting only applies when
      * DetachState is set to loaded.
@@ -144,11 +144,30 @@ public abstract class DetachOptions
     }
 
     /**
+     * Whether to detach proxy fields.
+     */
+    public void setDetachProxyFields(boolean b) {
+        _detachProxyFields = b;
+    }
+
+    /**
+     * Whether to detach proxy fields.
+     */
+    public boolean getDetachProxyFields() {
+        // This property can only be set to false when using lite auto detach.
+        if(!_liteAutoDetach){
+            return true;
+        }
+        return _detachProxyFields;
+    }
+
+    /**
      * Detach loaded state.
      */
     public static class Loaded
         extends DetachOptions {
 
+        @Override
         public int getDetachState() {
             return DETACH_LOADED;
         }
@@ -160,6 +179,7 @@ public abstract class DetachOptions
     public static class FetchGroups
         extends DetachOptions {
 
+        @Override
         public int getDetachState() {
             return DETACH_FGS;
         }
@@ -171,8 +191,9 @@ public abstract class DetachOptions
     public static class All
         extends DetachOptions {
 
+        @Override
         public int getDetachState() {
             return DETACH_ALL;
-		}		
+		}
 	}
 }

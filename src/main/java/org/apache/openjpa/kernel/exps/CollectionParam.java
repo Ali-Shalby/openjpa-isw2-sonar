@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -29,6 +29,8 @@ class CollectionParam
     extends Val
     implements Parameter {
 
+    
+    private static final long serialVersionUID = 1L;
     private Object _key = null;
     private Class _type = null;
     private int _index = -1;
@@ -41,26 +43,32 @@ class CollectionParam
         _type = type;
     }
 
+    @Override
     public Object getParameterKey() {
         return _key;
     }
 
+    @Override
     public Class getType() {
         return _type;
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _type = type;
     }
 
+    @Override
     public void setIndex(int index) {
         _index = index;
     }
 
+    @Override
     public Object getValue(Object[] params) {
         return params[_index];
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         return getValue(params);

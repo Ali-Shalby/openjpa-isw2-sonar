@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -23,20 +23,23 @@ package org.apache.openjpa.kernel.exps;
  * No-op abstract visitor meant for easy extension.
  *
  * @author Abe White
- * @nojavadoc
  */
-public abstract class AbstractExpressionVisitor 
+public abstract class AbstractExpressionVisitor
     implements ExpressionVisitor {
 
+    @Override
     public void enter(Expression exp) {
     }
 
+    @Override
     public void exit(Expression exp) {
     }
 
+    @Override
     public void enter(Value val) {
     }
 
+    @Override
     public void exit(Value val) {
     }
 }

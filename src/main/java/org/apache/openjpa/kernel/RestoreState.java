@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -29,15 +29,15 @@ public interface RestoreState {
     /**
      * Do not restore any state on rollback.
      */
-    public static final int RESTORE_NONE = 0;
+    int RESTORE_NONE = 0;
 
     /**
      * Restore immutable state on rollback; clear mutable state.
      */
-    public static final int RESTORE_IMMUTABLE = 1;
+    int RESTORE_IMMUTABLE = 1;
 
     /**
      * Restore all state on rollback.
      */
-    public static final int RESTORE_ALL = 2;
+    int RESTORE_ALL = 2;
 }

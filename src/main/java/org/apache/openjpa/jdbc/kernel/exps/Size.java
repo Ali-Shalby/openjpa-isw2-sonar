@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -30,26 +30,33 @@ import org.apache.openjpa.util.InternalException;
 class Size
     extends UnaryOp {
 
+    
+    private static final long serialVersionUID = 1L;
+
     public Size(Val val) {
         super(val);
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         // initialize the value with a null test
         return initializeValue(sel, ctx, NULL_CMP);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         getValue().calculateValue(sel, ctx, state, null, null);
         getValue().appendSize(sel, ctx, state, sql);
         sel.append(sql, state.joins);
     }
 
+    @Override
     protected Class getType(Class c) {
         return long.class;
     }
 
+    @Override
     protected String getOperator() {
         // since we override appendTo(), this method should never be called
         throw new InternalException();

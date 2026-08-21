@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice.jdbc;
 
@@ -25,15 +25,15 @@ import org.apache.openjpa.slice.Slice;
 /**
  * A distributed configuration that is a ordered collection of
  * JDBCConfigurations.
- * 
+ *
  * @author Pinaki Poddar
- * 
+ *
  */
 public interface DistributedJDBCConfiguration extends JDBCConfiguration,
     DistributedConfiguration {
     /**
      * Gets the master slice.
      */
-    Slice getMaster();
+    Slice getMasterSlice();
 
 }

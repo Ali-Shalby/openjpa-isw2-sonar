@@ -14,28 +14,28 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ee;
 
 import javax.naming.Context;
 import javax.naming.InitialContext;
-import javax.transaction.HeuristicMixedException;
-import javax.transaction.HeuristicRollbackException;
-import javax.transaction.InvalidTransactionException;
-import javax.transaction.NotSupportedException;
-import javax.transaction.RollbackException;
-import javax.transaction.Synchronization;
-import javax.transaction.SystemException;
-import javax.transaction.Transaction;
-import javax.transaction.TransactionManager;
-import javax.transaction.TransactionSynchronizationRegistry;
+import jakarta.transaction.HeuristicMixedException;
+import jakarta.transaction.HeuristicRollbackException;
+import jakarta.transaction.InvalidTransactionException;
+import jakarta.transaction.NotSupportedException;
+import jakarta.transaction.RollbackException;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.Transaction;
+import jakarta.transaction.TransactionManager;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import javax.transaction.xa.XAResource;
 
 import org.apache.openjpa.lib.util.Localizer;
 
 /**
- * Implementation of the {@link ManagedRuntime} interface that uses 
+ * Implementation of the {@link ManagedRuntime} interface that uses
  * the {@link TransactionSynchronizationRegistry} interface (new in JTA 1.1)
  * to create a {@link TransactionManager} facade for controlling transactions.
  *
@@ -47,13 +47,14 @@ public class RegistryManagedRuntime
     private String _registryName =
         "java:comp/TransactionSynchronizationRegistry";
     private TransactionManagerRegistryFacade _tm = null;
-    
+
     private static Localizer _loc =
         Localizer.forPackage(RegistryManagedRuntime.class);
 
     /**
      * Return the cached TransactionManager instance.
      */
+    @Override
     public TransactionManager getTransactionManager() throws Exception {
         if (_tm == null) {
             Context ctx = new InitialContext();
@@ -68,12 +69,14 @@ public class RegistryManagedRuntime
         return _tm;
     }
 
+    @Override
     public void setRollbackOnly(Throwable cause)
         throws Exception {
         // there is no generic support for setting the rollback cause
         getTransactionManager().getTransaction().setRollbackOnly();
     }
 
+    @Override
     public Throwable getRollbackCause()
         throws Exception {
         // there is no generic support for setting the rollback cause
@@ -88,20 +91,21 @@ public class RegistryManagedRuntime
         return _registryName;
     }
 
+    @Override
     public Object getTransactionKey() throws Exception, SystemException {
         return _tm.getTransactionKey();
     }
 
-    /** 
+    /**
      *  A {@link TransactionManager} and {@link Transaction} facade
      *  that delegates the appropriate methods to the internally-held
      *  {@link TransactionSynchronizationRegistry}. Since the
      *  registry is not able to start or end transactions, all transaction
      *  control methods will just throw a {@link SystemException}.
-     *  
+     *
      *  @author  Marc Prud'hommeaux
      */
-    public static class TransactionManagerRegistryFacade
+    public class TransactionManagerRegistryFacade
         implements TransactionManager, Transaction {
         private final TransactionSynchronizationRegistry _registry;
 
@@ -111,24 +115,28 @@ public class RegistryManagedRuntime
         }
 
 
+        @Override
         public Transaction getTransaction()
             throws SystemException {
             return TransactionManagerRegistryFacade.this;
         }
 
 
+        @Override
         public void registerSynchronization(Synchronization sync)
             throws RollbackException, IllegalStateException, SystemException {
             _registry.registerInterposedSynchronization(sync);
         }
 
 
+        @Override
         public void setRollbackOnly()
             throws IllegalStateException, SystemException {
             _registry.setRollbackOnly();
         }
 
 
+        @Override
         public int getStatus()
             throws SystemException {
             return _registry.getTransactionStatus();
@@ -142,12 +150,14 @@ public class RegistryManagedRuntime
         // Unsupported methods follow
         //////////////////////////////
 
+        @Override
         public void begin()
             throws NotSupportedException, SystemException {
             throw new NotSupportedException();
         }
 
 
+        @Override
         public void commit()
             throws RollbackException, HeuristicMixedException, SystemException,
                 HeuristicRollbackException, SecurityException,
@@ -156,6 +166,7 @@ public class RegistryManagedRuntime
         }
 
 
+        @Override
         public void resume(Transaction tobj)
             throws InvalidTransactionException, IllegalStateException,
                 SystemException {
@@ -163,41 +174,47 @@ public class RegistryManagedRuntime
         }
 
 
+        @Override
         public void rollback()
             throws IllegalStateException, SecurityException, SystemException {
             throw new SystemException();
         }
 
 
+        @Override
         public void setTransactionTimeout(int seconds)
             throws SystemException {
             throw new SystemException();
         }
 
 
+        @Override
         public Transaction suspend()
             throws SystemException {
             throw new SystemException();
         }
 
 
+        @Override
         public boolean delistResource(XAResource xaRes, int flag)
             throws IllegalStateException, SystemException {
             throw new SystemException();
         }
 
 
+        @Override
         public boolean enlistResource(XAResource xaRes)
             throws RollbackException, IllegalStateException, SystemException {
             throw new SystemException();
         }
     }
-    
+
     /**
      * <P>
      * RegistryManagedRuntime cannot suspend transactions.
      * </P>
      */
+    @Override
     public void doNonTransactionalWork(Runnable runnable)
         throws NotSupportedException {
         throw new NotSupportedException(_loc.get("tsr-cannot-suspend")

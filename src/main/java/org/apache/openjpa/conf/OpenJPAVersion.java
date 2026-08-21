@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.conf;
 
@@ -97,10 +97,13 @@ public class OpenJPAVersion {
         VERSION_ID = "openjpa-" + VERSION_NUMBER + "-r" + REVISION_NUMBER;
     }
 
-    public static void main(String [] args) {
+    public static void main(String[] args) {
+        // START - ALLOW PRINT STATEMENTS
         System.out.println(new OpenJPAVersion().toString());
+        // STOP - ALLOW PRINT STATEMENTS
     }
 
+    @Override
     public String toString() {
         StringBuilder buf = new StringBuilder(80 * 40);
         appendOpenJPABanner(buf);

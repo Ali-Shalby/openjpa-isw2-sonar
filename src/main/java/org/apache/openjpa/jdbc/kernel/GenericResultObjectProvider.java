@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -75,6 +75,7 @@ public class GenericResultObjectProvider
         _res = res;
     }
 
+    @Override
     public boolean supportsRandomAccess() {
         try {
             return _res.supportsRandomAccess();
@@ -83,9 +84,11 @@ public class GenericResultObjectProvider
         }
     }
 
+    @Override
     public void open() {
     }
 
+    @Override
     public Object getResultObject()
         throws SQLException {
         // rather than use the standard result.load(), we go direct to
@@ -94,16 +97,19 @@ public class GenericResultObjectProvider
             StoreContext.EXCLUDE_ALL, _res);
     }
 
+    @Override
     public boolean next()
         throws SQLException {
         return _res.next();
     }
 
+    @Override
     public boolean absolute(int pos)
         throws SQLException {
         return _res.absolute(pos);
     }
 
+    @Override
     public int size()
         throws SQLException {
         if (_fetch.getLRSSize() == LRSSizes.SIZE_UNKNOWN
@@ -112,14 +118,17 @@ public class GenericResultObjectProvider
         return _res.size();
     }
 
+    @Override
     public void reset() {
         throw new UnsupportedException();
     }
 
+    @Override
     public void close() {
         _res.close();
     }
 
+    @Override
     public void handleCheckedException(Exception e) {
         if (e instanceof SQLException)
             throw SQLExceptions.getStore((SQLException) e, _store.getDBDictionary(), _fetch.getReadLockLevel());

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -40,40 +40,49 @@ public abstract class AbstractClassStrategy
     extends AbstractStrategy
     implements ClassStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
     /**
      * The owning class mapping.
      */
     protected ClassMapping cls = null;
 
+    @Override
     public void setClassMapping(ClassMapping owner) {
         cls = owner;
     }
 
+    @Override
     public boolean isPrimaryKeyObjectId(boolean hasAll) {
         return false;
     }
 
+    @Override
     public Joins joinSuperclass(Joins joins, boolean toThis) {
         return joins;
     }
 
+    @Override
     public boolean supportsEagerSelect(Select sel, OpenJPAStateManager sm,
         JDBCStore store, ClassMapping base, JDBCFetchConfiguration fetch) {
         return true;
     }
 
+    @Override
     public ResultObjectProvider customLoad(JDBCStore store, boolean subclasses,
         JDBCFetchConfiguration fetch, long startIdx, long endIdx)
         throws SQLException {
         return null;
     }
 
+    @Override
     public boolean customLoad(OpenJPAStateManager sm, JDBCStore store,
         PCState state, JDBCFetchConfiguration fetch)
         throws SQLException, ClassNotFoundException {
         return false;
     }
 
+    @Override
     public boolean customLoad(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result result)
         throws SQLException {

@@ -47,6 +47,8 @@ import org.apache.openjpa.util.ObjectId;
 public class ReflectingPersistenceCapable
     implements PersistenceCapable, ManagedInstanceProvider, Serializable {
 
+    
+    private static final long serialVersionUID = 1L;
     private Object o;
     private StateManager sm;
 
@@ -67,10 +69,12 @@ public class ReflectingPersistenceCapable
             .getMetaData(type, null, true);
     }
 
+    @Override
     public int pcGetEnhancementContractVersion() {
         return PCEnhancer.ENHANCER_VERSION;
     }
 
+    @Override
     public Object pcGetGenericContext() {
         if (sm == null)
             return null;
@@ -78,50 +82,53 @@ public class ReflectingPersistenceCapable
             return sm.getGenericContext();
     }
 
+    @Override
     public StateManager pcGetStateManager() {
         return sm;
     }
 
+    @Override
     public void pcReplaceStateManager(StateManager sm) {
         this.sm = sm;
         if (meta == null && sm instanceof OpenJPAStateManager)
             meta = ((OpenJPAStateManager) sm).getMetaData();
     }
 
+    @Override
     public void pcProvideField(int i) {
         Object value = getValue(i, o);
         switch (meta.getField(i).getDeclaredTypeCode()) {
             case JavaTypes.BOOLEAN:
                 sm.providedBooleanField(this, i, value == null ? false :
-                    ((Boolean) value).booleanValue());
+                        (Boolean) value);
                 break;
             case JavaTypes.BYTE:
                 sm.providedByteField(this, i, value == null ? 0 :
-                    ((Byte) value).byteValue());
+                        (Byte) value);
                 break;
             case JavaTypes.CHAR:
                 sm.providedCharField(this, i, value == null ? 0 :
-                    ((Character) value).charValue());
+                        (Character) value);
                 break;
             case JavaTypes.DOUBLE:
                 sm.providedDoubleField(this, i, value == null ? 0 :
-                    ((Double) value).doubleValue());
+                        (Double) value);
                 break;
             case JavaTypes.FLOAT:
                 sm.providedFloatField(this, i, value == null ? 0 :
-                    ((Float) value).floatValue());
+                        (Float) value);
                 break;
             case JavaTypes.INT:
                 sm.providedIntField(this, i, value == null ? 0 :
-                    ((Integer) value).intValue());
+                        (Integer) value);
                 break;
             case JavaTypes.LONG:
                 sm.providedLongField(this, i, value == null ? 0 :
-                    ((Long) value).longValue());
+                        (Long) value);
                 break;
             case JavaTypes.SHORT:
                 sm.providedShortField(this, i, value == null ? 0 :
-                    ((Short) value).shortValue());
+                        (Short) value);
                 break;
             case JavaTypes.STRING:
                 sm.providedStringField(this, i, (String) value);
@@ -132,37 +139,39 @@ public class ReflectingPersistenceCapable
         }
     }
 
+    @Override
     public void pcProvideFields(int[] fieldIndices) {
-        for(int i = 0; i < fieldIndices.length; i++)
-            pcProvideField(fieldIndices[i]);
+        for (int fieldIndex : fieldIndices) {
+            pcProvideField(fieldIndex);
+        }
     }
 
+    @Override
     public void pcReplaceField(int i) {
         switch(meta.getField(i).getDeclaredTypeCode()) {
             case JavaTypes.BOOLEAN:
-                setValue(i, o, Boolean.valueOf(
-                    sm.replaceBooleanField(this, i)));
+                setValue(i, o, sm.replaceBooleanField(this, i));
                 break;
             case JavaTypes.BYTE:
-                setValue(i, o, new Byte(sm.replaceByteField(this, i)));
+                setValue(i, o, sm.replaceByteField(this, i));
                 break;
             case JavaTypes.CHAR:
-                setValue(i, o, new Character(sm.replaceCharField(this, i)));
+                setValue(i, o, sm.replaceCharField(this, i));
                 break;
             case JavaTypes.DOUBLE:
-                setValue(i, o, new Double(sm.replaceDoubleField(this, i)));
+                setValue(i, o, sm.replaceDoubleField(this, i));
                 break;
             case JavaTypes.FLOAT:
-                setValue(i, o, new Float(sm.replaceFloatField(this, i)));
+                setValue(i, o, sm.replaceFloatField(this, i));
                 break;
             case JavaTypes.INT:
-                setValue(i, o, new Integer(sm.replaceIntField(this, i)));
+                setValue(i, o, sm.replaceIntField(this, i));
                 break;
             case JavaTypes.LONG:
-                setValue(i, o, new Long(sm.replaceLongField(this, i)));
+                setValue(i, o, sm.replaceLongField(this, i));
                 break;
             case JavaTypes.SHORT:
-                setValue(i, o, new Short(sm.replaceShortField(this, i)));
+                setValue(i, o, sm.replaceShortField(this, i));
                 break;
             case JavaTypes.STRING:
                 setValue(i, o, sm.replaceStringField(this, i));
@@ -173,9 +182,11 @@ public class ReflectingPersistenceCapable
         }
     }
 
+    @Override
     public void pcReplaceFields(int[] fieldIndices) {
-        for(int i = 0; i < fieldIndices.length; i++)
-            pcReplaceField(fieldIndices[i]);
+        for (int fieldIndex : fieldIndices) {
+            pcReplaceField(fieldIndex);
+        }
     }
 
     public void pcCopyField(Object fromObject, int i) {
@@ -184,20 +195,24 @@ public class ReflectingPersistenceCapable
         setValue(i, o, getValue(i, fromObject));
     }
 
+    @Override
     public void pcCopyFields(Object fromObject, int[] fieldIndices) {
         if (fromObject instanceof ReflectingPersistenceCapable)
             fromObject = ((ReflectingPersistenceCapable) fromObject)
                 .getManagedInstance();
-        
-        for(int i = 0; i < fieldIndices.length; i++)
-            pcCopyField(fromObject, fieldIndices[i]);
+
+        for (int fieldIndex : fieldIndices) {
+            pcCopyField(fromObject, fieldIndex);
+        }
     }
 
+    @Override
     public void pcDirty(String fieldName) {
         if (sm != null)
             sm.dirty(fieldName);
     }
 
+    @Override
     public Object pcFetchObjectId() {
         if (sm != null)
             return sm.fetchObjectId();
@@ -205,6 +220,7 @@ public class ReflectingPersistenceCapable
             return null;
     }
 
+    @Override
     public Object pcGetVersion() {
         if (sm == null)
             return null;
@@ -212,6 +228,7 @@ public class ReflectingPersistenceCapable
             return sm.getVersion();
     }
 
+    @Override
     public boolean pcIsDirty() {
         if (sm == null)
             return false;
@@ -222,6 +239,7 @@ public class ReflectingPersistenceCapable
         }
     }
 
+    @Override
     public boolean pcIsTransactional() {
         if (sm == null)
             return false;
@@ -229,6 +247,7 @@ public class ReflectingPersistenceCapable
             return sm.isTransactional();
     }
 
+    @Override
     public boolean pcIsPersistent() {
         if (sm == null)
             return false;
@@ -236,6 +255,7 @@ public class ReflectingPersistenceCapable
             return sm.isPersistent();
     }
 
+    @Override
     public boolean pcIsNew() {
         if (sm == null)
             return false;
@@ -243,6 +263,7 @@ public class ReflectingPersistenceCapable
             return sm.isNew();
     }
 
+    @Override
     public boolean pcIsDeleted() {
         if (sm == null)
             return false;
@@ -251,24 +272,28 @@ public class ReflectingPersistenceCapable
     }
 
     // null == unknown
+    @Override
     public Boolean pcIsDetached() {
         if (sm != null)
-            return Boolean.valueOf(sm.isDetached());
+            return sm.isDetached();
 
         // ##### we could do a lot more here if a detached state field
         // ##### was specified.
         return null;
     }
 
+    @Override
     public PersistenceCapable pcNewInstance(StateManager sm, boolean clear) {
         return pcSubclassInstance.pcNewInstance(sm, clear);
     }
 
+    @Override
     public PersistenceCapable pcNewInstance(StateManager sm, Object oid,
         boolean clear) {
         return pcSubclassInstance.pcNewInstance(sm, oid, clear);
     }
 
+    @Override
     public Object pcNewObjectIdInstance() {
         FieldMetaData[] pkFields = meta.getPrimaryKeyFields();
         Object[] pks = new Object[pkFields.length];
@@ -276,11 +301,13 @@ public class ReflectingPersistenceCapable
             pks[i] = getValue(pkFields[i].getIndex(), o);
         return ApplicationIds.fromPKValues(pks, meta);
     }
-    
+
+    @Override
     public Object pcNewObjectIdInstance(Object oid) {
         return pcSubclassInstance.pcNewObjectIdInstance(oid);
     }
 
+    @Override
     public void pcCopyKeyFieldsToObjectId(Object oid) {
         Object target;
         if (oid instanceof ObjectId)
@@ -289,14 +316,15 @@ public class ReflectingPersistenceCapable
             target = oid;
 
         FieldMetaData[] pks = meta.getPrimaryKeyFields();
-        for (int i = 0; i < pks.length; i++) {
-            Object val = getValue(pks[i].getIndex(), o);
-            Field f = Reflection.findField(target.getClass(), pks[i].getName(),
-                true);
+        for (FieldMetaData pk : pks) {
+            Object val = getValue(pk.getIndex(), o);
+            Field f = Reflection.findField(target.getClass(), pk.getName(),
+                    true);
             Reflection.set(target, f, val);
         }
     }
 
+    @Override
     public void pcCopyKeyFieldsToObjectId(FieldSupplier supplier, Object obj) {
         // This is only ever invoked against PCs in the PCRegistry. Such PCs
         // will always be enhanced types or subtypes of user types, and will
@@ -304,6 +332,7 @@ public class ReflectingPersistenceCapable
         throw new InternalException();
     }
 
+    @Override
     public void pcCopyKeyFieldsFromObjectId(FieldConsumer consumer,
         Object obj) {
         // This is only ever invoked against PCs in the PCRegistry. Such PCs
@@ -312,11 +341,13 @@ public class ReflectingPersistenceCapable
         throw new InternalException();
     }
 
+    @Override
     public Object pcGetDetachedState() {
         // ##### we can implement this if a state field has been set
         return null;
     }
 
+    @Override
     public void pcSetDetachedState(Object state) {
         // StateManagerImpl will invoke this with null during instance
         // initialization
@@ -333,6 +364,7 @@ public class ReflectingPersistenceCapable
         return serializationUserVisible;
     }
 
+    @Override
     public Object getManagedInstance() {
         return o;
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -29,17 +29,17 @@ public interface EagerFetchModes {
      * Constant indicating not to try to load subclass data and related
      * objects when querying for an object.
      */
-    public static final int EAGER_NONE = 0;
+    int EAGER_NONE = 0;
 
     /**
      * Constant indicating to load relations and subclass data if possible
      * without separate queries.
      */
-    public static final int EAGER_JOIN = 1;
+    int EAGER_JOIN = 1;
 
     /**
      * Constant indicating to load relations and subclass data if possible
      * using either joins or parallel queries.
      */
-    public static final int EAGER_PARALLEL = 2;
+    int EAGER_PARALLEL = 2;
 }

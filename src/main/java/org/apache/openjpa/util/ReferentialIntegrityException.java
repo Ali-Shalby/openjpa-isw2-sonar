@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -32,6 +32,8 @@ import org.apache.openjpa.lib.util.Localizer;
 public class ReferentialIntegrityException
     extends StoreException {
 
+    
+    private static final long serialVersionUID = 1L;
     public static final int IV_UNKNOWN = 0;
     public static final int IV_DUPLICATE_OID = 1;
     public static final int IV_UNIQUE = 2;
@@ -63,6 +65,7 @@ public class ReferentialIntegrityException
         }
     }
 
+    @Override
     public int getSubtype() {
         return REFERENTIAL_INTEGRITY;
     }

@@ -14,27 +14,26 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.xml;
 
 /**
  * Implementations of this interface can be adorned with comments.
  *
- * @nojavadoc
  * @since 0.3.3
  */
 public interface Commentable {
 
-    public static final String[] EMPTY_COMMENTS = new String[0];
+    String[] EMPTY_COMMENTS = new String[0];
 
     /**
      * Set comments.
      */
-    public void setComments(String[] comments);
+    void setComments(String[] comments);
 
     /**
      * Return comments, or empty array if none.
      */
-    public String[] getComments();
+    String[] getComments();
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.xmlstore;
 
@@ -36,14 +36,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
+
 import javax.xml.parsers.SAXParser;
 
-import org.xml.sax.Attributes;
-import org.xml.sax.SAXException;
-import org.xml.sax.helpers.DefaultHandler;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.lib.util.Base16Encoder;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
@@ -57,6 +54,9 @@ import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.OpenJPAException;
 import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
+import org.xml.sax.Attributes;
+import org.xml.sax.SAXException;
+import org.xml.sax.helpers.DefaultHandler;
 
 /**
  * Stores {@link ObjectData} objects by serializing a collection
@@ -80,10 +80,10 @@ public class XMLFileHandler {
      */
     public Collection load(ClassMetaData meta) {
         File f = getFile(meta);
-        if (!(AccessController.doPrivileged(
-            J2DoPrivHelper.existsAction(f))).booleanValue() || 
-            (AccessController.doPrivileged(
-            J2DoPrivHelper.lengthAction(f))).longValue() == 0)
+        if (!AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(f)) ||
+                AccessController.doPrivileged(
+                        J2DoPrivHelper.lengthAction(f)) == 0)
             return Collections.EMPTY_SET;
         try {
             return read(f);
@@ -136,8 +136,8 @@ public class XMLFileHandler {
             throw new InternalException();
 
         File f = getFile(meta);
-        if (!(AccessController.doPrivileged(
-            J2DoPrivHelper.existsAction(f.getParentFile()))).booleanValue())
+        if (!AccessController.doPrivileged(
+                J2DoPrivHelper.existsAction(f.getParentFile())))
             AccessController.doPrivileged(
                 J2DoPrivHelper.mkdirsAction(f.getParentFile()));
 
@@ -171,8 +171,8 @@ public class XMLFileHandler {
         out.write("<extent>");
 
         // run through each object in the collection
-        for (Iterator itr = datas.iterator(); itr.hasNext();) {
-            ObjectData obj = (ObjectData) itr.next();
+        for (Object data : datas) {
+            ObjectData obj = (ObjectData) data;
             ClassMetaData meta = obj.getMetaData();
 
             // write out the "object" element start
@@ -187,7 +187,7 @@ public class XMLFileHandler {
             // run through each field writing out the value
             FieldMetaData[] fmds = meta.getFields();
             for (int i = 0; i < fmds.length; i++) {
-                if (fmds[i].getManagement() != fmds[i].MANAGE_PERSISTENT)
+                if (fmds[i].getManagement() != FieldMetaData.MANAGE_PERSISTENT)
                     continue;
 
                 out.write("<field name=\"");
@@ -204,9 +204,9 @@ public class XMLFileHandler {
 
                         // write out each of the elements
                         int elemType = fmds[i].getElement().getTypeCode();
-                        for (Iterator ci = c.iterator(); ci.hasNext();) {
+                        for (Object o : c) {
                             out.write("<element>");
-                            writeDataValue(out, elemType, ci.next());
+                            writeDataValue(out, elemType, o);
                             out.write("</element>");
                         }
                         break;
@@ -220,8 +220,8 @@ public class XMLFileHandler {
                         Collection entries = m.entrySet();
                         int keyType = fmds[i].getKey().getTypeCode();
                         int valueType = fmds[i].getElement().getTypeCode();
-                        for (Iterator ei = entries.iterator(); ei.hasNext();) {
-                            Map.Entry e = (Map.Entry) ei.next();
+                        for (Object entry : entries) {
+                            Map.Entry e = (Map.Entry) entry;
                             out.write("<key>");
                             writeDataValue(out, keyType, e.getKey());
                             out.write("</key>");
@@ -233,7 +233,7 @@ public class XMLFileHandler {
 
                     default:
                         writeDataValue(out, fmds[i].getTypeCode(),
-                            obj.getField(i));
+                                obj.getField(i));
                 }
                 out.write("</field>");
             }
@@ -276,7 +276,7 @@ public class XMLFileHandler {
             case JavaTypes.CHAR_OBJ:
                 // quote chars so we can distinguish whitespace chars; special
                 // case for \0
-                char c = ((Character) val).charValue();
+                char c = (Character) val;
                 out.write("'");
                 if (c == '\0')
                     out.write("0x0");
@@ -339,80 +339,77 @@ public class XMLFileHandler {
             return _extent;
         }
 
+        @Override
         public void startElement(String uri, String localName, String qName,
             Attributes attrs)
             throws SAXException {
             try {
                 startElement(qName, attrs);
-            } catch (RuntimeException re) {
+            } catch (RuntimeException | SAXException re) {
                 throw re;
-            } catch (SAXException se) {
-                throw se;
-            } catch (Exception e) {
+            }
+            catch (Exception e) {
                 throw new SAXException(e);
             }
         }
 
         private void startElement(String qName, Attributes attrs)
             throws Exception {
-            switch (qName.charAt(0)) {
-                case 'o': // object
-                    // get the metadata for the type we're reading
-                    String type = attrs.getValue("class");
-                    ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
+
+            if ("object".equals(qName)) { // object
+                // get the metadata for the type we're reading
+                String type = attrs.getValue("class");
+                ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
                         getMetaData(classForName(type), null, true);
 
-                    // construct the oid object
-                    Object oid;
-                    if (meta.getIdentityType() == meta.ID_DATASTORE)
-                        oid = new Id(attrs.getValue("oid"), _conf, null);
-                    else
-                        oid = PCRegistry.newObjectId(meta.getDescribedType(),
+                // construct the oid object
+                Object oid;
+                if (meta.getIdentityType() == ClassMetaData.ID_DATASTORE)
+                    oid = new Id(attrs.getValue("oid"), _conf, null);
+                else
+                    oid = PCRegistry.newObjectId(meta.getDescribedType(),
                             attrs.getValue("oid"));
 
-                    // create an ObjectData that will contain the information
-                    // for this instance, and set the version
-                    _object = new ObjectData(oid, meta);
-                    _object.setVersion(new Long(attrs.getValue("version")));
-                    break;
+                // create an ObjectData that will contain the information
+                // for this instance, and set the version
+                _object = new ObjectData(oid, meta);
+                _object.setVersion(new Long(attrs.getValue("version")));
+            }
+            else if ("field".equals(qName)) { // field
+                // start parsing a field element: for container types,
+                // initialize the container; for other types, initialize a
+                // buffer
+                _fmd = _object.getMetaData().getField(attrs.getValue("name"));
+                switch (_fmd.getTypeCode()) {
+                    case JavaTypes.COLLECTION:
+                    case JavaTypes.ARRAY:
+                        _fieldVal = new ArrayList();
+                        break;
+                    case JavaTypes.MAP:
+                        _fieldVal = new HashMap();
+                        break;
+                    default:
+                        _buf = new StringBuffer();
+                }
+            }
+            else if ("element".equals(qName) ||
+                     "key".equals(qName)     ||
+                     "value".equals(qName) ) { // field
 
-                case 'f': // field
-                    // start parsing a field element: for container types,
-                    // initialize the container; for other types, initialize a
-                    // buffer
-                    _fmd =
-                        _object.getMetaData().getField(attrs.getValue("name"));
-                    switch (_fmd.getTypeCode()) {
-                        case JavaTypes.COLLECTION:
-                        case JavaTypes.ARRAY:
-                            _fieldVal = new ArrayList();
-                            break;
-                        case JavaTypes.MAP:
-                            _fieldVal = new HashMap();
-                            break;
-                        default:
-                            _buf = new StringBuffer();
-                    }
-                    break;
-
-                case 'e': // element
-                case 'k': // key
-                case 'v': // value
                     // initialize a buffer for the element value
                     _buf = new StringBuffer();
-                    break;
             }
         }
 
+        @Override
         public void endElement(String uri, String localName, String qName)
             throws SAXException {
             try {
                 endElement(qName);
-            } catch (RuntimeException re) {
+                } catch (RuntimeException | SAXException re) {
                 throw re;
-            } catch (SAXException se) {
-                throw se;
-            } catch (Exception e) {
+            }
+            catch (Exception e) {
                 throw new SAXException(e);
             }
         }
@@ -420,55 +417,51 @@ public class XMLFileHandler {
         private void endElement(String qName)
             throws Exception {
             Object val;
-            switch (qName.charAt(0)) {
-                case 'o': // object
-                    // add the object to our results
-                    _extent.add(_object);
-
-                case 'f': // field
-                    switch (_fmd.getTypeCode()) {
-                        case JavaTypes.COLLECTION:
-                        case JavaTypes.ARRAY:
-                        case JavaTypes.MAP:
-                            // field value already constructed
-                            break;
-                        default:
-                            // construct the field value from text within the
-                            // element
-                            _fieldVal = fromXMLString(_fmd.getTypeCode(),
+            if ("object".equals(qName)) {
+                // add the object to our results
+                _extent.add(_object);
+            }
+            else if ("field".equals(qName)) {
+                switch (_fmd.getTypeCode()) {
+                    case JavaTypes.COLLECTION:
+                    case JavaTypes.ARRAY:
+                    case JavaTypes.MAP:
+                        // field value already constructed
+                        break;
+                    default:
+                        // construct the field value from text within the
+                        // element
+                        _fieldVal = fromXMLString(_fmd.getTypeCode(),
                                 _fmd.getTypeMetaData(), _buf.toString());
-                    }
+                }
 
-                    // set the field value into the object being parsed
-                    _object.setField(_fmd.getIndex(), _fieldVal);
-                    break;
-
-                case 'e': // element
-                    // cache element value
-                    val = fromXMLString(_fmd.getElement().getTypeCode(),
+                // set the field value into the object being parsed
+                _object.setField(_fmd.getIndex(), _fieldVal);
+            }
+            else if ("element".equals(qName)) {
+                // cache element value
+                val = fromXMLString(_fmd.getElement().getTypeCode(),
                         _fmd.getElement().getTypeMetaData(), _buf.toString());
-                    ((Collection) _fieldVal).add(val);
-                    break;
-
-                case 'k': // key
-                    // cache key value
-                    _keyVal = fromXMLString(_fmd.getKey().getTypeCode(),
+                ((Collection) _fieldVal).add(val);
+            }
+            else if ("key".equals(qName)) {
+                // cache key value
+                _keyVal = fromXMLString(_fmd.getKey().getTypeCode(),
                         _fmd.getKey().getTypeMetaData(), _buf.toString());
-                    break;
-
-                case 'v': // value
-                    // create value and put cached key and value into map
-                    val = fromXMLString(_fmd.getElement().getTypeCode(),
-                        _fmd.getElement().getTypeMetaData(), _buf.toString());
-                    Map map = (Map) _fieldVal;
-                    map.put(_keyVal, val);
-                    break;
+            }
+            else if ("value".equals(qName)) {
+                // create value and put cached key and value into map
+                val = fromXMLString(_fmd.getElement().getTypeCode(),
+                    _fmd.getElement().getTypeMetaData(), _buf.toString());
+                Map map = (Map) _fieldVal;
+                map.put(_keyVal, val);
             }
 
             // don't cache text between elements
             _buf = null;
         }
 
+        @Override
         public void characters(char[] ch, int start, int length) {
             if (_buf != null)
                 _buf.append(ch, start, length);
@@ -497,8 +490,8 @@ public class XMLFileHandler {
                     // strip quotes; special case for 0x0
                     str = str.substring(1, str.length() - 1);
                     if (str.equals("0x0"))
-                        return new Character('\0');
-                    return new Character(XMLEncoder.decode(str).charAt(0));
+                        return '\0';
+                    return XMLEncoder.decode(str).charAt(0);
 
                 case JavaTypes.DOUBLE:
                 case JavaTypes.DOUBLE_OBJ:
@@ -534,7 +527,7 @@ public class XMLFileHandler {
 
                 case JavaTypes.OBJECT:
                 case JavaTypes.OID:
-                    // convert the chars into bytes, and run them through an 
+                    // convert the chars into bytes, and run them through an
                     // ObjectInputStream in order to get the serialized object
                     byte[] bytes = Base16Encoder.decode(str);
                     ByteArrayInputStream bais = new ByteArrayInputStream(bytes);

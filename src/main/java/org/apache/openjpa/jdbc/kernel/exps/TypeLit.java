@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -35,6 +35,8 @@ public class TypeLit
     extends Const
     implements Literal {
 
+    
+    private static final long serialVersionUID = 1L;
     private Object _val;
     private int _ptype;
 
@@ -46,30 +48,37 @@ public class TypeLit
         _ptype = ptype;
     }
 
+    @Override
     public Class getType() {
         return (_val == null) ? Object.class : _val.getClass();
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _val = Filters.convert(_val, type);
     }
 
+    @Override
     public int getParseType() {
         return _ptype;
     }
 
-    public Object getValue() { 
+    @Override
+    public Object getValue() {
         return _val;
     }
 
+    @Override
     public void setValue(Object val) {
         _val = val;
     }
 
+    @Override
     public Object getValue(Object[] params) {
         return getValue();
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         return new LitExpState();
     }
@@ -81,13 +90,14 @@ public class TypeLit
         extends ConstExpState {
 
         public Object sqlValue;
-        public int otherLength; 
+        public int otherLength;
         public ClassMapping mapping = null;
         public Discriminator disc = null;
         public Object discValue = null;
-    } 
+    }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         super.calculateValue(sel, ctx, state, other, otherState);
         LitExpState lstate = (LitExpState) state;
@@ -99,14 +109,15 @@ public class TypeLit
             lstate.joins);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         LitExpState lstate = (LitExpState) state;
         if (lstate.otherLength > 1)
-            sql.appendValue(((Object[]) lstate.sqlValue)[index], 
+            sql.appendValue(((Object[]) lstate.sqlValue)[index],
                 lstate.getColumn(index));
         else {
-            if (lstate.discValue != null)                
+            if (lstate.discValue != null)
                 sql.append(getDiscriminator(lstate));
             else
                 sql.append("1");
@@ -122,6 +133,6 @@ public class TypeLit
         case JavaTypes.STRING:
         default:
             return disc.insert(0, "'").append("'").toString();
-        }        
+        }
     }
 }

@@ -14,25 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ee;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.lang.reflect.Method;
-
 import javax.naming.Context;
 import javax.naming.InitialContext;
-import javax.transaction.HeuristicMixedException;
-import javax.transaction.HeuristicRollbackException;
-import javax.transaction.InvalidTransactionException;
-import javax.transaction.NotSupportedException;
-import javax.transaction.RollbackException;
-import javax.transaction.Status;
-import javax.transaction.Synchronization;
-import javax.transaction.SystemException;
-import javax.transaction.Transaction;
+
+import com.ibm.websphere.jtaextensions.ExtendedJTATransaction;
+import jakarta.transaction.HeuristicMixedException;
+import jakarta.transaction.HeuristicRollbackException;
+import jakarta.transaction.InvalidTransactionException;
+import jakarta.transaction.NotSupportedException;
+import jakarta.transaction.RollbackException;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.Transaction;
 import javax.transaction.xa.XAResource;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
@@ -43,8 +41,6 @@ import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.InvalidStateException;
 import org.apache.openjpa.util.NoTransactionException;
 
-import serp.bytecode.BCClass;
-import serp.bytecode.Project;
 
 /**
  * {@link ManagedRuntime} implementation that allows synchronization with a
@@ -67,9 +63,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
     private static final Localizer _loc =
         Localizer.forPackage(WASManagedRuntime.class);
 
-    private Object _extendedTransaction = null;
-    private Method _getGlobalId = null;
-    private Method _registerSync = null;
+    private com.ibm.websphere.jtaextensions.ExtendedJTATransaction _extendedTransaction = null;
     private OpenJPAConfiguration _conf = null;
     private Log _log = null;
 
@@ -77,7 +71,8 @@ public class WASManagedRuntime extends AbstractManagedRuntime
      * Gets an extendedJTATransaction from JNDI and creates a transaction
      * wrapper
      */
-    public javax.transaction.TransactionManager getTransactionManager()
+    @Override
+    public jakarta.transaction.TransactionManager getTransactionManager()
         throws Exception {
         return new WASTransaction();
     }
@@ -95,9 +90,10 @@ public class WASManagedRuntime extends AbstractManagedRuntime
      * <LI>GetStatus</LI>
      * </UL>
      */
-    class WASTransaction implements javax.transaction.TransactionManager,
-        javax.transaction.Transaction {
+    class WASTransaction implements jakarta.transaction.TransactionManager,
+        jakarta.transaction.Transaction {
 
+        @Override
         public int getStatus() throws SystemException {
             int rval;
             try {
@@ -120,6 +116,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          *
          * @return A WebSphere transaction wrapper.
          */
+        @Override
         public Transaction getTransaction() throws SystemException {
             return this;
         }
@@ -128,12 +125,12 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Register for synchronization with a WebSphere managed transaction via
          * the extendedJTATransaction interface.
          */
+        @Override
         public void registerSynchronization(Synchronization arg0)
             throws IllegalStateException, RollbackException, SystemException {
             if (_extendedTransaction != null) {
                 try {
-                    _registerSync.invoke(_extendedTransaction,
-                        new Object[] { new WASSynchronization(arg0) });
+                    _extendedTransaction.registerSynchronizationCallback(new WASSynchronization(arg0));
                 } catch (Exception e) {
                     throw new InvalidStateException(_loc
                         .get("was-reflection-exception")).setCause(e);
@@ -152,7 +149,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          */
         private byte[] getGlobalId() {
             try {
-                return (byte[]) _getGlobalId.invoke(_extendedTransaction, null);
+                return _extendedTransaction.getGlobalId();
             } catch (Exception e) {
                 throw new InvalidStateException(_loc
                     .get("was-reflection-exception")).setCause(e);
@@ -163,6 +160,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Unimplemented, WAS does not provide this level of control. Throws an
          * IllegalStateException
          */
+        @Override
         public void begin() throws NotSupportedException, SystemException {
             throw new InvalidStateException(_loc.get("was-unsupported-op",
                 "begin"));
@@ -172,6 +170,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Unimplemented, WAS does not provide this level of control. Throws an
          * IllegalStateException
          */
+        @Override
         public void commit() throws HeuristicMixedException,
             HeuristicRollbackException, IllegalStateException,
             RollbackException, SecurityException, SystemException {
@@ -183,6 +182,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Unimplemented, WAS does not provide this level of control. Throws an
          * IllegalStateException
          */
+        @Override
         public void resume(Transaction arg0) throws IllegalStateException,
             InvalidTransactionException, SystemException {
             throw new InvalidStateException(_loc.get("was-unsupported-op",
@@ -195,6 +195,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * some error paths, throwing another exception may result in the
          * original exception being lost.
          */
+        @Override
         public void rollback() throws IllegalStateException, SecurityException,
             SystemException {
             if (_log.isTraceEnabled()) {
@@ -208,6 +209,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * in some error paths, throwing another exception may result in the
          * original exception being lost.
          */
+        @Override
         public void setRollbackOnly() throws IllegalStateException,
             SystemException {
             if (_log.isTraceEnabled()) {
@@ -219,6 +221,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Unimplemented, WAS does not provide this level of control. Throws an
          * IllegalStateException
          */
+        @Override
         public void setTransactionTimeout(int arg0) throws SystemException {
             throw new InvalidStateException(_loc.get("was-unsupported-op",
                 "setTransactionTimeout"));
@@ -228,6 +231,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Unimplemented, WAS does not provide this level of control. Throws an
          * IllegalStateException
          */
+        @Override
         public Transaction suspend() throws SystemException {
             throw new InvalidStateException(_loc.get("was-unsupported-op",
                 "suspend"));
@@ -237,6 +241,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Unimplemented, WAS does not provide this level of control. Throws an
          * IllegalStateException
          */
+        @Override
         public boolean delistResource(XAResource arg0, int arg1)
             throws IllegalStateException, SystemException {
             throw new InvalidStateException(_loc.get("was-unsupported-op",
@@ -247,6 +252,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
          * Unimplemented, WAS does not provide this level of control. Throws an
          * IllegalStateException
          */
+        @Override
         public boolean enlistResource(XAResource arg0)
             throws IllegalStateException, RollbackException, SystemException {
             throw new InvalidStateException(_loc.get("was-unsupported-op",
@@ -256,7 +262,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
 
     /**
      * WASSynchronization wrapper. This class translates the WAS proprietary
-     * synchronization callback methods to javax.transaction.Synchronization
+     * synchronization callback methods to jakarta.transaction.Synchronization
      * methods.
      *
      * <P>
@@ -270,9 +276,8 @@ public class WASManagedRuntime extends AbstractManagedRuntime
      * is instantiated, therefore this class should only be used when running in
      * WebSphere.
      *
-     * @see org.apache.openjpa.util.WASTransformer
      */
-    static class WASSynchronization {
+    static class WASSynchronization implements com.ibm.websphere.jtaextensions.SynchronizationCallback {
 
         Synchronization _sync = null;
 
@@ -282,7 +287,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
 
         /**
          * AfterCompletion wrapper. Translates the WAS proprietary call to a
-         * javax.transaction.Synchronization call.
+         * jakarta.transaction.Synchronization call.
          */
         public void afterCompletion(int localTransactionId,
             byte[] globalTransactionId, boolean committed) {
@@ -297,7 +302,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
 
         /**
          * BeforeCompletion wrapper. Translates WAS proprietary call to a
-         * javax.transaction.Synchronization call.
+         * jakarta.transaction.Synchronization call.
          */
         public void beforeCompletion(int arg0, byte[] arg1) {
             if (_sync != null) {
@@ -310,6 +315,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
      * Caches a copy of the configuration. The configuration is used to obtain
      * the logger and classloader.
      */
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = (OpenJPAConfiguration) conf;
         _log = _conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
@@ -318,26 +324,15 @@ public class WASManagedRuntime extends AbstractManagedRuntime
     /**
      * EndConfiguration stub.
      */
+    @Override
     public void endConfiguration() {
         try {
             Context ctx = new InitialContext();
             try {
-                _extendedTransaction =
-                    ctx.lookup("java:comp/websphere/ExtendedJTATransaction");
+                _extendedTransaction = (ExtendedJTATransaction) ctx.lookup("java:comp/websphere/ExtendedJTATransaction");
             } finally {
                 ctx.close();
             }
-
-            Class extendedJTATransaction = Class.forName(
-                    "com.ibm.websphere.jtaextensions.ExtendedJTATransaction");
-            Class synchronizationCallback = Class.forName(
-                    "com.ibm.websphere.jtaextensions.SynchronizationCallback");
-
-            _registerSync = extendedJTATransaction.getMethod(
-                    "registerSynchronizationCallbackForCurrentTran",
-                    new Class[] { synchronizationCallback });
-            _getGlobalId = extendedJTATransaction.
-                getMethod("getGlobalId", null);
         } catch (Exception e) {
             throw new InvalidStateException(_loc
                 .get("was-reflection-exception"), e).setFatal(true);
@@ -347,6 +342,7 @@ public class WASManagedRuntime extends AbstractManagedRuntime
     /**
      * StartConfiguration stub.
      */
+    @Override
     public void startConfiguration() {
         // Nothing to do
     }
@@ -363,33 +359,14 @@ public class WASManagedRuntime extends AbstractManagedRuntime
     static final String INTERFACE =
         "com.ibm.websphere.jtaextensions.SynchronizationCallback";
 
-    public static void main(String[] args)
-        throws IOException {
-        Project project = new Project();
-        
-        InputStream in = WASManagedRuntime.class.getClassLoader()
-            .getResourceAsStream(CLASS.replace('.', '/') + ".class");
-        BCClass bcClass = project.loadClass(in);
-        
-        String [] interfaces = bcClass.getInterfaceNames();
-        
-        if(interfaces != null) {
-        	for(int i = 0; i < interfaces.length; i++) { 
-        		if(interfaces[i].equals(INTERFACE)) {
-        			return; 
-        		}
-        	}
-        }
-        bcClass.declareInterface(INTERFACE);
-        bcClass.write();
-    }
-
+    @Override
     public void setRollbackOnly(Throwable cause)
         throws Exception {
         // there is no generic support for setting the rollback cause
         getTransactionManager().getTransaction().setRollbackOnly();
     }
 
+    @Override
     public Throwable getRollbackCause()
         throws Exception {
         // there is no generic support for setting the rollback cause

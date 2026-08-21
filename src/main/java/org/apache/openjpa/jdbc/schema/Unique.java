@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -26,21 +26,21 @@ import org.apache.openjpa.jdbc.identifier.DBIdentifier;
  * @author Abe White
  * @author Pinaki Poddar
  */
-@SuppressWarnings("serial")
-public class Unique
-    extends LocalConstraint {
-	
-	public Unique() {
+public class Unique extends LocalConstraint {
+    private static final long serialVersionUID = 1L;
+
+    public Unique() {
 		super();
 	}
-    
+
     /**
      * Construct with given name.
-     * 
+     *
      * @param name the name of the constraint, if any
      * @param table the table of the constraint
      * @deprecated
      */
+    @Deprecated
     public Unique(String name, Table table) {
         super(name, table);
     }
@@ -49,34 +49,27 @@ public class Unique
         super(name, table);
     }
 
+    @Override
     public boolean isLogical() {
         return false;
     }
-    
-    /**
-     * Adds the given column. 
-     * The added column is set to non-nullable because a unique constraint
-     * on the database requires that its constituent columns are NOT NULL. 
-     * @see Column#setNotNull(boolean)
-     */
-    public void addColumn(Column col) {
-    	super.addColumn(col);
-    	col.setNotNull(true);
-    }
-    
+
     /**
      * Set the name of the constraint. This method cannot be called if the
-     * constraint already belongs to a table. 
+     * constraint already belongs to a table.
      * @deprecated
      */
+    @Deprecated
+    @Override
     public void setName(String name) {
         super.setName(name);
     }
 
+    @Override
     public void setIdentifier(DBIdentifier name) {
         super.setIdentifier(name);
     }
-    
+
     /**
      * Return true if the structure of this primary key matches that of
      * the given one (same table, same columns).

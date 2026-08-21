@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -30,6 +30,8 @@ import org.apache.openjpa.util.ImplHelper;
 class ConstGetObjectId
     extends Const {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Const _constant;
 
     /**
@@ -39,13 +41,16 @@ class ConstGetObjectId
         _constant = constant;
     }
 
+    @Override
     public Class getType() {
         return Object.class;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     public Object getValue(Object[] params) {
         Object o = _constant.getValue(params);
         if (!(ImplHelper.isManageable(o)))
@@ -55,25 +60,29 @@ class ConstGetObjectId
             .pcFetchObjectId();
     }
 
+    @Override
     public Object getValue(ExpContext ctx, ExpState state) {
-        return ctx.store.getContext().getObjectId(_constant.getValue(ctx, 
+        return ctx.store.getContext().getObjectId(_constant.getValue(ctx,
             ((ConstGetObjectIdExpState) state).constantState));
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         return new ConstGetObjectIdExpState(_constant.initialize(sel, ctx, 0));
     }
 
+    @Override
     public Object getSQLValue(Select sel, ExpContext ctx, ExpState state) {
         return ((ConstGetObjectIdExpState) state).sqlValue;
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         super.calculateValue(sel, ctx, state, other, otherState);
         ConstGetObjectIdExpState cstate = (ConstGetObjectIdExpState) state;
         _constant.calculateValue(sel, ctx, cstate.constantState, null, null);
-        Object oid = ctx.store.getContext().getObjectId(_constant.getValue(ctx, 
+        Object oid = ctx.store.getContext().getObjectId(_constant.getValue(ctx,
             cstate.constantState));
         if (other != null) {
             cstate.sqlValue = other.toDataStoreValue(sel, ctx, otherState, oid);
@@ -82,11 +91,12 @@ class ConstGetObjectId
             cstate.sqlValue = oid;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         ConstGetObjectIdExpState cstate = (ConstGetObjectIdExpState) state;
         if (cstate.otherLength > 1)
-            sql.appendValue(((Object[]) cstate.sqlValue)[index], 
+            sql.appendValue(((Object[]) cstate.sqlValue)[index],
                 cstate.getColumn(index));
         else
             sql.appendValue(cstate.sqlValue, cstate.getColumn(index));
@@ -95,7 +105,7 @@ class ConstGetObjectId
     /**
      * Expression state.
      */
-    private static class ConstGetObjectIdExpState 
+    private static class ConstGetObjectIdExpState
         extends ConstExpState {
 
         public final ExpState constantState;

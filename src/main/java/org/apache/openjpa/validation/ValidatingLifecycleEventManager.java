@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.validation;
 
@@ -27,21 +27,21 @@ import org.apache.openjpa.meta.ClassMetaData;
 
 /**
  * An extension of LifecycleEventManager which adds validation capabilities for
- * specific lifecycle events.  Validation occurs after firing all lifecycle 
+ * specific lifecycle events.  Validation occurs after firing all lifecycle
  * events and callbacks.
- * 
+ *
  */
-@SuppressWarnings("serial")
 public class ValidatingLifecycleEventManager extends LifecycleEventManager
     implements Configurable {
 
+    private static final long serialVersionUID = 1L;
     private OpenJPAConfiguration _conf = null;
     private Validator _validator = null;
+    protected boolean _validationEnabled = true;
 
     /**
      * Constructor which accepts a reference to the validator to use.  If null,
      * no validation will occur.
-     * @param validator
      */
     public ValidatingLifecycleEventManager() {
         super();
@@ -50,14 +50,16 @@ public class ValidatingLifecycleEventManager extends LifecycleEventManager
     /* (non-Javadoc)
      * @see org.apache.openjpa.lib.conf.Configurable#endConfiguration()
      */
+    @Override
     public void endConfiguration() {
         _validator = (Validator)_conf.getValidatorInstance();
     }
-   
+
     /* (non-Javadoc)
      * @see org.apache.openjpa.lib.conf.Configurable#setConfiguration(
      *      org.apache.openjpa.lib.conf.Configuration)
      */
+    @Override
     public void setConfiguration(Configuration conf) {
         if (conf instanceof OpenJPAConfiguration) {
             _conf = (OpenJPAConfiguration)conf;
@@ -67,30 +69,31 @@ public class ValidatingLifecycleEventManager extends LifecycleEventManager
     /* (non-Javadoc)
      * @see org.apache.openjpa.lib.conf.Configurable#startConfiguration()
      */
+    @Override
     public void startConfiguration() {
     }
 
     @Override
     public boolean hasUpdateListeners(Object source, ClassMetaData meta) {
-        if (_validator == null) {            
+        if (_validator == null) {
             return super.hasUpdateListeners(source, meta);
         }
-        return _validator.validating(source, LifecycleEvent.BEFORE_PERSIST) ||
+        return _validator.validating(source, LifecycleEvent.BEFORE_UPDATE) ||
             super.hasUpdateListeners(source, meta);
     }
 
     @Override
     public boolean hasPersistListeners(Object source, ClassMetaData meta) {
-        if (_validator == null) {            
+        if (_validator == null) {
             return super.hasPersistListeners(source, meta);
         }
-        return _validator.validating(source, LifecycleEvent.BEFORE_UPDATE) ||
-            super.hasPersistListeners(source, meta);        
+        return _validator.validating(source, LifecycleEvent.BEFORE_PERSIST) ||
+            super.hasPersistListeners(source, meta);
     }
 
     @Override
     public boolean hasDeleteListeners(Object source, ClassMetaData meta) {
-        if (_validator == null) {            
+        if (_validator == null) {
             return super.hasDeleteListeners(source, meta);
         }
         return _validator.validating(source, LifecycleEvent.BEFORE_DELETE) ||
@@ -100,10 +103,10 @@ public class ValidatingLifecycleEventManager extends LifecycleEventManager
     @Override
     public Exception[] fireEvent(Object source,
         ClassMetaData meta, int type) {
-        
+
         return fireEvent(source, null, meta, type);
     }
-    
+
     @Override
     public Exception[] fireEvent(Object source, Object related,
         ClassMetaData meta, int type) {
@@ -115,10 +118,10 @@ public class ValidatingLifecycleEventManager extends LifecycleEventManager
         // do not validate
         if (evx != null && evx.length > 0 && isFailFast())
             return evx;
-        
+
         // If a validator is provided and the source object should be validated,
         // validate it and return any exceptions
-        if (_validator != null && _validator.validating(source, type)) {
+        if (_validationEnabled && _validator != null && _validator.validating(source, type)) {
             ValidationException vex = _validator.validate(source, type);
             if (vex != null) {
                 if (evx == null || evx.length == 0) {
@@ -136,5 +139,25 @@ public class ValidatingLifecycleEventManager extends LifecycleEventManager
             }
         }
         return evx;
+    }
+
+    /**
+     * Whether this LifeCycleEventManager has had at least one listener or callback
+     * registered.  Used for a quick test when firing events.
+     * @return boolean
+     */
+    @Override
+    public boolean isActive(ClassMetaData meta) {
+        return isValidationEnabled() || super.isActive(meta);
+    }
+
+    public boolean isValidationEnabled() {
+        return _validationEnabled;
+    }
+
+    public boolean setValidationEnabled(boolean enabled) {
+        boolean val = _validationEnabled;
+        _validationEnabled = enabled;
+        return val;
     }
 }

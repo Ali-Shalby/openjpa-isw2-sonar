@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.enhance;
 
@@ -26,16 +26,16 @@ package org.apache.openjpa.enhance;
 public interface PersistenceCapable {
     // DO NOT ADD ADDITIONAL DEPENDENCIES TO THIS CLASS
 
-    public static final byte READ_WRITE_OK = 0;
-    public static final byte LOAD_REQUIRED = 1;
-    public static final byte READ_OK = -1;
-    public static final byte CHECK_READ = 1;
-    public static final byte MEDIATE_READ = 2;
-    public static final byte CHECK_WRITE = 4;
-    public static final byte MEDIATE_WRITE = 8;
-    public static final byte SERIALIZABLE = 16;
+    byte READ_WRITE_OK = 0;
+    byte LOAD_REQUIRED = 1;
+    byte READ_OK = -1;
+    byte CHECK_READ = 1;
+    byte MEDIATE_READ = 2;
+    byte CHECK_WRITE = 4;
+    byte MEDIATE_WRITE = 8;
+    byte SERIALIZABLE = 16;
 
-    public static final Object DESERIALIZED = new Object();
+    Object DESERIALIZED = new Object();
 
     int pcGetEnhancementContractVersion();
 

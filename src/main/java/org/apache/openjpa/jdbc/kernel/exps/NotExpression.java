@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -33,6 +33,8 @@ import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 class NotExpression
     implements Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Exp _exp;
 
     /**
@@ -42,7 +44,8 @@ class NotExpression
         _exp = exp;
     }
 
-    public ExpState initialize(Select sel, ExpContext ctx, Map contains) { 
+    @Override
+    public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         ExpState state = _exp.initialize(sel, ctx, contains);
         return new NotExpState(sel.or(state.joins, null), state);
     }
@@ -50,7 +53,7 @@ class NotExpression
     /**
      * Expression state.
      */
-    private static class NotExpState 
+    private static class NotExpState
         extends ExpState {
 
         public final ExpState state;
@@ -61,18 +64,21 @@ class NotExpression
         }
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         buf.append("NOT (");
         _exp.appendTo(sel, ctx, ((NotExpState) state).state, buf);
         buf.append(")");
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         _exp.selectColumns(sel, ctx, ((NotExpState) state).state, pks);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _exp.acceptVisit(visitor);

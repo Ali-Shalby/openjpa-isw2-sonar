@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -29,34 +29,39 @@ import org.apache.openjpa.jdbc.sql.Select;
 class Distinct
     extends UnaryOp {
 
+    
+    private static final long serialVersionUID = 1L;
+
     public Distinct(Val val) {
         super(val, true);
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         // join into related object if present
         return initializeValue(sel, ctx, JOIN_REL);
     }
 
+    @Override
     protected String getOperator() {
         return "DISTINCT";
     }
 
     @Override
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         Val val = getValue();
         if (val instanceof PCPath) {
             boolean noParen = getNoParen();
             sql.append(getOperator());
             sql.append(noParen ? " " : "(");
-            ((PCPath)val).appendTo(sel, ctx, state, sql); 
+            ((PCPath)val).appendTo(sel, ctx, state, sql);
             sql.addCastForParam(getOperator(), val);
             if (!noParen)
                 sql.append(")");
-            
+
         } else
             super.appendTo(sel, ctx, state, sql, index);
     }
-    
+
 }

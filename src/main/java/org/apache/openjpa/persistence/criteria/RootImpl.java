@@ -19,8 +19,8 @@
 
 package org.apache.openjpa.persistence.criteria;
 
-import javax.persistence.criteria.Root;
-import javax.persistence.metamodel.EntityType;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.metamodel.EntityType;
 
 import org.apache.openjpa.kernel.exps.AbstractExpressionBuilder;
 import org.apache.openjpa.kernel.exps.Context;
@@ -33,22 +33,23 @@ import org.apache.openjpa.persistence.meta.Types;
 
 /**
  * A root path without a parent.
- * 
+ *
  * @param <X> the type of the entity
  *
  * @author Pinaki Poddar
  * @author Fay Wang
- * 
+ *
  * @since 2.0.0
  */
 class RootImpl<X> extends FromImpl<X,X> implements Root<X> {
     private final Types.Entity<X> _entity;
-        
+
     public RootImpl(Types.Entity<X> type) {
         super(type);
         _entity = type;
     }
-    
+
+    @Override
     public  EntityType<X> getModel() {
         return _entity;
     }
@@ -63,7 +64,7 @@ class RootImpl<X> extends FromImpl<X,X> implements Root<X> {
         if (currContext.schemaAlias == null)
             currContext.schemaAlias = alias;
     }
-    
+
     /**
      * Convert this path to a kernel path value.
      */
@@ -73,7 +74,7 @@ class RootImpl<X> extends FromImpl<X,X> implements Root<X> {
         Path var = null;
         Value val = null;
         String alias = c.getAlias(this);
-        if (!alias.equalsIgnoreCase(c.ctx().schemaAlias)
+        if (c.ctx() != null && !alias.equalsIgnoreCase(c.ctx().schemaAlias)
             && (val = c.getRegisteredRootVariable(this)) != null) {
             // this is cross join
             var = factory.newPath(val);
@@ -87,20 +88,21 @@ class RootImpl<X> extends FromImpl<X,X> implements Root<X> {
         var.setMetaData(_entity.meta);
         return var;
     }
-    
+
     /**
      * Convert this path to a kernel expression.
-     * 
+     *
      */
     @Override
     public org.apache.openjpa.kernel.exps.Expression toKernelExpression(
         ExpressionFactory factory, CriteriaQueryImpl<?> c) {
         Value path = toValue(factory, c);
-        Value var = factory.newBoundVariable(c.getAlias(this), 
+        Value var = factory.newBoundVariable(c.getAlias(this),
              _entity.meta.getDescribedType());
         return factory.bindVariable(var, path);
     }
-    
+
+    @Override
     public StringBuilder asValue(AliasContext q) {
         Value v = q.getRegisteredRootVariable(this);
         if (v != null)
@@ -108,11 +110,12 @@ class RootImpl<X> extends FromImpl<X,X> implements Root<X> {
         v = q.getRegisteredValue(this);
         if (v != null)
             return new StringBuilder(v.getAlias());
-        if (q.isRegistered(this)) 
+        if (q.isRegistered(this))
             return new StringBuilder(q.getRegisteredValue(this).getName());
         return new StringBuilder().append(Character.toLowerCase(_entity.getName().charAt(0)));
     }
-    
+
+    @Override
     public StringBuilder asVariable(AliasContext q) {
         return new StringBuilder(_entity.getName()).append(" ").append(asValue(q));
     }

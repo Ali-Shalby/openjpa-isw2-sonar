@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -26,64 +26,77 @@ package org.apache.openjpa.kernel;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class ECleanState
-    extends PCState {
+class ECleanState extends PCState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
         context.setDirty(false);
     }
 
+    @Override
     PCState commit(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState commitRetain(StateManagerImpl context) {
         return ENONTRANS;
     }
 
+    @Override
     PCState rollback(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState rollbackRestore(StateManagerImpl context) {
         return ENONTRANS;
     }
 
+    @Override
     PCState delete(StateManagerImpl context) {
         context.preDelete();
         return EDELETED;
     }
 
+    @Override
     PCState nontransactional(StateManagerImpl context) {
         return ENONTRANS;
     }
 
+    @Override
     PCState release(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState evict(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState beforeWrite(StateManagerImpl context, int field, boolean mutate) {
         return EDIRTY;
     }
 
+    @Override
     PCState beforeOptimisticWrite(StateManagerImpl context, int field,
         boolean mutate) {
         return EDIRTY;
     }
 
+    @Override
     boolean isTransactional() {
         return true;
     }
 
+    @Override
     boolean isPersistent() {
         return true;
     }
-    
+
+    @Override
     public String toString() {
         return "Embedded-Clean";
     }

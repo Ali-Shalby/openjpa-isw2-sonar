@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -28,6 +28,6 @@ public interface Constant {
     /**
      * Return the value for this constant given the specified parameters.
      */
-    public Object getValue(Object[] parameters);
+    Object getValue(Object[] parameters);
 }
 

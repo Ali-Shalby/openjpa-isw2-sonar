@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -33,7 +33,7 @@ interface ResourceBundleProvider {
      * Find a ResourceBundle with the given name, locale, and class loader
      * (which may be null).
      */
-    public ResourceBundle findResource(String name, Locale locale,
+    ResourceBundle findResource(String name, Locale locale,
         ClassLoader loader);
 }
 

@@ -20,12 +20,15 @@ package org.apache.openjpa.persistence.query;
 
 /**
  * Denotes COUNT(e) Expression.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class CountExpression extends UnaryOperatorExpression {
-	public CountExpression(Expression op) {
+	
+    private static final long serialVersionUID = 1L;
+
+    public CountExpression(Expression op) {
 		super(op, UnaryFunctionalOperator.COUNT);
 	}
 }

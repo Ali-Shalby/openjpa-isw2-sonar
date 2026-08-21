@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -27,6 +27,7 @@ import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.exps.Parameter;
+import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.ImplHelper;
 
 /**
@@ -38,6 +39,9 @@ public class Param
     extends Const
     implements Parameter {
 
+    
+    private static final long serialVersionUID = 1L;
+    private static final Localizer _loc = Localizer.forPackage(Param.class);
     private final Object _key;
     private Class _type = null;
     private int _idx = -1;
@@ -51,14 +55,17 @@ public class Param
         setImplicitType(type);
     }
 
+    @Override
     public Object getParameterKey() {
         return _key;
     }
 
+    @Override
     public Class getType() {
         return _type;
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _type = type;
         _container = (getMetaData() == null || !ImplHelper.isManagedType(
@@ -71,24 +78,37 @@ public class Param
         return _idx;
     }
 
+    @Override
     public void setIndex(int idx) {
         _idx = idx;
     }
 
+    public ClassMapping getValueMetaData(ExpContext ctx) {
+        Object[] params = ctx.params;
+        if (params[_idx] != null && params[_idx] instanceof Class)
+            return (ClassMapping) ctx.store.getConfiguration().getMetaDataRepositoryInstance().
+                getMetaData((Class) params[_idx], getClass().getClassLoader(), true);
+        return null;
+    }
+
+    @Override
     public Object getValue(Object[] params) {
         return Filters.convert(params[_idx], getType());
     }
 
+    @Override
     public Object getValue(ExpContext ctx, ExpState state) {
         ParamExpState pstate = (ParamExpState) state;
         return (pstate.discValue != null) ? pstate.discValue :
             getValue(ctx.params);
     }
 
+    @Override
     public Object getSQLValue(Select sel, ExpContext ctx, ExpState state) {
         return ((ParamExpState) state).sqlValue;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         return new ParamExpState();
     }
@@ -104,9 +124,10 @@ public class Param
         public ClassMapping mapping = null;
         public Discriminator disc = null;
         public Object discValue = null;
-    } 
+    }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         super.calculateValue(sel, ctx, state, other, otherState);
         Object val = getValue(ctx.params);
@@ -119,8 +140,7 @@ public class Param
                     getMappingRepositoryInstance().getMapping((Class) val,
                         ctx.store.getContext().getClassLoader(), true);
                 pstate.disc = pstate.mapping.getDiscriminator();
-                pstate.discValue = pstate.disc != null ? pstate.disc.getValue()
-                    : null;
+                pstate.discValue = pstate.disc.getValue() != null ? pstate.disc.getValue() : "1";
             }
         } else if (ImplHelper.isManageable(val)) {
             ClassMapping mapping = ctx.store.getConfiguration().
@@ -133,11 +153,12 @@ public class Param
             pstate.sqlValue = val;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         ParamExpState pstate = (ParamExpState) state;
         if (pstate.otherLength > 1)
-            sql.appendValue(((Object[]) pstate.sqlValue)[index], 
+            sql.appendValue(((Object[]) pstate.sqlValue)[index],
                 pstate.getColumn(index), this);
         else if (pstate.cols != null)
             sql.appendValue(pstate.sqlValue, pstate.getColumn(index), this);
@@ -147,6 +168,7 @@ public class Param
             sql.appendValue(pstate.sqlValue, pstate.getColumn(index), this);
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         ParamExpState pstate = (ParamExpState) state;
         if (getMetaData() == null || pstate.cols == null)

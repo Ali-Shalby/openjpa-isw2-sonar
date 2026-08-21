@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
@@ -36,12 +36,13 @@ public enum FetchMode implements OpenJPAEnum<FetchMode>{
 
     private final int eagerFetchConstant;
     private final String[] _names;
-    
+
     private FetchMode(int value, String... names) {
         eagerFetchConstant = value;
         _names = names;
     }
 
+    @Override
     public int toKernelConstant() {
         return eagerFetchConstant;
     }
@@ -61,11 +62,13 @@ public enum FetchMode implements OpenJPAEnum<FetchMode>{
                 throw new IllegalArgumentException(kernelConstant + "");
         }
     }
-    
+
+    @Override
     public int convertToKernelConstant(String s) {
         return FetchMode.toKernelConstantFromString(s);
     }
-    
+
+    @Override
     public int convertToKernelConstant(int i) {
         if (i == FetchConfiguration.DEFAULT)
             return i;
@@ -75,7 +78,7 @@ public enum FetchMode implements OpenJPAEnum<FetchMode>{
         }
         throw new IllegalArgumentException(i + " is invalid value for FetchMode");
     }
-    
+
     public static int toKernelConstantFromString(String s) {
         for (FetchMode level : FetchMode.values()) {
             for (String name : level._names)

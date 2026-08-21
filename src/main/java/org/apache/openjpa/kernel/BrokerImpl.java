@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -32,6 +32,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
@@ -40,14 +41,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
-import javax.transaction.Status;
-import javax.transaction.Synchronization;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
 
-import org.apache.commons.collections.iterators.IteratorChain;
-import org.apache.commons.collections.map.IdentityMap;
-import org.apache.commons.collections.map.LinkedMap;
-import org.apache.commons.collections.set.MapBackedSet;
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.Compatibility;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.datacache.DataCache;
@@ -62,14 +58,21 @@ import org.apache.openjpa.event.LifecycleEventManager;
 import org.apache.openjpa.event.RemoteCommitEventManager;
 import org.apache.openjpa.event.TransactionEvent;
 import org.apache.openjpa.event.TransactionEventManager;
+import org.apache.openjpa.instrumentation.InstrumentationManager;
 import org.apache.openjpa.kernel.exps.ExpressionParser;
 import org.apache.openjpa.lib.conf.Configurations;
+import org.apache.openjpa.lib.instrumentation.InstrumentationLevel;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.ReferenceHashMap;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
 import org.apache.openjpa.lib.util.ReferenceMap;
+import org.apache.openjpa.lib.util.StringUtil;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap;
+import org.apache.openjpa.lib.util.collections.IteratorChain;
+import org.apache.openjpa.lib.util.collections.LinkedMap;
+import org.apache.openjpa.lib.util.collections.MapBackedSet;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.MetaDataRepository;
@@ -94,6 +97,7 @@ import org.apache.openjpa.util.StoreException;
 import org.apache.openjpa.util.UnsupportedException;
 import org.apache.openjpa.util.UserException;
 import org.apache.openjpa.util.WrappedException;
+import org.apache.openjpa.validation.ValidatingLifecycleEventManager;
 
 /**
  * Concrete {@link Broker}. The broker handles object-level behavior,
@@ -102,9 +106,8 @@ import org.apache.openjpa.util.WrappedException;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public class BrokerImpl
-    implements Broker, FindCallbacks, Cloneable, Serializable {
+public class BrokerImpl implements Broker, FindCallbacks, Cloneable, Serializable {
+    private static final long serialVersionUID = 1L;
 
     /**
      * Incremental flush.
@@ -146,7 +149,7 @@ public class BrokerImpl
     private static final int FLAG_TRANS_ENDING = 2 << 11;
 
     private static final Object[] EMPTY_OBJECTS = new Object[0];
-    
+
     private String _connectionFactoryName = "";
     private String _connectionFactory2Name = "";
 
@@ -170,10 +173,12 @@ public class BrokerImpl
     private transient ReentrantLock _lock = null;
     private transient OpCallbacks _call = null;
     private transient RuntimeExceptionTranslator _extrans = null;
+    private transient InstrumentationManager _instm = null;
 
     // ref to producing factory and configuration
     private transient AbstractBrokerFactory _factory = null;
     private transient OpenJPAConfiguration _conf = null;
+    private transient MetaDataRepository _repo = null;
 
     // cache class loader associated with the broker
     private transient ClassLoader _loader = null;
@@ -192,6 +197,7 @@ public class BrokerImpl
     // these are used for method-internal state only
     private transient Map<Object, StateManagerImpl> _loading = null;
     private transient Set<Object> _operating = null;
+    private transient boolean _operatingDirty = true;
 
     private Set<Class<?>> _persistedClss = null;
     private Set<Class<?>> _updatedClss = null;
@@ -235,6 +241,8 @@ public class BrokerImpl
     private boolean _cachePreparedQuery = true;
     private boolean _cacheFinderQuery = true;
     private boolean _suppressBatchOLELogging = false;
+    private boolean _allowReferenceToSiblingContext = false;
+    private boolean _postLoadOnMerge = false;
 
     // status
     private int _flags = 0;
@@ -252,36 +260,39 @@ public class BrokerImpl
     private LifecycleEventManager _lifeEventManager = null;
     private int _lifeCallbackMode = 0;
 
-    private transient DetachManagerLite _dmLite = new DetachManagerLite();
-    
+    private transient DetachManagerLite _dmLite;
+
     private transient boolean _initializeWasInvoked = false;
     private transient boolean _fromWriteBehindCallback = false;
     private LinkedList<FetchConfiguration> _fcs;
-    
+
     // Set of supported property keys. The keys in this set correspond to bean-style setter methods
     // that can be set by reflection. The keys are not qualified by any prefix.
     private static Set<String> _supportedPropertyNames;
     static {
-        _supportedPropertyNames = new HashSet<String>();
+        _supportedPropertyNames = new HashSet<>();
         _supportedPropertyNames.addAll(Arrays.asList(new String[] {
-                "AutoClear", 
-                "AutoDetach", 
-                "CacheFinderQuery", 
-                "CachePreparedQuery", 
-                "DetachedNew", 
-                "DetachState", 
-                "EvictFromDataCache", 
-                "IgnoreChanges", 
-                "LifecycleListenerCallbackMode", 
-                "Multithreaded", 
-                "NontransactionalRead", 
-                "NontransactionalWrite", 
-                "Optimistic", 
+                "AutoClear",
+                "AutoDetach",
+                "CacheFinderQuery",
+                "CachePreparedQuery",
+                "DetachedNew",
+                "DetachState",
+                "EvictFromDataCache",
+                "IgnoreChanges",
+                "LifecycleListenerCallbackMode",
+                "Multithreaded",
+                "NontransactionalRead",
+                "NontransactionalWrite",
+                "Optimistic",
                 "PopulateDataCache",
-                "RestoreState", 
+                "RestoreState",
                 "RetainState",
                 }));
     }
+
+    private boolean _printParameters = false;
+    private static final String PRINT_PARAMETERS_CONFIG_STR = "PrintParameters";
 
     /**
      * Set the persistence manager's authentication. This is the first
@@ -314,7 +325,7 @@ public class BrokerImpl
         boolean fromDeserialization) {
         initialize(factory, sm, managed, connMode, fromDeserialization, false);
     }
-    
+
     public void initialize(AbstractBrokerFactory factory,
         DelegatingStoreManager sm, boolean managed, int connMode,
         boolean fromDeserialization, boolean fromWriteBehindCallback) {
@@ -322,14 +333,19 @@ public class BrokerImpl
         _initializeWasInvoked = true;
         _loader = AccessController.doPrivileged(
             J2DoPrivHelper.getContextClassLoaderAction());
-        if (!fromDeserialization)
+        if (!fromDeserialization){
             _conf = factory.getConfiguration();
+            _repo = _conf.getMetaDataRepositoryInstance();
+        }
         _compat = _conf.getCompatibilityInstance();
         _factory = factory;
         _log = _conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
         if (!fromDeserialization)
             _cache = new ManagedCache(this);
+        // Force creation of a new operating set
+        _operatingDirty = true;
         initializeOperatingSet();
+
         _connRetainMode = connMode;
         _managed = managed;
         if (managed)
@@ -340,8 +356,7 @@ public class BrokerImpl
         if (!fromDeserialization) {
             _lifeEventManager = _conf.getLifecycleEventManagerInstance();
             _transEventManager = new TransactionEventManager();
-            int cmode = _conf.getMetaDataRepositoryInstance().
-                getMetaDataFactory().getDefaults().getCallbackMode();
+            int cmode = _repo.getMetaDataFactory().getDefaults().getCallbackMode();
             setLifecycleListenerCallbackMode(cmode);
             setTransactionListenerCallbackMode(cmode);
 
@@ -367,15 +382,33 @@ public class BrokerImpl
             _fc.setContext(this);
         }
 
+        _instm = _conf.getInstrumentationManagerInstance();
+        if (_instm != null) {
+            _instm.start(InstrumentationLevel.BROKER, this);
+        }
+
+        _dmLite = new DetachManagerLite(_conf);
+        _printParameters =
+            Boolean.parseBoolean(Configurations.parseProperties(_conf.getConnectionFactoryProperties()).getProperty(
+                PRINT_PARAMETERS_CONFIG_STR, "false"));
+
+        // do it before begin event otherwise transactional listeners can't use it, see @Auditable
+        if (!fromDeserialization)
+            _factory.addListeners(this);
+
         // synch with the global transaction in progress, if any
         if (_factory.syncWithManagedTransaction(this, false))
             beginInternal();
     }
 
+    @SuppressWarnings("unchecked")
     private void initializeOperatingSet() {
-        _operating = MapBackedSet.decorate(new IdentityMap());
+        if(_operatingDirty) {
+            _operatingDirty = false;
+            _operating = MapBackedSet.mapBackedSet(new IdentityHashMap<>());
+        }
     }
-    
+
     /**
      * Gets the unmodifiable set of instances being operated.
      */
@@ -383,6 +416,7 @@ public class BrokerImpl
     	return Collections.unmodifiableSet(_operating);
     }
 
+    @Override
     public Object clone()
         throws CloneNotSupportedException {
         if (_initializeWasInvoked)
@@ -398,13 +432,15 @@ public class BrokerImpl
      * {@link ReferenceMap} with soft values.
      */
     protected Map<?,?> newManagedObjectCache() {
-        return new ReferenceHashMap(ReferenceMap.HARD, ReferenceMap.SOFT);
+        return new ReferenceHashMap(
+                AbstractReferenceMap.ReferenceStrength.HARD, AbstractReferenceMap.ReferenceStrength.SOFT);
     }
 
     //////////////////////////////////
     // Implementation of StoreContext
     //////////////////////////////////
 
+    @Override
     public Broker getBroker() {
         return this;
     }
@@ -413,6 +449,7 @@ public class BrokerImpl
     // Properties
     //////////////
 
+    @Override
     public void setImplicitBehavior(OpCallbacks call,
         RuntimeExceptionTranslator ex) {
         if (_call == null)
@@ -425,26 +462,36 @@ public class BrokerImpl
         return (_operationCount == 0) ? _extrans : null;
     }
 
+    @Override
     public BrokerFactory getBrokerFactory() {
         return _factory;
     }
 
+    @Override
     public OpenJPAConfiguration getConfiguration() {
         return _conf;
     }
 
+    @Override
     public FetchConfiguration getFetchConfiguration() {
         return _fc;
     }
 
+    @Override
     public FetchConfiguration pushFetchConfiguration() {
+		return pushFetchConfiguration(null);
+    }
+
+    @Override
+    public FetchConfiguration pushFetchConfiguration(FetchConfiguration fc) {
         if (_fcs == null)
-            _fcs = new LinkedList<FetchConfiguration>();
+            _fcs = new LinkedList<>();
         _fcs.add(_fc);
-        _fc = (FetchConfiguration) _fc.clone();
+        _fc = (FetchConfiguration) (fc != null ? fc : _fc).clone();
         return _fc;
     }
 
+    @Override
     public void popFetchConfiguration() {
         if (_fcs == null || _fcs.isEmpty())
             throw new UserException(
@@ -452,46 +499,57 @@ public class BrokerImpl
         _fc = _fcs.removeLast();
     }
 
+    @Override
     public int getConnectionRetainMode() {
         return _connRetainMode;
     }
 
+    @Override
     public boolean isManaged() {
         return _managed;
     }
 
+    @Override
     public ManagedRuntime getManagedRuntime() {
         return _runtime;
     }
 
+    @Override
     public ClassLoader getClassLoader() {
         return _loader;
     }
 
+    @Override
     public DelegatingStoreManager getStoreManager() {
         return _store;
     }
 
+    @Override
     public LockManager getLockManager() {
         return _lm;
     }
 
+    @Override
     public InverseManager getInverseManager() {
         return _im;
     }
 
+    @Override
     public String getConnectionUserName() {
         return _user;
     }
 
+    @Override
     public String getConnectionPassword() {
         return _pass;
     }
 
+    @Override
     public boolean getMultithreaded() {
         return _multithreaded;
     }
 
+    @Override
     public void setMultithreaded(boolean multithreaded) {
         assertOpen();
         _multithreaded = multithreaded;
@@ -501,19 +559,23 @@ public class BrokerImpl
             _lock = null;
     }
 
+    @Override
     public boolean getIgnoreChanges() {
         return _ignoreChanges;
     }
 
+    @Override
     public void setIgnoreChanges(boolean val) {
         assertOpen();
         _ignoreChanges = val;
     }
 
+    @Override
     public boolean getNontransactionalRead() {
         return _nontransRead;
     }
 
+    @Override
     public void setNontransactionalRead(boolean val) {
         assertOpen();
         if ((_flags & FLAG_PRESTORING) != 0)
@@ -528,10 +590,12 @@ public class BrokerImpl
         _nontransRead = val;
     }
 
+    @Override
     public boolean getNontransactionalWrite() {
         return _nontransWrite;
     }
 
+    @Override
     public void setNontransactionalWrite(boolean val) {
         assertOpen();
         if ((_flags & FLAG_PRESTORING) != 0)
@@ -540,10 +604,12 @@ public class BrokerImpl
         _nontransWrite = val;
     }
 
+    @Override
     public boolean getOptimistic() {
         return _optimistic;
     }
 
+    @Override
     public void setOptimistic(boolean val) {
         assertOpen();
         if ((_flags & FLAG_ACTIVE) != 0)
@@ -558,10 +624,12 @@ public class BrokerImpl
         _optimistic = val;
     }
 
+    @Override
     public int getRestoreState() {
         return _restoreState;
     }
 
+    @Override
     public void setRestoreState(int val) {
         assertOpen();
         if ((_flags & FLAG_ACTIVE) != 0)
@@ -571,10 +639,12 @@ public class BrokerImpl
         _restoreState = val;
     }
 
+    @Override
     public boolean getRetainState() {
         return _retainState;
     }
 
+    @Override
     public void setRetainState(boolean val) {
         assertOpen();
         if ((_flags & FLAG_PRESTORING) != 0)
@@ -582,86 +652,111 @@ public class BrokerImpl
         _retainState = val;
     }
 
+    @Override
     public int getAutoClear() {
         return _autoClear;
     }
 
+    @Override
     public void setAutoClear(int val) {
         assertOpen();
         _autoClear = val;
     }
 
+    @Override
     public int getAutoDetach() {
         return _autoDetach;
     }
-
+    /**
+     * Sets automatic detachment option.
+     * <br>
+     * If the given flag contains {@link AutoDetach#DETACH_NONE} option,
+     * then no other option can be specified.
+     */
+    @Override
     public void setAutoDetach(int detachFlags) {
-        assertOpen();
-        _autoDetach = detachFlags;
+         assertOpen();
+         assertAutoDetachValue(detachFlags);
+         _autoDetach = detachFlags;
     }
 
+    @Override
     public void setAutoDetach(int detachFlag, boolean on) {
-        assertOpen();
-        if (on)
-            _autoDetach |= detachFlag;
-        else
-            _autoDetach &= ~detachFlag;
+         assertOpen();
+         assertAutoDetachValue(on ? _autoDetach | detachFlag : _autoDetach & ~detachFlag);
+         if (on)
+             _autoDetach |= detachFlag;
+         else
+             _autoDetach &= ~detachFlag;
     }
 
+    @Override
     public int getDetachState() {
         return _detachState;
     }
 
+    @Override
     public void setDetachState(int mode) {
         assertOpen();
         _detachState = mode;
     }
 
+    @Override
     public boolean isDetachedNew() {
         return _detachedNew;
     }
 
+    @Override
     public void setDetachedNew(boolean isNew) {
         assertOpen();
         _detachedNew = isNew;
     }
 
+    @Override
     public boolean getSyncWithManagedTransactions() {
         return _syncManaged;
     }
 
+    @Override
     public void setSyncWithManagedTransactions(boolean sync) {
         assertOpen();
         _syncManaged = sync;
     }
 
+    @Override
     public boolean getEvictFromDataCache() {
         return _evictDataCache;
     }
 
+    @Override
     public void setEvictFromDataCache(boolean evict) {
         assertOpen();
         _evictDataCache = evict;
     }
 
+    @Override
     public boolean getPopulateDataCache() {
         return _populateDataCache;
     }
 
+    @Override
     public void setPopulateDataCache(boolean cache) {
         assertOpen();
         _populateDataCache = cache;
     }
 
+    @Override
     public boolean isTrackChangesByType() {
         return _largeTransaction;
     }
 
+    @Override
     public void setTrackChangesByType(boolean largeTransaction) {
         assertOpen();
         _largeTransaction = largeTransaction;
     }
 
+    @Override
     public Object getUserObject(Object key) {
         beginOperation(false);
         try {
@@ -671,6 +766,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Object putUserObject(Object key, Object val) {
         beginOperation(false);
         try {
@@ -678,7 +774,7 @@ public class BrokerImpl
                 return (_userObjects == null) ? null : _userObjects.remove(key);
 
             if (_userObjects == null)
-                _userObjects = new HashMap<Object, Object>();
+                _userObjects = new HashMap<>();
             return _userObjects.put(key, val);
         } finally {
             endOperation();
@@ -687,22 +783,27 @@ public class BrokerImpl
 
     /**
      * Get current configuration property values used by this instance.
-     * This values are combination of the current configuration values 
+     * This values are combination of the current configuration values
      * overwritten by values maintained by this instance such as
-     * Optimistic flag. 
+     * Optimistic flag.
      */
+    @Override
     public Map<String, Object> getProperties() {
         Map<String, Object> props = _conf.toProperties(true);
         for (String s : _supportedPropertyNames) {
-            props.put("openjpa." + s, Reflection.getValue(this, s, true));
+            final Object value = Reflection.getValue(this, s, !"CacheFinderQuery".equals(s));
+            if (value != null) {
+                props.put("openjpa." + s, value);
+            }
         }
         return props;
     }
-    
+
     /**
      * Gets the property names that can be used to corresponding setter methods of this receiver
      * to set its value.
-     */    
+     */
+    @Override
     public Set<String> getSupportedProperties() {
         Set<String> keys = _conf.getPropertyKeys();
         for (String s : _supportedPropertyNames)
@@ -714,6 +815,7 @@ public class BrokerImpl
     // Events
     // ////////
 
+    @Override
     public void addLifecycleListener(Object listener, Class[] classes) {
         beginOperation(false);
         try {
@@ -723,6 +825,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void removeLifecycleListener(Object listener) {
         beginOperation(false);
         try {
@@ -732,10 +835,12 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public int getLifecycleListenerCallbackMode() {
         return _lifeCallbackMode;
     }
 
+    @Override
     public void setLifecycleListenerCallbackMode(int mode) {
         beginOperation(false);
         try {
@@ -749,6 +854,7 @@ public class BrokerImpl
     /**
      * Give state managers access to the lifecycle event manager.
      */
+    @Override
     public LifecycleEventManager getLifecycleEventManager() {
         return _lifeEventManager;
     }
@@ -762,6 +868,8 @@ public class BrokerImpl
         int eventType) {
         if (_lifeEventManager == null)
             return false;
+        if (!_lifeEventManager.isActive(meta))
+            return false;
 
         lock();
         Exception[] exs;
@@ -769,7 +877,7 @@ public class BrokerImpl
             exs = _lifeEventManager.fireEvent(src, related, meta, eventType);
         } finally {
             unlock();
-        } 
+        }
         handleCallbackExceptions(exs, _lifeCallbackMode);
         return true;
     }
@@ -783,7 +891,7 @@ public class BrokerImpl
 
         OpenJPAException ce;
         if (exceps.length == 1) {
-            // If the exception is already a wrapped exception throw the 
+            // If the exception is already a wrapped exception throw the
             // exception instead of wrapping it with a callback exception
             if (exceps[0] instanceof WrappedException)
                 throw (WrappedException)exceps[0];
@@ -803,6 +911,7 @@ public class BrokerImpl
             throw ce;
     }
 
+    @Override
     public void addTransactionListener(Object tl) {
         beginOperation(false);
         try {
@@ -814,6 +923,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void removeTransactionListener(Object tl) {
         beginOperation(false);
         try {
@@ -824,15 +934,18 @@ public class BrokerImpl
             endOperation();
         }
     }
-    
+
+    @Override
     public Collection<Object> getTransactionListeners() {
         return _transEventManager.getListeners();
     }
 
+    @Override
     public int getTransactionListenerCallbackMode() {
         return _transCallbackMode;
     }
 
+    @Override
     public void setTransactionListenerCallbackMode(int mode) {
         beginOperation(false);
         try {
@@ -847,7 +960,7 @@ public class BrokerImpl
      * Fire given transaction event, handling any exceptions appropriately.
      */
     private void fireTransactionEvent(TransactionEvent trans) {
-        if (_transEventManager != null)
+        if (_transEventManager != null && _transEventManager.hasListeners())
             handleCallbackExceptions(_transEventManager.fireEvent(trans),
                 _transCallbackMode);
     }
@@ -855,13 +968,11 @@ public class BrokerImpl
     /**
      * Set whether this Broker will generate verbose optimistic lock exceptions when batching
      * operations. Defaults to true.
-     * 
-     * @param b
      */
     public void setSuppressBatchOLELogging(boolean b) {
         _suppressBatchOLELogging = b;
     }
-    
+
     /**
      * Return whether this Broker will generate verbose optimistic lock exceptions when batching
      * operations.
@@ -873,6 +984,7 @@ public class BrokerImpl
     // Lookups
     ///////////
 
+    @Override
     public Object find(Object oid, boolean validate, FindCallbacks call) {
         int flags = OID_COPY | OID_ALLOW_NEW | OID_NODELETED;
         if (!validate)
@@ -880,6 +992,7 @@ public class BrokerImpl
         return find(oid, _fc, null, null, flags, call);
     }
 
+    @Override
     public Object find(Object oid, FetchConfiguration fetch, BitSet exclude,
         Object edata, int flags) {
         return find(oid, fetch, exclude, edata, flags, null);
@@ -919,7 +1032,7 @@ public class BrokerImpl
                         sm.transactional();
                     boolean loaded;
                     try {
-                        loaded = sm.load(fetch, StateManagerImpl.LOAD_FGS, 
+                        loaded = sm.load(fetch, StateManagerImpl.LOAD_FGS,
                             exclude, edata, false);
                     } catch (ObjectNotFoundException onfe) {
                         if ((flags & OID_NODELETED) != 0
@@ -1011,6 +1124,7 @@ public class BrokerImpl
         return sm;
     }
 
+    @Override
     public Object[] findAll(Collection oids, boolean validate,
         FindCallbacks call) {
         int flags = OID_COPY | OID_ALLOW_NEW | OID_NODELETED;
@@ -1019,6 +1133,7 @@ public class BrokerImpl
         return findAll(oids, _fc, null, null, flags, call);
     }
 
+    @Override
     public Object[] findAll(Collection oids, FetchConfiguration fetch,
         BitSet exclude, Object edata, int flags) {
         return findAll(oids, fetch, exclude, edata, flags, null);
@@ -1041,7 +1156,7 @@ public class BrokerImpl
         // array, so that we make sure not to create multiple sms for equivalent
         // oids if the user has duplicates in the given array
         if (_loading == null)
-            _loading = new HashMap<Object, StateManagerImpl>((int) (oids.size() * 1.33 + 1));
+            _loading = new HashMap<>((int) (oids.size() * 1.33 + 1));
 
         if (call == null)
             call = this;
@@ -1080,7 +1195,7 @@ public class BrokerImpl
                     if (initialized && !sm.isTransactional() && transState)
                         sm.transactional();
                     if (load == null)
-                        load = new ArrayList<OpenJPAStateManager>(oids.size() - idx);
+                        load = new ArrayList<>(oids.size() - idx);
                     load.add(sm);
                 } else if (!initialized)
                     sm.initialize(sm.getMetaData().getDescribedType(),
@@ -1099,8 +1214,9 @@ public class BrokerImpl
                 if (failed != null && !failed.isEmpty()) {
                     if ((flags & OID_NOVALIDATE) != 0)
                         throw newObjectNotFoundException(failed);
-                    for (Iterator<Object> itr = failed.iterator(); itr.hasNext();)
-                        _loading.put(itr.next(), null);
+                    for (Object o : failed) {
+                        _loading.put(o, null);
+                    }
                 }
             }
 
@@ -1144,6 +1260,13 @@ public class BrokerImpl
         }
     }
 
+    public boolean isLoading(Object o) {
+        if(_loading == null ) {
+            return false;
+        }
+        return _loading.containsKey(o);
+    }
+
     private boolean hasFlushed() {
         return (_flags & FLAG_FLUSHED) != 0;
     }
@@ -1176,6 +1299,7 @@ public class BrokerImpl
             || fetch.getReadLockLevel() != LOCK_NONE);
     }
 
+    @Override
     public Object findCached(Object oid, FindCallbacks call) {
         if (call == null)
             call = this;
@@ -1192,14 +1316,14 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Class<?> getObjectIdType(Class<?> cls) {
         if (cls == null)
             return null;
 
         beginOperation(false);
         try {
-            ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
-                getMetaData(cls, _loader, false);
+            ClassMetaData meta = _repo.getMetaData(cls, _loader, false);
             if (meta == null
                 || meta.getIdentityType() == ClassMetaData.ID_UNKNOWN)
                 return null;
@@ -1216,14 +1340,14 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Object newObjectId(Class<?> cls, Object val) {
         if (val == null)
             return null;
 
         beginOperation(false);
         try {
-            ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
-                getMetaData(cls, _loader, true);
+            ClassMetaData meta = _repo.getMetaData(cls, _loader, true);
             switch (meta.getIdentityType()) {
             case ClassMetaData.ID_DATASTORE:
                 // delegate to store manager for datastore ids
@@ -1232,16 +1356,16 @@ public class BrokerImpl
                     return new StateManagerId((String) val);
                 return _store.newDataStoreId(val, meta);
             case ClassMetaData.ID_APPLICATION:
-                if (ImplHelper.isAssignable(meta.getObjectIdType(), 
+                if (ImplHelper.isAssignable(meta.getObjectIdType(),
                     val.getClass())) {
-                    if (!meta.isOpenJPAIdentity() 
+                    if (!meta.isOpenJPAIdentity()
                         && meta.isObjectIdTypeShared())
                         return new ObjectId(cls, val);
                     return val;
                 }
 
                 // stringified app id?
-                if (val instanceof String 
+                if (val instanceof String
                     && !_conf.getCompatibilityInstance().
                         getStrictIdentityValues()
                     && !Modifier.isAbstract(cls.getModifiers()))
@@ -1253,16 +1377,14 @@ public class BrokerImpl
             default:
                 throw new UserException(_loc.get("meta-unknownid", cls));
             }
-        } catch (IllegalArgumentException iae) {
+        } catch (IllegalArgumentException | ClassCastException iae) {
         	// OPENJPA-365
         	throw new UserException(_loc.get("bad-id-value", val,
                 val.getClass().getName(), cls)).setCause(iae);
         } catch (OpenJPAException ke) {
             throw ke;
-        } catch (ClassCastException cce) {
-            throw new UserException(_loc.get("bad-id-value", val,
-                val.getClass().getName(), cls)).setCause(cce);
-        } catch (RuntimeException re) {
+        }
+        catch (RuntimeException re) {
             throw new GeneralException(re);
         } finally {
             endOperation();
@@ -1283,12 +1405,11 @@ public class BrokerImpl
 
         // find metadata for the oid
         Class<?> pcType = _store.getManagedType(oid);
-        MetaDataRepository repos = _conf.getMetaDataRepositoryInstance();
         ClassMetaData meta;
         if (pcType != null)
-            meta = repos.getMetaData(pcType, _loader, true);
+            meta = _repo.getMetaData(pcType, _loader, true);
         else
-            meta = repos.getMetaData(oid, _loader, true);
+            meta = _repo.getMetaData(oid, _loader, true);
 
         // copy the oid if needed
         if (copy && _compat.getCopyObjectIds()) {
@@ -1317,6 +1438,7 @@ public class BrokerImpl
     // Transaction
     ///////////////
 
+    @Override
     public void begin() {
         beginOperation(true);
         try {
@@ -1362,8 +1484,8 @@ public class BrokerImpl
 
         if (_pending != null) {
             StateManagerImpl sm;
-            for (Iterator<StateManagerImpl> it = _pending.iterator(); it.hasNext();) {
-                sm = (StateManagerImpl) it.next();
+            for (StateManagerImpl stateManager : _pending) {
+                sm = stateManager;
                 sm.transactional();
                 if (sm.isDirty())
                     setDirty(sm, true);
@@ -1372,6 +1494,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void beginStore() {
         beginOperation(true);
         try {
@@ -1426,13 +1549,13 @@ public class BrokerImpl
                         Collection<Class<?>> up = getUpdatedTypes();
                         int size = pers.size() + del.size() + up.size();
                         if (size > 0) {
-                            Collection<Class<?>> types = new ArrayList<Class<?>>(size);
+                            Collection<Class<?>> types = new ArrayList<>(size);
                             types.addAll(pers);
                             types.addAll(del);
                             types.addAll(up);
                             queryCache.onTypesChanged(new TypesChangedEvent(this, types));
                         }
-                    } 
+                    }
                     _store.commit();
                 }
             } else {
@@ -1464,12 +1587,13 @@ public class BrokerImpl
         return err;
     }
 
+    @Override
     public void commit() {
         beginOperation(false);
         try {
             assertTransactionOperation();
 
-            javax.transaction.Transaction trans =
+            jakarta.transaction.Transaction trans =
                 _runtime.getTransactionManager().getTransaction();
             if (trans == null)
                 throw new InvalidStateException(_loc.get("null-trans"));
@@ -1490,12 +1614,13 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void rollback() {
         beginOperation(false);
         try {
             assertTransactionOperation();
 
-            javax.transaction.Transaction trans =
+            jakarta.transaction.Transaction trans =
                 _runtime.getTransactionManager().getTransaction();
             if (trans != null)
                 trans.rollback();
@@ -1512,6 +1637,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public boolean syncWithManagedTransaction() {
         assertOpen();
         lock();
@@ -1530,10 +1656,12 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void commitAndResume() {
         endAndResume(true);
     }
 
+    @Override
     public void rollbackAndResume() {
         endAndResume(false);
     }
@@ -1551,13 +1679,14 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public boolean getRollbackOnly() {
         beginOperation(true);
         try {
             if ((_flags & FLAG_ACTIVE) == 0)
                 return false;
 
-            javax.transaction.Transaction trans =
+            jakarta.transaction.Transaction trans =
                 _runtime.getTransactionManager().getTransaction();
             if (trans == null)
                 return false;
@@ -1571,13 +1700,14 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Throwable getRollbackCause() {
         beginOperation(true);
         try {
             if ((_flags & FLAG_ACTIVE) == 0)
                 return null;
 
-            javax.transaction.Transaction trans =
+            jakarta.transaction.Transaction trans =
                 _runtime.getTransactionManager().getTransaction();
             if (trans == null)
                 return null;
@@ -1594,10 +1724,12 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void setRollbackOnly() {
         setRollbackOnly(new UserException());
     }
 
+    @Override
     public void setRollbackOnly(Throwable cause) {
         beginOperation(true);
         try {
@@ -1613,7 +1745,7 @@ public class BrokerImpl
      */
     private void setRollbackOnlyInternal(Throwable cause) {
         try {
-            javax.transaction.Transaction trans =
+            jakarta.transaction.Transaction trans =
                 _runtime.getTransactionManager().getTransaction();
             if (trans == null)
                 throw new InvalidStateException(_loc.get("null-trans"));
@@ -1624,8 +1756,7 @@ public class BrokerImpl
                     && (tranStatus != Status.STATUS_COMMITTED))
                 _runtime.setRollbackOnly(cause);
             else if (_log.isTraceEnabled())
-                _log.trace(_loc.get("invalid-tran-status", new Integer(
-                        tranStatus), "setRollbackOnly"));
+                _log.trace(_loc.get("invalid-tran-status", tranStatus, "setRollbackOnly"));
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (Exception e) {
@@ -1633,6 +1764,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void setSavepoint(String name) {
         beginOperation(true);
         try {
@@ -1666,6 +1798,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void releaseSavepoint() {
         beginOperation(false);
         try {
@@ -1678,6 +1811,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void releaseSavepoint(String savepoint) {
         beginOperation(false);
         try {
@@ -1709,6 +1843,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void rollbackToSavepoint() {
         beginOperation(false);
         try {
@@ -1721,6 +1856,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void rollbackToSavepoint(String savepoint) {
         beginOperation(false);
         try {
@@ -1758,8 +1894,8 @@ public class BrokerImpl
                 // more info per state
                 SavepointFieldManager fm;
                 StateManagerImpl sm;
-                for (Iterator<?> itr = saved.iterator(); itr.hasNext();) {
-                    fm = (SavepointFieldManager) itr.next();
+                for (Object value : saved) {
+                    fm = (SavepointFieldManager) value;
                     sm = fm.getStateManager();
                     sm.rollbackToSavepoint(fm);
                     oldTransCache.remove(sm);
@@ -1768,8 +1904,8 @@ public class BrokerImpl
                     else
                         newTransCache.addClean(sm);
                 }
-                for (Iterator<?> itr = oldTransCache.iterator(); itr.hasNext();) {
-                    sm = (StateManagerImpl) itr.next();
+                for (Object o : oldTransCache) {
+                    sm = (StateManagerImpl) o;
                     sm.rollback();
                     removeFromTransaction(sm);
                 }
@@ -1785,6 +1921,26 @@ public class BrokerImpl
         }
     }
 
+    /**
+     * Sets the given flag to the status.
+     *
+     * @since 2.3.0
+     */
+    protected void setStatusFlag(int flag) {
+    	_flags |= flag;
+    }
+
+    /**
+     * Clears the given flag from the status.
+     *
+     * @since 2.3.0
+     */
+    protected void clearStatusFlag(int flag) {
+    	_flags &= ~flag;
+    }
+
+
+    @Override
     public void flush() {
         beginOperation(true);
         try {
@@ -1822,6 +1978,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void preFlush() {
         beginOperation(true);
         try {
@@ -1832,6 +1989,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void validateChanges() {
         beginOperation(true);
         try {
@@ -1861,6 +2019,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public boolean isActive() {
         beginOperation(true);
         try {
@@ -1870,6 +2029,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public boolean isStoreActive() {
         // we need to lock here, because we might be in the middle of an
         // atomic transaction process (e.g., commitAndResume)
@@ -1889,6 +2049,7 @@ public class BrokerImpl
         return (_flags & FLAG_TRANS_ENDING) != 0;
     }
 
+    @Override
     public boolean beginOperation(boolean syncTrans) {
         lock();
         try {
@@ -1911,6 +2072,7 @@ public class BrokerImpl
      * Mark the operation over. If outermost caller of stack, returns true
      * and will detach managed instances if necessary.
      */
+    @Override
     public boolean endOperation() {
         try {
             if (_operationCount == 1 && (_autoDetach & DETACH_NONTXREAD) != 0
@@ -1945,6 +2107,7 @@ public class BrokerImpl
     // Implementation of Synchronization interface
     ///////////////////////////////////////////////
 
+    @Override
     public void beforeCompletion() {
         beginOperation(false);
         try {
@@ -1966,6 +2129,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void afterCompletion(int status) {
         beginOperation(false);
         try {
@@ -2003,7 +2167,7 @@ public class BrokerImpl
             _flags &= ~FLAG_TRANS_ENDING;
 
             // event manager nulled if freed broker
-            if (_transEventManager != null 
+            if (_transEventManager != null
                 && _transEventManager.hasEndListeners()) {
                 fireTransactionEvent(new TransactionEvent(this,
                     status == Status.STATUS_COMMITTED
@@ -2073,8 +2237,9 @@ public class BrokerImpl
         try {
             if (flush) {
                 // call pre store on all currently transactional objs
-                for (Iterator itr = transactional.iterator(); itr.hasNext();)
-                    ((StateManagerImpl) itr.next()).beforeFlush(reason, _call);
+                for (Object o : transactional) {
+                    ((StateManagerImpl) o).beforeFlush(reason, _call);
+                }
                 flushAdditions(transactional, reason);
             }
 
@@ -2083,8 +2248,13 @@ public class BrokerImpl
             // dependents
             _flags |= FLAG_DEREFDELETING;
             if (flush && _derefCache != null && !_derefCache.isEmpty()) {
-                for (Iterator<StateManagerImpl> itr = _derefCache.iterator(); itr.hasNext();)
-                    deleteDeref(itr.next());
+                // mark for delete all elements in deref, otherwise in some situations it
+                // throws ConcurrentModificationException
+                Set<StateManagerImpl> statesMarkedForDelete = new HashSet<>(_derefCache);
+                for (StateManagerImpl state: statesMarkedForDelete) {
+                    deleteDeref(state);
+                }
+
                 flushAdditions(transactional, reason);
             }
 
@@ -2103,7 +2273,7 @@ public class BrokerImpl
                     mobjs = new ManagedObjectCollection(transactional);
                     if (reason == FLUSH_COMMIT
                         && _transEventManager.hasEndListeners()) {
-                        fireTransactionEvent(new TransactionEvent(this, 
+                        fireTransactionEvent(new TransactionEvent(this,
                             TransactionEvent.BEFORE_COMMIT, mobjs,
                             _persistedClss, _updatedClss, _deletedClss));
 
@@ -2112,7 +2282,7 @@ public class BrokerImpl
                     }
 
                     if (flush && _transEventManager.hasFlushListeners()) {
-                        fireTransactionEvent(new TransactionEvent(this, 
+                        fireTransactionEvent(new TransactionEvent(this,
                             TransactionEvent.BEFORE_FLUSH, mobjs,
                             _persistedClss, _updatedClss, _deletedClss));
                         flushAdditions(transactional, reason);
@@ -2150,8 +2320,8 @@ public class BrokerImpl
             // mark states as flushed
             if (flush) {
                 StateManagerImpl sm;
-                for (Iterator itr = transactional.iterator(); itr.hasNext();) {
-                    sm = (StateManagerImpl) itr.next();
+                for (Object o : transactional) {
+                    sm = (StateManagerImpl) o;
                     try {
                         // the state may have become transient, such as if
                         // it is embedded and the owner has been deleted during
@@ -2161,14 +2331,15 @@ public class BrokerImpl
 
                         sm.afterFlush(reason);
                         if (reason == FLUSH_INC) {
-                            // if not about to clear trans cache for commit 
+                            // if not about to clear trans cache for commit
                             // anyway, re-cache dirty objects with default soft
-                            // refs; we don't need hard refs now that the 
+                            // refs; we don't need hard refs now that the
                             // changes have been flushed
                             sm.proxyFields(true, false);
                             _transCache.flushed(sm);
                         }
-                    } catch (Exception e) {
+                    }
+                    catch (Exception e) {
                         exceps = add(exceps, e);
                     }
                 }
@@ -2209,12 +2380,13 @@ public class BrokerImpl
         transactional.addAll(_transAdditions);
 
         // copy the change set, then clear it for the next iteration
-        StateManagerImpl[] states = (StateManagerImpl[]) _transAdditions.
+        StateManagerImpl[] states = _transAdditions.
             toArray(new StateManagerImpl[_transAdditions.size()]);
         _transAdditions = null;
 
-        for (int i = 0; i < states.length; i++)
-            states[i].beforeFlush(reason, _call);
+        for (StateManagerImpl state : states) {
+            state.beforeFlush(reason, _call);
+        }
         return true;
     }
 
@@ -2228,12 +2400,13 @@ public class BrokerImpl
         // remember these additions in case one becomes derefed again later
         derefs.addAll(_derefAdditions);
 
-        StateManagerImpl[] states = (StateManagerImpl[]) _derefAdditions.
+        StateManagerImpl[] states = _derefAdditions.
             toArray(new StateManagerImpl[_derefAdditions.size()]);
         _derefAdditions = null;
 
-        for (int i = 0; i < states.length; i++)
-            deleteDeref(states[i]);
+        for (StateManagerImpl state : states) {
+            deleteDeref(state);
+        }
         return true;
     }
 
@@ -2271,7 +2444,7 @@ public class BrokerImpl
             return null;
 
         Throwable[] t = exceps.toArray(new Throwable[exceps.size()]);
-        List<Object> failed = new ArrayList<Object>(t.length);
+        List<Object> failed = new ArrayList<>(t.length);
 
         // create fatal exception with nested exceptions for all the failed
         // objects; if all OL exceptions, throw a top-level OL exception
@@ -2285,7 +2458,7 @@ public class BrokerImpl
             }
         }
         if (opt && !failed.isEmpty()) {
-            if(_suppressBatchOLELogging == true){
+            if(_suppressBatchOLELogging){
                 return new OptimisticException(_loc.get("broker-suppressing-exceptions",t.length));
             }else{
                 return new OptimisticException(failed, t);
@@ -2293,12 +2466,12 @@ public class BrokerImpl
         }
         if (opt)
             return new OptimisticException(t);
-        
+
         Object failedObject = null;
         if (t[0] instanceof OpenJPAException){
-        	failedObject = ((OpenJPAException)t[0]).getFailedObject();
+            failedObject = ((OpenJPAException)t[0]).getFailedObject();
         }
-        
+
         return new StoreException(_loc.get("rolled-back")).
             setNestedThrowables(t).setFatal(true).setFailedObject(failedObject);
     }
@@ -2336,7 +2509,7 @@ public class BrokerImpl
             mobjs = new ManagedObjectCollection(transStates);
             int eventType = (rollback) ? TransactionEvent.AFTER_ROLLBACK
                 : TransactionEvent.AFTER_COMMIT;
-            fireTransactionEvent(new TransactionEvent(this, eventType, mobjs, 
+            fireTransactionEvent(new TransactionEvent(this, eventType, mobjs,
                 _persistedClss, _updatedClss, _deletedClss));
         }
 
@@ -2360,29 +2533,32 @@ public class BrokerImpl
         // rely on rollback and commit calls below cause some instances might
         // not be transactional
         if (_derefCache != null && !_derefCache.isEmpty()) {
-            for (Iterator<StateManagerImpl> itr = _derefCache.iterator(); itr.hasNext();)
-                itr.next().setDereferencedDependent(false, false);
+            for (StateManagerImpl stateManager : _derefCache) {
+                stateManager.setDereferencedDependent(false, false);
+            }
             _derefCache = null;
         }
 
         // perform commit or rollback state transitions on each instance
         StateManagerImpl sm;
-        for (Iterator itr = transStates.iterator(); itr.hasNext();) {
-            sm = (StateManagerImpl) itr.next();
+        for (Object transState : transStates) {
+            sm = (StateManagerImpl) transState;
             try {
                 if (rollback) {
                     // tell objects that may have been derefed then flushed
                     // (and therefore deleted) to un-deref
                     sm.setDereferencedDependent(false, false);
                     sm.rollback();
-                } else {
+                }
+                else {
                     if (sm.getPCState() == PCState.PNEWDELETED || sm.getPCState() == PCState.PDELETED) {
-                        fireLifecycleEvent(sm.getPersistenceCapable(), null, sm.getMetaData(), 
-                            LifecycleEvent.AFTER_DELETE_PERFORMED);
+                        fireLifecycleEvent(sm.getPersistenceCapable(), null, sm.getMetaData(),
+                                LifecycleEvent.AFTER_DELETE_PERFORMED);
                     }
                     sm.commit();
                 }
-            } catch (RuntimeException re) {
+            }
+            catch (RuntimeException re) {
                 exceps = add(exceps, re);
             }
         }
@@ -2419,15 +2595,18 @@ public class BrokerImpl
     // Object lifecycle
     ////////////////////
 
+    @Override
     public void persist(Object obj, OpCallbacks call) {
         persist(obj, null, true, call);
     }
 
+    @Override
     public OpenJPAStateManager persist(Object obj, Object id,
         OpCallbacks call) {
         return persist(obj, id, true, call);
     }
 
+    @Override
     public void persistAll(Collection objs, OpCallbacks call) {
         persistAll(objs, true, call);
     }
@@ -2436,7 +2615,7 @@ public class BrokerImpl
      * Persist the given objects.  Indicate whether this was an explicit persist
      * (PNEW) or a provisonal persist (PNEWPROVISIONAL).
      */
-    public void persistAll(Collection objs, boolean explicit, 
+    public void persistAll(Collection objs, boolean explicit,
         OpCallbacks call) {
         if (objs.isEmpty())
             return;
@@ -2446,11 +2625,16 @@ public class BrokerImpl
         try {
             assertWriteOperation();
 
-            for (Iterator<?> itr = objs.iterator(); itr.hasNext();) {
+            for (Object obj : objs) {
                 try {
-                    persist(itr.next(), explicit, call);
+                	if(obj == null)
+                		continue;
+                    persistInternal(obj, null, explicit, call, true);
                 } catch (UserException ue) {
                     exceps = add(exceps, ue);
+                }
+                catch (RuntimeException re) {
+                    throw new GeneralException(re);
                 }
             }
         } finally {
@@ -2467,7 +2651,7 @@ public class BrokerImpl
         if (o == null)
             return l;
         if (l == null)
-            l = new LinkedList<Exception>();
+            l = new LinkedList<>();
         l.add(o);
         return l;
     }
@@ -2483,9 +2667,9 @@ public class BrokerImpl
 
         boolean fatal = false;
         Throwable[] t = exceps.toArray(new Throwable[exceps.size()]);
-        for (int i = 0; i < t.length; i++) {
-            if (t[i] instanceof OpenJPAException
-                && ((OpenJPAException) t[i]).isFatal())
+        for (Throwable throwable : t) {
+            if (throwable instanceof OpenJPAException
+                    && ((OpenJPAException) throwable).isFatal())
                 fatal = true;
         }
         OpenJPAException err;
@@ -2511,6 +2695,16 @@ public class BrokerImpl
      */
     public OpenJPAStateManager persist(Object obj, Object id, boolean explicit,
         OpCallbacks call) {
+        return persist(obj, id, explicit, call, true);
+    }
+
+    /**
+     * Persist the given object.  Indicate whether this was an explicit persist
+     * (PNEW) or a provisonal persist (PNEWPROVISIONAL).
+     * See {@link Broker} for details on this method.
+     */
+    public OpenJPAStateManager persist(Object obj, Object id, boolean explicit,
+        OpCallbacks call, boolean fireEvent) {
         if (obj == null)
             return null;
 
@@ -2518,87 +2712,7 @@ public class BrokerImpl
         try {
             assertWriteOperation();
 
-            StateManagerImpl sm = getStateManagerImpl(obj, true);
-            if (!_operating.add(obj))
-                return sm;
-
-            int action = processArgument(OpCallbacks.OP_PERSIST, obj, sm, call);
-            if (action == OpCallbacks.ACT_NONE)
-                return sm;
-
-            // ACT_CASCADE
-            if ((action & OpCallbacks.ACT_RUN) == 0) {
-                if (sm != null)
-                    sm.cascadePersist(call);
-                else
-                    cascadeTransient(OpCallbacks.OP_PERSIST, obj, call,
-                        "persist");
-                return sm;
-            }
-
-            // ACT_RUN
-            PersistenceCapable pc;
-            if (sm != null) {
-                if (sm.isDetached())
-                    throw new ObjectExistsException(_loc.get
-                        ("persist-detached", Exceptions.toString(obj))).
-                        setFailedObject(obj);
-
-                if (!sm.isEmbedded()) {
-                    sm.persist();
-                    _cache.persist(sm);
-                    if ((action & OpCallbacks.ACT_CASCADE) != 0)
-                        sm.cascadePersist(call);
-                    return sm;
-                }
-
-                // an embedded field; notify the owner that the value has
-                // changed by becoming independently persistent
-                sm.getOwner().dirty(sm.getOwnerIndex());
-                _cache.persist(sm);
-                pc = sm.getPersistenceCapable();
-            } else {
-                pc = assertPersistenceCapable(obj);
-                if (pc.pcIsDetached() == Boolean.TRUE)
-                    throw new ObjectExistsException(_loc.get
-                        ("persist-detached", Exceptions.toString(obj))).
-                        setFailedObject(obj);
-            }
-
-            ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
-                getMetaData(obj.getClass(), _loader, true);
-            fireLifecycleEvent(obj, null, meta, LifecycleEvent.BEFORE_PERSIST);
-
-            // create id for instance
-            if (id == null) {
-            	int idType = meta.getIdentityType();
-                if (idType == ClassMetaData.ID_APPLICATION)
-                    id = ApplicationIds.create(pc, meta);
-                else if (idType == ClassMetaData.ID_UNKNOWN)
-                    throw new UserException(_loc.get("meta-unknownid", meta));
-                else
-                    id = StateManagerId.newInstance(this);
-            }
-
-            // make sure we don't already have the instance cached
-            checkForDuplicateId(id, obj);
-
-            // if had embedded sm, null it
-            if (sm != null)
-                pc.pcReplaceStateManager(null);
-
-            // create new sm
-            sm = newStateManagerImpl(id, meta);
-            if ((_flags & FLAG_ACTIVE) != 0) {
-                if (explicit)
-                    sm.initialize(pc, PCState.PNEW);
-                else
-                    sm.initialize(pc, PCState.PNEWPROVISIONAL);
-            } else
-                sm.initialize(pc, PCState.PNONTRANSNEW);
-            if ((action & OpCallbacks.ACT_CASCADE) != 0)
-                sm.cascadePersist(call);
-            return sm;
+            return persistInternal(obj, id, explicit, call, fireEvent);
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (RuntimeException re) {
@@ -2606,6 +2720,100 @@ public class BrokerImpl
         } finally {
             endOperation();
         }
+    }
+
+    private OpenJPAStateManager persistInternal(Object obj, Object id, boolean explicit, OpCallbacks call,
+        boolean fireEvent) {
+        StateManagerImpl sm = getStateManagerImpl(obj, true);
+        if (!operatingAdd(obj)) {
+            return sm;
+        }
+
+        int action = processArgument(OpCallbacks.OP_PERSIST, obj, sm, call);
+        if (action == OpCallbacks.ACT_NONE) {
+            return sm;
+        }
+
+        // ACT_CASCADE
+        if ((action & OpCallbacks.ACT_RUN) == 0) {
+            if (sm != null) {
+                sm.cascadePersist(call);
+            } else {
+                cascadeTransient(OpCallbacks.OP_PERSIST, obj, call, "persist");
+            }
+            return sm;
+        }
+
+        // ACT_RUN
+        PersistenceCapable pc;
+        if (sm != null) {
+            if (sm.isDetached()) {
+                throw new ObjectExistsException(_loc.get("persist-detached", Exceptions.toString(obj)))
+                    .setFailedObject(obj);
+            }
+
+            if (!sm.isEmbedded()) {
+                sm.persist();
+                _cache.persist(sm);
+                if ((action & OpCallbacks.ACT_CASCADE) != 0) {
+                    sm.cascadePersist(call);
+                }
+                return sm;
+            }
+
+            // an embedded field; notify the owner that the value has
+            // changed by becoming independently persistent
+            sm.getOwner().dirty(sm.getOwnerIndex());
+            _cache.persist(sm);
+            pc = sm.getPersistenceCapable();
+        } else {
+            pc = assertPersistenceCapable(obj);
+            if (pc.pcIsDetached() == Boolean.TRUE) {
+                throw new ObjectExistsException(_loc.get("persist-detached", Exceptions.toString(obj)))
+                    .setFailedObject(obj);
+            }
+        }
+
+        ClassMetaData meta = _repo.getMetaData(obj.getClass(), _loader, true);
+        if (fireEvent) {
+            fireLifecycleEvent(obj, null, meta, LifecycleEvent.BEFORE_PERSIST);
+        }
+
+        // create id for instance
+        if (id == null) {
+            int idType = meta.getIdentityType();
+            if (idType == ClassMetaData.ID_APPLICATION) {
+                id = ApplicationIds.create(pc, meta);
+            } else if (idType == ClassMetaData.ID_UNKNOWN) {
+                throw new UserException(_loc.get("meta-unknownid", meta));
+            } else {
+                id = StateManagerId.newInstance(this);
+            }
+        }
+
+        // make sure we don't already have the instance cached
+        checkForDuplicateId(id, obj, meta);
+
+        // if had embedded sm, null it
+        if (sm != null) {
+            pc.pcReplaceStateManager(null);
+        }
+
+        // create new sm
+        sm = newStateManagerImpl(id, meta);
+        if ((_flags & FLAG_ACTIVE) != 0) {
+            if (explicit) {
+                sm.initialize(pc, PCState.PNEW);
+            } else {
+                sm.initialize(pc, PCState.PNEWPROVISIONAL);
+            }
+        } else {
+            sm.initialize(pc, PCState.PNONTRANSNEW);
+        }
+        if ((action & OpCallbacks.ACT_CASCADE) != 0) {
+            sm.cascadePersist(call);
+        }
+        return sm;
     }
 
     /**
@@ -2620,8 +2828,7 @@ public class BrokerImpl
         if (pc.pcGetStateManager() != null)
             throw newDetachedException(obj, errOp);
 
-        ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
-            getMetaData(obj.getClass(), _loader, true);
+        ClassMetaData meta = _repo.getMetaData(obj.getClass(), _loader, true);
         StateManagerImpl sm = newStateManagerImpl(StateManagerId.
             newInstance(this), meta);
         sm.initialize(pc, PCState.TLOADED);
@@ -2645,6 +2852,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void deleteAll(Collection objs, OpCallbacks call) {
         beginOperation(true);
         try {
@@ -2667,6 +2875,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void delete(Object obj, OpCallbacks call) {
         if (obj == null)
             return;
@@ -2688,7 +2897,7 @@ public class BrokerImpl
      * Internal delete.
      */
     void delete(Object obj, StateManagerImpl sm, OpCallbacks call) {
-        if (!_operating.add(obj))
+        if (!operatingAdd(obj))
             return;
 
         int action = processArgument(OpCallbacks.OP_DELETE, obj, sm, call);
@@ -2713,7 +2922,18 @@ public class BrokerImpl
                 throw newDetachedException(obj, "delete");
             if ((action & OpCallbacks.ACT_CASCADE) != 0) {
                 if (!sm.isEmbedded() || !sm.getDereferencedEmbedDependent()) {
-                    sm.cascadeDelete(call);
+                    if (ValidatingLifecycleEventManager.class.isAssignableFrom(_lifeEventManager.getClass())) {
+                        ValidatingLifecycleEventManager _validatingLCEventManager =
+                            (ValidatingLifecycleEventManager) _lifeEventManager;
+                        boolean saved = _validatingLCEventManager.setValidationEnabled(false);
+                        try {
+                            sm.cascadeDelete(call);
+                        } finally {
+                            _validatingLCEventManager.setValidationEnabled(saved);
+                        }
+                    } else {
+                        sm.cascadeDelete(call);
+                    }
                 }
             }
             sm.delete();
@@ -2731,6 +2951,7 @@ public class BrokerImpl
             Exceptions.toString(obj))).setFailedObject(obj);
     }
 
+    @Override
     public void releaseAll(Collection objs, OpCallbacks call) {
         beginOperation(false);
         try {
@@ -2748,6 +2969,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void release(Object obj, OpCallbacks call) {
         if (obj == null)
             return;
@@ -2775,6 +2997,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public OpenJPAStateManager embed(Object obj, Object id,
         OpenJPAStateManager owner, ValueMetaData ownerMeta) {
         beginOperation(true);
@@ -2885,7 +3108,8 @@ public class BrokerImpl
             endOperation();
         }
     }
-    
+
+    @Override
     public void refreshAll(Collection objs, OpCallbacks call) {
         if (objs == null || objs.isEmpty())
             return;
@@ -2894,19 +3118,21 @@ public class BrokerImpl
         try {
             assertNontransactionalRead();
 
-            for (Iterator<?> itr = objs.iterator(); itr.hasNext();) 
-                gatherCascadeRefresh(itr.next(), call);
+            for (Object obj : objs) {
+                gatherCascadeRefresh(obj, call);
+            }
             if (_operating.isEmpty())
-            	return;
+                return;
             if (_operating.size() == 1)
-            	refreshInternal(_operating.iterator().next(), call);
+                refreshInternal(_operating.iterator().next(), call);
             else
-            	refreshInternal(_operating, call);
+                refreshInternal(_operating, call);
         } finally {
             endOperation();
         }
     }
 
+    @Override
     public void refresh(Object obj, OpCallbacks call) {
         if (obj == null)
             return;
@@ -2934,7 +3160,7 @@ public class BrokerImpl
     void gatherCascadeRefresh(Object obj, OpCallbacks call) {
         if (obj == null)
             return;
-        if (!_operating.add(obj))
+        if (!operatingAdd(obj))
             return;
 
         StateManagerImpl sm = getStateManagerImpl(obj, false);
@@ -2961,33 +3187,35 @@ public class BrokerImpl
             Collection<OpenJPAStateManager> load = null;
             StateManagerImpl sm;
             Object obj;
-            for (Iterator<?> itr = objs.iterator(); itr.hasNext();) {
-                obj = itr.next();
+            for (Object o : objs) {
+                obj = o;
                 if (obj == null)
                     continue;
 
                 try {
                     sm = getStateManagerImpl(obj, true);
                     if ((processArgument(OpCallbacks.OP_REFRESH, obj, sm, call)
-                        & OpCallbacks.ACT_RUN) == 0)
+                            & OpCallbacks.ACT_RUN) == 0)
                         continue;
 
                     if (sm != null) {
-                        if (sm.isDetached()) 
+                        if (sm.isDetached())
                             throw newDetachedException(obj, "refresh");
                         else if (sm.beforeRefresh(true)) {
-                        	if (load == null)
-                        		load = new ArrayList<OpenJPAStateManager>(objs.size());
+                            if (load == null)
+                                load = new ArrayList<>(objs.size());
                             load.add(sm);
                         }
                         int level = _fc.getReadLockLevel();
                         int timeout = _fc.getLockTimeout();
-                        _lm.lock(sm, level, timeout, null, false);
+                        _lm.refreshLock(sm, level, timeout, null);
                         sm.readLocked(level, level);
-                    } else if (assertPersistenceCapable(obj).pcIsDetached()
-                        == Boolean.TRUE)
+                    }
+                    else if (assertPersistenceCapable(obj).pcIsDetached()
+                            == Boolean.TRUE)
                         throw newDetachedException(obj, "refresh");
-                } catch (OpenJPAException ke) {
+                }
+                catch (OpenJPAException ke) {
                     exceps = add(exceps, ke);
                 }
             }
@@ -3001,16 +3229,17 @@ public class BrokerImpl
 
                 // perform post-refresh transitions and make sure all fetch
                 // group fields are loaded
-                for (Iterator<OpenJPAStateManager> itr = load.iterator(); itr.hasNext();) {
-                    sm = (StateManagerImpl) itr.next();
+                for (OpenJPAStateManager openJPAStateManager : load) {
+                    sm = (StateManagerImpl) openJPAStateManager;
                     if (failed != null && failed.contains(sm.getId()))
                         continue;
 
                     try {
                         sm.afterRefresh();
-                        sm.load(_fc, StateManagerImpl.LOAD_FGS, null, null, 
-                            false);
-                    } catch (OpenJPAException ke) {
+                        sm.load(_fc, StateManagerImpl.LOAD_FGS, null, null,
+                                false);
+                    }
+                    catch (OpenJPAException ke) {
                         exceps = add(exceps, ke);
                     }
                 }
@@ -3054,7 +3283,7 @@ public class BrokerImpl
                 }
                 int level = _fc.getReadLockLevel();
                 int timeout = _fc.getLockTimeout();
-                _lm.lock(sm, level, timeout, null, false);
+                _lm.refreshLock(sm, level, timeout, null);
                 sm.readLocked(level, level);
                 fireLifecycleEvent(sm.getManagedInstance(), null,
                     sm.getMetaData(), LifecycleEvent.AFTER_REFRESH);
@@ -3067,8 +3296,9 @@ public class BrokerImpl
             throw new GeneralException(re);
         }
     }
-    
-    
+
+
+    @Override
     public void retrieveAll(Collection objs, boolean dfgOnly,
         OpCallbacks call) {
         if (objs == null || objs.isEmpty())
@@ -3088,16 +3318,16 @@ public class BrokerImpl
             Object obj;
             Collection<OpenJPAStateManager> load = null;
             StateManagerImpl sm;
-            Collection<StateManagerImpl> sms = new ArrayList<StateManagerImpl>(objs.size());
-            for (Iterator<?> itr = objs.iterator(); itr.hasNext();) {
-                obj = itr.next();
+            Collection<StateManagerImpl> sms = new ArrayList<>(objs.size());
+            for (Object o : objs) {
+                obj = o;
                 if (obj == null)
                     continue;
 
                 try {
                     sm = getStateManagerImpl(obj, true);
                     if ((processArgument(OpCallbacks.OP_RETRIEVE, obj, sm, call)
-                        & OpCallbacks.ACT_RUN) == 0)
+                            & OpCallbacks.ACT_RUN) == 0)
                         continue;
 
                     if (sm != null) {
@@ -3107,14 +3337,16 @@ public class BrokerImpl
                             sms.add(sm);
                             if (sm.getPCState() == PCState.HOLLOW) {
                                 if (load == null)
-                                    load = new ArrayList<OpenJPAStateManager>();
+                                    load = new ArrayList<>();
                                 load.add(sm);
                             }
                         }
-                    } else if (assertPersistenceCapable(obj).pcIsDetached()
-                        == Boolean.TRUE)
+                    }
+                    else if (assertPersistenceCapable(obj).pcIsDetached()
+                            == Boolean.TRUE)
                         throw newDetachedException(obj, "retrieve");
-                } catch (UserException ue) {
+                }
+                catch (UserException ue) {
                     exceps = add(exceps, ue);
                 }
             }
@@ -3130,17 +3362,18 @@ public class BrokerImpl
             }
 
             // retrieve all non-failed instances
-            for (Iterator<StateManagerImpl> itr = sms.iterator(); itr.hasNext();) {
-                sm = itr.next();
+            for (StateManagerImpl stateManager : sms) {
+                sm = stateManager;
                 if (failed != null && failed.contains(sm.getId()))
                     continue;
 
                 int mode = (dfgOnly) ? StateManagerImpl.LOAD_FGS
-                    : StateManagerImpl.LOAD_ALL;
+                        : StateManagerImpl.LOAD_ALL;
                 try {
                     sm.beforeRead(-1);
                     sm.load(_fc, mode, null, null, false);
-                } catch (OpenJPAException ke) {
+                }
+                catch (OpenJPAException ke) {
                     exceps = add(exceps, ke);
                 }
             }
@@ -3154,6 +3387,7 @@ public class BrokerImpl
         throwNestedExceptions(exceps, false);
     }
 
+    @Override
     public void retrieve(Object obj, boolean dfgOnly, OpCallbacks call) {
         if (obj == null)
             return;
@@ -3189,14 +3423,15 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void evictAll(OpCallbacks call) {
         beginOperation(false);
         try {
             // evict all PClean and PNonTrans objects
             Collection<StateManagerImpl> c = getManagedStates();
             StateManagerImpl sm;
-            for (Iterator<StateManagerImpl> itr = c.iterator(); itr.hasNext();) {
-                sm = itr.next();
+            for (StateManagerImpl stateManager : c) {
+                sm = stateManager;
                 if (sm.isPersistent() && !sm.isDirty())
                     evict(sm.getManagedInstance(), call);
             }
@@ -3206,6 +3441,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void evictAll(Collection objs, OpCallbacks call) {
         List<Exception> exceps = null;
         beginOperation(false);
@@ -3223,6 +3459,7 @@ public class BrokerImpl
         throwNestedExceptions(exceps, false);
     }
 
+    @Override
     public void evictAll(Extent extent, OpCallbacks call) {
         if (extent == null)
             return;
@@ -3233,13 +3470,13 @@ public class BrokerImpl
             Collection<StateManagerImpl> c = getManagedStates();
             StateManagerImpl sm;
             Class<?> cls;
-            for (Iterator<StateManagerImpl> itr = c.iterator(); itr.hasNext();) {
-                sm = itr.next();
+            for (StateManagerImpl stateManager : c) {
+                sm = stateManager;
                 if (sm.isPersistent() && !sm.isDirty()) {
                     cls = sm.getMetaData().getDescribedType();
                     if (cls == extent.getElementType()
-                        || (extent.hasSubclasses()
-                        && extent.getElementType().isAssignableFrom(cls)))
+                            || (extent.hasSubclasses()
+                            && extent.getElementType().isAssignableFrom(cls)))
                         evict(sm.getManagedInstance(), call);
                 }
             }
@@ -3248,6 +3485,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void evict(Object obj, OpCallbacks call) {
         if (obj == null)
             return;
@@ -3277,6 +3515,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Object detach(Object obj, OpCallbacks call) {
         if (obj == null)
             return null;
@@ -3295,6 +3534,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Object[] detachAll(Collection objs, OpCallbacks call) {
         if (objs == null)
             return null;
@@ -3315,10 +3555,12 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void detachAll(OpCallbacks call) {
         detachAll(call, true);
     }
 
+    @Override
     public void detachAll(OpCallbacks call, boolean flush) {
         beginOperation(true);
         try {
@@ -3337,7 +3579,7 @@ public class BrokerImpl
     }
 
     private void detachAllInternal(OpCallbacks call) {
-        if(_conf.getDetachStateInstance().getLiteAutoDetach() == true){
+        if(_conf.getDetachStateInstance().getLiteAutoDetach()){
             detachAllInternalLite();
             return;
         }
@@ -3348,7 +3590,7 @@ public class BrokerImpl
             if (!sm.isPersistent())
                 itr.remove();
             else if (!sm.getMetaData().isDetachable()) {
-                sm.release(true); 
+                sm.release(true);
                 itr.remove();
             }
         }
@@ -3360,11 +3602,11 @@ public class BrokerImpl
         // Make sure ALL entities are detached, even new ones that are loaded
         // during the detach processing
         boolean origCascade = _compat.getCascadeWithDetach();
-        _compat.setCascadeWithDetach(true);        
+        _compat.setCascadeWithDetach(true);
         try {
             new DetachManager(this, true, call)
                 .detachAll(new ManagedObjectCollection(states));
-        } 
+        }
         finally {
             _compat.setCascadeWithDetach(origCascade);
         }
@@ -3375,19 +3617,23 @@ public class BrokerImpl
         _cache = new ManagedCache(this);
         // TODO : should I call clear on old cache first? perhaps a memory leak?
         Collection<StateManagerImpl> states = old.copy();
-        
-        // Clear out all persistence context caches.        
+
+        // Clear out all persistence context caches.
         if (_transCache != null) {
             _transCache.clear();
         }
         if (_transAdditions != null) {
             _transAdditions.clear();
         }
+        if (_pending != null) {
+            _pending = null;
+        }
         if (_dmLite == null) {
-            _dmLite = new DetachManagerLite();
+            _dmLite = new DetachManagerLite(_conf);
         }
         _dmLite.detachAll(states);
     }
+    @Override
     public Object attach(Object obj, boolean copyNew, OpCallbacks call) {
         if (obj == null)
             return null;
@@ -3412,6 +3658,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Object[] attachAll(Collection objs, boolean copyNew,
         OpCallbacks call) {
         if (objs == null)
@@ -3439,6 +3686,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void nontransactionalAll(Collection objs, OpCallbacks call) {
         beginOperation(true);
         try {
@@ -3456,6 +3704,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void nontransactional(Object obj, OpCallbacks call) {
         if (obj == null)
             return;
@@ -3480,6 +3729,7 @@ public class BrokerImpl
     /**
      * Make the given instances transactional.
      */
+    @Override
     public void transactionalAll(Collection objs, boolean updateVersion,
         OpCallbacks call) {
         if (objs.isEmpty())
@@ -3497,34 +3747,34 @@ public class BrokerImpl
             Object obj;
             StateManagerImpl sm;
             ClassMetaData meta;
-            Collection<StateManagerImpl> sms = new LinkedHashSet<StateManagerImpl>(objs.size());
+            Collection<StateManagerImpl> sms = new LinkedHashSet<>(objs.size());
             List<Exception> exceps = null;
-            for (Iterator<?> itr = objs.iterator(); itr.hasNext();) {
-                obj = itr.next();
+            for (Object o : objs) {
+                obj = o;
                 if (obj == null)
                     continue;
 
                 try {
                     sm = getStateManagerImpl(obj, true);
                     if ((processArgument(OpCallbacks.OP_TRANSACTIONAL, obj, sm,
-                        call) & OpCallbacks.ACT_RUN) == 0)
+                            call) & OpCallbacks.ACT_RUN) == 0)
                         continue;
 
                     if (sm == null) {
                         // manage transient instance
-                        meta = _conf.getMetaDataRepositoryInstance().
-                            getMetaData(obj.getClass(), _loader, true);
+                        meta = _repo.getMetaData(obj.getClass(), _loader, true);
 
                         sm = newStateManagerImpl
-                            (StateManagerId.newInstance(this), meta);
+                                (StateManagerId.newInstance(this), meta);
                         sm.initialize(assertPersistenceCapable(obj),
-                            PCState.TCLEAN);
-                    } else if (sm.isPersistent()) {
+                                PCState.TCLEAN);
+                    }
+                    else if (sm.isPersistent()) {
                         assertActiveTransaction();
                         sms.add(sm);
                         if (sm.getPCState() == PCState.HOLLOW) {
                             if (load == null)
-                                load = new ArrayList<OpenJPAStateManager>();
+                                load = new ArrayList<>();
                             load.add(sm);
                         }
 
@@ -3562,6 +3812,7 @@ public class BrokerImpl
     /**
      * Make the given instances transactional.
      */
+    @Override
     public void transactional(Object obj, boolean updateVersion,
         OpCallbacks call) {
         if (obj == null)
@@ -3584,8 +3835,7 @@ public class BrokerImpl
                 _flags |= FLAG_FLUSH_REQUIRED; // version check/up
             } else if (sm == null) {
                 // manage transient instance
-                ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
-                    getMetaData(obj.getClass(), _loader, true);
+                ClassMetaData meta = _repo.getMetaData(obj.getClass(), _loader, true);
                 Object id = StateManagerId.newInstance(this);
                 sm = newStateManagerImpl(id, meta);
                 sm.initialize(assertPersistenceCapable(obj),
@@ -3608,15 +3858,16 @@ public class BrokerImpl
         List<Exception> exceps) {
         // make instances transactional and make sure they are loaded
         StateManagerImpl sm;
-        for (Iterator<?> itr = sms.iterator(); itr.hasNext();) {
-            sm = (StateManagerImpl) itr.next();
+        for (Object o : sms) {
+            sm = (StateManagerImpl) o;
             if (failed != null && failed.contains(sm.getId()))
                 continue;
 
             try {
                 sm.transactional();
                 sm.load(_fc, StateManagerImpl.LOAD_FGS, null, null, false);
-            } catch (OpenJPAException ke) {
+            }
+            catch (OpenJPAException ke) {
                 exceps = add(exceps, ke);
             }
         }
@@ -3627,6 +3878,7 @@ public class BrokerImpl
     // Extent, Query
     /////////////////
 
+    @Override
     public Extent newExtent(Class type, boolean subclasses) {
         return newExtent(type, subclasses, null);
     }
@@ -3637,7 +3889,7 @@ public class BrokerImpl
         try {
             ExtentImpl extent = new ExtentImpl(this, type, subclasses, fetch);
             if (_extents == null)
-                _extents = new ReferenceHashSet(ReferenceHashSet.WEAK);
+                _extents = new ReferenceHashSet(AbstractReferenceMap.ReferenceStrength.WEAK);
             _extents.add(extent);
 
             return extent;
@@ -3650,6 +3902,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Iterator extentIterator(Class type, boolean subclasses,
         FetchConfiguration fetch, boolean ignoreChanges) {
         Extent extent = newExtent(type, subclasses, fetch);
@@ -3657,12 +3910,14 @@ public class BrokerImpl
         return extent.iterator();
     }
 
+    @Override
     public Query newQuery(String lang, Class cls, Object query) {
         Query q = newQuery(lang, query);
         q.setCandidateType(cls, true);
         return q;
     }
 
+    @Override
     public Query newQuery(String lang, Object query) {
         // common mistakes
         if (query instanceof Extent || query instanceof Class)
@@ -3688,7 +3943,7 @@ public class BrokerImpl
 
             // track queries
             if (_queries == null)
-                _queries = new ReferenceHashSet(ReferenceHashSet.WEAK);
+                _queries = new ReferenceHashSet(AbstractReferenceMap.ReferenceStrength.WEAK);
             _queries.add(q);
             return q;
         } catch (OpenJPAException ke) {
@@ -3707,12 +3962,14 @@ public class BrokerImpl
         return new QueryImpl(this, lang, sq);
     }
 
+    @Override
     public Seq getIdentitySequence(ClassMetaData meta) {
         if (meta == null)
             return null;
         return getSequence(meta, null);
     }
 
+    @Override
     public Seq getValueSequence(FieldMetaData fmd) {
         if (fmd == null)
             return null;
@@ -3776,6 +4033,7 @@ public class BrokerImpl
     // Locking
     ///////////
 
+    @Override
     public void lock(Object obj, OpCallbacks call) {
         if (obj == null)
             return;
@@ -3788,6 +4046,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void lock(Object obj, int level, int timeout, OpCallbacks call) {
         if (obj == null)
             return;
@@ -3814,6 +4073,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void lockAll(Collection objs, OpCallbacks call) {
         if (objs.isEmpty())
             return;
@@ -3827,6 +4087,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void lockAll(Collection objs, int level, int timeout,
         OpCallbacks call) {
         if (objs.isEmpty())
@@ -3840,25 +4101,26 @@ public class BrokerImpl
         try {
             assertActiveTransaction();
 
-            Collection<StateManagerImpl> sms = new LinkedHashSet<StateManagerImpl>(objs.size());
+            Collection<StateManagerImpl> sms = new LinkedHashSet<>(objs.size());
             Object obj;
             StateManagerImpl sm;
-            for (Iterator<?> itr = objs.iterator(); itr.hasNext();) {
-                obj = itr.next();
+            for (Object o : objs) {
+                obj = o;
                 if (obj == null)
                     continue;
 
                 sm = getStateManagerImpl(obj, true);
                 if ((processArgument(OpCallbacks.OP_LOCK, obj, sm, call)
-                    & OpCallbacks.ACT_RUN) == 0)
+                        & OpCallbacks.ACT_RUN) == 0)
                     continue;
                 if (sm != null && sm.isPersistent())
                     sms.add(sm);
             }
 
             _lm.lockAll(sms, level, timeout, null);
-            for (Iterator<StateManagerImpl> itr = sms.iterator(); itr.hasNext();)
-                itr.next().readLocked(level, level);
+            for (StateManagerImpl stateManager : sms) {
+                stateManager.readLocked(level, level);
+            }
         } catch (OpenJPAException ke) {
             throw ke;
         } catch (RuntimeException re) {
@@ -3872,6 +4134,7 @@ public class BrokerImpl
     // Connection
     //////////////
 
+    @Override
     public boolean cancelAll() {
         // this method does not lock, since we want to allow a different
         // thread to be able to cancel on a locked-up persistence manager
@@ -3892,6 +4155,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Object getConnection() {
         assertOpen();
         if (!_conf.supportedOptions().contains
@@ -3901,6 +4165,7 @@ public class BrokerImpl
         return _store.getClientConnection();
     }
 
+    @Override
     public boolean hasConnection() {
         assertOpen();
         return (_flags & FLAG_RETAINED_CONN) != 0;
@@ -3930,6 +4195,7 @@ public class BrokerImpl
     // Cache
     /////////
 
+    @Override
     public Collection getManagedObjects() {
         beginOperation(false);
         try {
@@ -3939,6 +4205,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Collection getTransactionalObjects() {
         beginOperation(false);
         try {
@@ -3948,6 +4215,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Collection getPendingTransactionalObjects() {
         beginOperation(false);
         try {
@@ -3958,6 +4226,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Collection getDirtyObjects() {
         beginOperation(false);
         try {
@@ -3967,10 +4236,12 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public boolean getOrderDirtyObjects() {
         return _orderDirty;
     }
 
+    @Override
     public void setOrderDirtyObjects(boolean order) {
         _orderDirty = order;
     }
@@ -3986,8 +4257,10 @@ public class BrokerImpl
      * Return a copy of all transactional state managers.
      */
     protected Collection<StateManagerImpl> getTransactionalStates() {
-        if (!hasTransactionalObjects())
-            return Collections.EMPTY_SET;
+        if (!hasTransactionalObjects()) {
+            // return a new empty set. Entities may be added by TransactionListeners
+            return new LinkedHashSet<>();
+        }
         return _transCache.copy();
     }
 
@@ -4018,7 +4291,7 @@ public class BrokerImpl
     protected Collection getPendingTransactionalStates() {
         if (_pending == null)
             return Collections.EMPTY_SET;
-        return new LinkedHashSet<StateManagerImpl>(_pending);
+        return new LinkedHashSet<>(_pending);
     }
 
     /**
@@ -4032,11 +4305,15 @@ public class BrokerImpl
      * @param status one of our STATUS constants describing why we're
      * setting the state manager
      */
-    void setStateManager(Object id, StateManagerImpl sm, int status) {
+    protected void setStateManager(Object id, StateManagerImpl sm, int status) {
         lock();
         try {
             switch (status) {
                 case STATUS_INIT:
+                    // Only reset the flushed flag is this is a new instance.
+                    if (sm.isNew() && _compat.getResetFlushFlagForCascadePersist()) {// OPENJPA-2051
+                        _flags &= ~FLAG_FLUSHED;
+                    }
                     _cache.add(sm);
                     break;
                 case STATUS_TRANSIENT:
@@ -4106,7 +4383,7 @@ public class BrokerImpl
 
         if (_savepoints != null && !_savepoints.isEmpty()) {
             if (_savepointCache == null)
-                _savepointCache = new HashSet<StateManagerImpl>();
+                _savepointCache = new HashSet<>();
             _savepointCache.add(sm);
         }
 
@@ -4121,15 +4398,15 @@ public class BrokerImpl
                 // also record that the class is dirty
                 if (sm.isNew()) {
                     if (_persistedClss == null)
-                        _persistedClss = new HashSet<Class<?>>();
+                        _persistedClss = new HashSet<>();
                     _persistedClss.add(sm.getMetaData().getDescribedType());
                 } else if (sm.isDeleted()) {
                     if (_deletedClss == null)
-                        _deletedClss = new HashSet<Class<?>>();
+                        _deletedClss = new HashSet<>();
                     _deletedClss.add(sm.getMetaData().getDescribedType());
                 } else {
                     if (_updatedClss == null)
-                        _updatedClss = new HashSet<Class<?>>();
+                        _updatedClss = new HashSet<>();
                     _updatedClss.add(sm.getMetaData().getDescribedType());
                 }
 
@@ -4138,7 +4415,7 @@ public class BrokerImpl
                 // enter the transaction during pre store
                 if ((_flags & FLAG_PRESTORING) != 0) {
                     if (_transAdditions == null)
-                        _transAdditions = new HashSet<StateManagerImpl>();
+                        _transAdditions = new HashSet<>();
                     _transAdditions.add(sm);
                 }
             } finally {
@@ -4156,7 +4433,7 @@ public class BrokerImpl
         lock();
         try {
             if (_pending == null)
-                _pending = new HashSet<StateManagerImpl>();
+                _pending = new HashSet<>();
             _pending.add(sm);
         } finally {
             unlock();
@@ -4190,11 +4467,11 @@ public class BrokerImpl
             // via instance callbacks, add them to the special additions set
             if ((_flags & FLAG_DEREFDELETING) != 0) {
                 if (_derefAdditions == null)
-                    _derefAdditions = new HashSet<StateManagerImpl>();
+                    _derefAdditions = new HashSet<>();
                 _derefAdditions.add(sm);
             } else {
                 if (_derefCache == null)
-                    _derefCache = new HashSet<StateManagerImpl>();
+                    _derefCache = new HashSet<>();
                 _derefCache.add(sm);
             }
         }
@@ -4223,6 +4500,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void dirtyType(Class cls) {
         if (cls == null)
             return;
@@ -4230,25 +4508,28 @@ public class BrokerImpl
         beginOperation(false);
         try {
             if (_updatedClss == null)
-                _updatedClss = new HashSet<Class<?>>();
+                _updatedClss = new HashSet<>();
             _updatedClss.add(cls);
         } finally {
             endOperation();
         }
     }
 
+    @Override
     public Collection getPersistedTypes() {
         if (_persistedClss == null || _persistedClss.isEmpty())
             return Collections.EMPTY_SET;
         return Collections.unmodifiableCollection(_persistedClss);
     }
 
+    @Override
     public Collection getUpdatedTypes() {
         if (_updatedClss == null || _updatedClss.isEmpty())
             return Collections.EMPTY_SET;
         return Collections.unmodifiableCollection(_updatedClss);
     }
 
+    @Override
     public Collection getDeletedTypes() {
         if (_deletedClss == null || _deletedClss.isEmpty())
             return Collections.EMPTY_SET;
@@ -4259,14 +4540,17 @@ public class BrokerImpl
     // Closing
     ///////////
 
+    @Override
     public boolean isClosed() {
         return _closed;
     }
 
+    @Override
     public boolean isCloseInvoked() {
         return _closed || (_flags & FLAG_CLOSE_INVOKED) != 0;
     }
 
+    @Override
     public void close() {
         beginOperation(false);
         try {
@@ -4332,11 +4616,12 @@ public class BrokerImpl
 
         if (_extents != null) {
             Extent e;
-            for (Iterator<?> itr = _extents.iterator(); itr.hasNext();) {
-                e = (Extent) itr.next();
+            for (Object extent : _extents) {
+                e = (Extent) extent;
                 try {
                     e.closeAll();
-                } catch (RuntimeException re) {
+                }
+                catch (RuntimeException re) {
                 }
             }
             _extents = null;
@@ -4346,6 +4631,9 @@ public class BrokerImpl
 
         _lm.close();
         _store.close();
+        if (_instm != null) {
+            _instm.stop(InstrumentationLevel.BROKER, this);
+        }
         _flags = 0;
         _closed = true;
         if (_log.isTraceEnabled())
@@ -4361,20 +4649,23 @@ public class BrokerImpl
     // Synchronization
     ///////////////////
 
+    @Override
     public void lock() {
-        if (_lock != null) 
+        if (_lock != null)
             _lock.lock();
     }
 
+    @Override
     public void unlock() {
         if (_lock != null)
             _lock.unlock();
     }
-    
+
     ////////////////////
     // State management
     ////////////////////
 
+    @Override
     public Object newInstance(Class cls) {
         assertOpen();
 
@@ -4385,15 +4676,14 @@ public class BrokerImpl
         // 1.5 doesn't initialize classes without a true Class.forName
         if (!PCRegistry.isRegistered(cls)) {
             try {
-                Class.forName(cls.getName(), true, 
+                Class.forName(cls.getName(), true,
                     AccessController.doPrivileged(
                         J2DoPrivHelper.getClassLoaderAction(cls)));
             } catch (Throwable t) {
             }
         }
 
-        if (_conf.getMetaDataRepositoryInstance().getMetaData(cls,
-            getClassLoader(), false) == null)
+        if (_repo.getMetaData(cls, getClassLoader(), false) == null)
             throw new IllegalArgumentException(
                 _loc.get("no-interface-metadata", cls.getName()).getMessage());
 
@@ -4407,14 +4697,24 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public Object getObjectId(Object obj) {
         assertOpen();
-        if (ImplHelper.isManageable(obj))
-            return (ImplHelper.toPersistenceCapable(obj, _conf))
-                .pcFetchObjectId();
+        if (ImplHelper.isManageable(obj)) {
+            PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, _conf);
+            if (pc != null) {
+                if (pc.pcGetStateManager() == null) {
+                    // If the statemanager is null the call to pcFetchObjectId always returns null. Create a new object
+                    // id.
+                    return ApplicationIds.create(pc, _repo.getMetaData(pc.getClass(), null, true));
+                }
+                return pc.pcFetchObjectId();
+            }
+        }
         return null;
     }
 
+    @Override
     public int getLockLevel(Object o) {
         assertOpen();
         if (o == null)
@@ -4426,6 +4726,7 @@ public class BrokerImpl
         return getLockManager().getLockLevel(sm);
     }
 
+    @Override
     public Object getVersion(Object obj) {
         assertOpen();
         if (ImplHelper.isManageable(obj))
@@ -4433,6 +4734,7 @@ public class BrokerImpl
         return null;
     }
 
+    @Override
     public boolean isDirty(Object obj) {
         assertOpen();
         if (ImplHelper.isManageable(obj)) {
@@ -4442,6 +4744,7 @@ public class BrokerImpl
         return false;
     }
 
+    @Override
     public boolean isTransactional(Object obj) {
         assertOpen();
         if (ImplHelper.isManageable(obj))
@@ -4450,6 +4753,7 @@ public class BrokerImpl
         return false;
     }
 
+    @Override
     public boolean isPersistent(Object obj) {
         assertOpen();
         if (ImplHelper.isManageable(obj))
@@ -4458,6 +4762,7 @@ public class BrokerImpl
         return false;
     }
 
+    @Override
     public boolean isNew(Object obj) {
         assertOpen();
         if (ImplHelper.isManageable(obj))
@@ -4465,32 +4770,50 @@ public class BrokerImpl
         return false;
     }
 
+    @Override
     public boolean isDeleted(Object obj) {
         assertOpen();
         if (ImplHelper.isManageable(obj))
             return (ImplHelper.toPersistenceCapable(obj, _conf)).pcIsDeleted();
         return false;
     }
-
+    @Override
     public boolean isDetached(Object obj) {
+        return isDetached(obj, true);
+    }
+
+    /**
+     * This method makes a best effort to determine if the provided object is detached.
+     *
+     * @param find
+     *            - If true, as a last resort this method will check whether or not the provided object exists in the
+     *            DB. If it is in the DB, the provided object is detached.
+     * @return - True if the provided obj is detached, false otherwise.
+     */
+    public boolean isDetached(Object obj, boolean find) {
         if (!(ImplHelper.isManageable(obj)))
             return false;
 
         PersistenceCapable pc = ImplHelper.toPersistenceCapable(obj, _conf);
+        if (pc.pcGetStateManager() instanceof DetachedStateManager)
+            return true;
         Boolean detached = pc.pcIsDetached();
         if (detached != null)
-            return detached.booleanValue();
+            return detached;
 
+        if(!find){
+            return false;
+        }
         // last resort: instance is detached if it has a store record
-        ClassMetaData meta = _conf.getMetaDataRepositoryInstance().
-            getMetaData(ImplHelper.getManagedInstance(pc).getClass(),
-                _loader, true);
+        ClassMetaData meta = _repo.getMetaData(ImplHelper.getManagedInstance(pc).getClass(), _loader, true);
         Object oid = ApplicationIds.create(pc, meta);
         if (oid == null)
             return false;
+
         return find(oid, null, EXCLUDE_ALL, null, 0) != null;
     }
 
+    @Override
     public OpenJPAStateManager getStateManager(Object obj) {
         assertOpen();
         return getStateManagerImpl(obj, false);
@@ -4567,6 +4890,7 @@ public class BrokerImpl
      * Throw an exception if the context is closed.  The exact message and
      * content of the exception varies whether TRACE is enabled or not.
      */
+    @Override
     public void assertOpen() {
         if (_closed) {
             if (_closedException == null)  // TRACE not enabled
@@ -4581,6 +4905,7 @@ public class BrokerImpl
         }
     }
 
+    @Override
     public void assertActiveTransaction() {
         if ((_flags & FLAG_ACTIVE) == 0)
             throw new NoTransactionException(_loc.get("not-active"));
@@ -4595,11 +4920,13 @@ public class BrokerImpl
             throw new InvalidStateException(_loc.get("not-active"));
     }
 
+    @Override
     public void assertNontransactionalRead() {
         if ((_flags & FLAG_ACTIVE) == 0 && !_nontransRead)
             throw new InvalidStateException(_loc.get("non-trans-read"));
     }
 
+    @Override
     public void assertWriteOperation() {
         if ((_flags & FLAG_ACTIVE) == 0 && (!_nontransWrite
             || (_autoDetach & DETACH_NONTXREAD) != 0))
@@ -4623,10 +4950,12 @@ public class BrokerImpl
     // FindCallbacks implementation
     ////////////////////////////////
 
+    @Override
     public Object processArgument(Object oid) {
         return oid;
     }
 
+    @Override
     public Object processReturn(Object oid, OpenJPAStateManager sm) {
         return (sm == null) ? null : sm.getManagedInstance();
     }
@@ -4669,12 +4998,17 @@ public class BrokerImpl
         // available for calls to broker.getConfiguration() during
         // StateManager deserialization
         _conf = factory.getConfiguration();
-        
+        _repo = _conf.getMetaDataRepositoryInstance();
+
         in.defaultReadObject();
         factory.initializeBroker(_managed, _connRetainMode, this, true);
 
         // re-initialize the lock if needed.
         setMultithreaded(_multithreaded);
+
+        // force recreation of set
+        _operatingDirty = true;
+        initializeOperatingSet();
 
         if (isActive() && _runtime instanceof LocalManagedRuntime)
             ((LocalManagedRuntime) _runtime).begin();
@@ -4683,18 +5017,26 @@ public class BrokerImpl
     /**
      * Whether or not this broker is in the midst of being serialized.
      *
-     * @since 1.1.0 
+     * @since 1.1.0
      */
     boolean isSerializing() {
         return _isSerializing;
     }
 
     /**
+     * @return The value of openjpa.ConnectionFactoryProperties.PrintParameters. Default is false.
+     */
+    public boolean getPrintParameters() {
+        return _printParameters;
+    }
+    /**
      * Transactional cache that holds soft refs to clean instances.
      */
     static class TransactionalCache
         implements Set, Serializable {
 
+        
+        private static final long serialVersionUID = 1L;
         private final boolean _orderDirty;
         private Set<StateManagerImpl> _dirty = null;
         private Set<StateManagerImpl> _clean = null;
@@ -4707,19 +5049,23 @@ public class BrokerImpl
          * Return a copy of all transactional state managers.
          */
         public Collection copy() {
-            if (isEmpty())
-                return Collections.EMPTY_SET;
+            if (isEmpty()) {
+                // Transaction Listeners may add entities to the transaction.
+                return new LinkedHashSet();
+            }
 
             // size may not be entirely accurate due to refs expiring, so
             // manually copy each object; doesn't matter this way if size too
             // big by some
             Set copy = new LinkedHashSet(size());
             if (_dirty != null)
-                for (Iterator<StateManagerImpl> itr = _dirty.iterator(); itr.hasNext();)
-                    copy.add(itr.next());
+                for (StateManagerImpl stateManager : _dirty) {
+                    copy.add(stateManager);
+                }
             if (_clean != null)
-                for (Iterator<StateManagerImpl> itr = _clean.iterator(); itr.hasNext();)
-                    copy.add(itr.next());
+                for (StateManagerImpl stateManager : _clean) {
+                    copy.add(stateManager);
+                }
             return copy;
         }
 
@@ -4729,7 +5075,7 @@ public class BrokerImpl
         public Collection copyDirty() {
             if (_dirty == null || _dirty.isEmpty())
                 return Collections.EMPTY_SET;
-            return new LinkedHashSet<StateManagerImpl>(_dirty);
+            return new LinkedHashSet<>(_dirty);
         }
 
         /**
@@ -4750,7 +5096,7 @@ public class BrokerImpl
 
         private boolean addCleanInternal(StateManagerImpl sm) {
             if (_clean == null)
-                _clean = new ReferenceHashSet(ReferenceHashSet.SOFT);
+                _clean = new ReferenceHashSet(AbstractReferenceMap.ReferenceStrength.SOFT);
             return _clean.add(sm);
         }
 
@@ -4760,9 +5106,9 @@ public class BrokerImpl
         public void addDirty(StateManagerImpl sm) {
             if (_dirty == null) {
                 if (_orderDirty)
-                    _dirty = MapBackedSet.decorate(new LinkedMap());
+                    _dirty = MapBackedSet.mapBackedSet(new LinkedMap());
                 else
-                    _dirty = new HashSet<StateManagerImpl>();
+                    _dirty = new HashSet<>();
             }
             if (_dirty.add(sm))
                 removeCleanInternal(sm);
@@ -4780,6 +5126,7 @@ public class BrokerImpl
             return _clean != null && _clean.remove(sm);
         }
 
+        @Override
         public Iterator iterator() {
             IteratorChain chain = new IteratorChain();
             if (_dirty != null && !_dirty.isEmpty())
@@ -4789,18 +5136,21 @@ public class BrokerImpl
             return chain;
         }
 
+        @Override
         public boolean contains(Object obj) {
             return (_dirty != null && _dirty.contains(obj))
                 || (_clean != null && _clean.contains(obj));
         }
 
+        @Override
         public boolean containsAll(Collection coll) {
-            for (Iterator<?> itr = coll.iterator(); itr.hasNext();)
-                if (!contains(itr.next()))
+            for (Object o : coll)
+                if (!contains(o))
                     return false;
             return true;
         }
 
+        @Override
         public void clear() {
             if (_dirty != null)
                 _dirty = null;
@@ -4808,11 +5158,13 @@ public class BrokerImpl
                 _clean = null;
         }
 
+        @Override
         public boolean isEmpty() {
             return (_dirty == null || _dirty.isEmpty())
                 && (_clean == null || _clean.isEmpty());
         }
 
+        @Override
         public int size() {
             int size = 0;
             if (_dirty != null)
@@ -4822,30 +5174,37 @@ public class BrokerImpl
             return size;
         }
 
+        @Override
         public boolean add(Object obj) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean addAll(Collection coll) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean remove(Object obj) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean removeAll(Collection coll) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public boolean retainAll(Collection c) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Object[] toArray() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public Object[] toArray(Object[] arr) {
             throw new UnsupportedOperationException();
         }
@@ -4855,8 +5214,11 @@ public class BrokerImpl
      * Unique id for state managers of new datastore instances without assigned
      * object ids.
      */
-    private static class StateManagerId
+    public static class StateManagerId
         implements Serializable {
+
+        
+        private static final long serialVersionUID = 1L;
 
         public static final String STRING_PREFIX = "openjpasm:";
 
@@ -4881,19 +5243,23 @@ public class BrokerImpl
             _id = Long.parseLong(str.substring(idx + 1));
         }
 
+        @Override
         public boolean equals(Object other) {
             if (other == this)
                 return true;
-            if (!(other instanceof StateManagerId))
+            if ((other == null) || (other.getClass() != this.getClass()))
                 return false;
+
             StateManagerId sid = (StateManagerId) other;
             return _bhash == sid._bhash && _id == sid._id;
         }
 
+        @Override
         public int hashCode() {
             return (int) (_id ^ (_id >>> 32));
         }
 
+        @Override
         public String toString() {
             return STRING_PREFIX + _bhash + ":" + _id;
         }
@@ -4916,23 +5282,28 @@ public class BrokerImpl
             return _states;
         }
 
+        @Override
         public int size() {
             return _states.size();
         }
 
+        @Override
         public Iterator iterator() {
             return new Iterator() {
                 private final Iterator _itr = _states.iterator();
 
+                @Override
                 public boolean hasNext() {
                     return _itr.hasNext();
                 }
 
+                @Override
                 public Object next() {
                     return ((OpenJPAStateManager) _itr.next()).
                         getManagedInstance();
                 }
 
+                @Override
                 public void remove() {
                     throw new UnsupportedException();
                 }
@@ -4942,33 +5313,39 @@ public class BrokerImpl
 
     /**
      * Assign the object id to the cache. Exception will be
-     * thrown if the id already exists in the cache. 
+     * thrown if the id already exists in the cache.
      */
-    protected void assignObjectId(Object cache, Object id, 
+    protected void assignObjectId(Object cache, Object id,
         StateManagerImpl sm) {
-        ((ManagedCache) cache).assignObjectId(id, sm); 
+        ((ManagedCache) cache).assignObjectId(id, sm);
     }
 
-    /** 
+    /**
      * This method makes sure we don't already have the instance cached
      */
-    protected void checkForDuplicateId(Object id, Object obj) {
+    protected void checkForDuplicateId(Object id, Object obj, ClassMetaData meta) {
+        FieldMetaData[] pks = meta.getPrimaryKeyFields();
+        if (pks != null && pks.length == 1 && pks[0].getValueStrategy() == ValueStrategies.AUTOASSIGN) {
+            return;
+        }
         StateManagerImpl other = getStateManagerImplById(id, false);
         if (other != null && !other.isDeleted() && !other.isNew())
             throw new ObjectExistsException(_loc.get("cache-exists",
                 obj.getClass().getName(), id)).setFailedObject(obj);
     }
-    
+
+    @Override
     public boolean getCachePreparedQuery() {
         lock();
         try {
-            return _cachePreparedQuery 
+            return _cachePreparedQuery
                && _conf.getQuerySQLCacheInstance() != null;
         } finally {
             unlock();
         }
     }
-    
+
+    @Override
     public void setCachePreparedQuery(boolean flag) {
         lock();
         try {
@@ -4977,17 +5354,17 @@ public class BrokerImpl
             unlock();
         }
     }
-    
+
     public boolean getCacheFinderQuery() {
         lock();
         try {
-            return _cacheFinderQuery 
+            return _cacheFinderQuery
                && _conf.getFinderCacheInstance() != null;
         } finally {
             unlock();
         }
     }
-    
+
     public void setCacheFinderQuery(boolean flag) {
         lock();
         try {
@@ -4996,7 +5373,7 @@ public class BrokerImpl
             unlock();
         }
     }
-    
+
     public boolean isFromWriteBehindCallback() {
         return _fromWriteBehindCallback;
     }
@@ -5004,59 +5381,66 @@ public class BrokerImpl
     /**
      * Return the 'JTA' connectionFactoryName
      */
+    @Override
     public String getConnectionFactoryName() {
         return _connectionFactoryName;
     }
 
     /**
-     * Set the 'JTA' ConnectionFactoryName. Input will be trimmed to null before being stored. 
+     * Set the 'JTA' ConnectionFactoryName. Input will be trimmed to null before being stored.
      */
+    @Override
     public void setConnectionFactoryName(String connectionFactoryName) {
-        this._connectionFactoryName = StringUtils.trimToNull(connectionFactoryName);
+        this._connectionFactoryName = StringUtil.trimToNull(connectionFactoryName);
     }
 
     /**
      * Return the 'NonJTA' ConnectionFactoryName.
      */
+    @Override
     public String getConnectionFactory2Name() {
         return _connectionFactory2Name;
     }
 
     /**
-     * Set the 'NonJTA' ConnectionFactoryName. Input will be trimmed to null before being stored. 
+     * Set the 'NonJTA' ConnectionFactoryName. Input will be trimmed to null before being stored.
      */
+    @Override
     public void setConnectionFactory2Name(String connectionFactory2Name) {
-        this._connectionFactory2Name = StringUtils.trimToNull(connectionFactory2Name);
+        this._connectionFactory2Name = StringUtil.trimToNull(connectionFactory2Name);
     }
-    
+
     /**
      * Return the 'JTA' ConnectionFactory, looking it up from JNDI if needed.
-     * 
+     *
      * @return the JTA connection factory or null if connectionFactoryName is blank.
      */
+    @Override
     public Object getConnectionFactory() {
-        if(StringUtils.isNotBlank(_connectionFactoryName)) { 
+        if(StringUtil.isNotBlank(_connectionFactoryName)) {
             return Configurations.lookup(_connectionFactoryName, "openjpa.ConnectionFactory", _log );
         }
         else {
             return null;
         }
     }
-    
+
     /**
      * Return the 'NonJTA' ConnectionFactory, looking it up from JNDI if needed.
-     * 
+     *
      * @return the NonJTA connection factory or null if connectionFactoryName is blank.
      */
-    public Object getConnectionFactory2() { 
-        if(StringUtils.isNotBlank(_connectionFactory2Name)) { 
+    @Override
+    public Object getConnectionFactory2() {
+        if(StringUtil.isNotBlank(_connectionFactory2Name)) {
             return  Configurations.lookup(_connectionFactory2Name, "openjpa.ConnectionFactory2", _log);
         }
         else {
             return null;
         }
     }
-    
+
+    @Override
     public boolean isCached(List<Object> oids) {
         BitSet loaded = new BitSet(oids.size());
         //check L1 cache first
@@ -5070,5 +5454,57 @@ public class BrokerImpl
             return true;
         }
         return _store.isCached(oids, loaded);
-    };
+    }
+
+    @Override
+    public boolean getAllowReferenceToSiblingContext() {
+        return _allowReferenceToSiblingContext;
+    }
+
+    @Override
+    public void setAllowReferenceToSiblingContext(boolean allow) {
+        _allowReferenceToSiblingContext = allow;
+    }
+
+    protected boolean isFlushing() {
+        return ((_flags & FLAG_FLUSHING) != 0);
+    }
+
+     @Override
+    public boolean getPostLoadOnMerge() {
+         return _postLoadOnMerge;
+     }
+
+     @Override
+    public void setPostLoadOnMerge(boolean allow) {
+         _postLoadOnMerge = allow;
+     }
+
+    /**
+     * Asserts consistencey of given automatic detachment option value.
+     */
+    private void assertAutoDetachValue(int value) {
+       if (((value & AutoDetach.DETACH_NONE) != 0) && (value != AutoDetach.DETACH_NONE)) {
+               throw new UserException(_loc.get("detach-none-exclusive", toAutoDetachString(value)));
+       }
+    }
+
+    /**
+     * Generates a user-readable String from the given integral value of AutoDetach options.
+     */
+    private String toAutoDetachString(int value) {
+       List<String> result = new ArrayList<>();
+       for (int i = 0; i < AutoDetach.values.length; i++) {
+               if ((value & AutoDetach.values[i]) != 0) {
+                       result.add(AutoDetach.names[i]);
+               }
+       }
+       return Arrays.toString(result.toArray(new String[result.size()]));
+    }
+
+    private boolean operatingAdd(Object o){
+        _operatingDirty = true;
+        return _operating.add(o);
+    }
+
 }

@@ -14,13 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.Map;
 
 import org.apache.openjpa.kernel.StoreContext;
@@ -30,11 +29,12 @@ import org.apache.openjpa.meta.ClassMetaData;
  * An in-memory representation of a {@link Value}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public abstract class Val
     implements Value {
 
+    
+    private static final long serialVersionUID = 1L;
     private ClassMetaData _meta = null;
     private String _alias = null;
 
@@ -45,9 +45,7 @@ public abstract class Val
         StoreContext ctx, Object[] params) {
         try {
             return eval(candidate, candidate, ctx, params);
-        } catch (NullPointerException npe) {
-            return null;
-        } catch (ClassCastException cce) {
+        } catch (NullPointerException | ClassCastException npe) {
             return null;
         }
     }
@@ -63,9 +61,7 @@ public abstract class Val
             if (c.isEmpty())
                 return null;
             return c.iterator().next();
-        } catch (NullPointerException npe) {
-            return null;
-        } catch (ClassCastException cce) {
+        } catch (NullPointerException | ClassCastException npe) {
             return null;
         }
     }
@@ -87,55 +83,66 @@ public abstract class Val
         StoreContext ctx, Object[] params) {
         Collection ret = new ArrayList(candidates.size());
         Object candidate;
-        for (Iterator itr = candidates.iterator(); itr.hasNext();) {
-            candidate = itr.next();
+        for (Object o : candidates) {
+            candidate = o;
             ret.add(evaluate(candidate, (orig == null) ? candidate : orig,
-                ctx, params));
+                    ctx, params));
         }
         return ret;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
 	}
 
+    @Override
     public boolean isVariable() {
         return false;
     }
 
+    @Override
     public boolean isAggregate() {
         return false;
     }
-    
+
+    @Override
     public boolean isXPath() {
         return false;
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         visitor.exit(this);
     }
 
+    @Override
     public String getAlias() {
         return _alias;
     }
 
+    @Override
     public void setAlias(String alias) {
         _alias = alias;
     }
 
+    @Override
     public Value getSelectAs() {
         return _alias != null ? this : null;
     }
 
+    @Override
     public Path getPath() {
         return null;
     }
 
+    @Override
     public String getName() {
         return null;
     }

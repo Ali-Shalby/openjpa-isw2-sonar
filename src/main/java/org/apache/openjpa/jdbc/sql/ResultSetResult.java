@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -33,6 +33,11 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.OffsetTime;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
@@ -59,6 +64,7 @@ public class ResultSetResult
     private final Statement _stmnt;
     private final ResultSet _rs;
     private final DBDictionary _dict;
+    private boolean _closeStatement = true;
     private boolean _closeConn = true;
     private int _row = -1;
     private int _size = -1;
@@ -178,13 +184,18 @@ public class ResultSetResult
         _closeConn = closeConn;
     }
 
+    public void setCloseStatement(boolean closeStatement) {
+        _closeStatement = closeStatement;
+    }
+
+    @Override
     public void close() {
         super.close();
         try {
             _rs.close();
         } catch (SQLException se) {
         }
-        if (_stmnt != null)
+        if (_stmnt != null && _closeStatement)
             try {
                 _stmnt.close();
             } catch (SQLException se) {
@@ -196,11 +207,13 @@ public class ResultSetResult
             }
     }
 
+    @Override
     public boolean supportsRandomAccess()
         throws SQLException {
         return _rs.getType() != ResultSet.TYPE_FORWARD_ONLY;
     }
 
+    @Override
     protected boolean absoluteInternal(int row)
         throws SQLException {
         if (row == ++_row)
@@ -216,12 +229,14 @@ public class ResultSetResult
         return true;
     }
 
+    @Override
     protected boolean nextInternal()
         throws SQLException {
         _row++;
         return _rs.next();
     }
 
+    @Override
     public int size()
         throws SQLException {
         if (_size == -1) {
@@ -235,124 +250,177 @@ public class ResultSetResult
         return _size;
     }
 
+    @Override
     protected boolean containsInternal(Object obj, Joins joins)
         throws SQLException {
         return ((Number) translate(obj, joins)).intValue() > 0;
     }
 
+    @Override
     protected Array getArrayInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getArray(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected InputStream getAsciiStreamInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getAsciiStream(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected BigDecimal getBigDecimalInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getBigDecimal(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Number getNumberInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getNumber(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected BigInteger getBigIntegerInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getBigInteger(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected InputStream getBinaryStreamInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getBinaryStream(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Blob getBlobInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getBlob(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected boolean getBooleanInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getBoolean(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected byte getByteInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getByte(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected byte[] getBytesInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getBytes(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Calendar getCalendarInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getCalendar(_rs, ((Number) obj).intValue());
     }
 
+    @Override
+    protected LocalDate getLocalDateInternal(Object obj, Joins joins)
+            throws SQLException {
+        return _dict.getLocalDate(_rs, ((Number) obj).intValue());
+    }
+
+    @Override
+    protected LocalTime getLocalTimeInternal(Object obj, Joins joins)
+            throws SQLException {
+        return _dict.getLocalTime(_rs, ((Number) obj).intValue());
+    }
+
+    @Override
+    protected LocalDateTime getLocalDateTimeInternal(Object obj, Joins joins)
+            throws SQLException {
+        return _dict.getLocalDateTime(_rs, ((Number) obj).intValue());
+    }
+
+    @Override
+    protected OffsetTime getOffsetTimeInternal(Object obj, Joins joins)
+            throws SQLException {
+        return _dict.getOffsetTime(_rs, ((Number) obj).intValue());
+    }
+
+    @Override
+    protected OffsetDateTime getOffsetDateTimeInternal(Object obj, Joins joins)
+            throws SQLException {
+        return _dict.getOffsetDateTime(_rs, ((Number) obj).intValue());
+    }
+
+    @Override
     protected char getCharInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getChar(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Reader getCharacterStreamInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getCharacterStream(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Clob getClobInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getClob(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Date getDateInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getDate(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected java.sql.Date getDateInternal(Object obj, Calendar cal,
         Joins joins)
         throws SQLException {
         return _dict.getDate(_rs, ((Number) obj).intValue(), cal);
     }
 
+    @Override
     protected double getDoubleInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getDouble(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected float getFloatInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getFloat(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected int getIntInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getInt(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Locale getLocaleInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getLocale(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected long getLongInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getLong(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Object getStreamInternal(JDBCStore store, Object obj,
         int metaTypeCode, Object arg, Joins joins) throws SQLException {
         return getLOBStreamInternal(store, obj, joins);
     }
-    
-    protected Object getObjectInternal(Object obj, int metaTypeCode,
-        Object arg, Joins joins)
+
+    @Override
+    protected Object getObjectInternal(Object obj, int metaTypeCode, Object arg, Joins joins)
         throws SQLException {
         if (metaTypeCode == -1 && obj instanceof Column)
             metaTypeCode = ((Column) obj).getJavaType();
@@ -360,7 +428,7 @@ public class ResultSetResult
         boolean isClob = (obj instanceof Column) ? ((Column) obj).getType() == Types.CLOB && !((Column) obj).isXML()
                 : false;
         obj = translate(obj, joins);
-        
+
         Object val = null;
         switch (metaTypeCode) {
             case JavaTypes.BOOLEAN:
@@ -370,19 +438,19 @@ public class ResultSetResult
                 break;
             case JavaTypes.BYTE:
             case JavaTypes.BYTE_OBJ:
-                val = new Byte(getByteInternal(obj, joins));
+                val = getByteInternal(obj, joins);
                 break;
             case JavaTypes.CHAR:
             case JavaTypes.CHAR_OBJ:
-                val = new Character(getCharInternal(obj, joins));
+                val = getCharInternal(obj, joins);
                 break;
             case JavaTypes.DOUBLE:
             case JavaTypes.DOUBLE_OBJ:
-                val = new Double(getDoubleInternal(obj, joins));
+                val = getDoubleInternal(obj, joins);
                 break;
             case JavaTypes.FLOAT:
             case JavaTypes.FLOAT_OBJ:
-                val = new Float(getFloatInternal(obj, joins));
+                val = getFloatInternal(obj, joins);
                 break;
             case JavaTypes.INT:
             case JavaTypes.INT_OBJ:
@@ -394,7 +462,7 @@ public class ResultSetResult
                 break;
             case JavaTypes.SHORT:
             case JavaTypes.SHORT_OBJ:
-                val = new Short(getShortInternal(obj, joins));
+                val = getShortInternal(obj, joins);
                 break;
             case JavaTypes.STRING:
                 return getStringInternal(obj, joins, isClob);
@@ -405,6 +473,16 @@ public class ResultSetResult
                 return getDateInternal(obj, joins);
             case JavaTypes.CALENDAR:
                 return getCalendarInternal(obj, joins);
+            case JavaTypes.LOCAL_DATE:
+                return getLocalDateInternal(obj, joins);
+            case JavaTypes.LOCAL_TIME:
+                return getLocalTimeInternal(obj, joins);
+            case JavaTypes.LOCAL_DATETIME:
+                return getLocalDateTimeInternal(obj, joins);
+            case JavaTypes.OFFSET_TIME:
+                return getOffsetTimeInternal(obj, joins);
+            case JavaTypes.OFFSET_DATETIME:
+                return getOffsetDateTimeInternal(obj, joins);
             case JavaTypes.BIGDECIMAL:
                 return getBigDecimalInternal(obj, joins);
             case JavaTypes.NUMBER:
@@ -451,21 +529,25 @@ public class ResultSetResult
         return (_rs.wasNull()) ? null : val;
     }
 
+    @Override
     protected Object getSQLObjectInternal(Object obj, Map map, Joins joins)
         throws SQLException {
         return _dict.getObject(_rs, ((Number) obj).intValue(), map);
     }
 
+    @Override
     protected Ref getRefInternal(Object obj, Map map, Joins joins)
         throws SQLException {
         return _dict.getRef(_rs, ((Number) obj).intValue(), map);
     }
 
+    @Override
     protected short getShortInternal(Object obj, Joins joins)
         throws SQLException {
         return _dict.getShort(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected String getStringInternal(Object obj, Joins joins, boolean isClobString)
         throws SQLException {
         if (isClobString) {
@@ -474,22 +556,26 @@ public class ResultSetResult
         return _dict.getString(_rs, ((Number) obj).intValue());
     }
 
+    @Override
     protected Time getTimeInternal(Object obj, Calendar cal, Joins joins)
         throws SQLException {
         return _dict.getTime(_rs, ((Number) obj).intValue(), cal);
     }
 
+    @Override
     protected Timestamp getTimestampInternal(Object obj, Calendar cal,
         Joins joins)
         throws SQLException {
         return _dict.getTimestamp(_rs, ((Number) obj).intValue(), cal);
     }
 
+    @Override
     public boolean wasNull()
         throws SQLException {
         return _rs.wasNull();
     }
 
+    @Override
     protected Object translate(Object obj, Joins joins)
         throws SQLException {
         if (obj instanceof Number)
@@ -508,10 +594,12 @@ public class ResultSetResult
           DBIdentifier sName = DBIdentifier.newColumn(obj.toString());
           return getResultSet().findColumn(_dict.convertSchemaCase(sName));
         } catch (SQLException se) {
+            _dict.log.trace(se.getMessage());
             return 0;
         }
     }
-  
+
+    @Override
     protected InputStream getLOBStreamInternal(JDBCStore store, Object obj,
         Joins joins) throws SQLException {
         return _dict.getLOBStream(store, _rs, ((Number) obj).intValue());

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -32,10 +32,10 @@ public interface CollectionChangeTracker
     /**
      * Record that the given element was added.
      */
-    public void added(Object elem);
+    void added(Object elem);
 
     /**
      * Record that the given element was removed.
      */
-    public void removed(Object elem);
+    void removed(Object elem);
 }

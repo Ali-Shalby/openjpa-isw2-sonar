@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -26,6 +26,9 @@ package org.apache.openjpa.kernel.exps;
 class Sqrt
     extends UnaryMathVal {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Provide the number whose square root to calculate.
      */
@@ -33,11 +36,13 @@ class Sqrt
         super(val);
     }
 
+    @Override
     protected Class getType(Class c) {
         return double.class;
     }
 
+    @Override
     protected Object operate(Object o, Class c) {
-        return new Double(Math.sqrt(((Number) o).doubleValue()));
+        return Math.sqrt(((Number) o).doubleValue());
     }
 }

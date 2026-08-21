@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.SimpleRegex;
-import serp.util.Strings;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * Expression that compares two others.
@@ -30,9 +30,12 @@ import serp.util.Strings;
 class MatchesExpression
     extends CompareExpression {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage(
         MatchesExpression.class);
-    
+
     private final String _single;
     private final String _multi;
     private final boolean _affirmation;
@@ -51,6 +54,7 @@ class MatchesExpression
         _affirmation = affirmation;
     }
 
+    @Override
     protected boolean compare(Object o1, Object o2) {
         if (o1 == null || o2 == null)
             return false;
@@ -69,8 +73,8 @@ class MatchesExpression
 
         // now translate from the single and multi character escape
         // sequences into an escape that conforms to the regexp syntax
-        str = Strings.replace(str, _multi, ".*");
-        str = Strings.replace(str, _single, ".");
+        str = StringUtil.replace(str, _multi, ".*");
+        str = StringUtil.replace(str, _single, ".");
 
         SimpleRegex re = new SimpleRegex(str, uncase);
         boolean matches = re.matches(o1.toString());

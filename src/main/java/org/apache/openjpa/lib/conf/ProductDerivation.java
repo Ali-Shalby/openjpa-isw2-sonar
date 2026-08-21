@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
@@ -27,7 +27,7 @@ import java.util.Set;
  * Hooks for deriving products with additional functionality.
  * Parses configuration information from global, default or explictly-specified
  * resources. All implementations of this interface will have a chance to mutate
- * a {@link Configuration} both before and after the user-specified 
+ * a {@link Configuration} both before and after the user-specified
  * configuration data is loaded. The order in which the product derivations are
  * evaluated is determined by the specificity of the derivation type.
  *
@@ -37,18 +37,18 @@ import java.util.Set;
  */
 public interface ProductDerivation {
 
-    public static final int TYPE_PRODUCT = 100;
-    public static final int TYPE_FEATURE = 1000;
+    int TYPE_PRODUCT = 100;
+    int TYPE_FEATURE = 1000;
 
     /**
      * Return the type of derivation.
      */
-    public int getType();
+    int getType();
 
     /**
      * Return the configuration prefix for properties of this product.
      */
-    public String getConfigurationPrefix();
+    String getConfigurationPrefix();
 
     /**
      * Ensure that this derivation is valid.  This action might consist of
@@ -56,33 +56,33 @@ public interface ProductDerivation {
      * they exist.  Throw any throwable to indicate an invalid derivation.
      * Invalid derivations will not be used.
      */
-    public void validate()
+    void validate()
         throws Exception;
 
     /**
-     * Load globals into the returned ConfigurationProvider, or return null if 
+     * Load globals into the returned ConfigurationProvider, or return null if
      * no globals are found.
      */
-    public ConfigurationProvider loadGlobals(ClassLoader loader) 
+    ConfigurationProvider loadGlobals(ClassLoader loader)
         throws Exception;
 
     /**
-     * Load defaults into the returned ConfigurationProvider, or return null if 
+     * Load defaults into the returned ConfigurationProvider, or return null if
      * no defaults are found.
      */
-    public ConfigurationProvider loadDefaults(ClassLoader loader) 
+    ConfigurationProvider loadDefaults(ClassLoader loader)
         throws Exception;
 
     /**
-     * Load the given given resource into the returned ConfigurationProvider, 
-     * or return null if it is not a resource this receiver understands. 
+     * Load the given given resource into the returned ConfigurationProvider,
+     * or return null if it is not a resource this receiver understands.
      * The given class loader may be null.
      *
      * @param anchor optional named anchor within a multiple-configuration
      * resource
      */
-    public ConfigurationProvider load(String resource, String anchor, 
-        ClassLoader loader) 
+    ConfigurationProvider load(String resource, String anchor,
+        ClassLoader loader)
         throws Exception;
 
     /**
@@ -91,7 +91,7 @@ public interface ProductDerivation {
      *
      * @param anchor optional named anchor within a multiple-configuration file
      */
-    public ConfigurationProvider load(File file, String anchor) 
+    ConfigurationProvider load(File file, String anchor)
         throws Exception;
 
     /**
@@ -101,7 +101,7 @@ public interface ProductDerivation {
      *
      * @since 1.1.0
      */
-    public String getDefaultResourceLocation();
+    String getDefaultResourceLocation();
 
     /**
      * Return a List<String> of all the anchors defined in <code>file</code>.
@@ -113,7 +113,7 @@ public interface ProductDerivation {
      *
      * @since 1.1.0
      */
-    public List<String> getAnchorsInFile(File file) throws IOException,
+    List<String> getAnchorsInFile(File file) throws IOException,
             Exception;
 
     /**
@@ -126,17 +126,17 @@ public interface ProductDerivation {
      *
      * @since 1.1.0
      */
-    public List<String> getAnchorsInResource(String resource) throws Exception;
-    
+    List<String> getAnchorsInResource(String resource) throws Exception;
+
     /**
      * Provides the instance with a callback to mutate the initial properties
      * of the {@link ConfigurationProvider}. This is primarily to alter or
      * add properties that determine what type of configuration is constructed,
      * and therefore is typically used at runtime only.
-     * 
+     *
      * @return true if given ConfigurationProvider has been mutated.
      */
-    public boolean beforeConfigurationConstruct(ConfigurationProvider cp);
+    boolean beforeConfigurationConstruct(ConfigurationProvider cp);
 
     /**
      * Provides the instance with the opportunity to mutate
@@ -144,28 +144,28 @@ public interface ProductDerivation {
      *
      * @return true if given Configuration has been mutated.
      */
-    public boolean beforeConfigurationLoad(Configuration conf);
+    boolean beforeConfigurationLoad(Configuration conf);
 
     /**
      * Called after the specification has been set.
      *
      * @return true if given Configuration has been mutated.
      */
-    public boolean afterSpecificationSet(Configuration conf);
-    
+    boolean afterSpecificationSet(Configuration conf);
+
     /**
      * Called before the given Configuration is closed.
-     * 
+     *
      * @since 0.9.7
      */
-    public void beforeConfigurationClose(Configuration conf);
-    
-       
+    void beforeConfigurationClose(Configuration conf);
+
+
     /**
-     * Return set of Query hint keys recognized by this receiver. 
-     * 
+     * Return set of Query hint keys recognized by this receiver.
+     *
      * @since 2.0.0
      */
-    public Set<String> getSupportedQueryHints();
+    Set<String> getSupportedQueryHints();
 
 }

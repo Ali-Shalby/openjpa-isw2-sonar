@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -28,11 +28,12 @@ import org.apache.openjpa.meta.JavaTypes;
 /**
  * Handler for clob values.
  *
- * @nojavadoc
  */
 public class ClobValueHandler
     extends AbstractValueHandler {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final ClobValueHandler _instance = new ClobValueHandler();
 
     /**
@@ -45,13 +46,15 @@ public class ClobValueHandler
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public Column[] map(ValueMapping vm, String name, ColumnIO io,
         boolean adapt) {
         DBDictionary dict = vm.getMappingRepository().getDBDictionary();
         DBIdentifier colName = DBIdentifier.newColumn(name, dict != null ? dict.delimitAll() : false);
         return map(vm, colName, io, adapt);
     }
-    
+
     public Column[] map(ValueMapping vm, DBIdentifier name, ColumnIO io,
         boolean adapt) {
         Column col = new Column();

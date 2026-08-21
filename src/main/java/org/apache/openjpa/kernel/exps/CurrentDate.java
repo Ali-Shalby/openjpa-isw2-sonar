@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -29,19 +29,24 @@ import org.apache.openjpa.kernel.StoreContext;
  */
 class CurrentDate
     extends Val {
-    private final Class<? extends Date> _type;
     
+    private static final long serialVersionUID = 1L;
+    private final Class<? extends Date> _type;
+
     public CurrentDate(Class<? extends Date> type) {
         _type = type;
     }
-    
+
+    @Override
     public Class getType() {
         return _type;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig, StoreContext ctx, Object[] params) {
         try {
             _type.getConstructor(long.class).newInstance(System.currentTimeMillis());

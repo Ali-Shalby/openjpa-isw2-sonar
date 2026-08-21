@@ -14,17 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 
 package org.apache.openjpa.jdbc.kernel;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
@@ -37,11 +39,12 @@ import org.apache.openjpa.jdbc.sql.SelectImpl;
 import org.apache.openjpa.jdbc.sql.Union;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.PreparedQuery;
+import org.apache.openjpa.kernel.PreparedQueryCache.Exclusion;
 import org.apache.openjpa.kernel.Query;
 import org.apache.openjpa.kernel.QueryImpl;
 import org.apache.openjpa.kernel.QueryLanguages;
 import org.apache.openjpa.kernel.StoreQuery;
-import org.apache.openjpa.kernel.PreparedQueryCache.Exclusion;
+import org.apache.openjpa.kernel.exps.Parameter;
 import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultList;
@@ -55,48 +58,48 @@ import org.apache.openjpa.util.UserException;
  * Implements {@link PreparedQuery} for SQL queries.
  * PreparedQuery holds the post-compilation and post-execution state of a kernel Query.
  * The post-execution internal state of a query is appended as a <em>user object</em>
- * to the user-visible result to maintain the API contract. 
- * 
+ * to the user-visible result to maintain the API contract.
+ *
  * @author Pinaki Poddar
  *
  */
 public class PreparedQueryImpl implements PreparedQuery {
-    private static Localizer _loc = 
+    private static Localizer _loc =
         Localizer.forPackage(PreparedQueryImpl.class);
 
     private final String _id;
     private String _sql;
     private boolean _initialized;
-    
+
     // Post-compilation state of an executable query, populated on construction
     private Class<?> _candidate;
     private boolean _subclasses;
-    
+
     // post-execution state of a query
     private QueryExpressions[] _exps;
     private Class<?>[] _projTypes;
 
     // Position of the user defined parameters in the _params list
-    private Map<Object, int[]>    _userParamPositions;
+    private Map<Object, Integer[]>    _userParamPositions;
     private Map<Integer, Object> _template;
     private SelectImpl select;
 
     /**
      * Construct.
-     * 
+     *
      * @param id an identifier for this query to be used as cache key
-     * @param compiled a compiled query 
+     * @param compiled a compiled query
      */
     public PreparedQueryImpl(String id, Query compiled) {
         this(id, null, compiled);
     }
-    
+
     /**
      * Construct.
-     * 
+     *
      * @param id an identifier for this query to be used as cache key
-     * @param corresponding data store language query string 
-     * @param compiled a compiled query 
+     * @param corresponding data store language query string
+     * @param compiled a compiled query
      */
     public PreparedQueryImpl(String id, String sql, Query compiled) {
         this._id = id;
@@ -106,47 +109,53 @@ public class PreparedQueryImpl implements PreparedQuery {
             _subclasses   = compiled.hasSubclasses();
         }
     }
-    
+
+    @Override
     public String getIdentifier() {
         return _id;
     }
-    
+
+    @Override
     public String getLanguage() {
         return QueryLanguages.LANG_PREPARED_SQL;
     }
-    
+
     /**
-     * Get the original query string which is same as the identifier of this 
+     * Get the original query string which is same as the identifier of this
      * receiver.
      */
+    @Override
     public String getOriginalQuery() {
         return getIdentifier();
     }
-    
+
+    @Override
     public String getTargetQuery() {
         return _sql;
     }
-    
+
     void setTargetQuery(String sql) {
         _sql = sql;
     }
-    
+
+    @Override
     public boolean isInitialized() {
         return _initialized;
     }
-    
+
     public QueryExpressions[] getQueryExpressions() {
         return _exps;
     }
-    
+
     public Class[] getProjectionTypes() {
         return _projTypes;
     }
-    
+
     /**
      * Pours the post-compilation state held by this receiver to the given
      * query.
      */
+    @Override
     public void setInto(Query q) {
     	q.setQuery(_id);
         q.setCandidateType(_candidate, _subclasses);
@@ -156,11 +165,12 @@ public class PreparedQueryImpl implements PreparedQuery {
      * Initialize this receiver with post-execution result.
      * The input argument is processed only if it is a {@link ResultList} with
      * an attached {@link SelectResultObjectProvider} as its
-     * {@link ResultList#getUserObject() user object}. 
-     * 
-     * @return an exclusion if can not be initialized for some reason. 
-     * null if initialization is successful. 
+     * {@link ResultList#getUserObject() user object}.
+     *
+     * @return an exclusion if can not be initialized for some reason.
+     * null if initialization is successful.
      */
+    @Override
     public Exclusion initialize(Object result) {
         if (isInitialized())
             return null;
@@ -169,7 +179,7 @@ public class PreparedQueryImpl implements PreparedQuery {
         if (selector == null)
             return new PreparedQueryCacheImpl.StrongExclusion(_id, ((Localizer.Message)extract[1]).getMessage());
         if (selector == null || selector.hasMultipleSelects()
-            || ((selector instanceof Union) 
+            || ((selector instanceof Union)
             && (((Union)selector).getSelects().length != 1)))
             return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-multi-select", _id).getMessage());
         select = extractImplementation(selector);
@@ -177,43 +187,45 @@ public class PreparedQueryImpl implements PreparedQuery {
             return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-select", _id).getMessage());
         SQLBuffer buffer = selector.getSQL();
         if (buffer == null)
-            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-sql", _id).getMessage());;
+            return new PreparedQueryCacheImpl.StrongExclusion(_id, _loc.get("exclude-no-sql", _id).getMessage());
         if (isUsingFieldStrategy())
-            return new PreparedQueryCacheImpl.StrongExclusion(_id, 
-                _loc.get("exclude-user-strategy", _id).getMessage());;
-                
+            return new PreparedQueryCacheImpl.StrongExclusion(_id,
+                _loc.get("exclude-user-strategy", _id).getMessage());
+
         if (isPaginated())
-            return new PreparedQueryCacheImpl.StrongExclusion(_id, 
-                _loc.get("exclude-pagination", _id).getMessage());;
+            return new PreparedQueryCacheImpl.StrongExclusion(_id,
+                _loc.get("exclude-pagination", _id).getMessage());
 
         setTargetQuery(buffer.getSQL());
         setParameters(buffer.getParameters());
         setUserParameterPositions(buffer.getUserParameters());
         _initialized = true;
-        
+
         return null;
     }
-    
+
     /**
      * Extract the underlying SelectExecutor from the given argument, if possible.
-     * 
-     * @return two objects in an array. The element at index 0 is SelectExecutor, 
+     *
+     * @return two objects in an array. The element at index 0 is SelectExecutor,
      * if it can be extracted. The element at index 1 is the reason why it can
      * not be extracted.
      */
     private Object[] extractSelectExecutor(Object result) {
-        if (result instanceof ResultList == false)
+        if (!(result instanceof ResultList))
             return new Object[]{null, _loc.get("exclude-not-result", _id)};
         Object userObject = ((ResultList<?>)result).getUserObject();
         if (userObject == null || !userObject.getClass().isArray() || ((Object[])userObject).length != 2)
             return new Object[]{null, _loc.get("exclude-no-user-object", _id)};
         Object provider = ((Object[])userObject)[0];
         Object executor = ((Object[])userObject)[1];
-        if (executor instanceof StoreQuery.Executor == false)
+        if (!(executor instanceof StoreQuery.Executor))
             return new Object[]{null, _loc.get("exclude-not-executor", _id)};
         _exps = ((StoreQuery.Executor)executor).getQueryExpressions();
-        for (int i = 0; i < _exps.length; i++) {
-            if (isUsingExternalizedParameter(_exps[i])) {
+        for (QueryExpressions exp : _exps) {
+            if (exp.hasInExpression)
+                return new Object[]{null, _loc.get("exclude-in-expression", _id)};
+            if (isUsingExternalizedParameter(exp)) {
                 return new Object[]{null, _loc.get("exclude-externalized-param", _id)};
             }
         }
@@ -233,23 +245,23 @@ public class PreparedQueryImpl implements PreparedQuery {
         }
         if (provider instanceof SelectResultObjectProvider) {
             return new Object[]{((SelectResultObjectProvider)provider).getSelect(), null};
-        } 
+        }
         return new Object[]{null, _loc.get("exclude-not-select-rop", _id, provider.getClass().getName())};
     }
-    
+
     private SelectImpl extractImplementation(SelectExecutor selector) {
         if (selector == null)
             return null;
-        if (selector instanceof SelectImpl) 
+        if (selector instanceof SelectImpl)
             return (SelectImpl)selector;
         if (selector instanceof LogicalUnion.UnionSelect)
             return ((LogicalUnion.UnionSelect)selector).getDelegate();
-        if (selector instanceof Union) 
+        if (selector instanceof Union)
             return extractImplementation(((Union)selector).getSelects()[0]);
-        
+
         return null;
     }
-    
+
     private boolean isUsingExternalizedParameter(QueryExpressions exp) {
         if (exp == null)
             return false;
@@ -262,18 +274,18 @@ public class PreparedQueryImpl implements PreparedQuery {
         }
         return false;
     }
-    
+
     private boolean isPaginated() {
         if (select instanceof SelectImpl) {
-            if (((SelectImpl)select).getStartIndex() != 0 || 
+            if (((SelectImpl)select).getStartIndex() != 0 ||
                 ((SelectImpl)select).getEndIndex() != Long.MAX_VALUE)
                 return true;
         }
         return false;
-    }        
+    }
     private boolean isUsingFieldStrategy() {
-        for (int i = 0; i < _exps.length; i++) {
-            if (isUsingFieldStrategy(_exps[i])) {
+        for (QueryExpressions exp : _exps) {
+            if (isUsingFieldStrategy(exp)) {
                 return true;
             }
         }
@@ -292,42 +304,45 @@ public class PreparedQueryImpl implements PreparedQuery {
         }
         return false;
     }
-    
+
     /**
      * Merge the given user parameters with its own parameter. The given map
-     * must be compatible with the user parameters extracted during 
-     * {@link #initialize(Object) initialization}. 
-     * 
+     * must be compatible with the user parameters extracted during
+     * {@link #initialize(Object) initialization}.
+     *
      * @return 0-based parameter index mapped to corresponding values.
-     * 
+     *
      */
+    @Override
     public Map<Integer, Object> reparametrize(Map user, Broker broker) {
         if (!isInitialized())
             throw new InternalException("reparameterize() on uninitialized.");
         if (user == null || user.isEmpty()) {
             if (!_userParamPositions.isEmpty()) {
-                throw new UserException(_loc.get("uparam-null", 
+                throw new UserException(_loc.get("uparam-null",
                     _userParamPositions.keySet(), this));
             } else {
                 return _template;
             }
         }
         if (!_userParamPositions.keySet().equals(user.keySet())) {
-            throw new UserException(_loc.get("uparam-mismatch", 
+            throw new UserException(_loc.get("uparam-mismatch",
                 _userParamPositions.keySet(), user.keySet(), this));
         }
-        Map<Integer, Object> result = new HashMap<Integer, Object>(_template);
-        
-        for (Object key : user.keySet()) {
-            int[] indices = _userParamPositions.get(key);
+        Map<Integer, Object> result = new HashMap<>(_template);
+
+        Set<Map.Entry<Object,Object>> userSet = user.entrySet();
+        for (Map.Entry<Object,Object> userEntry : userSet) {
+            Object key = userEntry.getKey();
+            Integer[] indices = _userParamPositions.get(key);
             if (indices == null || indices.length == 0)
                 throw new UserException(_loc.get("uparam-no-pos", key, this));
-            Object val = user.get(key);
+            Object val = userEntry.getValue();
             if (ImplHelper.isManageable(val)) {
                 setPersistenceCapableParameter(result, val, indices, broker);
             } else if (val instanceof Collection) {
-                setCollectionValuedParameter(result, (Collection)val, indices, 
-                    key);
+                setCollectionValuedParameter(result, (Collection)val, indices,
+                    key, broker);
             } else {
                 for (int j : indices) {
                     if (val instanceof Enum) {
@@ -336,30 +351,30 @@ public class PreparedQueryImpl implements PreparedQuery {
                         } else {
                             val = ((Enum)val).name();
                         }
-                    } 
+                    }
                     result.put(j, val);
                 }
             }
         }
         return result;
     }
-    
+
     /**
      * Calculate primary key identity value(s) of the given manageable instance
      * and fill in the given map.
-     * 
+     *
      * @param values a map of integer parameter index to parameter value
      * @param pc a manageable instance
      * @param indices the indices of the column values
      * @param broker used to obtain the primary key values
      */
-    private void setPersistenceCapableParameter(Map<Integer,Object> result, 
-        Object pc, int[] indices, Broker broker) {
+    private void setPersistenceCapableParameter(Map<Integer,Object> result,
+        Object pc, Integer[] indices, Broker broker) {
         JDBCStore store = (JDBCStore)broker.getStoreManager()
             .getInnermostDelegate();
         MappingRepository repos = store.getConfiguration()
             .getMappingRepositoryInstance();
-        ClassMapping mapping = repos.getMapping(pc.getClass(), 
+        ClassMapping mapping = repos.getMapping(pc.getClass(),
             broker.getClassLoader(), true);
         Column[] pks = mapping.getPrimaryKeyColumns();
         Object cols = mapping.toDataStoreValue(pc, pks, store);
@@ -367,7 +382,7 @@ public class PreparedQueryImpl implements PreparedQuery {
             Object[] array = (Object[])cols;
             int n = array.length;
             if (n > indices.length || indices.length%n != 0)
-                throw new UserException(_loc.get("uparam-pc-key", 
+                throw new UserException(_loc.get("uparam-pc-key",
                     pc.getClass(), n, Arrays.toString(indices)));
             int k = 0;
             for (int j : indices) {
@@ -378,63 +393,65 @@ public class PreparedQueryImpl implements PreparedQuery {
             for (int j : indices) {
                 result.put(j, cols);
             }
-        } 
+        }
     }
-    
-    private void setCollectionValuedParameter(Map<Integer,Object> result, 
-        Collection values, int[] indices, Object param) {
+
+    private void setCollectionValuedParameter(Map<Integer,Object> result,
+        Collection values, Integer[] indices, Object param, Broker broker) {
         int n = values.size();
         Object[] array = values.toArray();
-        if (n > indices.length || indices.length%n != 0) {
-            throw new UserException(_loc.get("uparam-coll-size", param, values, 
+        if (n == 0 || n > indices.length || indices.length%n != 0) {
+            throw new UserException(_loc.get("uparam-coll-size", param, values,
                 Arrays.toString(indices)));
         }
         int k = 0;
         for (int j : indices) {
-            result.put(j, array[k%n]);
+            Object val = array[k%n];
+            if (ImplHelper.isManageable(val))
+                setPersistenceCapableParameter(result, val, indices, broker);
+            else
+                result.put(j, val);
             k++;
         }
-        
+
     }
     /**
      * Marks the positions and keys of user parameters.
-     * 
-     * @param list even elements are numbers representing the position of a 
+     *
+     * @param list even elements are numbers representing the position of a
      * user parameter in the _param list. Odd elements are the user parameter
      * key. A user parameter key may appear more than once.
      */
     void setUserParameterPositions(List list) {
-        _userParamPositions = new HashMap<Object, int[]>();
+        _userParamPositions = new HashMap<>();
+        List<Integer> positions = new ArrayList<>();
         for (int i = 1; list != null && i < list.size(); i += 2) {
-            Object key = list.get(i);
-            int p = (Integer)list.get(i-1);
-            int[] positions = _userParamPositions.get(key);
-            if (positions == null) {
-                positions = new int[]{p};
-            } else {
-                int[] temp = new int[positions.length+1];
-                System.arraycopy(positions, 0, temp, 0, positions.length);
-                temp[positions.length] = p;
-                positions = temp;
+            Object key = ((Parameter)list.get(i)).getParameterKey();
+            positions.clear();
+            for (int j = 1; j < list.size(); j += 2) {
+                Object other = ((Parameter)list.get(j)).getParameterKey();
+                if (key.equals(other))
+                    positions.add((Integer)list.get(j-1));
             }
-            _userParamPositions.put(key, positions);
+            _userParamPositions.put(key, positions.toArray(new Integer[positions.size()]));
         }
     }
-    
+
     void setParameters(List list) {
-        Map<Integer, Object> tmp = new HashMap<Integer, Object>();
+        Map<Integer, Object> tmp = new HashMap<>();
         for (int i = 0; list != null && i < list.size(); i++) {
             tmp.put(i, list.get(i));
         }
         _template = Collections.unmodifiableMap(tmp);
     }
-    
+
     SelectImpl getSelect() {
         return select;
     }
-    
+
+    @Override
     public String toString() {
-        return "PreparedQuery: [" + getOriginalQuery() + "] --> [" + 
+        return "PreparedQuery: [" + getOriginalQuery() + "] --> [" +
                getTargetQuery() + "]";
     }
 }

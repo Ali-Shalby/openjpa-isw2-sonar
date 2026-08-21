@@ -14,13 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
 import java.sql.SQLException;
+import java.util.Objects;
 
-import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.RelationId;
 import org.apache.openjpa.jdbc.schema.Column;
@@ -35,7 +35,6 @@ import org.apache.openjpa.util.InvalidStateException;
  * Primary table row that tracks foreign keys and auto-inc columns.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class PrimaryRow
     extends RowImpl {
@@ -73,6 +72,7 @@ public class PrimaryRow
     /**
      * Mark this row as dependent on some other row.
      */
+    @Override
     public boolean isDependent() {
         return (flags & DEPENDENT) > 0;
     }
@@ -101,23 +101,28 @@ public class PrimaryRow
         _idx = idx;
     }
 
+    @Override
     public Object getFailedObject() {
         return _failed;
     }
 
+    @Override
     public void setFailedObject(Object failed) {
         _failed = failed;
     }
 
+    @Override
     public OpenJPAStateManager getPrimaryKey() {
         return _pk;
     }
 
+    @Override
     public void setPrimaryKey(OpenJPAStateManager sm)
         throws SQLException {
         setPrimaryKey(null, sm);
     }
 
+    @Override
     public void setPrimaryKey(ColumnIO io, OpenJPAStateManager sm) {
         _pk = sm;
         flags |= PK_SET;
@@ -127,6 +132,7 @@ public class PrimaryRow
         setValid(true);
     }
 
+    @Override
     public void wherePrimaryKey(OpenJPAStateManager sm)
         throws SQLException {
         _pk = sm;
@@ -141,7 +147,7 @@ public class PrimaryRow
      * Return the I/O information for the given set foreign key.
      */
     public ColumnIO getForeignKeyIO(ForeignKey fk) {
-        return (_fkIO == null) ? null : _fkIO[fk.getIndex()];
+        return _fkIO == null ? null : _fkIO.length <= fk.getIndex() ? null : _fkIO[fk.getIndex()];
     }
 
     /**
@@ -149,7 +155,7 @@ public class PrimaryRow
      * constraint analyses are not recorded.
      */
     public OpenJPAStateManager getForeignKeySet(ForeignKey fk) {
-        return (_fkSet == null) ? null : _fkSet[fk.getIndex()];
+        return _fkSet == null ? null : _fkSet.length <= fk.getIndex() ? null : _fkSet[fk.getIndex()];
     }
 
     /**
@@ -157,14 +163,16 @@ public class PrimaryRow
      * constraint analyses are not recorded.
      */
     public OpenJPAStateManager getForeignKeyWhere(ForeignKey fk) {
-        return (_fkWhere == null) ? null : _fkWhere[fk.getIndex()];
+        return _fkWhere == null ? null : _fkWhere.length <= fk.getIndex() ? null : _fkWhere[fk.getIndex()];
     }
 
+    @Override
     public void setForeignKey(ForeignKey fk, OpenJPAStateManager sm)
         throws SQLException {
         setForeignKey(fk, null, sm);
     }
 
+    @Override
     public void setForeignKey(ForeignKey fk, ColumnIO io,
         OpenJPAStateManager sm)
         throws SQLException {
@@ -174,6 +182,7 @@ public class PrimaryRow
             recordForeignKey(fk, io, sm, true);
     }
 
+    @Override
     public void whereForeignKey(ForeignKey fk, OpenJPAStateManager sm)
         throws SQLException {
         if (!delayForeignKey(fk, sm, false))
@@ -182,19 +191,20 @@ public class PrimaryRow
             recordForeignKey(fk, null, sm, false);
     }
 
+    @Override
     public void clearForeignKey(ForeignKey fk)
         throws SQLException {
         super.clearForeignKey(fk);
-        if (_fkSet != null)
+        if (_fkSet != null && _fkSet.length > fk.getIndex())
             _fkSet[fk.getIndex()] = null;
-        if (_fkIO != null)
+        if (_fkIO != null && _fkIO.length > fk.getIndex())
             _fkIO[fk.getIndex()] = null;
     }
 
     /**
-     * If this is a delete, delay foreign keys to other deleted objects if the 
-     * key is restricted or cascade. If this is an update or insert, delay 
-     * foreign keys to other inserts if the key is not logical. If the foreign 
+     * If this is a delete, delay foreign keys to other deleted objects if the
+     * key is restricted or cascade. If this is an update or insert, delay
+     * foreign keys to other inserts if the key is not logical. If the foreign
      * key is to a new record and the columns are auto-inc, record it.
      */
     private boolean delayForeignKey(ForeignKey fk, OpenJPAStateManager sm,
@@ -272,6 +282,7 @@ public class PrimaryRow
             : _callbacks[getRelationIdIndex(col)];
     }
 
+    @Override
     public void setRelationId(Column col, OpenJPAStateManager sm,
         RelationId rel)
         throws SQLException {
@@ -290,6 +301,7 @@ public class PrimaryRow
         }
     }
 
+    @Override
     public void clearRelationId(Column col)
         throws SQLException {
         super.clearRelationId(col);
@@ -321,60 +333,68 @@ public class PrimaryRow
         while (cls.getJoinablePCSuperclassMapping() != null)
             cls = cls.getJoinablePCSuperclassMapping();
         Column[] cols = cls.getPrimaryKeyColumns();
-        for (int i = 0; i < cols.length; i++)
-            if (cols[i].isAutoAssigned())
+        for (Column col : cols)
+            if (col.isAutoAssigned())
                 return true;
         return false;
     }
 
+    @Override
     protected void setObject(Column col, Object val, int metaType,
         boolean overrideDefault)
         throws SQLException {
         // make sure we're not setting two different values
-    	// unless the given column is an implicit relationship and value
-    	// changes from logical default to non-default
+        // unless the given column is an implicit relationship and value
+        // changes from logical default to non-default
         Object prev = getSet(col);
         if (prev != null) {
             if (prev == NULL)
                 prev = null;
             if (!rowValueEquals(prev, val)) {
-            	if (allowsUpdate(col, prev, val)) {
-            		super.setObject(col, val, metaType, overrideDefault);
-            	} else if (!isDefaultValue(val)) {
-            		throw new InvalidStateException(_loc.get("diff-values",
-            				new Object[]{ col.getFullDBIdentifier().getName(),
-                            (prev == null) ? null : prev.getClass(), prev,
-                            (val == null) ? null : val.getClass(), val })).
-            				setFatal(true);
-            	} else {
-            	    // since not allow to update and the new value is 0 or null,
-            	    // just return.
-            	    return;
-            	}
+                if (isDefaultValue(prev) || allowsUpdate(col, prev, val)) {
+                    super.setObject(col, val, metaType, overrideDefault);
+                    return;
+                } else if (!isDefaultValue(val)) {
+                    throw new InvalidStateException(_loc.get("diff-values",
+                            new Object[]{ col.getFullDBIdentifier().getName(),
+                                    (prev == null) ? null : prev.getClass(), prev,
+                                    (val == null) ? null : val.getClass(), val })).
+                            setFatal(true);
+                } else {
+                    // since not allow to update and the new value is 0 or null,
+                    // just return.
+                    return;
+                }
             }
         }
         super.setObject(col, val, metaType, overrideDefault);
     }
-    
+
     /**
-     * Allow the given column value to be updated only if old or current value
-     * is a default value or was not set and the column is not a primary key.
+     * Allow the given key column value to be updated if the old value is a default value
+     * or the new value is default.
+     * For primary keys we even disallow setting the current value to default
      */
     boolean allowsUpdate(Column col, Object old, Object cur) {
-    	return ((!col.isPrimaryKey() && col.isImplicitRelation()) ||
-    	   col.isUni1MFK()) && (isDefaultValue(old));
+        if (col.isPrimaryKey() && isDefaultValue(old) && !isDefaultValue(cur)) {
+            // for primary keys we disallow re-setting it to default
+            return false;
+        }
+
+        return !(col.isPrimaryKey() || col.isRelationId() || col.isImplicitRelation() || col.isUni1MFK())
+               || isDefaultValue(old) || isDefaultValue(cur);
     }
-    
+
     boolean isDefaultValue(Object val) {
-    	return val == null || val == NULL
-    	    || (val instanceof Number && ((Number)val).longValue() == 0);
+        return val == null || val == NULL
+                || (val instanceof Number && ((Number)val).longValue() == 0);
     }
 
     /**
      * Return true if the two values should be considered equal.
      */
     private static boolean rowValueEquals(Object o1, Object o2) {
-        if (ObjectUtils.equals(o1, o2))
+        if (Objects.equals(o1, o2))
             return true;
 
         // check for numeric equality (bug #1151)
@@ -382,6 +402,7 @@ public class PrimaryRow
             && ((Number) o1).doubleValue() == ((Number) o2).doubleValue();
     }
 
+    @Override
     protected String generateSQL(DBDictionary dict) {
         try {
             if ((flags & PK_SET) > 0)
@@ -417,10 +438,12 @@ public class PrimaryRow
         return super.generateSQL(dict);
     }
 
+    @Override
     protected RowImpl newInstance(Column[] cols, int action) {
         return new PrimaryRow(cols, action, _pk);
     }
 
+    @Override
     public void copyInto(RowImpl row, boolean whereOnly) {
         super.copyInto(row, whereOnly);
         if (!(row instanceof PrimaryRow))
@@ -458,5 +481,20 @@ public class PrimaryRow
             System.arraycopy(_callbacks, 0, prow._callbacks, 0,
                 _callbacks.length);
         }
+    }
+
+    @Override
+    public String toString() {
+    	StringBuilder buf = new StringBuilder();
+    	buf.append("PrimaryRow[");
+    	switch (getAction()) {
+	    	case ACTION_UPDATE: buf.append("UPDATE"); break;
+	    	case ACTION_INSERT: buf.append("INSERT"); break;
+	    	case ACTION_DELETE: buf.append("DELETE"); break;
+	    	default: buf.append("UNKNOWN");
+    	}
+    	buf.append(" ").append(getTable().getName()).append("]: ");
+    	buf.append(_pk);
+    	return buf.toString();
     }
 }

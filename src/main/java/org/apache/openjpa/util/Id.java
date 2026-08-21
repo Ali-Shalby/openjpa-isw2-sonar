@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -33,13 +33,16 @@ import org.apache.openjpa.lib.util.Localizer;
 public final class Id
     extends OpenJPAId {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage(Id.class);
 
     private final long _id;
 
     /**
      * Create an id from the given type and value; the value might be an
-     * id instnace, a stringified id, or a primary key value.
+     * id instance, a stringified id, or a primary key value.
      */
     public static Id newInstance(Class cls, Object val) {
         if (val instanceof Id)
@@ -77,13 +80,12 @@ public final class Id
      */
     public Id(String str, ClassLoader loader) {
         if (loader == null)
-            loader = AccessController.doPrivileged(
-                J2DoPrivHelper.getContextClassLoaderAction());
+            loader = AccessController.doPrivileged(J2DoPrivHelper.getContextClassLoaderAction());
 
         if (str == null)
             _id = 0L;
         else {
-            int dash = str.indexOf('-');
+            int dash = str.indexOf(TYPE_VALUE_SEP);
             try {
                 type = Class.forName(str.substring(0, dash), true, loader);
             } catch (Throwable t) {
@@ -104,7 +106,7 @@ public final class Id
             _id = 0L;
         else {
             // allow either stringified long or result of Id.toString
-            int dash = key.indexOf('-');
+            int dash = key.indexOf(TYPE_VALUE_SEP);
             if (dash > 0) // don't check for -1; might be negative number
                 key = key.substring(dash + 1);
             _id = Long.parseLong(key);
@@ -115,7 +117,7 @@ public final class Id
      * Construct from key value.
      */
     public Id(Class cls, Long key) {
-        this(cls, (key == null) ? 0L : key.longValue());
+        this(cls, (key == null) ? 0L : key);
     }
 
     /**
@@ -141,14 +143,17 @@ public final class Id
         return _id;
     }
 
+    @Override
     public Object getIdObject() {
         return _id;
     }
 
+    @Override
     protected int idHash() {
         return (int) (_id ^ (_id >>> 32));
     }
 
+    @Override
     protected boolean idEquals(OpenJPAId other) {
         return _id == ((Id) other)._id;
 	}

@@ -14,16 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.ee;
 
 import java.util.LinkedList;
 import java.util.List;
 
-import javax.transaction.NotSupportedException;
-import javax.transaction.SystemException;
-import javax.transaction.TransactionManager;
+import jakarta.transaction.NotSupportedException;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.TransactionManager;
 
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
@@ -56,14 +56,14 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
     implements ManagedRuntime, Configurable {
 
     private static final String [] JNDI_LOCS = new String []{
-        "javax.transaction.TransactionManager", // weblogic
+        "jakarta.transaction.TransactionManager", // weblogic
         "java:/TransactionManager", // jboss, jrun, Geronimo
         "java:/DefaultDomain/TransactionManager", // jrun too
         "java:comp/pm/TransactionManager", // orion & oracle
         "java:comp/TransactionManager", // generic
         "java:appserver/TransactionManager", // GlassFish
         "java:pm/TransactionManager", // borland
-        "aries:services/javax.transaction.TransactionManager", // Apache Aries
+        "aries:services/jakarta.transaction.TransactionManager", // Apache Aries
     };
     private static final String [] METHODS = new String[]{
         "com.arjuna.jta.JTA_TransactionManager.transactionManager", // hp
@@ -74,16 +74,16 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
             + "getTransactionManagerImpl", // borland
     };
 
-    private static final ManagedRuntime REGISTRY;
-    private static final WLSManagedRuntime WLS;
-    private static final SunOneManagedRuntime SUNONE;
-    private static final WASManagedRuntime WAS;
-    private static final WASRegistryManagedRuntime WAS_REG;
+    private final ManagedRuntime REGISTRY;
+    private final WLSManagedRuntime WLS;
+    private final SunOneManagedRuntime SUNONE;
+    private final WASManagedRuntime WAS;
+    private final WASRegistryManagedRuntime WAS_REG;
 
     private static Localizer _loc = Localizer.forPackage
         (AutomaticManagedRuntime.class);
 
-    static {
+    public AutomaticManagedRuntime() {
         ManagedRuntime mr = null;
 
         mr = null;
@@ -92,7 +92,7 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
                 forName("org.apache.openjpa.ee.RegistryManagedRuntime").
                     newInstance();
         } catch (Throwable t) {
-            // might be JTA version lower than 1.1, which doesn't have 
+            // might be JTA version lower than 1.1, which doesn't have
             // TransactionSynchronizationRegistry
         }
         REGISTRY = mr;
@@ -123,7 +123,7 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
             // In a WebSphere environment the thread's current classloader might
             // not have access to the WebSphere APIs. However the "runtime"
             // classloader will have access to them.
-            
+
             // Should not need a doPriv getting this class' classloader
             ClassLoader cl = AutomaticManagedRuntime.class.getClassLoader();
 
@@ -141,13 +141,14 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
 
     private Configuration _conf = null;
     private ManagedRuntime _runtime = null;
-    
+
+    @Override
     public TransactionManager getTransactionManager()
         throws Exception {
         if (_runtime != null)
             return _runtime.getTransactionManager();
 
-        List<Throwable> errors = new LinkedList<Throwable>();
+        List<Throwable> errors = new LinkedList<>();
         TransactionManager tm = null;
 
         // Try the registry extensions first so that any applicable vendor
@@ -207,11 +208,12 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
 
         // try to find a jndi runtime
         JNDIManagedRuntime jmr = new JNDIManagedRuntime();
-        for (int i = 0; i < JNDI_LOCS.length; i++) {
-            jmr.setTransactionManagerName(JNDI_LOCS[i]);
+        for (String jndiLoc : JNDI_LOCS) {
+            jmr.setTransactionManagerName(jndiLoc);
             try {
                 tm = jmr.getTransactionManager();
-            } catch (Throwable t) {
+            }
+            catch (Throwable t) {
                 errors.add(t);
             }
             if (tm != null) {
@@ -222,12 +224,13 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
 
         // look for a method runtime
         InvocationManagedRuntime imr = new InvocationManagedRuntime();
-        for (int i = 0; i < METHODS.length; i++) {
+        for (String method : METHODS) {
             imr.setConfiguration(_conf);
-            imr.setTransactionManagerMethod(METHODS[i]);
+            imr.setTransactionManagerMethod(method);
             try {
                 tm = imr.getTransactionManager();
-            } catch (Throwable t) {
+            }
+            catch (Throwable t) {
                 errors.add(t);
             }
             if (tm != null) {
@@ -254,16 +257,20 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
             setFatal(true).setNestedThrowables(t);
     }
 
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = conf;
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 
+    @Override
     public void setRollbackOnly(Throwable cause)
         throws Exception {
         // check to see if the runtime is cached
@@ -274,6 +281,7 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
             _runtime.setRollbackOnly(cause);
     }
 
+    @Override
     public Throwable getRollbackCause()
         throws Exception {
         // check to see if the runtime is cached
@@ -285,14 +293,15 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
 
         return null;
     }
-    
+
+    @Override
     public Object getTransactionKey() throws Exception, SystemException {
-        if(_runtime == null) 
+        if(_runtime == null)
             getTransactionManager();
-        
+
         if(_runtime != null )
             return _runtime.getTransactionKey();
-        
+
         return null;
     }
 
@@ -300,6 +309,7 @@ public class AutomaticManagedRuntime extends AbstractManagedRuntime
      * Delegate nonTransactional work to the appropriate managed runtime. If no
      * managed runtime is found then delegate {@link AbstractManagedRuntime}.
      */
+    @Override
     public void doNonTransactionalWork(Runnable runnable)
             throws NotSupportedException {
         // Obtain a transaction manager to initialize the runtime.

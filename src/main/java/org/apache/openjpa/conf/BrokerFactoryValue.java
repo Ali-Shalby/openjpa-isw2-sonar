@@ -14,20 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.conf;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Iterator;
 
 import org.apache.openjpa.abstractstore.AbstractStoreBrokerFactory;
 import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.lib.conf.ConfigurationProvider;
 import org.apache.openjpa.lib.conf.PluginValue;
-import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.ProductDerivation;
+import org.apache.openjpa.lib.conf.ProductDerivations;
 
 /**
  * Value type used to represent the {@link BrokerFactory}. This type is
@@ -35,7 +34,6 @@ import org.apache.openjpa.lib.conf.ProductDerivation;
  * and in {@link org.apache.openjpa.kernel.Bootstrap} with the same
  * encapsulated configuration.
  *
- * @nojavadoc
  */
 public class BrokerFactoryValue
     extends PluginValue {
@@ -44,22 +42,19 @@ public class BrokerFactoryValue
 
     private static final String[] _aliases;
     static {
-        Map aliases = new HashMap();
-        aliases.put("abstractstore", 
-            AbstractStoreBrokerFactory.class.getName());
+        Map<String, String> aliases = new HashMap<>();
+        aliases.put("abstractstore", AbstractStoreBrokerFactory.class.getName());
         ProductDerivation[] ds = ProductDerivations.getProductDerivations();
-        for (int i = 0; i < ds.length; i++) {
-            if (ds[i] instanceof OpenJPAProductDerivation)
-                ((OpenJPAProductDerivation) ds[i]).putBrokerFactoryAliases
-                    (aliases);
+        for (ProductDerivation d : ds) {
+            if (d instanceof OpenJPAProductDerivation)
+                ((OpenJPAProductDerivation) d).putBrokerFactoryAliases(aliases);
         }
 
         _aliases = new String[aliases.size() * 2];
         int i = 0;
-        for (Iterator iter = aliases.entrySet().iterator(); iter.hasNext(); ) {
-            Map.Entry e = (Map.Entry) iter.next();
-            _aliases[i++] = (String) e.getKey();
-            _aliases[i++] = (String) e.getValue();
+        for(Map.Entry<String, String>e : aliases.entrySet()) {
+            _aliases[i++] = e.getKey();
+            _aliases[i++] = e.getValue();
         }
     }
 
@@ -75,7 +70,7 @@ public class BrokerFactoryValue
      * Set the value of this property in the given provider.
      */
     public static void set(ConfigurationProvider cp, String value) {
-        String key = ProductDerivations.getConfigurationKey(KEY, 
+        String key = ProductDerivations.getConfigurationKey(KEY,
             cp.getProperties());
         cp.addProperty(key, value);
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -42,16 +42,20 @@ public abstract class AbstractRemoteCommitProvider
     protected RemoteCommitEventManager eventManager;
     protected Log log;
 
+    @Override
     public void setConfiguration(Configuration config) {
         this.log = config.getLog(OpenJPAConfiguration.LOG_RUNTIME);
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 
+    @Override
     public void setRemoteCommitEventManager(RemoteCommitEventManager mgr) {
         eventManager = mgr;
     }
@@ -64,7 +68,8 @@ public abstract class AbstractRemoteCommitProvider
         if (es.length > 0 && log.isWarnEnabled())
             log.warn(_loc.get("remote-listener-ex", Arrays.asList(es)));
         if (log.isTraceEnabled())
-            for (int i = 0; i < es.length; i++)
-                log.trace(es[i]);
+            for (Exception e : es) {
+                log.trace(e);
+            }
     }
 }

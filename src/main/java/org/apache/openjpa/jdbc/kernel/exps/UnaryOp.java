@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -27,6 +27,7 @@ import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 import org.apache.openjpa.meta.ClassMetaData;
+import org.apache.openjpa.meta.JavaTypes;
 
 /**
  * Value produced by a unary operation on a value.
@@ -36,6 +37,8 @@ import org.apache.openjpa.meta.ClassMetaData;
 abstract class UnaryOp
     extends AbstractVal {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
     private ClassMetaData _meta = null;
     private Class _cast = null;
@@ -47,7 +50,7 @@ abstract class UnaryOp
     public UnaryOp(Val val) {
         _val = val;
     }
-    
+
     public UnaryOp(Val val, boolean noParen) {
         _val = val;
         _noParen = noParen;
@@ -57,28 +60,33 @@ abstract class UnaryOp
         return _val;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
 
+    @Override
     public Class getType() {
         if (_cast != null)
             return _cast;
         return getType(_val.getType());
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _cast = type;
     }
-    
+
     public boolean getNoParen() {
         return _noParen;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         return initializeValue(sel, ctx, flags);
     }
@@ -87,23 +95,27 @@ abstract class UnaryOp
         return _val.initialize(sel, ctx, flags);
     }
 
-    public void select(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void select(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         sel.select(newSQLBuffer(sel, ctx, state), this);
         if (isAggregate())
             sel.setAggregate(true);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         _val.selectColumns(sel, ctx, state, true);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         sel.groupBy(newSQLBuffer(sel, ctx, state));
     }
 
-    public void orderBy(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         sel.orderBy(newSQLBuffer(sel, ctx, state), asc, false, getSelectAs());
     }
@@ -115,31 +127,55 @@ abstract class UnaryOp
         return buf;
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
-        Object value = res.getObject(this, JavaSQLTypes.JDBC_DEFAULT, null);
         Class<?> type = getType();
-        if (value == null && (type.isPrimitive() || Number.class.isAssignableFrom(type))) {
-            value = Filters.getDefaultForNull(Filters.wrap(type));
+        int typeCode = type != null ? JavaTypes.getTypeCode(type) : JavaSQLTypes.JDBC_DEFAULT;
+        if (typeCode == JavaTypes.DATE) {
+            // further clarify which date exactly
+            typeCode = JavaSQLTypes.getDateTypeCode(type);
+        }
+
+        Object value = res.getObject(this, typeCode, null);
+        if (value == null) {
+            if (nullableValue(ctx, state)) {  // OPENJPA-1794
+                return null;
+            }
+            else if (type.isPrimitive() || Number.class.isAssignableFrom(type)) {
+                value = Filters.getDefaultForNull(Filters.wrap(type));
+            }
         }
         return Filters.convert(value, type);
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         _val.calculateValue(sel, ctx, state, null, null);
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         sql.append(getOperator());
         sql.append(_noParen ? " " : "(");
         _val.appendTo(sel, ctx, state, sql, 0);
-        sql.addCastForParam(getOperator(), _val);
+
+        // OPENJPA-2149: If _val (Val) is an 'Arg', we need to get the Val[]
+        // from it, and the single element it contains because the
+        // 'addCastForParam' method gets the 'type' from the Val it receives.
+        // In the case where _val is an Arg, when addCastForParam gets the
+        // type, it will be getting the type of the Val (an Object) rather
+        // the type of the Arg.
+        sql.addCastForParam(getOperator(),
+            (_val instanceof Args) ? (((Args) _val).getVals())[0]
+                                   : _val);
         if (!_noParen)
             sql.append(")");
     }
@@ -157,10 +193,16 @@ abstract class UnaryOp
      */
     protected abstract String getOperator();
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);
         visitor.exit(this);
     }
-}
 
+    // OPENJPA-1794
+    protected boolean nullableValue(ExpContext ctx, ExpState state) {
+        return false;
+    }
+
+}

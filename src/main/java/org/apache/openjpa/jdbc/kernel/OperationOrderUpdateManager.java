@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -41,19 +41,23 @@ import org.apache.openjpa.kernel.OpenJPAStateManager;
 public class OperationOrderUpdateManager
     extends AbstractUpdateManager {
 
+    @Override
     public boolean orderDirty() {
         return true;
     }
 
+    @Override
     protected RowManager newRowManager() {
         return new RowManagerImpl(true);
     }
 
+    @Override
     protected PreparedStatementManager newPreparedStatementManager
         (JDBCStore store, Connection conn) {
         return new PreparedStatementManagerImpl(store, conn);
     }
 
+    @Override
     protected Collection flush(RowManager rowMgr,
         PreparedStatementManager psMgr, Collection exceps) {
         RowManagerImpl rmimpl = (RowManagerImpl) rowMgr;
@@ -120,27 +124,27 @@ public class OperationOrderUpdateManager
         OpenJPAStateManager sm;
         PrimaryRow rel;
         RowImpl update;
-        for (int i = 0; i < fks.length; i++) {
+        for (ForeignKey fk : fks) {
             // when deleting ref fks we set the where value instead
-            sm = row.getForeignKeySet(fks[i]);
+            sm = row.getForeignKeySet(fk);
             if (sm == null)
-                sm = row.getForeignKeyWhere(fks[i]);
+                sm = row.getForeignKeyWhere(fk);
             if (sm == null)
                 continue;
 
             // only need an update if we have an fk to a row that's being
             // deleted before we are
-            rel = (PrimaryRow) rowMgr.getRow(fks[i].getPrimaryKeyTable(),
-                Row.ACTION_DELETE, sm, false);
+            rel = (PrimaryRow) rowMgr.getRow(fk.getPrimaryKeyTable(),
+                    Row.ACTION_DELETE, sm, false);
             if (rel == null || !rel.isValid()
-                || rel.getIndex() >= row.getIndex())
+                    || rel.getIndex() >= row.getIndex())
                 continue;
 
             // create an update to null the offending fk before deleting.  use
             // a primary row to be sure to copy delayed-flush pks/fks
             update = new PrimaryRow(row.getTable(), Row.ACTION_UPDATE, null);
             row.copyInto(update, true);
-            update.setForeignKey(fks[i], row.getForeignKeyIO(fks[i]), null);
+            update.setForeignKey(fk, row.getForeignKeyIO(fk), null);
             if (updates == null)
                 updates = new ArrayList();
             updates.add(update);
@@ -167,8 +171,8 @@ public class OperationOrderUpdateManager
         OpenJPAStateManager sm;
         PrimaryRow rel;
         PrimaryRow update;
-        for (int i = 0; i < fks.length; i++) {
-            sm = row.getForeignKeySet(fks[i]);
+        for (ForeignKey fk : fks) {
+            sm = row.getForeignKeySet(fk);
             if (sm == null)
                 continue;
 
@@ -176,11 +180,11 @@ public class OperationOrderUpdateManager
             // inserted after we are; if row is dependent on itself and no
             // fk, must be an auto-inc because otherwise we wouldn't have
             // recorded it
-            rel = (PrimaryRow) rowMgr.getRow(fks[i].getPrimaryKeyTable(),
-                Row.ACTION_INSERT, sm, false);
+            rel = (PrimaryRow) rowMgr.getRow(fk.getPrimaryKeyTable(),
+                    Row.ACTION_INSERT, sm, false);
             if (rel == null || !rel.isValid()
-                || rel.getIndex() < row.getIndex()
-                || (rel == row && !fks[i].isDeferred() && !fks[i].isLogical()))
+                    || rel.getIndex() < row.getIndex()
+                    || (rel == row && !fk.isDeferred() && !fk.isLogical()))
                 continue;
 
             // don't insert or update with the given fk; create a deferred
@@ -191,8 +195,8 @@ public class OperationOrderUpdateManager
                 update.wherePrimaryKey(row.getPrimaryKey());
             else
                 row.copyInto(update, true);
-            update.setForeignKey(fks[i], row.getForeignKeyIO(fks[i]), sm);
-            row.clearForeignKey(fks[i]);
+            update.setForeignKey(fk, row.getForeignKeyIO(fk), sm);
+            row.clearForeignKey(fk);
 
             if (updates == null)
                 updates = new ArrayList();
@@ -212,8 +216,8 @@ public class OperationOrderUpdateManager
             return;
 
         RowImpl row;
-        for (Iterator itr = rows.iterator(); itr.hasNext();) {
-            row = (RowImpl) itr.next();
+        for (Object o : rows) {
+            row = (RowImpl) o;
             if (row.isValid())
                 psMgr.flush(row);
         }

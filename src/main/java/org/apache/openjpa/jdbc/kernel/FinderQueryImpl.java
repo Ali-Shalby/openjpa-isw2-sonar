@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -37,20 +37,21 @@ import org.apache.openjpa.kernel.FetchConfiguration;
 import org.apache.openjpa.kernel.FinderQuery;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreManager;
+import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.Id;
 
 
 /**
- * Implements Finder Query identified by ClassMappping for SelectExecutor that 
- * can be executed to generate Result. 
- *  
+ * Implements Finder Query identified by ClassMappping for SelectExecutor that
+ * can be executed to generate Result.
+ *
  * @author Pinaki Poddar
  *
  * @since 2.0.0
  */
-public class FinderQueryImpl 
+public class FinderQueryImpl
     implements FinderQuery<ClassMapping, SelectExecutor, Result> {
     private final ClassMapping _mapping;
     private final SelectImpl _select;
@@ -59,11 +60,11 @@ public class FinderQueryImpl
     private final int[] _pkIndices;
     private final SQLBuffer _buffer;
     private final String _sql;
-    
+
     /**
      * Attempts to construct a FinderQuery from the given Select for the given
      * mapping. The given Select may not be amenable for caching and then a null
-     * value is returned. 
+     * value is returned.
      */
     static FinderQueryImpl newFinder(ClassMapping mapping,
         SelectExecutor select) {
@@ -72,7 +73,17 @@ public class FinderQueryImpl
             return null;
         SQLBuffer buffer = impl.getSQL();
         Column[] pkCols = mapping.getPrimaryKeyColumns();
-        boolean canCache = pkCols.length == buffer.getParameters().size();
+
+        //OPENJPA-2557: Typically the number of pkCols (length) should match the number (size) of
+        //parameters.  However, there are a few cases (e.g. when extra parameters are needed for
+        //discriminator data) where the pkCols length may be different than the parameters.
+        //If we find the number of pkCols is equal to the number of parameters, we need to do
+        //one last check to verify that the buffers columns match the pkCols exactly.
+        boolean canCache = (pkCols.length == buffer.getParameters().size());
+        for(int i=0; i < pkCols.length  && canCache; i++){
+            canCache = canCache && buffer.getColumns().contains(pkCols[i]);
+        }
+
         return (canCache)
             ? new FinderQueryImpl(mapping, impl, buffer) : null;
     }
@@ -93,46 +104,50 @@ public class FinderQueryImpl
             FieldMetaData pk = _mapping.getField(_joins[i].getFieldIndex());
             _pkIndices[i] = pk == null ? 0 : pk.getPrimaryKeyIndex();
         }
-        
+
     }
-    
+
+    @Override
     public ClassMapping getIdentifier() {
         return _mapping;
     }
-    
+
+    @Override
     public SelectExecutor getDelegate() {
         return _select;
     }
-    
+
+    @Override
     public String getQueryString() {
         return _sql;
     }
-    
+
     public Column[] getPKColumns() {
         return _pkCols;
     }
-    
+
     private Object[] getPKValues(OpenJPAStateManager sm, JDBCStore store) {
         Object[] pks = null;
         Object oid = sm.getObjectId();
-        if (_mapping.getIdentityType() == ClassMapping.ID_APPLICATION)
+        if (_mapping.getIdentityType() == ClassMetaData.ID_APPLICATION)
             pks = ApplicationIds.toPKValues(oid, _mapping);
-    
+
         Object[] val = new Object[_pkCols.length];
         int count = 0;
         for (int i = 0; i < _pkCols.length; i++, count++) {
             if (pks == null)
-                val[0] = (oid == null) 
+                val[0] = (oid == null)
                     ? null : ((Id) oid).getId();
             else {
-                val[i] = _joins[i].getJoinValue(pks[_pkIndices[i]], _pkCols[i], 
+                val[i] = _joins[i].getJoinValue(pks[_pkIndices[i]], _pkCols[i],
                     store);
             }
         }
         return val;
     }
-    
-    public Result execute(OpenJPAStateManager sm, StoreManager store, 
+
+    @Override
+    public Result execute(OpenJPAStateManager sm, StoreManager store,
         FetchConfiguration fetch) {
         boolean forUpdate = false;
         JDBCStore jstore = (JDBCStore)store;
@@ -151,7 +166,7 @@ public class FinderQueryImpl
             dict.setTimeouts(stmnt, (JDBCFetchConfiguration)fetch, forUpdate);
             rs = _select.executeQuery(conn, stmnt, getQueryString(), jstore,
                 params, _pkCols);
-            return _select.getEagerResult(conn, stmnt, rs, jstore, 
+            return _select.getEagerResult(conn, stmnt, rs, jstore,
                 (JDBCFetchConfiguration)fetch, forUpdate, _buffer);
         } catch (SQLException se) {
             if (stmnt != null)
@@ -160,20 +175,21 @@ public class FinderQueryImpl
             throw new RuntimeException(se);
         }
     }
-    
+
     private static SelectImpl extractImplementation(SelectExecutor selector) {
         if (selector == null || selector.hasMultipleSelects())
             return null;
-        if (selector instanceof SelectImpl) 
+        if (selector instanceof SelectImpl)
             return (SelectImpl)selector;
         if (selector instanceof LogicalUnion.UnionSelect)
             return ((LogicalUnion.UnionSelect)selector).getDelegate();
-        if (selector instanceof Union) 
+        if (selector instanceof Union)
             return extractImplementation(((Union)selector).getSelects()[0]);
-        
+
         return null;
     }
-    
+
+    @Override
     public String toString() {
         return _mapping + ": [" + getQueryString() + "]";
     }

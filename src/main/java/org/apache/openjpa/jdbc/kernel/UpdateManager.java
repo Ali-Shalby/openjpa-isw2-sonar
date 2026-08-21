@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -32,12 +32,12 @@ public interface UpdateManager {
      * Whether the store context should maintain the order in which instances
      * are dirtied.
      */
-    public boolean orderDirty();
+    boolean orderDirty();
 
     /**
      * Flush the given instances to the data store.
      *
      * @see org.apache.openjpa.kernel.StoreManager#flush
      */
-    public Collection flush(Collection states, JDBCStore store);
+    Collection flush(Collection states, JDBCStore store);
 }

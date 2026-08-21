@@ -14,31 +14,34 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Schemas;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.JavaTypes;
 
 
 /**
- * Uses multiple version numbers spanning multiple columns for optimistic 
+ * Uses multiple version numbers spanning multiple columns for optimistic
  * versioning.
- * 
+ *
  * @since 1.3.0
  *
  * @author Pinaki Poddar
  */
 public class MultiColumnVersionStrategy extends NumberVersionStrategy {
 
-    public static final String ALIAS = "version-numbers";
     
+    private static final long serialVersionUID = 1L;
+
+    public static final String ALIAS = "version-numbers";
+
     private Number[] _initials = null;
     private Integer[] _javaTypes;
-    
+
     @Override
     public void initialize() {
     	if (_initials == null) {
@@ -50,7 +53,7 @@ public class MultiColumnVersionStrategy extends NumberVersionStrategy {
     	}
     	super.initialize();
     }
-    	
+
     /**
      * Set the initial value for version columns. Defaults to 1 for each column.
      */
@@ -58,31 +61,34 @@ public class MultiColumnVersionStrategy extends NumberVersionStrategy {
     	_initials = new Number[initial.length];
     	System.arraycopy(initial, 0, _initials, 0, initial.length);
     }
-    
+
     /**
-     * Return the initial values for version columns. Defaults to 1 for each 
+     * Return the initial values for version columns. Defaults to 1 for each
      * column.
      */
     public Number[] getInitialValues() {
     	return _initials;
     }
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
-    
+
+    @Override
     protected int getJavaType() {
         return JavaTypes.ARRAY;
     }
-    
+
+    @Override
     protected int getJavaType(int i) {
     	if (_javaTypes == null) {
             _javaTypes = new Integer[vers.getMappingInfo().getColumns().size()];
     	}
     	if (_javaTypes[i] == null) {
     		Column col = (Column)vers.getMappingInfo().getColumns().get(i);
-    		if (!StringUtils.isEmpty(col.getTypeName())) {
-    			Class javaType = Schemas.getJavaType(col.getType(), 
+    		if (!StringUtil.isEmpty(col.getTypeName())) {
+    			Class javaType = Schemas.getJavaType(col.getType(),
     					col.getSize(), col.getDecimalDigits());
     			_javaTypes[i] = JavaTypes.getTypeCode(javaType);
     		} else {
@@ -92,6 +98,7 @@ public class MultiColumnVersionStrategy extends NumberVersionStrategy {
     	return _javaTypes[i];
     }
 
+    @Override
     protected Object nextVersion(Object version) {
         if (version == null)
             return _initials;
@@ -101,7 +108,7 @@ public class MultiColumnVersionStrategy extends NumberVersionStrategy {
         	result[i] = nextValue(values[i], getJavaType(i));
         return result;
     }
-    
+
     Number nextValue(Object number, int javaTypeCode) {
     	Number result = (number == null) ? 1 : ((Number)number).intValue() + 1;
     	return	(Number)JavaTypes.convert(""+result, javaTypeCode);

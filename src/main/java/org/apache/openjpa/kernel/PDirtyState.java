@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -25,73 +25,88 @@ package org.apache.openjpa.kernel;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class PDirtyState
-    extends PCState {
+class PDirtyState extends PCState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
         context.saveFields(false);
     }
 
+    @Override
     void beforeFlush(StateManagerImpl context, boolean logical,
         OpCallbacks call) {
         context.preFlush(logical, call);
     }
 
+    @Override
     PCState commit(StateManagerImpl context) {
         return HOLLOW;
     }
 
+    @Override
     PCState commitRetain(StateManagerImpl context) {
         return PNONTRANS;
     }
 
+    @Override
     PCState rollback(StateManagerImpl context) {
         return HOLLOW;
     }
 
+    @Override
     PCState rollbackRestore(StateManagerImpl context) {
         context.restoreFields();
         return PNONTRANS;
     }
 
+    @Override
     PCState delete(StateManagerImpl context) {
         context.preDelete();
         return PDELETED;
     }
 
+    @Override
     PCState nontransactional(StateManagerImpl context) {
         return error("dirty", context);
     }
 
+    @Override
     PCState release(StateManagerImpl context) {
         return error("dirty", context);
     }
 
+    @Override
     boolean isVersionCheckRequired(StateManagerImpl context) {
-        return !context.isFlushed() || context.isFlushedDirty(); 
+        return !context.isFlushed() || context.isFlushedDirty();
     }
 
+    @Override
     PCState afterRefresh() {
         return PCLEAN;
     }
 
+    @Override
     PCState afterOptimisticRefresh() {
         return PNONTRANS;
     }
 
+    @Override
     boolean isTransactional() {
         return true;
     }
 
+    @Override
     boolean isPersistent() {
         return true;
     }
 
+    @Override
     boolean isDirty() {
         return true;
     }
-    
+
+    @Override
     public String toString() {
         return "Persistent-Dirty";
     }

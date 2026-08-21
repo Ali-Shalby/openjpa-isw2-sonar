@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -25,6 +25,7 @@ import java.io.ObjectOutput;
 import java.util.Collection;
 import java.util.Collections;
 
+import org.apache.openjpa.kernel.BrokerFactory;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.UserException;
 
@@ -172,6 +173,7 @@ public class RemoteCommitEvent
         return (_deletes == null) ? Collections.EMPTY_LIST : _deletes;
     }
 
+    @Override
     public void writeExternal(ObjectOutput out)
         throws IOException {
         out.writeInt(_payload);
@@ -182,6 +184,7 @@ public class RemoteCommitEvent
         out.writeObject(_deletes);
     }
 
+    @Override
     public void readExternal(ObjectInput in)
         throws IOException {
         try {

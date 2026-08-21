@@ -14,12 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
 import java.util.Collections;
-import javax.persistence.Query;
+
+import jakarta.persistence.Query;
 
 import org.apache.openjpa.datacache.DelegatingQueryCache;
 import org.apache.openjpa.datacache.QueryCache;
@@ -31,7 +32,6 @@ import org.apache.openjpa.datacache.TypesChangedEvent;
  *
  * @author Abe White
  * @since 0.4.1
- * @nojavadoc
  */
 public class QueryResultCacheImpl
 	implements QueryResultCache {
@@ -49,29 +49,35 @@ public class QueryResultCacheImpl
     /**
      * Delegate.
      */
+    @Override
     public QueryCache getDelegate() {
         return _cache.getDelegate();
     }
 
+    @Override
     public void pin(Query q) {
         if (_cache.getDelegate() != null)
             _cache.pin(toQueryKey(q));
     }
 
+    @Override
     public void unpin(Query q) {
         if (_cache.getDelegate() != null)
             _cache.unpin(toQueryKey(q));
     }
 
+    @Override
     public void evict(Query q) {
         if (_cache.getDelegate() != null)
             _cache.remove(toQueryKey(q));
     }
 
+    @Override
     public void evictAll() {
         _cache.clear();
     }
 
+    @Override
     public void evictAll(Class cls) {
         _cache.onTypesChanged(new TypesChangedEvent(this,
             Collections.singleton(cls)));
@@ -89,15 +95,20 @@ public class QueryResultCacheImpl
             impl.getNamedParameters());
     }
 
+    @Override
     public int hashCode() {
-        return _cache.hashCode();
+        return (_cache == null) ? 0 : _cache.hashCode();
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
-        if (!(other instanceof QueryResultCacheImpl))
+        if ((other == null) || (other.getClass() != this.getClass()))
             return false;
+        if (_cache == null)
+        	return false;
+
         return _cache.equals(((QueryResultCacheImpl) other)._cache);
 	}
 }

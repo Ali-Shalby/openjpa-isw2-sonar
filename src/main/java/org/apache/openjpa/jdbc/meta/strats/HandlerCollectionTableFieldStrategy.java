@@ -18,18 +18,38 @@
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
-import java.sql.*;
-import java.util.*;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 
-import org.apache.openjpa.lib.util.*;
-
-import org.apache.openjpa.kernel.*;
-import org.apache.openjpa.util.*;
-import org.apache.openjpa.meta.*;
-import org.apache.openjpa.jdbc.meta.*;
-import org.apache.openjpa.jdbc.kernel.*;
-import org.apache.openjpa.jdbc.schema.*;
-import org.apache.openjpa.jdbc.sql.*;
+import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.jdbc.kernel.JDBCStore;
+import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.FieldMapping;
+import org.apache.openjpa.jdbc.meta.FieldMappingInfo;
+import org.apache.openjpa.jdbc.meta.ValueHandler;
+import org.apache.openjpa.jdbc.meta.ValueMapping;
+import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.ColumnIO;
+import org.apache.openjpa.jdbc.schema.ForeignKey;
+import org.apache.openjpa.jdbc.sql.Joins;
+import org.apache.openjpa.jdbc.sql.Result;
+import org.apache.openjpa.jdbc.sql.Row;
+import org.apache.openjpa.jdbc.sql.RowManager;
+import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.kernel.StateManagerImpl;
+import org.apache.openjpa.kernel.StoreContext;
+import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.util.ChangeTracker;
+import org.apache.openjpa.util.MetaDataException;
+import org.apache.openjpa.util.Proxies;
+import org.apache.openjpa.util.Proxy;
 
 /**
  * <p>Mapping for a collection of values in a separate table controlled by a
@@ -42,6 +62,9 @@ public class HandlerCollectionTableFieldStrategy
     extends StoreCollectionFieldStrategy
     implements LRSCollectionFieldStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage
         (HandlerCollectionTableFieldStrategy.class);
 
@@ -51,27 +74,33 @@ public class HandlerCollectionTableFieldStrategy
     private boolean _lob = false;
     private boolean _embed = false;
 
+    @Override
     public FieldMapping getFieldMapping() {
         return field;
     }
 
+    @Override
     public ClassMapping[] getIndependentElementMappings(boolean traverse) {
         return ClassMapping.EMPTY_MAPPINGS;
     }
 
+    @Override
     public Column[] getElementColumns(ClassMapping elem) {
         return _cols;
     }
 
+    @Override
     public ForeignKey getJoinForeignKey(ClassMapping elem) {
         return field.getJoinForeignKey();
     }
 
+    @Override
     public void selectElement(Select sel, ClassMapping elem, JDBCStore store,
         JDBCFetchConfiguration fetch, int eagerMode, Joins joins) {
         sel.select(_cols, joins);
     }
 
+    @Override
     public Object loadElement(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res, Joins joins)
         throws SQLException {
@@ -79,18 +108,22 @@ public class HandlerCollectionTableFieldStrategy
             sm, store, fetch, res, joins, _cols, _load);
     }
 
+    @Override
     protected Joins join(Joins joins, ClassMapping elem) {
         return join(joins, false);
     }
 
+    @Override
     public Joins joinElementRelation(Joins joins, ClassMapping elem) {
         return joinRelation(joins, false, false);
     }
 
+    @Override
     protected Proxy newLRSProxy() {
         return new LRSProxyCollection(this);
     }
 
+    @Override
     public void map(boolean adapt) {
         if (field.getTypeCode() != JavaTypes.COLLECTION
             && field.getTypeCode() != JavaTypes.ARRAY)
@@ -116,6 +149,7 @@ public class HandlerCollectionTableFieldStrategy
         field.mapPrimaryKey(adapt);
     }
 
+    @Override
     public void initialize() {
         for (int i = 0; !_lob && i < _cols.length; i++)
             _lob = _cols[i].isLob();
@@ -125,6 +159,7 @@ public class HandlerCollectionTableFieldStrategy
         _load = elem.getHandler().objectValueRequiresLoad(elem);
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         insert(sm, store, rm, sm.fetchObject(field.getIndex()));
@@ -161,8 +196,17 @@ public class HandlerCollectionTableFieldStrategy
                 Collection rels = new ArrayList();
                 if (isEmbedded) {
                     getRelations(esm, rels, ctx);
+                    Map<ClassMapping,Integer> targets = new HashMap<>();
                     for (Object rel : rels) {
-                        elem.setForeignKey(row, (StateManagerImpl)rel);
+                        StateManagerImpl relSm = (StateManagerImpl)rel;
+                        ClassMapping cm =(ClassMapping) relSm.getMetaData();
+                        if(!targets.containsKey(cm)){
+                            targets.put(cm, 0);
+                        }
+                        Integer n = targets.get(cm);
+                        elem.setForeignKey(row, (StateManagerImpl)rel, n);
+                        n++;
+                        targets.put(cm, n);
                     }
                 }
             }
@@ -171,8 +215,8 @@ public class HandlerCollectionTableFieldStrategy
             rm.flushSecondaryRow(row);
         }
     }
-    
-    private void getRelations(StateManagerImpl sm, Collection rels, 
+
+    private void getRelations(StateManagerImpl sm, Collection rels,
         StoreContext ctx) {
         FieldMetaData[] fields = sm.getMetaData().getFields();
         for (int i = 0; i < fields.length; i++) {
@@ -183,10 +227,11 @@ public class HandlerCollectionTableFieldStrategy
                     rels.add(esm);
                 else
                     getRelations(esm, rels, ctx);
-            }    
+            }
         }
-    }    
+    }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Object obj = sm.fetchObject(field.getIndex());
@@ -215,9 +260,9 @@ public class HandlerCollectionTableFieldStrategy
             Row delRow = rm.getSecondaryRow(field.getTable(),
                 Row.ACTION_DELETE);
             delRow.whereForeignKey(field.getJoinForeignKey(), sm);
-            for (Iterator itr = rem.iterator(); itr.hasNext();) {
-                HandlerStrategies.where(elem, itr.next(), store, delRow,
-                    _cols);
+            for (Object o : rem) {
+                HandlerStrategies.where(elem, o, store, delRow,
+                        _cols);
                 rm.flushSecondaryRow(delRow);
             }
         }
@@ -245,6 +290,7 @@ public class HandlerCollectionTableFieldStrategy
         }
     }
 
+    @Override
     public void delete(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Row row = rm.getAllRows(field.getTable(), Row.ACTION_DELETE);
@@ -252,6 +298,7 @@ public class HandlerCollectionTableFieldStrategy
         rm.flushAllRows(row);
     }
 
+    @Override
     public int supportsSelect(Select sel, int type, OpenJPAStateManager sm,
         JDBCStore store, JDBCFetchConfiguration fetch) {
         // can't do any combined select with lobs, since they don't allow
@@ -263,15 +310,18 @@ public class HandlerCollectionTableFieldStrategy
         return super.supportsSelect(sel, type, sm, store, fetch);
     }
 
+    @Override
     public Object toDataStoreValue(Object val, JDBCStore store) {
         return HandlerStrategies.toDataStoreValue(field.getElementMapping(),
             val, _cols, store);
     }
 
+    @Override
     public Joins join(Joins joins, boolean forceOuter) {
         return field.join(joins, forceOuter, true);
     }
 
+    @Override
     public Joins joinRelation(Joins joins, boolean forceOuter,
         boolean traverse) {
         if (traverse)

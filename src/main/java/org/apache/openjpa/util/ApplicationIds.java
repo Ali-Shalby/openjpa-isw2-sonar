@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -25,6 +25,7 @@ import java.math.BigInteger;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.Date;
+import java.util.UUID;
 
 import org.apache.openjpa.enhance.FieldManager;
 import org.apache.openjpa.enhance.PCRegistry;
@@ -46,7 +47,6 @@ import org.apache.openjpa.meta.ValueStrategies;
  * Utility class for manipulating application object ids.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ApplicationIds {
 
@@ -59,7 +59,7 @@ public class ApplicationIds {
      * Return the primary key values for the given object id. The values
      * will be returned in the same order as the metadata primary key fields.
      * Values for PC primary key fields will be the primary key value or
-     * oid value of the related instance (depending on 
+     * oid value of the related instance (depending on
      * {@link FieldMetaData#isObjectIdFieldIdOfPC}).
      */
     public static Object[] toPKValues(Object oid, ClassMetaData meta) {
@@ -98,10 +98,10 @@ public class ApplicationIds {
         // default to reflection
         if (meta.isObjectIdTypeShared())
             oid = ((ObjectId) oid).getId();
-        Class oidType = oid.getClass();
+        Class<?> oidType = oid.getClass();
         for (int i = 0; i < fmds.length; i++) {
             if (AccessCode.isField(meta.getAccessType()))
-                pks[i] = Reflection.get(oid, Reflection.findField(oidType, 
+                pks[i] = Reflection.get(oid, Reflection.findField(oidType,
                     fmds[i].getName(), true));
             else
                 pks[i] = Reflection.get(oid, Reflection.findGetter(oidType,
@@ -109,29 +109,29 @@ public class ApplicationIds {
         }
         return pks;
     }
-    
+
     /**
-     * Wraps the given object for the given type into a OpenJPA specific 
-     * application identity object wrapper instance (i.e. ObjectId) if all of 
+     * Wraps the given object for the given type into a OpenJPA specific
+     * application identity object wrapper instance (i.e. ObjectId) if all of
      * the following is true:
      * the given type is not using built-in OpenJPA identity types
      * the given type is using a shared OpenJPA identity type
      * the given object is not already a wrapper identity type
      */
     public static Object wrap(ClassMetaData meta, Object oid) {
-        if (!meta.isOpenJPAIdentity() 
-         && meta.isObjectIdTypeShared() 
+        if (!meta.isOpenJPAIdentity()
+         && meta.isObjectIdTypeShared()
          && !(oid instanceof ObjectId)) {
         	return new ObjectId(meta.getDescribedType(), oid);
-        } 
+        }
         return oid;
     }
-    
+
 
     /**
      * Return a new object id constructed from the given primary key values.
      * Values for PC primary key fields should be the primary key value or
-     * oid value of the related instance (depending on 
+     * oid value of the related instance (depending on
      * {@link FieldMetaData#isObjectIdFieldIdOfPC}).
      */
     public static Object fromPKValues(Object[] pks, ClassMetaData meta) {
@@ -153,7 +153,7 @@ public class ApplicationIds {
                 case JavaTypes.CHAR:
                 case JavaTypes.CHAR_OBJ:
                     return new CharId(meta.getDescribedType(),
-                        val == null ? 0 : ((Character) val).charValue());
+                        val == null ? 0 : (Character) val);
                 case JavaTypes.DOUBLE:
                 case JavaTypes.DOUBLE_OBJ:
                     if (!convert && !(val instanceof Double))
@@ -195,14 +195,26 @@ public class ApplicationIds {
                     if (!convert && !(val instanceof BigDecimal))
                         throw new ClassCastException(
                             "!(x instanceof BigDecimal)");
-                    return new BigDecimalId(meta.getDescribedType(), 
+                    return new BigDecimalId(meta.getDescribedType(),
                         (BigDecimal)val);
                 case JavaTypes.BIGINTEGER:
                     if (!convert && !(val instanceof BigInteger))
                         throw new ClassCastException(
                             "!(x instanceof BigInteger)");
-                    return new BigIntegerId(meta.getDescribedType(), 
+                    return new BigIntegerId(meta.getDescribedType(),
                         (BigInteger)val);
+                case JavaTypes.BOOLEAN:
+                case JavaTypes.BOOLEAN_OBJ:
+                    if (!convert && !(val instanceof Boolean))
+                        throw new ClassCastException("!(x instanceof Boolean)");
+                    return new BooleanId(meta.getDescribedType(),
+                        val == null ? false : (Boolean)val);
+                case JavaTypes.UUID_OBJ:
+                    if (convert && (val instanceof String))
+                        return new UuidId(meta.getDescribedType(), UUID.fromString((String) val));
+                    else if (val instanceof UUID)
+                        return new UuidId(meta.getDescribedType(), (UUID) val);
+                    throw new ClassCastException(String.format("Could not convert [%s] to UUID", val.getClass().getCanonicalName()));
                 default:
                     throw new InternalException();
             }
@@ -221,7 +233,7 @@ public class ApplicationIds {
         }
 
         // default to reflection
-        Class oidType = meta.getObjectIdType();
+        Class<?> oidType = meta.getObjectIdType();
         if (Modifier.isAbstract(oidType.getModifiers()))
             throw new UserException(_loc.get("objectid-abstract", meta));
         Object copy = null;
@@ -240,10 +252,10 @@ public class ApplicationIds {
             val = (convert) ? JavaTypes.convert(pks[i],
                 fmds[i].getObjectIdFieldTypeCode()) : pks[i];
             if (AccessCode.isField(meta.getAccessType()))
-                Reflection.set(copy, Reflection.findField(oidType, 
-                    fmds[i].getName(), true), val); 
+                Reflection.set(copy, Reflection.findField(oidType,
+                    fmds[i].getName(), true), val);
             else
-                Reflection.set(copy, Reflection.findSetter(oidType, 
+                Reflection.set(copy, Reflection.findSetter(oidType,
                     fmds[i].getName(), fmds[i].getDeclaredType(), true), val);
         }
 
@@ -261,7 +273,7 @@ public class ApplicationIds {
 
         if (meta.isOpenJPAIdentity()) {
             // use meta type instead of oid type in case it's a subclass
-            Class cls = meta.getDescribedType();
+            Class<?> cls = meta.getDescribedType();
             OpenJPAId koid = (OpenJPAId) oid;
             FieldMetaData pk = meta.getPrimaryKeyFields()[0];
             switch (pk.getObjectIdFieldTypeCode()) {
@@ -303,7 +315,7 @@ public class ApplicationIds {
                         inner = copy(inner, embed, embed.getFields());
                     return new ObjectId(cls, inner, koid.hasSubclasses());
                 case JavaTypes.OBJECT:
-                    return new ObjectId(cls, koid.getIdObject(), 
+                    return new ObjectId(cls, koid.getIdObject(),
                         koid.hasSubclasses());
                 case JavaTypes.DATE:
                     return new DateId(cls, ((DateId) oid).getId(),
@@ -324,8 +336,8 @@ public class ApplicationIds {
         // oid instance
         if (!Modifier.isAbstract(meta.getDescribedType().getModifiers())
             && !hasPCPrimaryKeyFields(meta)) {
-            Class type = meta.getDescribedType();
-            PersistenceCapable pc = PCRegistry.newInstance(type, null, oid, 
+            Class<?> type = meta.getDescribedType();
+            PersistenceCapable pc = PCRegistry.newInstance(type, null, oid,
                  false);
             Object copy = pc.pcNewObjectIdInstance();
             pc.pcCopyKeyFieldsToObjectId(copy);
@@ -342,13 +354,13 @@ public class ApplicationIds {
     }
 
     /**
-     * Return true if any of the given type's primary key fields are 
+     * Return true if any of the given type's primary key fields are
      * persistent objects.
      */
     private static boolean hasPCPrimaryKeyFields(ClassMetaData meta) {
         FieldMetaData[] fmds = meta.getPrimaryKeyFields();
-        for (int i = 0; i < fmds.length; i++)
-            if (fmds[i].getDeclaredTypeCode() == JavaTypes.PC)
+        for (FieldMetaData fmd : fmds)
+            if (fmd.getDeclaredTypeCode() == JavaTypes.PC)
                 return true;
         return false;
     }
@@ -361,7 +373,7 @@ public class ApplicationIds {
         if (oid == null)
             return null;
 
-        Class oidType = oid.getClass();
+        Class<?> oidType = oid.getClass();
         Object copy = null;
         try {
             copy = AccessController.doPrivileged(
@@ -374,21 +386,22 @@ public class ApplicationIds {
 
         Field field;
         Object val;
-        for (int i = 0; i < fmds.length; i++) {
-            if (fmds[i].getManagement() != FieldMetaData.MANAGE_PERSISTENT)
+        for (FieldMetaData fmd : fmds) {
+            if (fmd.getManagement() != FieldMetaData.MANAGE_PERSISTENT)
                 continue;
 
             if (AccessCode.isField(meta.getAccessType())) {
-                    field = Reflection.findField(oidType, fmds[i].getName(),
+                field = Reflection.findField(oidType, fmd.getName(),
                         true);
-                    Reflection.set(copy, field, Reflection.get(oid, field));
-                } else { // property
-                    val = Reflection.get(oid, Reflection.findGetter(oidType,
-                        fmds[i].getName(), true));
-                    Reflection.set(copy, Reflection.findSetter(oidType, fmds[i].
-                        getName(), fmds[i].getObjectIdFieldType(), true), val);
-                }
+                Reflection.set(copy, field, Reflection.get(oid, field));
             }
+            else { // property
+                val = Reflection.get(oid, Reflection.findGetter(oidType,
+                        fmd.getName(), true));
+                Reflection.set(copy, Reflection.findSetter(oidType, fmd.
+                        getName(), fmd.getObjectIdFieldType(), true), val);
+            }
+        }
             return copy;
     }
 
@@ -402,9 +415,9 @@ public class ApplicationIds {
             return ((OpenJPAId) oid).getIdObject();
 
         ClassMetaData meta = fmd.getDefiningMetaData();
-        Class oidType = oid.getClass();
+        Class<?> oidType = oid.getClass();
         if (AccessCode.isField(meta.getAccessType()))
-            return Reflection.get(oid, Reflection.findField(oidType, 
+            return Reflection.get(oid, Reflection.findField(oidType,
                 fmd.getName(), true));
         return Reflection.get(oid, Reflection.findGetter(oidType, fmd.getName(),
             true));
@@ -474,18 +487,18 @@ public class ApplicationIds {
      */
     private static boolean assign(OpenJPAStateManager sm, StoreManager store,
         FieldMetaData[] pks, boolean preFlush) {
-        for (int i = 0; i < pks.length; i++)
-            // If we are generating values...
-            if (pks[i].getValueStrategy() != ValueStrategies.NONE) {
+        // If we are generating values...
+        for (FieldMetaData pk : pks)
+            if (pk.getValueStrategy() != ValueStrategies.NONE) {
                 // If a value already exists on this field, throw exception.
                 // This is considered an application coding error.
-                if (!sm.isDefaultValue(pks[i].getIndex()))
-                    throw new InvalidStateException(_loc2.get(
-                            "existing-value-override-excep", pks[i]
-                                    .getFullName(false)));
+                if (!sm.isDefaultValue(pk.getIndex()))
+                    throw new InvalidStateException(_loc2.get("existing-value-override-excep",
+                            pk.getFullName(false), Exceptions.toString(sm.getPersistenceCapable()),
+                            sm.getPCState().getClass().getSimpleName()));
                 // Assign the generated value
-                if (store.assignField(sm, pks[i].getIndex(), preFlush))
-                    pks[i].setValueGenerated(true);
+                if (store.assignField(sm, pk.getIndex(), preFlush))
+                    pk.setValueGenerated(true);
                 else
                     return false;
             }
@@ -493,9 +506,9 @@ public class ApplicationIds {
     }
 
     /**
-     * Check if object id is set or not. 
+     * Check if object id is set or not.
      */
-    public static boolean isIdSet(Object id, ClassMetaData meta, 
+    public static boolean isIdSet(Object id, ClassMetaData meta,
         String mappedByIdFieldName) {
         Object key = null;
         if (meta.isOpenJPAIdentity())
@@ -505,21 +518,21 @@ public class ApplicationIds {
         Object val = null;
         if (mappedByIdFieldName.length() != 0) {
             if (((ObjectId)id).getId() == null)
-                return false;        	
-            Class idClass = ((ObjectId)id).getId().getClass();
-            val = Reflection.get(key, 
-                    Reflection.findField(idClass, mappedByIdFieldName, true)); 
+                return false;
+            Class<?> idClass = ((ObjectId)id).getId().getClass();
+            val = Reflection.get(key,
+                    Reflection.findField(idClass, mappedByIdFieldName, true));
         } else
             val = key;
-        
-        boolean notSet = (val == null  
+
+        boolean notSet = (val == null
                 || (val instanceof String && ((String)val).length() == 0)
                 || (val instanceof Number && ((Number)val).longValue() == 0));
         return !notSet;
     }
-    
+
     /**
-     * Return the key from the given id. 
+     * Return the key from the given id.
      */
     public static Object getKey(Object id, ClassMetaData meta) {
         if (meta == null || id == null)
@@ -557,7 +570,7 @@ public class ApplicationIds {
                 case JavaTypes.OBJECT:
                     return ((ObjectId)id).getId();
                 case JavaTypes.BIGDECIMAL:
-                    return ((BigDecimalId)id).getId(); 
+                    return ((BigDecimalId)id).getId();
                 case JavaTypes.BIGINTEGER:
                     return ((BigIntegerId)id).getId();
                 default:
@@ -567,6 +580,14 @@ public class ApplicationIds {
             return ((ObjectId)id).getId();
         }
 
+    }
+
+    /**
+     * Sets the underlying id of an ObjectId.  Should only
+     * be used with simple (idclass) types.
+     */
+    public static void setAppId(ObjectId id, Object newId) {
+        id.setId(newId);
     }
 
     /**
@@ -591,82 +612,102 @@ public class ApplicationIds {
             _store = store;
         }
 
+        @Override
         public void storeBooleanField(int field, boolean val) {
             store((val) ? Boolean.TRUE : Boolean.FALSE);
         }
 
+        @Override
         public void storeByteField(int field, byte val) {
-            store(new Byte(val));
+            store(val);
         }
 
+        @Override
         public void storeCharField(int field, char val) {
-            store(new Character(val));
+            store(val);
         }
 
+        @Override
         public void storeShortField(int field, short val) {
-            store(new Short(val));
+            store(val);
         }
 
+        @Override
         public void storeIntField(int field, int val) {
             store(val);
         }
 
+        @Override
         public void storeLongField(int field, long val) {
             store(val);
         }
 
+        @Override
         public void storeFloatField(int field, float val) {
-            store(new Float(val));
+            store(val);
         }
 
+        @Override
         public void storeDoubleField(int field, double val) {
-            store(new Double(val));
+            store(val);
         }
 
+        @Override
         public void storeStringField(int field, String val) {
             store(val);
         }
 
+        @Override
         public void storeObjectField(int field, Object val) {
             store(val);
         }
 
+        @Override
         public boolean fetchBooleanField(int field) {
             return (retrieve(field) == Boolean.TRUE) ? true : false;
         }
 
+        @Override
         public char fetchCharField(int field) {
-            return ((Character) retrieve(field)).charValue();
+            return (Character) retrieve(field);
         }
 
+        @Override
         public byte fetchByteField(int field) {
             return ((Number) retrieve(field)).byteValue();
         }
 
+        @Override
         public short fetchShortField(int field) {
             return ((Number) retrieve(field)).shortValue();
         }
 
+        @Override
         public int fetchIntField(int field) {
             return ((Number) retrieve(field)).intValue();
         }
 
+        @Override
         public long fetchLongField(int field) {
             return ((Number) retrieve(field)).longValue();
         }
 
+        @Override
         public float fetchFloatField(int field) {
             return ((Number) retrieve(field)).floatValue();
         }
 
+        @Override
         public double fetchDoubleField(int field) {
             return ((Number) retrieve(field)).doubleValue();
         }
 
+        @Override
         public String fetchStringField(int field) {
             return (String) retrieve(field);
         }
 
+        @Override
         public Object fetchObjectField(int field) {
             return retrieve(field);
         }

@@ -14,15 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.conf;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
+import java.util.Locale;
+
 import javax.sql.DataSource;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfigurationImpl;
 import org.apache.openjpa.jdbc.identifier.DBIdentifierUtil;
 import org.apache.openjpa.jdbc.kernel.BatchingConstraintUpdateManager;
@@ -39,6 +40,7 @@ import org.apache.openjpa.jdbc.schema.DriverDataSource;
 import org.apache.openjpa.jdbc.schema.SchemaFactory;
 import org.apache.openjpa.jdbc.sql.DBDictionary;
 import org.apache.openjpa.jdbc.sql.DBDictionaryFactory;
+import org.apache.openjpa.jdbc.sql.MaxDBDictionary;
 import org.apache.openjpa.jdbc.sql.SQLFactory;
 import org.apache.openjpa.kernel.BrokerImpl;
 import org.apache.openjpa.kernel.StoreContext;
@@ -48,13 +50,14 @@ import org.apache.openjpa.lib.conf.PluginValue;
 import org.apache.openjpa.lib.conf.ProductDerivations;
 import org.apache.openjpa.lib.conf.StringListValue;
 import org.apache.openjpa.lib.conf.StringValue;
-import org.apache.openjpa.lib.identifier.IdentifierUtil;
 import org.apache.openjpa.lib.jdbc.ConnectionDecorator;
 import org.apache.openjpa.lib.jdbc.DecoratingDataSource;
 import org.apache.openjpa.lib.jdbc.JDBCListener;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.MetaDataFactory;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Default implementation of the {@link JDBCConfiguration} interface.
@@ -91,6 +94,8 @@ public class JDBCConfigurationImpl
     private String firstPass = null;
     private DecoratingDataSource dataSource = null;
     private DecoratingDataSource dataSource2 = null;
+
+    private static final Localizer _loc = Localizer.forPackage(JDBCConfigurationImpl.class);
 
     /**
      * Default constructor. Attempts to load default properties.
@@ -198,22 +203,26 @@ public class JDBCConfigurationImpl
 
         dbdictionaryPlugin = addPlugin("jdbc.DBDictionary", true);
         aliases = new String[]{
-            "access", "org.apache.openjpa.jdbc.sql.AccessDictionary",
-            "db2", "org.apache.openjpa.jdbc.sql.DB2Dictionary",
-            "derby", "org.apache.openjpa.jdbc.sql.DerbyDictionary",
-            "empress", "org.apache.openjpa.jdbc.sql.EmpressDictionary",
-            "foxpro", "org.apache.openjpa.jdbc.sql.FoxProDictionary",
-            "h2", "org.apache.openjpa.jdbc.sql.H2Dictionary",
-            "hsql", "org.apache.openjpa.jdbc.sql.HSQLDictionary",
-            "informix", "org.apache.openjpa.jdbc.sql.InformixDictionary",
-            "ingres", "org.apache.openjpa.jdbc.sql.IngresDictionary",
-            "jdatastore", "org.apache.openjpa.jdbc.sql.JDataStoreDictionary",
-            "mysql", "org.apache.openjpa.jdbc.sql.MySQLDictionary",
-            "oracle", "org.apache.openjpa.jdbc.sql.OracleDictionary",
-            "pointbase", "org.apache.openjpa.jdbc.sql.PointbaseDictionary",
-            "postgres", "org.apache.openjpa.jdbc.sql.PostgresDictionary",
-            "sqlserver", "org.apache.openjpa.jdbc.sql.SQLServerDictionary",
-            "sybase", "org.apache.openjpa.jdbc.sql.SybaseDictionary",
+            "access", org.apache.openjpa.jdbc.sql.AccessDictionary.class.getName(),
+            "db2", org.apache.openjpa.jdbc.sql.DB2Dictionary.class.getName(),
+            "derby", org.apache.openjpa.jdbc.sql.DerbyDictionary.class.getName(),
+            "empress", org.apache.openjpa.jdbc.sql.EmpressDictionary.class.getName(),
+            "foxpro", org.apache.openjpa.jdbc.sql.FoxProDictionary.class.getName(),
+            "h2", org.apache.openjpa.jdbc.sql.H2Dictionary.class.getName(),
+            "hsql", org.apache.openjpa.jdbc.sql.HSQLDictionary.class.getName(),
+            "informix", org.apache.openjpa.jdbc.sql.InformixDictionary.class.getName(),
+            "ingres", org.apache.openjpa.jdbc.sql.IngresDictionary.class.getName(),
+            "jdatastore", org.apache.openjpa.jdbc.sql.JDataStoreDictionary.class.getName(),
+            "mariadb", org.apache.openjpa.jdbc.sql.MariaDBDictionary.class.getName(),
+            "mysql", org.apache.openjpa.jdbc.sql.MySQLDictionary.class.getName(),
+            "herddb", org.apache.openjpa.jdbc.sql.HerdDBDictionary.class.getName(),
+            "oracle", org.apache.openjpa.jdbc.sql.OracleDictionary.class.getName(),
+            "pointbase", org.apache.openjpa.jdbc.sql.PointbaseDictionary.class.getName(),
+            "postgres", org.apache.openjpa.jdbc.sql.PostgresDictionary.class.getName(),
+            "soliddb", org.apache.openjpa.jdbc.sql.SolidDBDictionary.class.getName(),
+            "sqlserver", org.apache.openjpa.jdbc.sql.SQLServerDictionary.class.getName(),
+            "sybase", org.apache.openjpa.jdbc.sql.SybaseDictionary.class.getName(),
+            "maxdb", MaxDBDictionary.class.getName(),
         };
         dbdictionaryPlugin.setAliases(aliases);
         dbdictionaryPlugin.setInstantiatingGetter("getDBDictionaryInstance");
@@ -238,7 +247,9 @@ public class JDBCConfigurationImpl
 
         driverDataSourcePlugin = addPlugin("jdbc.DriverDataSource", false);
         aliases = new String[]{
+            "auto", "org.apache.openjpa.jdbc.schema.AutoDriverDataSource",
             "simple", "org.apache.openjpa.jdbc.schema.SimpleDriverDataSource",
+            "dbcp", "org.apache.openjpa.jdbc.schema.DBCPDriverDataSource"
         };
         driverDataSourcePlugin.setAliases(aliases);
         driverDataSourcePlugin.setDefault(aliases[0]);
@@ -305,7 +316,7 @@ public class JDBCConfigurationImpl
         seqPlugin.setAliases(JDBCSeqValue.ALIASES);
         seqPlugin.setDefault(JDBCSeqValue.ALIASES[0]);
         seqPlugin.setString(JDBCSeqValue.ALIASES[0]);
-        
+
         // This plug-in is declared in superclass but defined here
         // because PreparedQueryCache is currently available for JDBC
         // backend only
@@ -335,25 +346,12 @@ public class JDBCConfigurationImpl
         finderCachePlugin.setInstantiatingGetter("getFinderCacheInstance");
 
         identifierUtilPlugin = addPlugin("jdbc.IdentifierUtil", true);
-        aliases = new String[] { 
+        aliases = new String[] {
             "default", "org.apache.openjpa.jdbc.identifier.DBIdentifierUtilImpl" };
         identifierUtilPlugin.setAliases(aliases);
         identifierUtilPlugin.setDefault(aliases[0]);
         identifierUtilPlugin.setString(aliases[0]);
         identifierUtilPlugin.setInstantiatingGetter("getIdentifierUtilInstance");
-
-        
-        // this static initializer is to get past a weird
-        // ClassCircularityError that happens only under IBM's
-        // JDK 1.3.1 on Linux from within the JRun ClassLoader;
-        // while exact causes are unknown, it is almost certainly
-        // a bug in JRun, and we can get around it by forcing
-        // Instruction.class to be loaded and initialized
-        // before TypedInstruction.class
-        try { serp.bytecode.lowlevel.Entry.class.getName(); } 
-        catch (Throwable t) {}
-        try { serp.bytecode.Instruction.class.getName(); } 
-        catch (Throwable t) {}
 
         supportedOptions().add(OPTION_QUERY_SQL);
         supportedOptions().add(OPTION_JDBC_CONNECTION);
@@ -375,164 +373,204 @@ public class JDBCConfigurationImpl
             fromProperties(conf.toProperties(false));
     }
 
+    @Override
     public void setSchema(String schema) {
         this.schema.setString(schema);
     }
 
+    @Override
     public String getSchema() {
         return schema.getString();
     }
 
+    @Override
     public void setSchemas(String schemas) {
         this.schemas.setString(schemas);
     }
 
+    @Override
     public String getSchemas() {
         return schemas.getString();
     }
 
+    @Override
     public void setSchemas(String[] schemas) {
         this.schemas.set(schemas);
     }
 
+    @Override
     public String[] getSchemasList() {
         return schemas.get();
     }
 
+    @Override
     public void setTransactionIsolation(String transactionIsolation) {
         this.transactionIsolation.setString(transactionIsolation);
     }
 
+    @Override
     public String getTransactionIsolation() {
         return transactionIsolation.getString();
     }
 
+    @Override
     public void setTransactionIsolation(int transactionIsolation) {
         this.transactionIsolation.set(transactionIsolation);
     }
 
+    @Override
     public int getTransactionIsolationConstant() {
         return transactionIsolation.get();
     }
 
+    @Override
     public void setResultSetType(String resultSetType) {
         this.resultSetType.setString(resultSetType);
     }
 
+    @Override
     public String getResultSetType() {
         return resultSetType.getString();
     }
 
+    @Override
     public void setResultSetType(int resultSetType) {
         this.resultSetType.set(resultSetType);
     }
 
+    @Override
     public int getResultSetTypeConstant() {
         return resultSetType.get();
     }
 
+    @Override
     public void setFetchDirection(String fetchDirection) {
         this.fetchDirection.setString(fetchDirection);
     }
 
+    @Override
     public String getFetchDirection() {
         return fetchDirection.getString();
     }
 
+    @Override
     public void setFetchDirection(int fetchDirection) {
         this.fetchDirection.set(fetchDirection);
     }
 
+    @Override
     public int getFetchDirectionConstant() {
         return fetchDirection.get();
     }
 
+    @Override
     public void setEagerFetchMode(String eagerFetchMode) {
         this.eagerFetchMode.setString(eagerFetchMode);
     }
 
+    @Override
     public String getEagerFetchMode() {
         return eagerFetchMode.getString();
     }
 
+    @Override
     public void setEagerFetchMode(int eagerFetchMode) {
         this.eagerFetchMode.set(eagerFetchMode);
     }
 
+    @Override
     public int getEagerFetchModeConstant() {
         return eagerFetchMode.get();
     }
 
+    @Override
     public void setSubclassFetchMode(String subclassFetchMode) {
         this.subclassFetchMode.setString(subclassFetchMode);
     }
 
+    @Override
     public String getSubclassFetchMode() {
         return subclassFetchMode.getString();
     }
 
+    @Override
     public void setSubclassFetchMode(int subclassFetchMode) {
         this.subclassFetchMode.set(subclassFetchMode);
     }
 
+    @Override
     public int getSubclassFetchModeConstant() {
         return subclassFetchMode.get();
     }
 
+    @Override
     public void setLRSSize(String lrsSize) {
         this.lrsSize.setString(lrsSize);
     }
 
+    @Override
     public String getLRSSize() {
         return lrsSize.getString();
     }
 
+    @Override
     public void setLRSSize(int lrsSize) {
         this.lrsSize.set(lrsSize);
     }
 
+    @Override
     public int getLRSSizeConstant() {
         return lrsSize.get();
     }
 
+    @Override
     public void setSynchronizeMappings(String synchronizeMappings) {
         this.synchronizeMappings.set(synchronizeMappings);
     }
 
+    @Override
     public String getSynchronizeMappings() {
         return synchronizeMappings.get();
     }
 
+    @Override
     public void setJDBCListeners(String jdbcListeners) {
         jdbcListenerPlugins.setString(jdbcListeners);
     }
 
+    @Override
     public String getJDBCListeners() {
         return jdbcListenerPlugins.getString();
     }
 
+    @Override
     public void setJDBCListeners(JDBCListener[] listeners) {
         jdbcListenerPlugins.set(listeners);
     }
 
+    @Override
     public JDBCListener[] getJDBCListenerInstances() {
         if (jdbcListenerPlugins.get() == null)
             jdbcListenerPlugins.instantiate(JDBCListener.class, this);
         return (JDBCListener[]) jdbcListenerPlugins.get();
     }
 
+    @Override
     public void setConnectionDecorators(String connectionDecorators) {
         connectionDecoratorPlugins.setString(connectionDecorators);
     }
 
+    @Override
     public String getConnectionDecorators() {
         return connectionDecoratorPlugins.getString();
     }
 
+    @Override
     public void setConnectionDecorators(ConnectionDecorator[] decorators) {
         connectionDecoratorPlugins.set(decorators);
     }
 
+    @Override
     public ConnectionDecorator[] getConnectionDecoratorInstances() {
         if (connectionDecoratorPlugins.get() == null) {
             connectionDecoratorPlugins.instantiate
@@ -541,14 +579,17 @@ public class JDBCConfigurationImpl
         return (ConnectionDecorator[]) connectionDecoratorPlugins.get();
     }
 
+    @Override
     public void setDBDictionary(String dbdictionary) {
         dbdictionaryPlugin.setString(dbdictionary);
     }
 
+    @Override
     public String getDBDictionary() {
         return dbdictionaryPlugin.getString();
     }
 
+    @Override
     public void setDBDictionary(DBDictionary dbdictionary) {
         // we can't allow the dictionary to be set after the connection
         // factory, due to initialization issues
@@ -559,6 +600,7 @@ public class JDBCConfigurationImpl
         dbdictionaryPlugin.set(dbdictionary);
     }
 
+    @Override
     public DBDictionary getDBDictionaryInstance() {
         // lock on connection factory name, since getting the connection
         // factory and getting the dictionary have to use the same locks to
@@ -567,7 +609,7 @@ public class JDBCConfigurationImpl
         if (dbdictionary == null) {
             String clsName = dbdictionaryPlugin.getClassName();
             String props = dbdictionaryPlugin.getProperties();
-            if (!StringUtils.isEmpty(clsName)) {
+            if (!StringUtil.isEmpty(clsName)) {
                 dbdictionary = DBDictionaryFactory.newDBDictionary
                     (this, clsName, props);
             } else {
@@ -601,112 +643,137 @@ public class JDBCConfigurationImpl
         return dbdictionary;
     }
 
+    @Override
     public void setUpdateManager(String updateManager) {
         updateManagerPlugin.setString(updateManager);
     }
 
+    @Override
     public String getUpdateManager() {
         return updateManagerPlugin.getString();
     }
 
+    @Override
     public void setUpdateManager(UpdateManager updateManager) {
         updateManagerPlugin.set(updateManager);
     }
 
+    @Override
     public UpdateManager getUpdateManagerInstance() {
         if (updateManagerPlugin.get() == null)
             updateManagerPlugin.instantiate(UpdateManager.class, this);
         return (UpdateManager) updateManagerPlugin.get();
     }
 
+    @Override
     public void setDriverDataSource(String driverDataSource) {
         driverDataSourcePlugin.setString(driverDataSource);
     }
 
+    @Override
     public String getDriverDataSource() {
         return driverDataSourcePlugin.getString();
     }
 
+    @Override
     public DriverDataSource newDriverDataSourceInstance() {
         return (DriverDataSource) driverDataSourcePlugin.
             instantiate(DriverDataSource.class, this);
     }
 
+    @Override
     public void setSchemaFactory(String schemaFactory) {
         schemaFactoryPlugin.setString(schemaFactory);
     }
 
+    @Override
     public String getSchemaFactory() {
         return schemaFactoryPlugin.getString();
     }
 
+    @Override
     public void setSchemaFactory(SchemaFactory schemaFactory) {
         schemaFactoryPlugin.set(schemaFactory);
     }
 
+    @Override
     public SchemaFactory getSchemaFactoryInstance() {
         if (schemaFactoryPlugin.get() == null)
             schemaFactoryPlugin.instantiate(SchemaFactory.class, this);
         return (SchemaFactory) schemaFactoryPlugin.get();
     }
 
+    @Override
     public void setSQLFactory(String sqlFactory) {
         sqlFactoryPlugin.setString(sqlFactory);
     }
 
+    @Override
     public String getSQLFactory() {
         return sqlFactoryPlugin.getString();
     }
 
+    @Override
     public void setSQLFactory(SQLFactory sqlFactory) {
         sqlFactoryPlugin.set(sqlFactory);
     }
 
+    @Override
     public SQLFactory getSQLFactoryInstance() {
         if (sqlFactoryPlugin.get() == null)
             sqlFactoryPlugin.instantiate(SQLFactory.class, this);
         return (SQLFactory) sqlFactoryPlugin.get();
     }
 
+    @Override
     public String getMappingFactory() {
         return mappingFactoryPlugin.getString();
     }
 
+    @Override
     public void setMappingFactory(String mapping) {
         mappingFactoryPlugin.setString(mapping);
     }
 
+    @Override
     public MetaDataFactory newMetaDataFactoryInstance() {
         return mappingFactoryPlugin.instantiateMetaDataFactory(this,
             metaFactoryPlugin, getMapping());
     }
 
+    @Override
     public void setMappingDefaults(String mapping) {
         this.mappingDefaultsPlugin.setString(mapping);
     }
 
+    @Override
     public String getMappingDefaults() {
         return mappingDefaultsPlugin.getString();
     }
 
+    @Override
     public void setMappingDefaults(MappingDefaults mapping) {
         mappingDefaultsPlugin.set(mapping);
     }
 
+    @Override
     public MappingDefaults getMappingDefaultsInstance() {
         if (mappingDefaultsPlugin.get() == null)
             mappingDefaultsPlugin.instantiate(MappingDefaults.class, this);
         return (MappingDefaults) mappingDefaultsPlugin.get();
     }
 
+    @Override
     public MappingRepository getMappingRepositoryInstance() {
         return (MappingRepository) getMetaDataRepositoryInstance();
     }
 
+    @Override
     public MappingRepository newMappingRepositoryInstance() {
         return (MappingRepository) newMetaDataRepositoryInstance();
     }
 
+    @Override
     public BrokerImpl newBrokerInstance(String user, String pass) {
         BrokerImpl broker = super.newBrokerInstance(user, pass);
 
@@ -718,6 +785,7 @@ public class JDBCConfigurationImpl
         return broker;
     }
 
+    @Override
     public Object getConnectionFactory() {
         // override to configure data source
         if (dataSource == null) {
@@ -728,6 +796,7 @@ public class JDBCConfigurationImpl
         return dataSource;
     }
 
+    @Override
     public void setConnectionFactory(Object factory) {
         // there's a lot of one-time initialization involved for
         // connection factories, so ignore resets
@@ -767,6 +836,7 @@ public class JDBCConfigurationImpl
         return dds;
     }
 
+    @Override
     public Object getConnectionFactory2() {
         // override to configure data source
         if (dataSource2 == null) {
@@ -774,23 +844,23 @@ public class JDBCConfigurationImpl
             Object obj = super.getConnectionFactory2();
             DataSource ds = null;
             if (obj != null) {
-                if (obj instanceof DataSource) 
+                if (obj instanceof DataSource)
                     ds = (DataSource) obj;
                 else {
                     Log log = getLog(LOG_JDBC);
                     if (log.isTraceEnabled()) {
                         Localizer loc = Localizer.forPackage(JDBCConfigurationImpl.class);
-                        log.trace(loc.get("unknown-datasource", getConnectionFactory2Name(), 
+                        log.trace(loc.get("unknown-datasource", getConnectionFactory2Name(),
                             obj.getClass().getName()));
                     }
                 }
             }
-                
+
             if (ds == null) {
                 // the driver name is always required, so if not specified,
                 // then no connection factory 2
                 String driver = getConnection2DriverName();
-                if (!StringUtils.isEmpty(driver))
+                if (!StringUtil.isEmpty(driver))
                     ds = DataSourceFactory.newDataSource(this, true);
             }
             if (ds != null) {
@@ -803,6 +873,7 @@ public class JDBCConfigurationImpl
         return dataSource2;
     }
 
+    @Override
     public void setConnectionFactory2(Object factory) {
         if (factory == connectionFactory2.get())
             return;
@@ -826,14 +897,20 @@ public class JDBCConfigurationImpl
         Log log = getLog(LOG_JDBC);
         if (ds != null) {
             if (log.isTraceEnabled())
-                log.trace("createConnectionFactory: DataSource:"+ds);
+                log.trace("createConnectionFactory: DataSource:" + ds);
 
             return setupConnectionFactory(ds, false);
         }
 
+        if (log.isTraceEnabled())
+            log.trace("createConnectionFactory: connectionFactory not created yet, attempt JNDI lookup...");
+
         ds = (DataSource) super.getConnectionFactory(); // JNDI lookup
-        if (ds == null)
+        if (ds == null) {
+            if (log.isTraceEnabled())
+                log.trace("createConnectionFactory: JNDI lookup failed, attempt DataSource properties...");
             ds = DataSourceFactory.newDataSource(this, false);
+        }
 
         if (log.isTraceEnabled())
             log.trace("createConnectionFactory: DataSource="+ds);
@@ -841,15 +918,72 @@ public class JDBCConfigurationImpl
         return setupConnectionFactory(ds, false);
     }
 
+    @Override
     public DataSource getDataSource(StoreContext ctx) {
-        return getDataSource(ctx, (DataSource) getConnectionFactory());
+        Log log = getLog(LOG_RUNTIME);
+        DataSource ds = null;
+
+        if(ctx != null && StringUtil.isNotEmpty(ctx.getConnectionFactoryName())) {
+            ds =  getDataSource(ctx, (DataSource) ctx.getConnectionFactory());
+            // fail fast if a cfName has been provided, but was not available in JNDI
+            if (ds == null) {
+                throw new UserException(_loc.get("invalid-datasource", ctx.getConnectionFactoryName())).setFatal(true);
+            }
+            if(! (ds instanceof DecoratingDataSource)) {
+                ds = DataSourceFactory.decorateDataSource(ds, this, false);
+            }
+            if (log.isTraceEnabled()) {
+                log.trace("Found datasource1: " + ds + " from StoreContext using jndiName: "
+                    + ctx.getConnectionFactory2Name());
+            }
+            return ds;
+        }
+        else {
+            ds = getDataSource(ctx, (DataSource) getConnectionFactory());
+            if (log.isTraceEnabled()) {
+                log.trace("Found datasource1: " + ds + " from configuration. StoreContext: " + ctx );
+            }
+            return ds;
+        }
     }
 
+    @Override
     public DataSource getDataSource2(StoreContext ctx) {
-        // if there is no connection factory 2, use the primary factory
-        DataSource ds = (DataSource) getConnectionFactory2();
-        if (ds == null)
+        Log log = getLog(LOG_RUNTIME);
+        DataSource ds = null;
+
+        // Try to obtain from the StoreContext first.
+        if (ctx != null && StringUtil.isNotEmpty(ctx.getConnectionFactory2Name())) {
+            ds = (DataSource) ctx.getConnectionFactory2();
+            if (ds == null) {
+                // fail fast. If the non-jta-data-source is configured on the context we want an immediate error.
+                throw new UserException(_loc.get("invalid-datasource", ctx.getConnectionFactory2Name())).setFatal(true);
+            }
+            if(! (ds instanceof DecoratingDataSource)) {
+                ds = DataSourceFactory.decorateDataSource(ds, this, false);
+            }
+            if (log.isTraceEnabled()) {
+                log.trace("Found datasource2: " + ds + " from StoreContext using jndiName: "
+                    + ctx.getConnectionFactory2Name());
+            }
+            return ds;
+        }
+
+        // If not set on context or value from context is not available try cf2 from config
+        else{
+            ds = (DataSource) getConnectionFactory2();
+            if (log.isTraceEnabled()) {
+                log.trace("Found datasource 2: "+ ds + " from config. StoreContext: " + ctx);
+            }
+        }
+
+        // fallback to cf1 / datasource1
+        if (ds == null) {
+            if(log.isTraceEnabled()) {
+                log.trace("Trying datasource1");
+            }
             return getDataSource(ctx);
+        }
 
         // prefer the global connection 2 auth info if given
         String user = getConnection2UserName();
@@ -895,6 +1029,7 @@ public class JDBCConfigurationImpl
     /**
      * Free the data sources.
      */
+    @Override
     protected void preClose() {
         if (dataSource != null) {
             getDBDictionaryInstance().closeDataSource(dataSource);
@@ -907,6 +1042,7 @@ public class JDBCConfigurationImpl
         super.preClose();
     }
 
+    @Override
     protected boolean isInvalidProperty(String propName) {
         if (super.isInvalidProperty(propName))
             return true;
@@ -914,22 +1050,25 @@ public class JDBCConfigurationImpl
         // handle openjpa.jdbc.SomeMisspelledProperty, but not
         // openjpa.someotherimplementation.SomeProperty
         String[] prefixes = ProductDerivations.getConfigurationPrefixes();
-        for (int i = 0; i < prefixes.length; i++)
-            if (propName.toLowerCase().startsWith(prefixes[i] + ".jdbc"))
-                return true; 
+        for (String prefix : prefixes)
+            if (propName.toLowerCase(Locale.ENGLISH).startsWith(prefix + ".jdbc"))
+                return true;
         return false;
     }
-    
+
+    @Override
     public String getIdentifierUtil() {
         return identifierUtilPlugin.getString();
     }
 
+    @Override
     public DBIdentifierUtil getIdentifierUtilInstance() {
         if (identifierUtilPlugin.get() == null)
             identifierUtilPlugin.instantiate(DBIdentifierUtil.class, this);
         return (DBIdentifierUtil) identifierUtilPlugin.get();
     }
 
+    @Override
     public void setIdentifierUtil(DBIdentifierUtil util) {
         identifierUtilPlugin.set(util);
     }

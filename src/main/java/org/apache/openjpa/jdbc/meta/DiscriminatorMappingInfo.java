@@ -14,13 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
 import java.lang.reflect.Modifier;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.meta.strats.NoneDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.SuperclassDiscriminatorStrategy;
 import org.apache.openjpa.jdbc.meta.strats.ValueMapDiscriminatorStrategy;
@@ -28,6 +27,7 @@ import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Index;
 import org.apache.openjpa.jdbc.schema.SchemaGroup;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.JavaTypes;
 
 /**
@@ -38,12 +38,10 @@ import org.apache.openjpa.meta.JavaTypes;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public class DiscriminatorMappingInfo
-    extends MappingInfo {
-
+public class DiscriminatorMappingInfo extends MappingInfo {
+    private static final long serialVersionUID = 1L;
     private String _value = null;
-    
+
     /**
      * Raw discriminator value string.
      */
@@ -64,18 +62,18 @@ public class DiscriminatorMappingInfo
     public Object getValue(Discriminator discrim, boolean adapt) {
         if (discrim.getValue() != null)
             return discrim.getValue();
-        if (StringUtils.isEmpty(_value)) {
+        if (StringUtil.isEmpty(_value)) {
             return discrim.getMappingRepository().getMappingDefaults().
                 getDiscriminatorValue(discrim, adapt);
         }
-        
-        switch(discrim.getJavaType()) { 
+
+        switch(discrim.getJavaType()) {
             case JavaTypes.INT:
                 return Integer.valueOf(_value);
             case JavaTypes.CHAR:
-               return new Character(_value.charAt(_value.indexOf('\'')+1));
+               return _value.charAt(_value.indexOf('\'') + 1);
             case JavaTypes.STRING:
-            default: 
+            default:
                 return _value;
         }
     }
@@ -150,11 +148,13 @@ public class DiscriminatorMappingInfo
             setStrategy(strat);
     }
 
+    @Override
     protected void clear(boolean canFlags) {
         super.clear(canFlags);
         _value = null;
     }
 
+    @Override
     public void copy(MappingInfo info) {
         super.copy(info);
         if (!(info instanceof DiscriminatorMappingInfo))

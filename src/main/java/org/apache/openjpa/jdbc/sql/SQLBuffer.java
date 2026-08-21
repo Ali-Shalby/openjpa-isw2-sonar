@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -28,32 +28,37 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Objects;
 
-import org.apache.commons.lang.ObjectUtils;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.jdbc.kernel.exps.CollectionParam;
 import org.apache.openjpa.jdbc.kernel.exps.Val;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Table;
+import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.exps.Parameter;
 
 
 /**
  * Buffer for SQL statements that can be used to create
  * java.sql.PreparedStatements.
- * This buffer holds the SQL statement parameters and their corresponding 
+ * This buffer holds the SQL statement parameters and their corresponding
  * columns. The parameters introduced by the runtime system are distinguished
- * from the parameters set by the user.  
+ * from the parameters set by the user.
  *
  * @author Marc Prud'hommeaux
  * @author Abe White
  * @author Pinaki Poddar
- * 
+ *
  * @since 0.2.4
  */
 public final class SQLBuffer
     implements Serializable, Cloneable {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final String PARAMETER_TOKEN = "?";
 
@@ -62,11 +67,12 @@ public final class SQLBuffer
     private List _subsels = null;
     private List _params = null;
     private List _cols = null;
-    
+
     // Even element refers to an index of the _params list
-    // Odd element refers to the user parameter key
+    // Odd element refers to the user parameter
     private List _userIndex = null;
-    
+    private List _userParams = null;
+
     /**
      * Default constructor.
      */
@@ -85,6 +91,7 @@ public final class SQLBuffer
     /**
      * Perform a shallow clone of this SQL Buffer.
      */
+    @Override
     public Object clone() {
         return new SQLBuffer(this);
     }
@@ -100,16 +107,23 @@ public final class SQLBuffer
      * Append all SQL and parameters of the given buffer.
      */
     public SQLBuffer append(SQLBuffer buf) {
-        append(buf, _sql.length(), (_params == null) ? 0 : _params.size(),
-            true);
+        append(buf, _sql.length(), (_params == null) ? 0 : _params.size(), true, false);
         return this;
     }
 
     /**
-     * Append all SQL and parameters of the given buffer at the given positions.
+     * Append parameters only if the given buffer at the given positions.
+    */
+    public SQLBuffer appendParamOnly(SQLBuffer buf) {
+        append(buf, _sql.length(), (_params == null) ? 0 : _params.size(), true, true);
+        return this;
+    }
+
+    /**
+     * Append parameters and/or SQL of the given buffer at the given positions.
      */
     private void append(SQLBuffer buf, int sqlIndex, int paramIndex,
-        boolean subsels) {
+        boolean subsels, boolean paramOnly) {
         if (subsels) {
             // only allow appending of buffers with subselects, not insertion
             if (_subsels != null && !_subsels.isEmpty()
@@ -126,10 +140,12 @@ public final class SQLBuffer
             }
         }
 
-        if (sqlIndex == _sql.length())
-            _sql.append(buf._sql.toString());
-        else
-            _sql.insert(sqlIndex, buf._sql.toString());
+        if (!paramOnly) {
+            if (sqlIndex == _sql.length())
+                _sql.append(buf._sql);
+            else
+                _sql.insert(sqlIndex, buf._sql);
+        }
 
         if (buf._params != null) {
             if (_params == null)
@@ -142,6 +158,16 @@ public final class SQLBuffer
 
             if (paramIndex == _params.size()) {
                 _params.addAll(buf._params);
+                if (buf._userParams != null) {
+                    if (_userParams == null)
+                        _userParams = new ArrayList();
+                   _userParams.addAll(paramIndex, buf._userParams);
+                }
+                if (buf._userIndex != null) {
+                    if (_userIndex == null)
+                        _userIndex = new ArrayList();
+                    _userIndex.addAll(buf._userIndex);
+                }
                 if (buf._cols != null)
                     _cols.addAll(buf._cols);
                 else if (_cols != null)
@@ -149,6 +175,16 @@ public final class SQLBuffer
                         _cols.add(null);
             } else {
                 _params.addAll(paramIndex, buf._params);
+                if ( buf._userParams != null) {
+                    if (_userParams == null)
+                        _userParams = new ArrayList();
+                    _userParams.addAll(paramIndex, buf._userParams);
+                }
+                if (buf._userIndex != null) {
+                     if (_userIndex == null)
+                         _userIndex = new ArrayList();
+                     _userIndex.addAll(buf._userIndex);
+                }
                 if (buf._cols != null)
                     _cols.addAll(paramIndex, buf._cols);
                 else if (_cols != null)
@@ -156,33 +192,34 @@ public final class SQLBuffer
                         _cols.add(paramIndex, null);
             }
         }
-        
-        // adding user parameters from another buffer to this buffer
-        // this buffer's user parameter index gets modified
-        if (buf._userIndex == null && this._userIndex == null) {
-            // do nothing
-        } else if (buf._userIndex != null && this._userIndex == null) {
-            // copy the other buffers data
-            this._userIndex = new ArrayList(buf._userIndex);
-        } else if (buf._userIndex == null && this._userIndex != null) {
-            // nothing to add from the other buffer
-        } else { // both has data. 
-            // modify this buffer's user parameter index
-            int otherSize = buf._userIndex.size()/2;
+
+        if (_userIndex != null) {
+            // fix up user parameter index(s)
             for (int i = 0; i < _userIndex.size(); i+=2) {
-                int newIndex = ((Integer)_userIndex.get(i)).intValue() + otherSize;
-                _userIndex.set(i, newIndex);
+            	Object param = _userIndex.get(i+1);
+
+            	Object previousParam = (i > 0) ? _userIndex.get(i-1) : null;
+            	if ( param != previousParam) {
+            		_userIndex.set(i, _userParams.indexOf(param));
+            	}else{
+            		//if there are multiple parameters for the in clause or the combined PK field,
+            		//we got duplicate param objects in _userParams list.
+            		//In order to find the right index, we have to skip params that's checked already.
+            		int previousUserIndex = (Integer)_userIndex.get(i-2);
+            		int userParamindex = 0;
+
+                	for(Object next : _userParams){
+                        if (next == param && userParamindex > previousUserIndex) {
+                            _userIndex.set(i, userParamindex);
+                            break;
+                      }
+                      userParamindex++;
+                	}
+            	}
             }
-            // append the other buffer's user parameters to this one
-            for (int i = 0; i < buf._userIndex.size(); i+=2) {
-                Object otherIndex = buf._userIndex.get(i);
-                Object otherParam = buf._userIndex.get(i+1);
-                _userIndex.add(otherIndex);
-                _userIndex.add(otherParam);
-            }            
         }
     }
-    
+
     public SQLBuffer append(DBIdentifier name) {
         _sql.append(_dict.toDBName(name));
         return this;
@@ -249,8 +286,8 @@ public final class SQLBuffer
         if (_subsels == null)
             return false;
         Subselect sub;
-        for (int i = 0; i < _subsels.size(); i++) {
-            sub = (Subselect) _subsels.get(i);
+        for (Object subsel : _subsels) {
+            sub = (Subselect) subsel;
             if (sub.select == old) {
                 sub.select = sel;
                 return true;
@@ -265,164 +302,95 @@ public final class SQLBuffer
     public SQLBuffer appendValue(Object o) {
         return appendValue(o, null);
     }
-    
+
     /**
      * Append a system inserted parameter value for a specific column.
      */
     public SQLBuffer appendValue(Object o, Column col) {
         return appendValue(o, col, null);
     }
-    
+
     /**
      * Append a user parameter value for a specific column. User parameters
      * are marked as opposed to the parameters inserted by the internal runtime
      * system. This helps to reuse the buffer by reparmeterizing it with new
      * set of user parameters while the 'internal' parameters remain unchanged.
-     * 
+     *
      * @param userParam if non-null, designates a 'user' parameter.
      */
     public SQLBuffer appendValue(Object o, Column col, Parameter userParam) {
+        return appendValue(o, col, userParam, true);
+    }
+
+    public SQLBuffer appendValue(Object o, Column col, Parameter userParam, boolean useParamToken) {
         if (o == null)
             _sql.append("NULL");
         else if (o instanceof Raw)
-            _sql.append(o.toString());
+            _sql.append(o);
         else {
-            _sql.append(PARAMETER_TOKEN);
+            Class<?> type = Filters.wrap(o.getClass());
+            if (useParamToken || !validParamLiteralType(type)) {
+                _sql.append(PARAMETER_TOKEN);
 
-            // initialize param and col lists; we hold off on col list until
-            // we get the first non-null col
-            if (_params == null)
-                _params = new ArrayList();
-            if (col != null && _cols == null) {
-                _cols = new ArrayList();
-                while (_cols.size() < _params.size())
-                    _cols.add(null);
-            }
+                // initialize param and col lists; we hold off on col list until
+                // we get the first non-null col
+                if (_params == null)
+                    _params = new ArrayList();
+                if (_userParams == null)
+                    _userParams = new ArrayList();
+                if (col != null && _cols == null) {
+                    _cols = new ArrayList();
+                    while (_cols.size() < _params.size())
+                        _cols.add(null);
+                }
 
-            _params.add(o);
-            if (userParam != null) {
-                if (_userIndex == null)
-                    _userIndex = new ArrayList();
-                int index = _params.size()-1;
-                _userIndex.add(index);
-                _userIndex.add(userParam.getParameterKey());
+                _params.add(o);
+                if (userParam != null) {
+                    Object param = userParam;
+                    if (userParam instanceof CollectionParam)
+                        param = ((CollectionParam) userParam).clone();
+                    _userParams.add(param);
+                    if (_userIndex == null)
+                        _userIndex = new ArrayList();
+                    int index = _params.size()-1;
+                    _userIndex.add(index);
+                    _userIndex.add(param);
+                }
+                else
+                    _userParams.add(o);
+                if (_cols != null)
+                    _cols.add(col);
+            } else {
+                if (type == String.class) {
+                    _sql.append("'" + o.toString().replace("'", "''") + "'");
+
+                } else if ( type == Character.class ) {
+                    if (_dict.storeCharsAsNumbers) {
+                        _sql.append(o);
+                    } else {
+                        _sql.append("'" + o.toString().replace("'", "''") + "'");
+                    }
+                } else if (type == Boolean.class) {
+                    Boolean b = (Boolean) o;
+                    // We store B(b)ooleans as ints. Convert
+                    _sql.append(_dict.getBooleanRepresentation().getRepresentation(b));
+                } else {
+                    _sql.append(o);
+                }
             }
-            if (_cols != null)
-                _cols.add(col);
         }
         return this;
     }
 
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(boolean b) {
-        return appendValue(b, null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(boolean b, Column col) {
-        return appendValue((b) ? Boolean.TRUE : Boolean.FALSE, col);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(byte b) {
-        return appendValue(b, null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(byte b, Column col) {
-        return appendValue(new Byte(b), col);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(char c) {
-        return appendValue(c, null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(char c, Column col) {
-        return appendValue(new Character(c), col);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(double d) {
-        return appendValue(d, null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(double d, Column col) {
-        return appendValue(new Double(d), col);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(float f) {
-        return appendValue(f, null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(float f, Column col) {
-        return appendValue(new Float(f), col);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(int i) {
-        return appendValue(Integer.valueOf(i), null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(int i, Column col) {
-        return appendValue(Integer.valueOf(i), col);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(long l) {
-        return appendValue(Long.valueOf(l), null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(long l, Column col) {
-        return appendValue(Long.valueOf(l), col);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(short s) {
-        return appendValue(s, null);
-    }
-
-    /**
-     * Append a parameter value.
-     */
-    public SQLBuffer appendValue(short s, Column col) {
-        return appendValue(new Short(s), col);
+    private boolean validParamLiteralType(Class<?> type) {
+        boolean ret = type == String.class
+                || type == Integer.class
+                || type == Character.class
+                || type == Boolean.class
+                || type == Short.class
+                || type == Long.class
+                || type == Byte.class;
+        return ret;
     }
 
     /**
@@ -431,14 +399,14 @@ public final class SQLBuffer
     public List getParameters() {
         return (_params == null) ? Collections.EMPTY_LIST : _params;
     }
-    
+
     /**
-     * Get the user parameter positions in the list of parameters. The odd 
+     * Get the user parameter positions in the list of parameters. The odd
      * element of the returned list contains an integer index that refers
      * to the position in the {@link #getParameters()} list. The even element
-     * of the returned list refers to the user parameter key. 
-     * This structure is preferred over a normal map because a user parameter 
-     * may occur more than one in the parameters. 
+     * of the returned list refers to the user parameter key.
+     * This structure is preferred over a normal map because a user parameter
+     * may occur more than one in the parameters.
      */
     public List getUserParameters() {
         if (_userIndex == null)
@@ -452,7 +420,7 @@ public final class SQLBuffer
     public String getSQL() {
         return getSQL(false);
     }
-    
+
     /**
      * Returns the SQL for this buffer.
      *
@@ -504,7 +472,7 @@ public final class SQLBuffer
             else
                 buf = sub.select.toSelect(false, sub.fetch);
             buf.resolveSubselects();
-            append(buf, sub.sqlIndex, sub.paramIndex, false);
+            append(buf, sub.sqlIndex, sub.paramIndex, false, false);
         }
         _subsels.clear();
     }
@@ -645,6 +613,7 @@ public final class SQLBuffer
         }
     }
 
+    @Override
     public int hashCode() {
         int hash = _sql.hashCode();
         return (_params == null) ? hash : hash ^ _params.hashCode();
@@ -658,6 +627,7 @@ public final class SQLBuffer
         return _sql.toString().equals(sql);
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -666,7 +636,7 @@ public final class SQLBuffer
 
         SQLBuffer buf = (SQLBuffer) other;
         return _sql.equals(buf._sql)
-            && ObjectUtils.equals(_params, buf._params);
+            && Objects.equals(_params, buf._params);
     }
 
     /**
@@ -684,7 +654,7 @@ public final class SQLBuffer
 
     /**
      * Replace current buffer string with the new string
-     * 
+     *
      * @param start replace start position
      * @param end replace end position
      * @param newString
@@ -692,7 +662,7 @@ public final class SQLBuffer
     public void replaceSqlString(int start, int end, String newString) {
         _sql.replace(start, end, newString);
     }
-    
+
     /**
      * Represents a subselect.
      */
@@ -717,11 +687,11 @@ public final class SQLBuffer
             return sub;
         }
     }
-    
+
     public void setParameters(List params) {
         _params = params;
     }
-    
+
     public List getColumns() {
         return _cols;
     }

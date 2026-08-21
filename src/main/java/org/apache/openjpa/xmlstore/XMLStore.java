@@ -14,14 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.xmlstore;
 
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
@@ -79,8 +78,8 @@ public class XMLStore {
         // load datas from file and cache them
         Collection datas = _conf.getFileHandler().load(meta);
         m = new HashMap(datas.size());
-        for (Iterator itr = datas.iterator(); itr.hasNext();) {
-            ObjectData data = (ObjectData) itr.next();
+        for (Object o : datas) {
+            ObjectData data = (ObjectData) o;
             m.put(data.getId(), data);
         }
         _metaOidMaps.put(meta, m);
@@ -118,15 +117,14 @@ public class XMLStore {
      * @param updates {@link ObjectData} instances to insert or update
      * @param deletes {@link ObjectData} instances to delete
      */
-    public synchronized void endTransaction(Collection updates,
-        Collection deletes) {
+    public synchronized void endTransaction(Collection<ObjectData> updates,
+                                            Collection<ObjectData> deletes) {
         // track dirty types
         Set dirty = new HashSet();
         try {
             // commit updates
             if (updates != null) {
-                for (Iterator itr = updates.iterator(); itr.hasNext();) {
-                    ObjectData data = (ObjectData) itr.next();
+                for (ObjectData data : updates) {
                     ClassMetaData meta = getLeastDerived(data.getMetaData());
                     getMap(meta).put(data.getId(), data);
                     dirty.add(meta);
@@ -135,8 +133,7 @@ public class XMLStore {
 
             // commit deletes
             if (deletes != null) {
-                for (Iterator itr = deletes.iterator(); itr.hasNext();) {
-                    ObjectData data = (ObjectData) itr.next();
+                for (ObjectData data : deletes) {
                     ClassMetaData meta = getLeastDerived(data.getMetaData());
                     getMap(meta).remove(data.getId());
                     dirty.add(meta);
@@ -145,8 +142,8 @@ public class XMLStore {
 
             // write changes to dirty extents back to file
             XMLFileHandler fh = _conf.getFileHandler();
-            for (Iterator itr = dirty.iterator(); itr.hasNext();) {
-                ClassMetaData meta = (ClassMetaData) itr.next();
+            for (Object o : dirty) {
+                ClassMetaData meta = (ClassMetaData) o;
                 fh.store(meta, getMap(meta).values());
             }
         }
@@ -154,6 +151,6 @@ public class XMLStore {
             // unlock store
             notify();
             _locked = false;
-		}
-	}
+        }
+    }
 }

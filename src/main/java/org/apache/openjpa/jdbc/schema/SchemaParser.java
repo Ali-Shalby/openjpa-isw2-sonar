@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -27,7 +27,6 @@ import org.apache.openjpa.lib.meta.MetaDataParser;
  * multiple files into a single schema group.
  *
  * @author Abe White
- * @nojavadoc
  */
 public interface SchemaParser
     extends MetaDataParser {
@@ -38,7 +37,7 @@ public interface SchemaParser
      * multiple resources where a foreign key in one resource might refer
      * to a table in another.
      */
-    public boolean getDelayConstraintResolve();
+    boolean getDelayConstraintResolve();
 
     /**
      * Delay resolution of foreign key constraints until
@@ -46,20 +45,20 @@ public interface SchemaParser
      * multiple resources where a foreign key in one resource might refer
      * to a table in another.
      */
-    public void setDelayConstraintResolve(boolean delay);
+    void setDelayConstraintResolve(boolean delay);
 
     /**
      * Return the current schema group.
      */
-    public SchemaGroup getSchemaGroup();
+    SchemaGroup getSchemaGroup();
 
     /**
      * Set the current schema group; this clears all state from the last group.
      */
-    public void setSchemaGroup(SchemaGroup group);
+    void setSchemaGroup(SchemaGroup group);
 
     /**
      * If this parser is in delayed resolve mode, resolve all constraints.
      */
-    public void resolveConstraints();
+    void resolveConstraints();
 }

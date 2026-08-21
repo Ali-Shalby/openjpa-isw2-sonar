@@ -18,69 +18,69 @@
  */
 package org.apache.openjpa.persistence.jdbc;
 
-import org.apache.openjpa.persistence.AnnotationPersistenceMetaDataSerializer;
-import org.apache.openjpa.persistence.PersistenceStrategy;
-import org.apache.openjpa.persistence.AnnotationBuilder;
-import org.apache.openjpa.jdbc.meta.QueryResultMapping;
-import org.apache.openjpa.jdbc.meta.MappingRepository;
-import org.apache.openjpa.jdbc.meta.ClassMapping;
-import org.apache.openjpa.jdbc.meta.FieldMapping;
-import org.apache.openjpa.jdbc.meta.ClassMappingInfo;
-import org.apache.openjpa.jdbc.meta.DiscriminatorMappingInfo;
-import org.apache.openjpa.jdbc.meta.MappingInfo;
-import org.apache.openjpa.jdbc.meta.SequenceMapping;
-import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
-import org.apache.openjpa.jdbc.meta.strats.FlatClassStrategy;
-import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
-import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
-import org.apache.openjpa.jdbc.meta.strats.EnumValueHandler;
-import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
-import org.apache.openjpa.jdbc.schema.*;
-import org.apache.openjpa.jdbc.schema.Unique;
-import org.apache.openjpa.jdbc.sql.DBDictionary;
-import org.apache.openjpa.meta.MetaDataRepository;
-import org.apache.openjpa.meta.ClassMetaData;
-import org.apache.openjpa.meta.FieldMetaData;
-import org.apache.openjpa.meta.JavaTypes;
-import org.apache.openjpa.meta.SequenceMetaData;
-import org.apache.openjpa.meta.MetaDataModes;
-import org.apache.commons.lang.StringUtils;
-
-import java.util.List;
+import java.lang.annotation.Annotation;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Map;
 import java.util.HashMap;
-import java.sql.Types;
-import java.lang.annotation.Annotation;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
-import serp.util.Strings;
+import jakarta.persistence.ColumnResult;
+import jakarta.persistence.DiscriminatorColumn;
+import jakarta.persistence.DiscriminatorValue;
+import jakarta.persistence.EntityResult;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FieldResult;
+import jakarta.persistence.Inheritance;
+import jakarta.persistence.InheritanceType;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinColumns;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.Lob;
+import jakarta.persistence.PrimaryKeyJoinColumn;
+import jakarta.persistence.PrimaryKeyJoinColumns;
+import jakarta.persistence.SecondaryTable;
+import jakarta.persistence.SqlResultSetMapping;
+import jakarta.persistence.Table;
+import jakarta.persistence.TableGenerator;
+import jakarta.persistence.Temporal;
+import jakarta.persistence.TemporalType;
+import jakarta.persistence.UniqueConstraint;
 
-import javax.persistence.TemporalType;
-import javax.persistence.EnumType;
-import javax.persistence.InheritanceType;
-import javax.persistence.Table;
-import javax.persistence.SecondaryTable;
-import javax.persistence.Inheritance;
-import javax.persistence.DiscriminatorValue;
-import javax.persistence.DiscriminatorColumn;
-import javax.persistence.JoinTable;
-import javax.persistence.Lob;
-import javax.persistence.Temporal;
-import javax.persistence.Enumerated;
-import javax.persistence.UniqueConstraint;
-import javax.persistence.TableGenerator;
-import javax.persistence.JoinColumns;
-import javax.persistence.JoinColumn;
-import javax.persistence.PrimaryKeyJoinColumn;
-import javax.persistence.PrimaryKeyJoinColumns;
-import javax.persistence.SqlResultSetMapping;
-import javax.persistence.EntityResult;
-import javax.persistence.FieldResult;
-import javax.persistence.ColumnResult;
+import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
+import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.ClassMappingInfo;
+import org.apache.openjpa.jdbc.meta.DiscriminatorMappingInfo;
+import org.apache.openjpa.jdbc.meta.FieldMapping;
+import org.apache.openjpa.jdbc.meta.MappingInfo;
+import org.apache.openjpa.jdbc.meta.MappingRepository;
+import org.apache.openjpa.jdbc.meta.QueryResultMapping;
+import org.apache.openjpa.jdbc.meta.QueryResultMapping.PCResult;
+import org.apache.openjpa.jdbc.meta.SequenceMapping;
+import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
+import org.apache.openjpa.jdbc.meta.strats.EnumValueHandler;
+import org.apache.openjpa.jdbc.meta.strats.FlatClassStrategy;
+import org.apache.openjpa.jdbc.meta.strats.FullClassStrategy;
+import org.apache.openjpa.jdbc.meta.strats.VerticalClassStrategy;
+import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.Unique;
+import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.lib.util.ClassUtil;
+import org.apache.openjpa.lib.util.StringUtil;
+import org.apache.openjpa.meta.ClassMetaData;
+import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.meta.MetaDataModes;
+import org.apache.openjpa.meta.MetaDataRepository;
+import org.apache.openjpa.meta.SequenceMetaData;
+import org.apache.openjpa.persistence.AnnotationBuilder;
+import org.apache.openjpa.persistence.AnnotationPersistenceMetaDataSerializer;
+import org.apache.openjpa.persistence.PersistenceStrategy;
 
-//@todo: javadocs
 
 /**
  * Serializes persistence mappings as annotations.
@@ -88,7 +88,6 @@ import javax.persistence.ColumnResult;
  * @since 1.0.0
  * @author Steve Kim
  * @author Gokhan Ergul
- * @nojavadoc
  */
 public class AnnotationPersistenceMappingSerializer
     extends AnnotationPersistenceMetaDataSerializer {
@@ -99,7 +98,7 @@ public class AnnotationPersistenceMappingSerializer
     private boolean _sync = false;
 
     private Map<QueryResultMapping, List<AnnotationBuilder>> _rsmAnnos = null;
-    
+
     /**
      * Constructor. Supply configuration.
      */
@@ -128,7 +127,7 @@ public class AnnotationPersistenceMappingSerializer
      */
     public void addQueryResultMapping(QueryResultMapping meta) {
         if (_results == null)
-            _results = new ArrayList<QueryResultMapping>();
+            _results = new ArrayList<>();
         _results.add(meta);
     }
 
@@ -142,16 +141,14 @@ public class AnnotationPersistenceMappingSerializer
     @Override
     public void addAll(MetaDataRepository repos) {
         super.addAll(repos);
-        for (QueryResultMapping res : ((MappingRepository) repos)
-            .getQueryResultMappings())
+        for (QueryResultMapping res : ((MappingRepository) repos).getQueryResultMappings())
             addQueryResultMapping(res);
     }
 
     @Override
     public boolean removeAll(MetaDataRepository repos) {
         boolean removed = super.removeAll(repos);
-        for (QueryResultMapping res : ((MappingRepository) repos)
-            .getQueryResultMappings())
+        for (QueryResultMapping res : ((MappingRepository) repos).getQueryResultMappings())
             removed |= removeQueryResultMapping(res);
         return removed;
     }
@@ -170,13 +167,8 @@ public class AnnotationPersistenceMappingSerializer
     protected void addAnnotation(AnnotationBuilder ab, QueryResultMapping meta)
     {
         if (_rsmAnnos == null)
-            _rsmAnnos = new HashMap<QueryResultMapping,
-                    List<AnnotationBuilder>>();
-        List<AnnotationBuilder> list = _rsmAnnos.get(meta);
-        if (list == null) {
-            list = new ArrayList<AnnotationBuilder>();
-            _rsmAnnos.put(meta, list);
-        }
+            _rsmAnnos = new HashMap<>();
+        List<AnnotationBuilder> list = _rsmAnnos.computeIfAbsent(meta, k -> new ArrayList<>());
         list.add(ab);
     }
 
@@ -221,8 +213,7 @@ public class AnnotationPersistenceMappingSerializer
         ClassMapping cls = (ClassMapping) mapping;
         ClassMappingInfo info = cls.getMappingInfo();
         AnnotationBuilder abTable = addAnnotation(Table.class, mapping);
-        serializeTable(info.getTableName(), Strings
-            .getClassName(mapping.getDescribedType()), null,
+        serializeTable(info.getTableName(), ClassUtil.getClassName(mapping.getDescribedType()), null,
             info.getUniques(info.getTableName()), abTable);
         serializeColumns(info, ColType.PK_JOIN, null, abTable, cls);
         for (String second : info.getSecondaryTableNames()) {
@@ -242,7 +233,7 @@ public class AnnotationPersistenceMappingSerializer
         String strat = info.getHierarchyStrategy();
         if (null == strat)
             return;
-        String itypecls = Strings.getClassName(InheritanceType.class);
+        String itypecls = ClassUtil.getClassName(InheritanceType.class);
         AnnotationBuilder abInheritance =
             addAnnotation(Inheritance.class, mapping);
         if (FlatClassStrategy.ALIAS.equals(strat))
@@ -270,7 +261,7 @@ public class AnnotationPersistenceMappingSerializer
         AnnotationBuilder ab) {
         List<Column> cols = null;
         if (secondaryInfo != null)
-            cols = (List<Column>) secondaryInfo.getSecondaryTableJoinColumns
+            cols = secondaryInfo.getSecondaryTableJoinColumns
                 (table);
 
         boolean print = (cols != null && cols.size() > 0) ||
@@ -282,7 +273,16 @@ public class AnnotationPersistenceMappingSerializer
             if (index < 0)
                 ab.add("name", table);
             else {
-                ab.add("schema", table.substring(0, index));
+                Map<String, ClassMetaData> classMetaData = getClassMetaData();
+                Object[] keySet = null;
+                if(classMetaData != null)
+                {
+                    keySet = classMetaData.keySet().toArray();
+                }
+                if((keySet != null) && (keySet.length > 0) && classMetaData.get(keySet[0]).getUseSchemaElement())
+                {
+                    ab.add("schema", table.substring(0, index));
+                }
                 ab.add("name", table.substring(index + 1));
             }
         }
@@ -316,11 +316,11 @@ public class AnnotationPersistenceMappingSerializer
             return true;
 
         ValueMappingInfo info = field.getValueInfo();
-        List<Column> cols = (List<Column>) info.getColumns();
+        List<Column> cols = info.getColumns();
         if (cols == null || cols.size() == 0)
             return false;
         ValueMappingInfo info2 = field2.getValueInfo();
-        List<Column> cols2 = (List<Column>) info2.getColumns();
+        List<Column> cols2 = info2.getColumns();
         if (cols2 == null || cols2.size() != cols.size())
             return true;
         if (cols.size() != 1)
@@ -331,9 +331,9 @@ public class AnnotationPersistenceMappingSerializer
         for (int i = 0; i < cols.size(); i++) {
             col = cols.get(i);
             col2 = cols2.get(i);
-            if (!StringUtils.equals(col.getName(), col2.getName()))
+            if (!Objects.equals(col.getName(), col2.getName()))
                 return true;
-            if (!StringUtils.equals(col.getTypeName(), col2.getTypeName()))
+            if (!Objects.equals(col.getTypeName(), col2.getTypeName()))
                 return true;
             if (col.getSize() != col2.getSize())
                 return true;
@@ -461,7 +461,7 @@ public class AnnotationPersistenceMappingSerializer
      * Determine if the field is a lob.
      */
     private boolean isLob(FieldMapping field) {
-        for (Column col : (List<Column>) field.getValueInfo().getColumns())
+        for (Column col : field.getValueInfo().getColumns())
             if (col.getType() == Types.BLOB || col.getType() == Types.CLOB)
                 return true;
         return false;
@@ -473,14 +473,17 @@ public class AnnotationPersistenceMappingSerializer
     private TemporalType getTemporal(FieldMapping field) {
         if (field.getDeclaredTypeCode() != JavaTypes.DATE
             && field.getDeclaredTypeCode() != JavaTypes.CALENDAR)
+        {
             return null;
+        }
 
         DBDictionary dict = ((JDBCConfiguration) getConfiguration())
             .getDBDictionaryInstance();
         int def = dict.getJDBCType(field.getTypeCode(), false);
-        for (Column col : (List<Column>) field.getValueInfo().getColumns()) {
-            if (col.getType() == def)
+        for (Column col : field.getValueInfo().getColumns()) {
+            if (col.getType() == def) {
                 continue;
+            }
             switch (col.getType()) {
                 case Types.DATE:
                     return TemporalType.DATE;
@@ -497,10 +500,14 @@ public class AnnotationPersistenceMappingSerializer
      * Return enum type for the field.
      */
     protected EnumType getEnumType(FieldMapping field) {
-        if (field.getDeclaredTypeCode() != JavaTypes.OBJECT)
+        if (field.getDeclaredTypeCode() != JavaTypes.OBJECT
+                && field.getDeclaredTypeCode() != JavaTypes.ENUM)
+        {
             return null;
-        if (!(field.getHandler() instanceof EnumValueHandler))
+        }
+        if (!(field.getHandler() instanceof EnumValueHandler)) {
             return null;
+        }
         return ((EnumValueHandler) field.getHandler()).getStoreOrdinal()
             ? EnumType.ORDINAL : EnumType.STRING;
     }
@@ -510,24 +517,27 @@ public class AnnotationPersistenceMappingSerializer
      */
     private void serializeColumns(MappingInfo info, ColType type,
         String secondary, AnnotationBuilder ab, Object meta) {
-        List<Column> cols = (List<Column>) info.getColumns();
-        if (cols == null)
+        List<Column> cols = info.getColumns();
+        if (cols == null) {
             return;
+        }
         AnnotationBuilder abContainer = ab;
         if (cols.size() > 1) {
-            Class grpType = type.getColumnGroupAnnotationType();
+            Class<? extends Annotation> grpType = type.getColumnGroupAnnotationType();
             if (null != grpType) {
                 AnnotationBuilder abGrp = newAnnotationBuilder(grpType);
-                if (null == ab)
+                if (null == ab) {
                     addAnnotation(abGrp, meta);
-                else
+                } else {
                     ab.add(null, abGrp);
+                }
                 abContainer = abGrp;
             }
         }
-        for (Column col : cols)
+        for (Column col : cols) {
             serializeColumn(col, type, secondary,
                 info.getUnique() != null, abContainer, meta);
+        }
     }
 
     /**
@@ -585,7 +595,7 @@ public class AnnotationPersistenceMappingSerializer
                 ab.add(key, abCol);
             } else {
                 addAnnotation(abCol, meta);
-            }                
+            }
         }
     }
 
@@ -601,7 +611,7 @@ public class AnnotationPersistenceMappingSerializer
         if (columns.length > 1)
             sb.insert(0, "{").append("}");
         ab.add("columnNames", sb.toString());
-        if (StringUtils.isNotEmpty(unique.getName())) {
+        if (StringUtil.isNotEmpty(unique.getName())) {
             ab.add("name", unique.getName());
         }
     }
@@ -631,7 +641,7 @@ public class AnnotationPersistenceMappingSerializer
      */
     private List<QueryResultMapping> getQueryResultMappings(ClassMetaData cm) {
         if (_results == null || _results.isEmpty())
-            return (List<QueryResultMapping>) Collections.EMPTY_LIST;
+            return Collections.EMPTY_LIST;
 
         List<QueryResultMapping> result = null;
         for (int i = 0; i < _results.size(); i++) {
@@ -641,7 +651,7 @@ public class AnnotationPersistenceMappingSerializer
                 continue;
 
             if (result == null)
-                result = new ArrayList<QueryResultMapping>(_results.size() - i);
+                result = new ArrayList<>(_results.size() - i);
             result.add(element);
         }
         return (result == null)
@@ -674,7 +684,7 @@ public class AnnotationPersistenceMappingSerializer
                 newAnnotationBuilder(EntityResult.class);
             ab.add("entities", abEntRes);
             abEntRes.add("entityClass", pc.getCandidateType());
-            Object discrim = pc.getMapping(pc.DISCRIMINATOR);
+            Object discrim = pc.getMapping(PCResult.DISCRIMINATOR);
             if (discrim != null)
                 abEntRes.add("discriminatorColumn", discrim.toString());
 
@@ -713,11 +723,11 @@ public class AnnotationPersistenceMappingSerializer
                 abTblGen.add("schema", table.substring(0, dotIdx));
             }
         }
-        if (!StringUtils.isEmpty(seq.getPrimaryKeyColumn()))
+        if (!StringUtil.isEmpty(seq.getPrimaryKeyColumn()))
             abTblGen.add("pkColumnName", seq.getPrimaryKeyColumn());
-        if (!StringUtils.isEmpty(seq.getSequenceColumn()))
+        if (!StringUtil.isEmpty(seq.getSequenceColumn()))
             abTblGen.add("valueColumnName", seq.getSequenceColumn());
-        if (!StringUtils.isEmpty(seq.getPrimaryKeyValue()))
+        if (!StringUtil.isEmpty(seq.getPrimaryKeyValue()))
             abTblGen.add("pkColumnValue", seq.getPrimaryKeyValue());
         if (seq.getAllocate() != 50 && seq.getAllocate() != -1)
             abTblGen.add("allocationSize", seq.getAllocate() + "");
@@ -728,7 +738,7 @@ public class AnnotationPersistenceMappingSerializer
     /**
      * Column types serialized under different names.
      */
-    private static enum ColType {
+    private enum ColType {
 
         COL,
         JOIN,
@@ -739,7 +749,7 @@ public class AnnotationPersistenceMappingSerializer
         private Class<? extends Annotation> getColumnAnnotationType() {
             switch(this) {
                 case COL:
-                    return javax.persistence.Column.class;
+                    return jakarta.persistence.Column.class;
                 case JOIN:
                 case INVERSE:
                     return JoinColumn.class;
@@ -773,6 +783,10 @@ public class AnnotationPersistenceMappingSerializer
     protected class MappingSerializationComparator
         extends SerializationComparator {
 
+
+        private static final long serialVersionUID = 1L;
+
+        @Override
         protected int compareUnknown(Object o1, Object o2) {
             if (!(o1 instanceof QueryResultMapping))
                 return super.compareUnknown(o1, o2);

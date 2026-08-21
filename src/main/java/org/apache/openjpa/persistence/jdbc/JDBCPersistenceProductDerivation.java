@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.jdbc;
 
@@ -24,11 +24,14 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import jakarta.persistence.AttributeConverter;
+
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.conf.OpenJPAProductDerivation;
 import org.apache.openjpa.conf.Specification;
 import org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl;
 import org.apache.openjpa.jdbc.kernel.JDBCStoreManager;
+import org.apache.openjpa.jdbc.sql.MariaDBDictionary;
 import org.apache.openjpa.jdbc.sql.MySQLDictionary;
 import org.apache.openjpa.jdbc.sql.OracleDictionary;
 import org.apache.openjpa.lib.conf.AbstractProductDerivation;
@@ -41,16 +44,17 @@ import org.apache.openjpa.persistence.PersistenceProductDerivation;
  * Sets JDBC-specific JPA specification defaults.
  *
  * @author Abe White
- * @nojavadoc
  */
-public class JDBCPersistenceProductDerivation 
-    extends AbstractProductDerivation 
+public class JDBCPersistenceProductDerivation
+    extends AbstractProductDerivation
     implements OpenJPAProductDerivation {
-    
-    
-    public void putBrokerFactoryAliases(Map m) {
+
+
+    @Override
+    public void putBrokerFactoryAliases(Map<String,String> m) {
     }
 
+    @Override
     public int getType() {
         return TYPE_SPEC_STORE;
     }
@@ -60,14 +64,14 @@ public class JDBCPersistenceProductDerivation
         throws Exception {
         // make sure JPA is available
         AccessController.doPrivileged(J2DoPrivHelper.getClassLoaderAction(
-            javax.persistence.EntityManagerFactory.class));
+            jakarta.persistence.EntityManagerFactory.class));
     }
 
     @Override
     public boolean beforeConfigurationLoad(Configuration c) {
         if (c instanceof OpenJPAConfiguration) {
             ((OpenJPAConfiguration) c).getStoreFacadeTypeRegistry().
-                registerImplementation(FetchPlan.class, JDBCStoreManager.class, 
+                registerImplementation(FetchPlan.class, JDBCStoreManager.class,
                 JDBCFetchPlanImpl.class);
         }
         if (!(c instanceof JDBCConfigurationImpl))
@@ -91,6 +95,11 @@ public class JDBCPersistenceProductDerivation
             PersistenceMappingDefaults.class.getName());
         conf.mappingDefaultsPlugin.setAlias(jpa.getName(),
             PersistenceMappingDefaults.class.getName());
+
+        conf.lockManagerPlugin.setAlias("mixed", "org.apache.openjpa.jdbc.kernel.MixedLockManager");
+
+        conf.typesWithoutEnhancement.set(new Class<?>[]{ AttributeConverter.class });
+
         return true;
     }
 
@@ -102,29 +111,32 @@ public class JDBCPersistenceProductDerivation
         Specification jpa = PersistenceProductDerivation.SPEC_JPA;
         if (!jpa.getName().equals(conf.getSpecificationInstance().getName()))
             return false;
-        
+
         conf.mappingDefaultsPlugin.setDefault(jpa.getName());
         conf.mappingDefaultsPlugin.setString(jpa.getName());
+        conf.lockManagerPlugin.setDefault("mixed");
+        conf.lockManagerPlugin.setString("mixed");
         return true;
-    } 
-    
+    }
+
     /**
      * Hint keys correspond to some (not all) bean-style mutable property name in JDBCFetchConfiguration.
      * The fully qualified key is prefixed with <code>openjpa.jdbc</code>.
      */
-    private static Set<String> _hints = new HashSet<String>();
+    private static Set<String> _hints = new HashSet<>();
     static {
         _hints.add("openjpa.FetchPlan.EagerFetchMode");
         _hints.add("openjpa.FetchPlan.FetchDirection");
-        _hints.add("openjpa.FetchPlan.TransactionIsolation");
+        _hints.add("openjpa.FetchPlan.Isolation");
         _hints.add("openjpa.FetchPlan.JoinSyntax");
         _hints.add("openjpa.FetchPlan.LRSSize");
         _hints.add("openjpa.FetchPlan.ResultSetType");
         _hints.add("openjpa.FetchPlan.SubclassFetchMode");
-        
+
+        _hints.add(MariaDBDictionary.SELECT_HINT);
         _hints.add(MySQLDictionary.SELECT_HINT);
         _hints.add(OracleDictionary.SELECT_HINT);
-        
+
         _hints = Collections.unmodifiableSet(_hints);
     }
 

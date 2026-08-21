@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -29,13 +29,12 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.collections.map.LinkedMap;
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.rop.ListResultObjectProvider;
 import org.apache.openjpa.lib.rop.RangeResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.OrderedMap;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.util.Exceptions;
 import org.apache.openjpa.util.ImplHelper;
@@ -46,10 +45,12 @@ import org.apache.openjpa.util.UserException;
  * A query that is executed by a user-defined method.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class MethodStoreQuery
     extends AbstractStoreQuery {
+
+    
+    private static final long serialVersionUID = 1L;
 
     public static final String LANGUAGE = QueryLanguages.LANG_METHODQL;
 
@@ -68,31 +69,37 @@ public class MethodStoreQuery
 
     private OrderedMap<Object, Class<?>> _params = null;
 
+    @Override
     public void invalidateCompilation() {
         if (_params != null)
             _params.clear();
     }
 
+    @Override
     public Executor newInMemoryExecutor(ClassMetaData meta, boolean subs) {
         return new MethodExecutor(this, meta, subs, true);
     }
 
+    @Override
     public Executor newDataStoreExecutor(ClassMetaData meta, boolean subs) {
         return new MethodExecutor(this, meta, subs, false);
     }
 
+    @Override
     public boolean supportsInMemoryExecution() {
         return true;
     }
 
+    @Override
     public boolean supportsDataStoreExecution() {
         return true;
     }
 
+    @Override
     public boolean requiresCandidateType() {
         return false;
     }
-    
+
     /**
      * Parse the parameter declarations.
      */
@@ -107,7 +114,7 @@ public class MethodStoreQuery
 
             List decs = Filters.parseDeclaration(params, ',', "parameters");
             if (_params == null)
-                _params = new OrderedMap<Object, Class<?>>();
+                _params = new OrderedMap<>();
             String name;
             Class cls;
             for (int i = 0; i < decs.size(); i += 2) {
@@ -143,6 +150,7 @@ public class MethodStoreQuery
             _inMem = inMem;
         }
 
+        @Override
         public ResultObjectProvider executeQuery(StoreQuery q,
             Object[] params, Range range) {
             // convert the parameters into a map
@@ -185,7 +193,7 @@ public class MethodStoreQuery
                             continue;
 
                         args[OBJ_INDEX] = obj;
-                        if (((Boolean) invoke(q, args)).booleanValue())
+                        if ((Boolean) invoke(q, args))
                             results.add(obj);
                     }
                 }
@@ -221,12 +229,13 @@ public class MethodStoreQuery
             }
         }
 
+        @Override
         public void validate(StoreQuery q) {
             if (_meth != null)
                 return;
 
             String methName = q.getContext().getQueryString();
-            if (StringUtils.isEmpty(methName))
+            if (StringUtil.isEmpty(methName))
                 throw new UserException(_loc.get("no-method"));
 
             int dotIdx = methName.lastIndexOf('.');
@@ -260,10 +269,12 @@ public class MethodStoreQuery
             _meth = meth;
         }
 
+        @Override
         public OrderedMap<Object, Class<?>> getOrderedParameterTypes(StoreQuery q) {
             return ((MethodStoreQuery) q).bindParameterTypes();
 		}
-        
+
+        @Override
         public Object[] toParameterArray(StoreQuery q, Map userParams) {
             if (userParams == null || userParams.isEmpty())
                 return StoreQuery.EMPTY_OBJECTS;
@@ -272,18 +283,18 @@ public class MethodStoreQuery
             Object[] arr = new Object[userParams.size()];
             int base = positionalParameterBase(userParams.keySet());
             for (Object key : paramTypes.keySet()) {
-                int idx = (key instanceof Integer) 
-                    ? ((Integer)key).intValue() - base 
+                int idx = (key instanceof Integer)
+                    ? (Integer) key - base
                     : paramTypes.indexOf(key);
                 if (idx >= arr.length || idx < 0)
-                        throw new UserException(_loc.get("gap-query-param", 
-                            new Object[]{q.getContext().getQueryString(), key, 
+                        throw new UserException(_loc.get("gap-query-param",
+                            new Object[]{q.getContext().getQueryString(), key,
                             userParams.size(), userParams}));
                     arr[idx] = userParams.get(key);
             }
             return arr;
         }
-        
+
         /**
          * Return the base (generally 0 or 1) to use for positional parameters.
          */
@@ -291,8 +302,8 @@ public class MethodStoreQuery
             int low = Integer.MAX_VALUE;
             Object obj;
             int val;
-            for (Iterator itr = params.iterator(); itr.hasNext();) {
-                obj = itr.next();
+            for (Object param : params) {
+                obj = param;
                 if (!(obj instanceof Number))
                     return 0; // use 0 base when params are mixed types
 

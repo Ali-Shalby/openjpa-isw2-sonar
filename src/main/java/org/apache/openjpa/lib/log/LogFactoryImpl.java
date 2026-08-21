@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.log;
 
@@ -27,9 +27,9 @@ import java.io.StringWriter;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.openjpa.lib.conf.Configurable;
 import org.apache.openjpa.lib.conf.Configuration;
@@ -38,7 +38,6 @@ import org.apache.openjpa.lib.util.Files;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Default {@link LogFactory} implementation. For ease of automatic
@@ -47,7 +46,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * @author Patrick Linskey
  */
-public class LogFactoryImpl 
+public class LogFactoryImpl
     implements LogFactory, GenericConfigurable, Configurable {
 
     private static Localizer _loc = Localizer.forPackage(LogFactoryImpl.class);
@@ -74,7 +73,7 @@ public class LogFactoryImpl
      * The {@link Log}s that this factory manages, keyed by log channel name.
      */
     private Map<String, LogImpl> _logs =
-        new ConcurrentHashMap<String, LogImpl>(); 
+        new ConcurrentHashMap<>();
 
     /**
      * The default logging level.
@@ -85,7 +84,7 @@ public class LogFactoryImpl
      * Storage for logging level configuration specified at configuration time.
      */
     private Map<String, Short> _configuredLevels =
-        new HashMap<String, Short>(); 
+        new HashMap<>();
 
     /**
      * The stream to write to. Defaults to System.err.
@@ -93,12 +92,12 @@ public class LogFactoryImpl
     private PrintStream _out = System.err;
 
     /**
-     * A token to add to all log messages. If <code>null</code>, the 
+     * A token to add to all log messages. If <code>null</code>, the
      * configuration's id will be used.
      */
     private String _diagContext = null;
     private boolean _diagContextComputed = false;
-    
+
     private Configuration _conf;
 
 
@@ -106,6 +105,7 @@ public class LogFactoryImpl
         initializationMillis = System.currentTimeMillis();
     }
 
+    @Override
     public Log getLog(String channel) {
         // no locking; ok if same log created multiple times
         LogImpl l = _logs.get(channel);
@@ -113,7 +113,7 @@ public class LogFactoryImpl
             l = newLogImpl();
             l.setChannel(channel);  // TODO add to interface?
             Short lvl = _configuredLevels.get(shorten(channel));
-            l.setLevel(lvl == null ? _defaultLogLevel : lvl.shortValue());
+            l.setLevel(lvl == null ? _defaultLogLevel : lvl);
             _logs.put(channel, l);
         }
         return l;
@@ -258,27 +258,29 @@ public class LogFactoryImpl
     }
 
     // ---------- Configurable implementation ----------
-    
+
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = conf;
     }
-    
+
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
     }
 
     // ---------- GenericConfigurable implementation ----------
 
+    @Override
     public void setInto(Options opts) {
         if (!opts.isEmpty()) {
             Map.Entry<Object, Object> e;
-            for (Iterator<Map.Entry<Object, Object>> iter =
-                opts.entrySet().iterator(); iter.hasNext();) {
-                e = iter.next();
-                _configuredLevels.put(shorten((String) e.getKey()), new Short(
-                    getLevel((String) e.getValue())));
+            for (Map.Entry<Object, Object> objectObjectEntry : opts.entrySet()) {
+                e = objectObjectEntry;
+                _configuredLevels.put(shorten((String) e.getKey()), getLevel((String) e.getValue()));
             }
             opts.clear();
         }
@@ -297,30 +299,29 @@ public class LogFactoryImpl
         private short _level = INFO;
         private String _channel;
 
+        @Override
         protected boolean isEnabled(short level) {
             return level >= _level;
         }
 
+        @Override
         protected void log(short level, String message, Throwable t) {
             String msg = formatMessage(level, message, t);
-            synchronized (_out) {
-                _out.print(msg);
-            }
+            _out.println(msg);
         }
 
         /**
          * Convert <code>message</code> into a string ready to be written to
-         * the log. The string should include the terminating newline.
+         * the log.
          *
          * @param t may be null
          */
-        protected String formatMessage(short level, String message,
-            Throwable t) {
+        protected String formatMessage(short level, String message, Throwable t) {
             // we write to a StringBuilder and then flush it all at
             // once as a single line, since some environments(e.g., JBoss)
             // override the System output stream to flush any calls
             // to write without regard to line breaks, making the
-            // output incomprehensibe.
+            // output incomprehensible.
             StringBuilder buf = new StringBuilder();
 
             buf.append(getOffset());
@@ -336,7 +337,6 @@ public class LogFactoryImpl
             buf.append(_channel);
             buf.append(" - ");
             buf.append(message);
-            buf.append(NEWLINE);
 
             if (t != null) {
                 StringWriter swriter = new StringWriter();

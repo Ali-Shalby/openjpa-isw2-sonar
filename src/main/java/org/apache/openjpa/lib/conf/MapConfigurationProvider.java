@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
@@ -30,7 +30,6 @@ import org.apache.openjpa.lib.util.Localizer;
  * provided map.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class MapConfigurationProvider implements ConfigurationProvider {
 
@@ -38,7 +37,7 @@ public class MapConfigurationProvider implements ConfigurationProvider {
         (MapConfigurationProvider.class);
 
     private Map _props = null;
-    
+
     /**
      * Construct with null properties.
      */
@@ -52,10 +51,12 @@ public class MapConfigurationProvider implements ConfigurationProvider {
         addProperties(props);
     }
 
+    @Override
     public Map getProperties() {
         return (_props == null) ? Collections.EMPTY_MAP : _props;
     }
 
+    @Override
     public void addProperties(Map props) {
         if (props == null || props.isEmpty())
             return;
@@ -64,12 +65,14 @@ public class MapConfigurationProvider implements ConfigurationProvider {
         _props.putAll(props);
     }
 
+    @Override
     public Object addProperty(String key, Object value) {
         if (_props == null)
             _props = new HashMap();
         return _props.put(key, value);
     }
 
+    @Override
     public void setInto(Configuration conf) {
         setInto(conf, conf.getConfigurationLog());
     }

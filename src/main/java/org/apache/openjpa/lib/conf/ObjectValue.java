@@ -14,16 +14,16 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
 import java.security.AccessController;
+import java.util.Objects;
 
-import org.apache.commons.lang.ObjectUtils;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap.ReferenceStrength;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.ReferenceMap;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 
 /**
@@ -38,7 +38,7 @@ public class ObjectValue extends Value {
 
     // cache the types' classloader
     private static ConcurrentReferenceHashMap _classloaderCache =
-        new ConcurrentReferenceHashMap(ReferenceMap.HARD, ReferenceMap.WEAK);
+        new ConcurrentReferenceHashMap(ReferenceStrength.HARD, ReferenceStrength.WEAK);
 
     private Object _value = null;
 
@@ -49,6 +49,7 @@ public class ObjectValue extends Value {
     /**
      * The internal value.
      */
+    @Override
     public Object get() {
         return _value;
     }
@@ -69,7 +70,7 @@ public class ObjectValue extends Value {
         if (!derived) assertChangeable();
         Object oldValue = _value;
         _value = obj;
-        if (!derived && !ObjectUtils.equals(obj, oldValue)) {
+        if (!derived && !Objects.equals(obj, oldValue)) {
             objectChanged();
             valueChanged();
         }
@@ -117,13 +118,14 @@ public class ObjectValue extends Value {
                 J2DoPrivHelper.getClassLoaderAction(type));
             if (cl == null) {  // System classloader is returned as null
                 cl = AccessController.doPrivileged(
-                    J2DoPrivHelper.getSystemClassLoaderAction()); 
+                    J2DoPrivHelper.getSystemClassLoaderAction());
             }
             _classloaderCache.put(type, cl);
         }
         return Configurations.newInstance(clsName, this, conf, cl, fatal);
     }
 
+    @Override
     public Class<?> getValueType() {
         return Object.class;
     }
@@ -135,10 +137,12 @@ public class ObjectValue extends Value {
     protected void objectChanged() {
     }
 
+    @Override
     protected String getInternalString() {
         return null;
     }
 
+    @Override
     protected void setInternalString(String str) {
         if (str == null)
             set(null);
@@ -147,6 +151,7 @@ public class ObjectValue extends Value {
                 getProperty()).getMessage());
     }
 
+    @Override
     protected void setInternalObject(Object obj) {
         set(obj);
     }

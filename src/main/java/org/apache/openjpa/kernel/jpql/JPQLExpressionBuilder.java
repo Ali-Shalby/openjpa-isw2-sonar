@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.jpql;
 
@@ -22,8 +22,13 @@ import java.io.PrintStream;
 import java.io.Serializable;
 import java.lang.reflect.Field;
 import java.math.BigDecimal;
+import java.security.AccessController;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -35,7 +40,6 @@ import java.util.Set;
 import java.util.Stack;
 import java.util.TreeSet;
 
-import org.apache.commons.collections.map.LinkedMap;
 import org.apache.openjpa.conf.Compatibility;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.BrokerFactory;
@@ -47,6 +51,8 @@ import org.apache.openjpa.kernel.ResultShape;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.kernel.exps.AbstractExpressionBuilder;
 import org.apache.openjpa.kernel.exps.Context;
+import org.apache.openjpa.kernel.exps.DateTimeExtractField;
+import org.apache.openjpa.kernel.exps.DateTimeExtractPart;
 import org.apache.openjpa.kernel.exps.Expression;
 import org.apache.openjpa.kernel.exps.ExpressionFactory;
 import org.apache.openjpa.kernel.exps.Literal;
@@ -57,9 +63,10 @@ import org.apache.openjpa.kernel.exps.Resolver;
 import org.apache.openjpa.kernel.exps.Subquery;
 import org.apache.openjpa.kernel.exps.Value;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.lib.util.Localizer.Message;
+import org.apache.openjpa.lib.util.OrderedMap;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
@@ -76,7 +83,6 @@ import org.apache.openjpa.util.UserException;
  *
  * @author Marc Prud'hommeaux
  * @author Patrick Linskey
- * @nojavadoc
  */
 public class JPQLExpressionBuilder
     extends AbstractExpressionBuilder
@@ -88,10 +94,11 @@ public class JPQLExpressionBuilder
     private static final Localizer _loc = Localizer.forPackage
         (JPQLExpressionBuilder.class);
 
-    private final Stack<Context> contexts = new Stack<Context>();
+    private final Stack<Context> contexts = new Stack<>();
     private OrderedMap<Object, Class<?>> parameterTypes;
     private int aliasCount = 0;
     private boolean inAssignSubselectProjection = false;
+    private boolean hasParameterizedInExpression = false;
 
     /**
      * Constructor.
@@ -115,10 +122,12 @@ public class JPQLExpressionBuilder
             throw new InternalException(parsedQuery + "");
     }
 
+    @Override
     protected Localizer getLocalizer() {
         return _loc;
     }
 
+    @Override
     protected ClassLoader getClassLoader() {
         // we don't resolve in the context of anything but ourselves
         return getClass().getClassLoader();
@@ -225,7 +234,7 @@ public class JPQLExpressionBuilder
         JPQLNode from = node.findChildByID(JJTFROMITEM, true);
         if (from == null) {
             // OPENJPA-15 allow subquery without a FROMITEM
-            if (node.id == JJTSUBSELECT) { 
+            if (node.id == JJTSUBSELECT) {
                 from = node.findChildByID(JJTFROM, true);
             }
             else {
@@ -252,7 +261,7 @@ public class JPQLExpressionBuilder
 
                 return getClassMetaData(cls, true);
             }
-            // OPENJPA-15 support subquery's from clause do not start with 
+            // OPENJPA-15 support subquery's from clause do not start with
             // identification_variable_declaration()
             if (node.id == JJTSUBSELECT) {
                 if (n.id == JJTINNERJOIN) {
@@ -268,16 +277,17 @@ public class JPQLExpressionBuilder
                         return cmd;
                     }
                     else {
-                        throw parseException(EX_USER, "no-alias", 
+                        throw parseException(EX_USER, "no-alias",
                                 new Object[]{ n }, null);
                     }
                 }
-            }           
+            }
         }
 
         return null;
     }
 
+    @Override
     protected String currentQuery() {
         return ctx().parsed == null || root().parser == null ? null
             : root().parser.jpql;
@@ -309,6 +319,10 @@ public class JPQLExpressionBuilder
             exps.parameterTypes = parameterTypes;
 
         exps.accessPath = getAccessPath();
+        exps.hasInExpression = this.hasParameterizedInExpression;
+
+        // verify parameters are consistent.
+        validateParameters();
 
         return exps;
     }
@@ -344,7 +358,7 @@ public class JPQLExpressionBuilder
 
         Value val = getValue(node);
         exps.projections[0] = val;
-        exps.projectionClauses[0] = 
+        exps.projectionClauses[0] =
             projectionClause(node.id == JJTSCALAREXPRESSION ?
                 firstChild(node) : node);
         inAssignSubselectProjection = false;
@@ -365,7 +379,7 @@ public class JPQLExpressionBuilder
             JPQLNode parent = parametersNode.getChild(i);
             JPQLNode node = firstChild(parent);
             JPQLNode aliasNode = parent.children.length > 1 ? right(parent)
-                : null; 
+                : null;
             Value proj = getValue(node);
             String alias = aliasNode != null ? aliasNode.text :
                 projectionClause(node.id == JJTSCALAREXPRESSION ?
@@ -390,7 +404,7 @@ public class JPQLExpressionBuilder
         if (count > 1) {
             // muti-selection
             resultClass = Object[].class;
-            resultShape = new ResultShape(resultClass, new FillStrategy.Array<Object[]>(Object[].class));
+            resultShape = new ResultShape(resultClass, new FillStrategy.Array<>(Object[].class));
         }
 
         for (int i = 0; i < count; i++) {
@@ -407,13 +421,29 @@ public class JPQLExpressionBuilder
                     String baseName = left(node).getChild(n-1).text;
                     constructor = resolver.classForName(baseName, null);
                 }
+
+                if (constructor == null && resolver.getConfiguration().getUseTCCLinSelectNew()) {
+                    try {
+                        if (System.getSecurityManager() != null) {
+                            constructor = AccessController.doPrivileged(
+                                    J2DoPrivHelper.getForNameAction(resultClassName, false,
+                                        AccessController.doPrivileged(J2DoPrivHelper.getContextClassLoaderAction())));
+                        }
+                        else {
+                            constructor = Thread.currentThread().getContextClassLoader().loadClass(resultClassName);
+                        }
+                    } catch (Exception e) {
+                        // ignore
+                    }
+                }
+
                 if (constructor == null)
                     throw parseException(EX_USER, "no-constructor",
                             new Object[]{ resultClassName }, null);
 
-                List<Value> terms = new ArrayList<Value>();
-                List<String> aliases = new ArrayList<String>();
-                List<String> clauses = new ArrayList<String>();
+                List<Value> terms = new ArrayList<>();
+                List<String> aliases = new ArrayList<>();
+                List<String> clauses = new ArrayList<>();
                 // now assign the arguments to the select clause as the projections
                 assignProjections(right(node), exps, terms, aliases, clauses);
                 FillStrategy fill = new FillStrategy.NewInstance(constructor);
@@ -434,7 +464,7 @@ public class JPQLExpressionBuilder
 
             } else {
                 JPQLNode aliasNode = parent.children.length > 1 ? right(parent)
-                        : null; 
+                        : null;
                 Value proj = getValue(node);
                 String alias = aliasNode != null ? aliasNode.text :
                     projectionClause(node.id == JJTSCALAREXPRESSION ?
@@ -465,7 +495,7 @@ public class JPQLExpressionBuilder
             return assemble(node);
         }
     }
-    
+
     private void evalQueryOperation(QueryExpressions exps) {
         // determine whether we want to select, delete, or update
         if (root().id == JJTSELECT || root().id == JJTSUBSELECT)
@@ -535,7 +565,7 @@ public class JPQLExpressionBuilder
             }
             // check if order by select item result alias
             for (int i = 0; i < ordercount; i++) {
-                if (exps.orderingClauses[i] != null && 
+                if (exps.orderingClauses[i] != null &&
                     !exps.orderingClauses[i].equals(""))
                     continue;
                 for (int j = 0; j < exps.projections.length; j++) {
@@ -558,7 +588,7 @@ public class JPQLExpressionBuilder
         JPQLNode selectClause = selectNode.
             findChildByID(JJTSELECTCLAUSE, false);
         if (selectClause != null && selectClause.hasChildID(JJTDISTINCT))
-            exps.distinct = QueryExpressions.DISTINCT_TRUE 
+            exps.distinct = QueryExpressions.DISTINCT_TRUE
                           | QueryExpressions.DISTINCT_AUTO;
         else
             exps.distinct = QueryExpressions.DISTINCT_FALSE;
@@ -588,13 +618,13 @@ public class JPQLExpressionBuilder
             if (assertSchemaAlias().equalsIgnoreCase(child.text)) {
                 return null;
             }
-        } 
+        }
         // JPQL does not filter relational joins for projections
         exps.distinct &= ~QueryExpressions.DISTINCT_AUTO;
         exps.projections = new Value[selectCount];
-        List<Value> projections = new ArrayList<Value>();
-        List<String> aliases = new ArrayList<String>();
-        List<String> clauses = new ArrayList<String>();
+        List<Value> projections = new ArrayList<>();
+        List<String> aliases = new ArrayList<>();
+        List<String> clauses = new ArrayList<>();
         evalProjectionsResultShape(expNode, exps, projections, aliases, clauses);
         exps.projections = projections.toArray(new Value[projections.size()]);
         exps.projectionAliases = aliases.toArray(new String[aliases.size()]);
@@ -621,24 +651,24 @@ public class JPQLExpressionBuilder
 
         JPQLNode[] outers = root().findChildrenByID(JJTOUTERFETCHJOIN);
         for (int i = 0; outers != null && i < outers.length; i++)
-            (joins == null ? joins = new TreeSet<String>() : joins).
+            (joins == null ? joins = new TreeSet<>() : joins).
                 add(getPath(onlyChild(outers[i])).last().getFullName(false));
 
         JPQLNode[] inners = root().findChildrenByID(JJTINNERFETCHJOIN);
         for (int i = 0; inners != null && i < inners.length; i++) {
             String path = getPath(onlyChild(inners[i])).last()
                 .getFullName(false);
-            (joins == null ? joins = new TreeSet<String>() : joins).add(path);
-            (innerJoins == null 
-                    ? innerJoins = new TreeSet<String>() 
+            (joins == null ? joins = new TreeSet<>() : joins).add(path);
+            (innerJoins == null
+                    ? innerJoins = new TreeSet<>()
                     : innerJoins).add(path);
         }
 
         if (joins != null)
-            exps.fetchPaths = (String[]) joins.
+            exps.fetchPaths = joins.
                 toArray(new String[joins.size()]);
         if (innerJoins != null)
-            exps.fetchInnerPaths = (String[]) innerJoins.
+            exps.fetchInnerPaths = innerJoins.
                 toArray(new String[innerJoins.size()]);
 
         return filter;
@@ -654,7 +684,7 @@ public class JPQLExpressionBuilder
                         new Object[]{assemble(firstChild(nodes[i]))}, null);
 
             JPQLNode lastChild = lastChild(nodes[i]);
-            Value val = (lastChild.children == null) 
+            Value val = (lastChild.children == null)
                       ? null : getValue(onlyChild(lastChild));
             exps.putUpdate(path, val);
         }
@@ -746,12 +776,12 @@ public class JPQLExpressionBuilder
         JPQLNode firstChild = firstChild(node);
         Path path = null;
         if (firstChild.id == JJTQUALIFIEDPATH)
-            path = (Path) getQualifiedPath(firstChild);
+            path = getQualifiedPath(firstChild);
         else
             path = getPath(firstChild, false, inner);
 
         JPQLNode alias = node.getChildCount() >= 2 ? right(node) : null;
-        // OPENJPA-15 support subquery's from clause do not start with 
+        // OPENJPA-15 support subquery's from clause do not start with
         // identification_variable_declaration()
         if (inner && ctx().getParent() != null && ctx().schemaAlias == null) {
             return getSubquery(alias.text, path, exp);
@@ -830,12 +860,13 @@ public class JPQLExpressionBuilder
         // which is the desired candidate
         if (ctx().schemaAlias == null)
             setCandidate(cmd, alias);
-        else  
+        else
             addAccessPath(cmd);
 
         return exp;
     }
 
+    @Override
     protected boolean isDeclaredVariable(String name) {
         // JPQL doesn't support declaring variables
         return false;
@@ -892,6 +923,7 @@ public class JPQLExpressionBuilder
      * Identification variables in JPQL are case insensitive, so lower-case
      * all variables we are going to bind.
      */
+    @Override
     protected Value getVariable(String id, boolean bind) {
         if (id == null)
             return null;
@@ -906,6 +938,7 @@ public class JPQLExpressionBuilder
         return ctx().getVariable(id);
     }
 
+    @Override
     protected boolean isSeenVariable(String var) {
         Context c = ctx().findContext(var);
         if (c != null)
@@ -927,7 +960,7 @@ public class JPQLExpressionBuilder
     private void checkEmbeddable(Value val) {
         checkEmbeddable(val, currentQuery());
     }
-    
+
     public static void checkEmbeddable(Value val, String currentQuery) {
         Path path = val instanceof Path ? (Path) val : null;
         if (path == null)
@@ -942,7 +975,7 @@ public class JPQLExpressionBuilder
         if (vm.getEmbeddedMetaData() != null) {
             //throw parseException(EX_USER, "bad-predicate",
             //    new Object[]{ currentQuery() }, null);
-            String argStr = _loc.get("bad-predicate", 
+            String argStr = _loc.get("bad-predicate",
                 new Object[] {fmd.getName()}).getMessage();
             Message msg = _loc.get("parse-error", argStr, currentQuery);
             throw new UserException(msg, null);
@@ -1008,7 +1041,7 @@ public class JPQLExpressionBuilder
                         ? node.text.substring(0, node.text.length() - 1)
                         : node.text).
                     multiply(new BigDecimal(negative(node)));
-                return factory.newLiteral(new Long(intlit.longValue()),
+                return factory.newLiteral(intlit.longValue(),
                     Literal.TYPE_NUMBER);
 
             case JJTDECIMALLITERAL:
@@ -1026,6 +1059,10 @@ public class JPQLExpressionBuilder
                 return factory.newLiteral(trimQuotes(node.text),
                     Literal.TYPE_SQ_STRING);
 
+            case JJTSTRINGLITERAL2:
+                return factory.newLiteral(trimDoubleQuotes(node.text),
+                    Literal.TYPE_SQ_STRING);
+
             case JJTPATTERNVALUE:
                 return eval(firstChild(node));
 
@@ -1040,7 +1077,7 @@ public class JPQLExpressionBuilder
                 boolean positional = child.id == JJTPOSITIONALINPUTPARAMETER;
                 if (!positional)
                     child = onlyChild(child);
-                return getParameter(child.text, 
+                return getParameter(child.text,
                     positional, true);
 
             case JJTOR: // x OR y
@@ -1127,33 +1164,45 @@ public class JPQLExpressionBuilder
                 // the first child is the path
                 JPQLNode first = inIterator.next();
                 val1 = getValue(first);
-
                 while (inIterator.hasNext()) {
                     JPQLNode next = inIterator.next();
                     if (first.id == JJTTYPE && next.id == JJTTYPELITERAL)
                         val2 = getTypeLiteral(next);
                     else
                         val2 = getValue(next);
-
+                    if (val2 instanceof Parameter) {
+                        hasParameterizedInExpression = true;
+                    }
                     // special case for <value> IN (<subquery>) or
                     // <value> IN (<single value>)
-                    if (!(val2 instanceof Literal) && node.getChildCount() == 2)
-                        return evalNot(not, factory.contains(val2, val1)); 
+                    if (useContains(not, val1, val2, node))
+                        return evalNot(not, factory.contains(val2, val1));
 
                     // this is currently a sequence of OR expressions, since we
                     // do not have support for IN expressions
                     setImplicitTypes(val1, val2, null);
-                    if (inExp == null)
-                        inExp = factory.equal(val1, val2);
-                    else
-                        inExp = factory.or(inExp, factory.equal(val1, val2));
+                    if (isVerticalTypeInExpr(val1, node) && not) {
+                        if (inExp == null)
+                            inExp = factory.notEqual(val1, val2);
+                        else
+                            inExp = factory.and(inExp, factory.notEqual(val1, val2));
+                    } else {
+                        if (inExp == null)
+                            inExp = factory.equal(val1, val2);
+                        else
+                            inExp = factory.or(inExp, factory.equal(val1, val2));
+                    }
                 }
+
 
                 // we additionally need to add in a "NOT NULL" clause, since
                 // the IN behavior that is expected by the CTS also expects
                 // to filter our NULLs
-                return and(evalNot(not, inExp),
-                    factory.notEqual(val1, factory.getNull()));
+                if (isVerticalTypeInExpr(val1, node))
+                    return inExp;
+                else
+                    return and(evalNot(not, inExp),
+                            factory.notEqual(val1, factory.getNull()));
 
             case JJTISNULL: // x.field IS [NOT] NULL
                 val1 = getValue(onlyChild(node));
@@ -1230,6 +1279,27 @@ public class JPQLExpressionBuilder
 
             case JJTABS:
                 return factory.abs(getNumberValue(onlyChild(node)));
+                
+            case JJTCEILING:
+            	return factory.ceiling(getNumberValue(onlyChild(node)));
+
+            case JJTEXP:
+                return factory.exp(getNumberValue(onlyChild(node)));
+
+            case JJTFLOOR:
+                return factory.floor(getNumberValue(onlyChild(node)));
+
+            case JJTLN:
+                return factory.ln(getNumberValue(onlyChild(node)));
+            
+            case JJTSIGN:
+                return factory.sign(getNumberValue(onlyChild(node)));
+
+            case JJTPOWER:
+                return factory.power(getNumberValue(firstChild(node)), getNumberValue(secondChild(node)));
+            
+            case JJTROUND:
+                return factory.round(getNumberValue(firstChild(node)), getNumberValue(secondChild(node)));
 
             case JJTSQRT:
                 return factory.sqrt(getNumberValue(onlyChild(node)));
@@ -1277,20 +1347,40 @@ public class JPQLExpressionBuilder
                 return factory.trim(val1, trimChar, trimWhere);
 
             case JJTCONCAT:
-                val1 = getValue(left(node));
-                val2 = getValue(right(node));
+                if (node.children.length < 2)
+                	throw parseException(EX_USER, "less-child-count",
+                        new Object[]{2, node,
+                            Arrays.asList(node.children) }, null);
+
+                val1 = getValue(firstChild(node));
+                val2 = getValue(secondChild(node));
                 setImplicitType(val1, TYPE_STRING);
                 setImplicitType(val2, TYPE_STRING);
-                return factory.concat(val1, val2);
+                Value concat = factory.concat(val1, val2);
+                for (int i = 2; i < node.children.length; i++) {
+                	val2 = getValue(node.children[i]);
+                    setImplicitType(val2, TYPE_STRING);
+                	concat = factory.concat(concat, val2);
+                }
+                return concat;
 
             case JJTSUBSTRING:
-                if (node.children.length == 3) {
-                    val1 = getValue(child(node, 0, 3));
-                    val2 = getValue(child(node, 1, 3));
-                    val3 = getValue(child(node, 2, 3));
-                } else if (node.children.length == 2) {
-                    val1 = getValue(child(node, 0, 2));
-                    val2 = getValue(child(node, 1, 2));
+                // Literals are forced to be Integers because PostgreSQL rejects Longs in SUBSTRING parameters.
+                // This however does not help if an expression like 1+1 is passed as parameter.
+                val1 = getValue(firstChild(node));
+                JPQLNode child2 = secondChild(node);
+                if (child2.id == JJTINTEGERLITERAL) {
+                    val2 = getIntegerValue(child2);
+                } else {
+                    val2 = getValue(child2);
+                }
+                if (node.getChildCount() == 3) {
+                    JPQLNode child3 = thirdChild(node);
+                    if (child3.id == JJTINTEGERLITERAL) {
+                        val3 = getIntegerValue(child3);
+                    } else {
+                        val3 = getValue(child3);
+                    }
                 }
                 setImplicitType(val1, TYPE_STRING);
                 setImplicitType(val2, Integer.TYPE);
@@ -1300,29 +1390,27 @@ public class JPQLExpressionBuilder
                 return convertSubstringArguments(factory, val1, val2, val3);
 
             case JJTLOCATE:
-                // as with SUBSTRING (above), the semantics for LOCATE differ
-                // from ExpressionFactory.indexOf in that LOCATE uses a
-                // 0-based index, and indexOf uses a 1-based index
                 Value locatePath = getValue(firstChild(node));
                 Value locateSearch = getValue(secondChild(node));
                 Value locateFromIndex = null;
-                if (node.getChildCount() > 2) // optional start index arg
-                    locateFromIndex = getValue(thirdChild(node));
-
+                // Literals are forced to be Integers because PostgreSQL rejects Longs in POSITION parameters.
+                // This however does not help if an expression like 1+1 is passed as parameter.
+                if (node.getChildCount() > 2) { // optional start index arg
+                    JPQLNode child3 = thirdChild(node);
+                    if (child3.id == JJTINTEGERLITERAL) {
+                        locateFromIndex = getIntegerValue(child3);
+                    } else
+                        locateFromIndex = getValue(child3);
+                }
                 setImplicitType(locatePath, TYPE_STRING);
                 setImplicitType(locateSearch, TYPE_STRING);
 
                 if (locateFromIndex != null)
-                    setImplicitType(locateFromIndex, TYPE_STRING);
+                    setImplicitType(locateFromIndex, Integer.TYPE);
 
-                return factory.add(factory.indexOf(locateSearch,
+                return factory.indexOf(locateSearch,
                     locateFromIndex == null ? locatePath
-                        : factory.newArgumentList(locatePath,
-                        factory.subtract(locateFromIndex,
-                            factory.newLiteral(1,
-                                Literal.TYPE_NUMBER)))),
-                    factory.newLiteral(1,
-                        Literal.TYPE_NUMBER));
+                        : factory.newArgumentList(locatePath, locateFromIndex));
 
             case JJTAGGREGATE:
                 // simply pass-through while asserting a single child
@@ -1378,6 +1466,51 @@ public class JPQLExpressionBuilder
             case JJTCURRENTTIMESTAMP:
                 return factory.getCurrentTimestamp(Timestamp.class);
 
+            case JJTLOCALDATETIME:
+                return factory.getCurrentLocalDateTime(LocalDateTime.class);
+
+            case JJTLOCALDATE:
+                return factory.getCurrentLocalDateTime(LocalDate.class);
+
+            case JJTLOCALTIME:
+                return factory.getCurrentLocalDateTime(LocalTime.class);
+
+            case JJTYEAR:
+                return DateTimeExtractField.YEAR;
+
+            case JJTQUARTER:
+                return DateTimeExtractField.QUARTER;
+
+            case JJTMONTH:
+                return DateTimeExtractField.MONTH;
+            
+            case JJTWEEK:
+                return DateTimeExtractField.WEEK;
+            
+            case JJTDAY:
+                return DateTimeExtractField.DAY;
+            
+            case JJTHOUR:
+                return DateTimeExtractField.HOUR;
+            
+            case JJTMINUTE:
+                return DateTimeExtractField.MINUTE;
+
+            case JJTSECOND:
+                return DateTimeExtractField.SECOND;
+
+            case JJTDATE:
+                return DateTimeExtractPart.DATE;
+            
+            case JJTTIME:
+                return DateTimeExtractPart.TIME;
+
+            case JJTEXTRACTDATETIMEFIELD:
+                return factory.getDateTimeField((DateTimeExtractField) eval(firstChild(node)), getValue(secondChild(node)));
+            
+            case JJTEXTRACTDATETIMEPART:
+                return factory.getDateTimePart((DateTimeExtractPart) eval(firstChild(node)), getValue(secondChild(node)));
+
             case JJTSELECTEXTENSION:
                 assertQueryExtensions("SELECT");
                 return eval(onlyChild(node));
@@ -1396,7 +1529,7 @@ public class JPQLExpressionBuilder
             case JJTTIMELITERAL:
                 return factory.newLiteral(node.text, Literal.TYPE_TIME);
 
-            case JJTTIMESTAMPLITERAL:    
+            case JJTTIMESTAMPLITERAL:
                 return factory.newLiteral(node.text, Literal.TYPE_TIMESTAMP);
 
             default:
@@ -1404,55 +1537,45 @@ public class JPQLExpressionBuilder
                     new Object[]{ node }, null);
         }
     }
-    
+
+    private boolean useContains(boolean not, Value val1, Value val2, JPQLNode node) {
+        if (isVerticalTypeInExpr(val1, node) && not)
+            return false;
+        else
+            return (!(val2 instanceof Literal) && node.getChildCount() == 2);
+    }
+
+    private boolean isVerticalTypeInExpr(Value val, JPQLNode node) {
+        if (node.id != JJTIN)
+            return false;
+        return factory.isVerticalType(val);
+    }
+
+    private Value getIntegerValue(JPQLNode node) {
+        BigDecimal bigdec = new BigDecimal
+        (node.text.endsWith("l") || node.text.endsWith("L")
+            ? node.text.substring(0, node.text.length() - 1)
+            : node.text).
+        multiply(new BigDecimal(negative(node)));
+        return factory.newLiteral(bigdec.intValue(),
+                Literal.TYPE_NUMBER);
+    }
+
     /**
-     * Converts JPQL substring() function to OpenJPA ExpressionFactory 
+     * Converts JPQL substring() function to OpenJPA ExpressionFactory
      * substring() arguments.
-     * 
-     * The semantics of the JPQL substring() function are that arg2 is the 
-     * 1-based start index, and arg3 is the length of the string to be return.
-     * This is different than the semantics of the ExpressionFactory's 
-     * substring(), which matches the Java language (0-based start index,
-     * arg2 is the end index): we perform the translation by adding one to the 
-     * first argument, and then adding the first argument to the second  
-     * argument to get the endIndex.
-     * 
+     *
      * @param val1 the original String
      * @param val2 the 1-based start index as per JPQL substring() semantics
      * @param val3 the length of the returned string as per JPQL semantics
-     * 
+     *
      */
-    public static Value convertSubstringArguments(ExpressionFactory factory, 
+    public static Value convertSubstringArguments(ExpressionFactory factory,
     		Value val1, Value val2, Value val3) {
-        Value start = null;
-        Value end = null;
-        if (val2 instanceof Literal && 
-            (val3 == null || val3 instanceof Literal)) {
-            // optimize SQL for the common case of two literals
-            long jpqlStart = ((Number) ((Literal) val2).getValue())
-                .longValue();
-            start = factory.newLiteral(new Long(jpqlStart - 1),
-                Literal.TYPE_NUMBER);
-            if (val3 != null) {
-            	long length = ((Number) ((Literal) val3).getValue())
-                    .longValue();
-            long endIndex = length + (jpqlStart - 1);
-            end = factory.newLiteral(new Long(endIndex),
-                Literal.TYPE_NUMBER);
-            }
-        } else {
-            start = factory.subtract(val2, factory.newLiteral
-                (1, Literal.TYPE_NUMBER));
-            if (val3 != null)
-            end = factory.add(val3,
-                (factory.subtract(val2, factory.newLiteral
-                    (1, Literal.TYPE_NUMBER))));
-        }
         if (val3 != null)
-            return factory.substring(val1, factory.newArgumentList(start, end));
+            return factory.substring(val1, factory.newArgumentList(val2, val3));
         else
-            return factory.substring(val1, start);
-    	
+            return factory.substring(val1, val2);
     }
     private void assertQueryExtensions(String clause) {
         OpenJPAConfiguration conf = resolver.getConfiguration();
@@ -1487,18 +1610,19 @@ public class JPQLExpressionBuilder
         }
     }
 
-    public void setImplicitTypes(Value val1, Value val2, 
+    @Override
+    public void setImplicitTypes(Value val1, Value val2,
         Class<?> expected) {
         String currQuery = currentQuery();
-        setImplicitTypes(val1, val2, expected, resolver, parameterTypes, 
+        setImplicitTypes(val1, val2, expected, resolver, parameterTypes,
             currQuery);
     }
-    
-    
-    public static void setImplicitTypes(Value val1, Value val2, 
+
+
+    public static void setImplicitTypes(Value val1, Value val2,
         Class<?> expected, Resolver resolver, OrderedMap<Object,Class<?>> parameterTypes,
         String currentQuery) {
-        AbstractExpressionBuilder.setImplicitTypes(val1, val2, expected, 
+        AbstractExpressionBuilder.setImplicitTypes(val1, val2, expected,
             resolver);
 
         // as well as setting the types for conversions, we also need to
@@ -1562,7 +1686,7 @@ public class JPQLExpressionBuilder
             subContext.setSubquery(subq);
         }
         subq.setMetaData(candidate);
-        
+
         // evaluate from clause for resolving variables defined in subquery
         JPQLNode from = node.getChild(1);
         subContext.from = evalFromClause(from, true);
@@ -1583,16 +1707,16 @@ public class JPQLExpressionBuilder
      * Creates and records the names and order of parameters. The parameters are
      * identified by a key with its type preserved. The second argument
      * determines whether the first argument is used as-is or converted to
-     * an Integer as parameter key. 
-     * 
-     * @param the text as it appears in the parsed node
+     * an Integer as parameter key.
+     *
+     * @param id the text as it appears in the parsed node
      * @param positional if true the first argument is converted to an integer
      * @param isCollectionValued true for collection-valued parameters
      */
-    private Parameter getParameter(String id, boolean positional, 
+    private Parameter getParameter(String id, boolean positional,
         boolean isCollectionValued) {
         if (parameterTypes == null)
-            parameterTypes = new OrderedMap<Object, Class<?>>();
+            parameterTypes = new OrderedMap<>();
         Object paramKey = positional ? Integer.parseInt(id) : id;
         if (!parameterTypes.containsKey(paramKey))
             parameterTypes.put(paramKey, TYPE_OBJECT);
@@ -1615,12 +1739,12 @@ public class JPQLExpressionBuilder
         } else {
             index = parameterTypes.indexOf(id);
         }
-        Parameter param = isCollectionValued 
-            ? factory.newCollectionValuedParameter(paramKey, TYPE_OBJECT) 
+        Parameter param = isCollectionValued
+            ? factory.newCollectionValuedParameter(paramKey, TYPE_OBJECT)
             : factory.newParameter(paramKey, TYPE_OBJECT);
         param.setMetaData(meta);
         param.setIndex(index);
-        
+
         return param;
     }
 
@@ -1652,6 +1776,19 @@ public class JPQLExpressionBuilder
     }
 
     /**
+     * Trim off leading and trailing double-quotes.
+     */
+    private String trimDoubleQuotes(String str) {
+        if (str == null || str.length() <= 1)
+            return str;
+
+        if (str.startsWith("\"") && str.endsWith("\""))
+            str = str.substring(1, str.length() - 1);
+
+        return str;
+    }
+
+    /**
      * An IntegerLiteral and DecimalLiteral node will
      * have a child node of Negative if it is negative:
      * if so, this method returns -1, else it returns 1.
@@ -1674,7 +1811,7 @@ public class JPQLExpressionBuilder
             // handle the case where the class name is the alias
             // for the candidate (we don't use variables for this)
             Value thiz = null;
-            if (ctx().subquery == null || 
+            if (ctx().subquery == null ||
                 ctx().getSchema(name.toLowerCase()) == null) {
                 if (ctx().subquery != null && inAssignSubselectProjection)
                     thiz = factory.newPath(ctx().subquery);
@@ -1687,7 +1824,7 @@ public class JPQLExpressionBuilder
             thiz.setMetaData(cmd);
             return thiz;
         } else if (val instanceof Path) {
-            return (Path) val;
+            return val;
         } else if (val instanceof Value) {
             if (val.isVariable()) {
                 // can be an entity type literal
@@ -1705,7 +1842,7 @@ public class JPQLExpressionBuilder
                     return lit;
                 }
             }
-            return (Value) val;
+            return val;
         }
 
         throw parseException(EX_USER, "unknown-identifier",
@@ -1723,13 +1860,13 @@ public class JPQLExpressionBuilder
                 fld = path.last();
             }
         }
-        
-        if (fld != null) {            
+
+        if (fld != null) {
             // validate the field is of type java.util.Map
             if (fld.getDeclaredTypeCode() != JavaTypes.MAP) {
                 String oper = "VALUE";
                 if (node.id == JJTENTRY)
-                    oper = "ENTRY";        
+                    oper = "ENTRY";
                 else if (node.id == JJTKEY)
                     oper = "KEY";
                 throw parseException(EX_USER, "bad-qualified-identifier",
@@ -1739,7 +1876,7 @@ public class JPQLExpressionBuilder
         else
             throw parseException(EX_USER, "unknown-type",
                 new Object[]{ id.text}, null);
-            
+
         return path;
     }
 
@@ -1754,7 +1891,7 @@ public class JPQLExpressionBuilder
         if (verifyEmbeddable &&
             (node.id == JJTKEY && meta != null && fld.getKey().isEmbedded()) ||
             (node.id == JJTVALUE && fld.isElementCollection() &&
-                 fld.getElement().getEmbeddedMetaData() != null)) { 
+                 fld.getElement().getEmbeddedMetaData() != null)) {
                  // check basic type
             if (node.parent.parent.id == JJTGROUPBY)
                 throw parseException(EX_USER, "cant-groupby-key-value-embeddable",
@@ -1767,7 +1904,7 @@ public class JPQLExpressionBuilder
     }
 
     private Value getQualifiedIdentifier(JPQLNode node) {
-        JPQLNode id = onlyChild(node);               
+        JPQLNode id = onlyChild(node);
         Path path = validateMapPath(node, id);
 
         if (node.id == JJTVALUE)
@@ -1776,7 +1913,7 @@ public class JPQLExpressionBuilder
         Value value = getValue(id);
         if (node.id == JJTKEY)
             return factory.mapKey(path, value);
-        else            
+        else
             return factory.mapEntry(path, value);
     }
 
@@ -1789,7 +1926,7 @@ public class JPQLExpressionBuilder
         int nChild = node.getChildCount();
         JPQLNode firstChild = firstChild(node);
         JPQLNode id = firstChild.id == JJTKEY ? onlyChild(firstChild) :
-               firstChild;               
+               firstChild;
         Path path = validateMapPath(firstChild, id);
 
         if (firstChild.id == JJTIDENTIFIER)
@@ -1802,7 +1939,7 @@ public class JPQLExpressionBuilder
         if (meta == null)
             throw parseException(EX_USER, "bad-qualified-path",
                 new Object[]{ id.text }, null);
-        
+
         path.setMetaData(meta);
 
         // walk through the children and assemble the path
@@ -1943,7 +2080,7 @@ public class JPQLExpressionBuilder
             if (ctx().getParent() != null && ctx().getVariable(path.getSchemaAlias()) == null) {
                 path.setSubqueryContext(ctx(), name);
             }
-        
+
             // all traversals but the first one will always be inner joins
             allowNull = false;
         }
@@ -1951,6 +2088,7 @@ public class JPQLExpressionBuilder
         return path;
     }
 
+    @Override
     protected Class<?> getDeclaredVariableType(String name) {
         ClassMetaData cmd = getMetaDataForAlias(name);
         if (cmd != null)
@@ -1986,7 +2124,7 @@ public class JPQLExpressionBuilder
         Object exp[] = new Expression[nChild - 2];
         for (int i = 1; i < nChild - 1; i++)
             exp[i-1] = eval(node.children[i]);
-        
+
         return factory.simpleCaseExpression((Value) caseOperand,
             (Expression[]) exp, (Value) val);
     }
@@ -2000,8 +2138,8 @@ public class JPQLExpressionBuilder
         Object val = eval(lastChild(node));
         Object exp[] = new Expression[nChild - 1];
         for (int i = 0; i < nChild - 1; i++)
-            exp[i] = (Expression) eval(node.children[i]);
-        
+            exp[i] = eval(node.children[i]);
+
         return factory.generalCaseExpression((Expression[]) exp, (Value) val);
     }
 
@@ -2019,18 +2157,18 @@ public class JPQLExpressionBuilder
 
     private Value getCoalesceExpression(JPQLNode node) {
         int nChild = node.getChildCount();
-        
+
         Object vals[] = new Value[nChild];
         for (int i = 0; i < nChild; i++)
             vals[i] = eval(node.children[i]);
-        
+
         return factory.coalesceExpression((Value[]) vals);
     }
 
     private Value getNullIfExpression(JPQLNode node) {
         Object val1 = eval(firstChild(node));
         Object val2 = eval(secondChild(node));
-        
+
         return factory.nullIfExpression((Value) val1, (Value) val2);
     }
 
@@ -2087,14 +2225,17 @@ public class JPQLExpressionBuilder
         return null;
     }
 
+    @Override
     protected void addSchemaToContext(String id, ClassMetaData meta) {
-        ctx().addSchema(id.toLowerCase(), meta);    
+        ctx().addSchema(id.toLowerCase(), meta);
     }
 
+    @Override
     protected void addVariableToContext(String id, Value var) {
         ctx().addVariable(id, var);
     }
 
+    @Override
     protected Value getVariable(String var) {
         Context c = ctx();
         Value v = c.getVariable(var);
@@ -2140,7 +2281,7 @@ public class JPQLExpressionBuilder
     private JPQLNode child(JPQLNode node, int childNum, int assertCount) {
         if (node.children.length != assertCount)
             throw parseException(EX_USER, "wrong-child-count",
-                new Object[]{ new Integer(assertCount), node,
+                new Object[]{assertCount, node,
                     Arrays.asList(node.children) }, null);
 
         return node.children[childNum];
@@ -2181,10 +2322,10 @@ public class JPQLExpressionBuilder
      * @see Node
      * @see SimpleNode
      */
-    @SuppressWarnings("serial")
     protected abstract static class JPQLNode
         implements Node, Serializable {
 
+        private static final long serialVersionUID = 1L;
         final int id;
         final JPQL parser;
         JPQLNode parent;
@@ -2206,7 +2347,7 @@ public class JPQLExpressionBuilder
         }
 
         JPQLNode[] findChildrenByID(int id) {
-            Collection<JPQLNode> set = new LinkedHashSet<JPQLNode>();
+            Collection<JPQLNode> set = new LinkedHashSet<>();
             findChildrenByID(id, set);
             return set.toArray(new JPQLNode[set.size()]);
         }
@@ -2290,6 +2431,7 @@ public class JPQLExpressionBuilder
             setText(t.image);
         }
 
+        @Override
         public String toString() {
             return JPQLTreeConstants.jjtNodeName[this.id];
         }
@@ -2325,8 +2467,7 @@ public class JPQLExpressionBuilder
             out.println(toString(prefix)
                 + (text && this.text != null ? " [" + this.text + "]" : ""));
             if (children != null) {
-                for (int i = 0; i < children.length; ++i) {
-                    JPQLNode n = (JPQLNode) children[i];
+                for (JPQLNode n : children) {
                     if (n != null) {
                         n.dump(out, prefix + " ", text);
                     }
@@ -2337,21 +2478,19 @@ public class JPQLExpressionBuilder
 
     /**
      * Public for unit testing purposes.
-     * @nojavadoc
-     */
-    @SuppressWarnings("serial")
-    public static class ParsedJPQL
-        implements Serializable {
+         */
+    public static class ParsedJPQL implements Serializable {
+        private static final long serialVersionUID = 1L;
 
         // This is only ever used during parse; when ParsedJPQL instances
         // are serialized, they will have already been parsed.
         private final transient JPQLNode root;
 
         private final String query;
-        
-        // cache of candidate type data. This is stored here in case this  
-        // parse tree is reused in a context that does not know what the 
-        // candidate type is already. 
+
+        // cache of candidate type data. This is stored here in case this
+        // parse tree is reused in a context that does not know what the
+        // candidate type is already.
         private Class<?> _candidateType;
 
         ParsedJPQL(String jpql) {
@@ -2389,7 +2528,7 @@ public class JPQLExpressionBuilder
                 ctx.setCandidateType(_candidateType, true);
             }
         }
-        
+
         /**
          * Public for unit testing purposes.
          */
@@ -2397,10 +2536,55 @@ public class JPQLExpressionBuilder
             return _candidateType;
         }
 
+        @Override
         public String toString ()
 		{
 			return this.query;
 		}
 	}
+
+
+    // throws an exception if there are numeric parameters which do not start with 1.
+    private void validateParameters() {
+        if (parameterTypes == null || parameterTypes.isEmpty()) {
+            return;
+        }
+
+        boolean numericParms = false;
+        boolean namedParms = false;
+
+        for (Object key : parameterTypes.keySet()) {
+
+            if (key instanceof Number) {
+                if (namedParms) {
+                    throw new UserException(_loc.get("mixed-parameter-types", resolver.getQueryContext()
+                        .getQueryString(), parameterTypes.keySet().toString()));
+                }
+                numericParms = true;
+            } else {
+                if (numericParms) {
+                    throw new UserException(_loc.get("mixed-parameter-types", resolver.getQueryContext()
+                        .getQueryString(), parameterTypes.keySet().toString()));
+                }
+                namedParms = true;
+            }
+        }
+
+        if (numericParms) {
+            if (!parameterTypes.keySet().contains(1)) {
+                throw new UserException(_loc.get("missing-positional-parameter", resolver.getQueryContext()
+                    .getQueryString(), parameterTypes.keySet().toString()));
+            }
+        }
+    }
+
+    private DateTimeExtractField resolveDateTimeExtractFieldType(JPQLNode node) {
+        String value = node.text;
+        try {
+            return DateTimeExtractField.valueOf(value.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
 }
 

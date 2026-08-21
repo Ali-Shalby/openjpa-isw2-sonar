@@ -14,14 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.ant;
 
 import java.security.AccessController;
 
-import org.apache.tools.ant.BuildException;
-import org.apache.tools.ant.types.EnumeratedAttribute;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
 import org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl;
 import org.apache.openjpa.jdbc.meta.MappingTool;
@@ -32,6 +30,8 @@ import org.apache.openjpa.lib.util.Files;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.MultiLoaderClassResolver;
+import org.apache.tools.ant.BuildException;
+import org.apache.tools.ant.types.EnumeratedAttribute;
 
 /**
  * Executes the {@link MappingTool} on the specified files.
@@ -40,6 +40,7 @@ import org.apache.openjpa.util.MultiLoaderClassResolver;
  * <li><code>action</code></li>
  * <li><code>meta</code></li>
  * <li><code>schemaAction</code></li>
+ * <li><code>rollbackBeforeDDL</code></li>
  * <li><code>dropTables</code></li>
  * <li><code>ignoreErrors</code></li>
  * <li><code>readSchema</code></li>
@@ -49,19 +50,21 @@ import org.apache.openjpa.util.MultiLoaderClassResolver;
  * <li><code>file</code></li>
  * <li><code>schemaFile</code></li>
  * <li><code>sqlFile</code></li>
+ * <li><code>sqlEncode</code></li>
+ * <li><code>sqlTerminator</code></li>
  * <li><code>tmpClassLoader</code></li>
  * </ul> Of these arguments, only <code>action</code> is required.
  */
 public class MappingToolTask
     extends AbstractTask {
 
-    private static final Localizer _loc = Localizer.forPackage
-        (MappingToolTask.class);
+    private static final Localizer _loc = Localizer.forPackage(MappingToolTask.class);
 
     protected MappingTool.Flags flags = new MappingTool.Flags();
-    protected String file = null;
-    protected String schemaFile = null;
-    protected String sqlFile = null;
+    protected String file;
+    protected String schemaFile;
+    protected String sqlFile;
+    protected String sqlEncode;
     protected boolean tmpClassLoader = true;
 
     /**
@@ -97,6 +100,13 @@ public class MappingToolTask
      */
     public void setDropTables(boolean dropTables) {
         flags.dropTables = dropTables;
+    }
+
+    /**
+     * Set whether the MappingTool should rollback will be performed before each DDL statement is executed.
+     */
+    public void setRollbackBeforeDDL(boolean rollbackBeforeDDL) {
+        flags.rollbackBeforeDDL = rollbackBeforeDDL;
     }
 
     /**
@@ -163,16 +173,33 @@ public class MappingToolTask
     }
 
     /**
+     * Set the output file charset encoding we want the MappingTool to use.
+     */
+    public void setSQLEncode(String sqlEncode) {
+        this.sqlEncode = sqlEncode;
+    }
+
+    /**
+     * Sets the characters used to terminate a generated SQL.
+     * By default, a semicolon.
+     */
+    public void setSQLTerminator(String t) {
+        flags.sqlTerminator = t;
+    }
+
+    /**
      * Set whether this action applies to metadata as well as mappings.
      */
     public void setMeta(boolean meta) {
         flags.meta = meta;
     }
 
+    @Override
     protected ConfigurationImpl newConfiguration() {
         return new JDBCConfigurationImpl();
     }
 
+    @Override
     protected void executeOn(String[] files)
         throws Exception {
         if (MappingTool.ACTION_IMPORT.equals(flags.action))
@@ -190,18 +217,18 @@ public class MappingToolTask
             resolver.addClassLoader(loader);
         }
         resolver.addClassLoader(toolLoader);
-            
+
         if (flags.meta && MappingTool.ACTION_ADD.equals(flags.action))
             flags.metaDataFile = Files.getFile(file, loader);
         else
             flags.mappingWriter = Files.getWriter(file, loader);
 
         flags.schemaWriter = Files.getWriter(schemaFile, loader);
-        flags.sqlWriter = Files.getWriter(sqlFile, loader);
+        flags.sqlWriter = Files.getWriter(sqlFile, loader, sqlEncode);
 
         JDBCConfiguration conf = (JDBCConfiguration) getConfiguration();
         conf.setClassResolver(resolver);
-        
+
         if (!MappingTool.run(conf, files, flags, loader))
             throw new BuildException(_loc.get("bad-conf", "MappingToolTask")
                 .getMessage());
@@ -210,6 +237,7 @@ public class MappingToolTask
     public static class Action
         extends EnumeratedAttribute {
 
+        @Override
         public String[] getValues() {
             return MappingTool.ACTIONS;
         }
@@ -218,6 +246,7 @@ public class MappingToolTask
     public static class SchemaAction
         extends EnumeratedAttribute {
 
+        @Override
         public String[] getValues() {
             String[] actions = new String[SchemaTool.ACTIONS.length + 1];
             System.arraycopy(SchemaTool.ACTIONS, 0, actions, 0,
@@ -232,7 +261,7 @@ public class MappingToolTask
      * Set whether a temporary ClassLoader should be used by the MappingTool.
      * The default value is true
      * </P>
-     * 
+     *
      * @param tmpClassLoader
      *            Whether the temporary ClassLoader should be used.
      */

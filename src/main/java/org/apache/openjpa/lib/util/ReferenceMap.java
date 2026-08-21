@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -27,27 +27,22 @@ import java.util.Map;
  * @author Abe White
  */
 public interface ReferenceMap extends Map {
-
-    public static final int HARD = 0;
-    public static final int WEAK = 1;
-    public static final int SOFT = 2;
-
     /**
      * Purge stale entries.
      */
-    public void removeExpired();
+    void removeExpired();
 
     /**
      * Overridable callback for when a key reference expires.
      *
      * @param value the value for the expired key
      */
-    public void keyExpired(Object value);
+    void keyExpired(Object value);
 
     /**
      * Overridable callback for when a value reference expires.
      *
      * @param key the key for the expired value
      */
-    public void valueExpired(Object key);
+    void valueExpired(Object key);
 }

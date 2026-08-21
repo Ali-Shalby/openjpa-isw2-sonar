@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -43,6 +43,8 @@ import org.apache.openjpa.meta.ClassMetaData;
 class GetMapValue
     extends AbstractVal {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _map;
     private final Val _key;
     private final String _alias;
@@ -58,28 +60,34 @@ class GetMapValue
         _alias = alias;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
 
+    @Override
     public boolean isVariable() {
         return false;
     }
 
+    @Override
     public Class getType() {
         if (_cast != null)
             return _cast;
         return _map.getType();
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _cast = type;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         ExpState mapState = _map.initialize(sel, ctx, 0);
         ExpState keyState = _key.initialize(sel, ctx, 0);
@@ -96,7 +104,7 @@ class GetMapValue
         public final ExpState mapState;
         public final ExpState keyState;
 
-        public GetMapValueExpState(Joins joins, ExpState mapState, 
+        public GetMapValueExpState(Joins joins, ExpState mapState,
             ExpState keyState) {
             super(joins);
             this.mapState = mapState;
@@ -104,19 +112,22 @@ class GetMapValue
         }
     }
 
-    public Object toDataStoreValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public Object toDataStoreValue(Select sel, ExpContext ctx, ExpState state,
         Object val) {
         GetMapValueExpState gstate = (GetMapValueExpState) state;
         return _map.toDataStoreValue(sel, ctx, gstate.mapState, val);
     }
 
 
-    public void select(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void select(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         sel.select(newSQLBuffer(sel, ctx, state).append(" AS ").append(_alias),
             this);
     }
 
+    @Override
     public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         GetMapValueExpState gstate = (GetMapValueExpState) state;
@@ -124,11 +135,13 @@ class GetMapValue
         _key.selectColumns(sel, ctx, gstate.keyState, true);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         sel.groupBy(newSQLBuffer(sel, ctx, state));
     }
 
-    public void orderBy(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         sel.orderBy(_alias, asc, false);
     }
@@ -140,24 +153,28 @@ class GetMapValue
         return buf;
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
         return Filters.convert(res.getObject(this,
             JavaSQLTypes.JDBC_DEFAULT, null), getType());
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         GetMapValueExpState gstate = (GetMapValueExpState) state;
         _map.calculateValue(sel, ctx, gstate.mapState, null, null);
         _key.calculateValue(sel, ctx, gstate.keyState, null, null);
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         if (!(_map instanceof PCPath))
             throw new UnsupportedOperationException();
@@ -176,7 +193,7 @@ class GetMapValue
         if (clss != null && clss.length > 1)
             throw RelationStrategies.unjoinable(field);
 
-        ClassMapping cls = (clss.length == 0) ? null : clss[0];
+        ClassMapping cls = (clss == null || clss.length == 0) ? null : clss[0];
         ForeignKey fk = strat.getJoinForeignKey(cls);
 
         // manually create a subselect for the Map's value
@@ -191,7 +208,7 @@ class GetMapValue
         sql.append(" WHERE ");
 
         // add in the joins
-        ContainerFieldStrategy.appendUnaliasedJoin(sql, sel, null, 
+        ContainerFieldStrategy.appendUnaliasedJoin(sql, sel, null,
             ctx.store.getDBDictionary(), field, fk);
         sql.append(" AND ");
 

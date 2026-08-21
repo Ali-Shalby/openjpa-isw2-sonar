@@ -14,28 +14,26 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.enhance;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
-import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.List;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang.WordUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.CodeFormat;
 import org.apache.openjpa.lib.util.Files;
 import org.apache.openjpa.lib.util.ParameterTemplate;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
-import serp.util.Strings;
 
 /**
  * Generates Java class code from metadata.
@@ -43,7 +41,6 @@ import serp.util.Strings;
  * @author Abe White
  * @author Stephen Kim
  * @since 0.3.0
- * @nojavadoc
  */
 public class CodeGenerator {
 
@@ -128,8 +125,8 @@ public class CodeGenerator {
      */
     public void generateCode() {
         // setup parameters
-        String className = Strings.getClassName(_type);
-        String packageName = Strings.getPackageName(_type);
+        String className = ClassUtil.getClassName(_type);
+        String packageName = ClassUtil.getPackageName(_type);
         String packageDec = "";
         if (packageName.length() > 0)
             packageDec = "package " + packageName + ";";
@@ -137,7 +134,7 @@ public class CodeGenerator {
         String extendsDec = "";
         String extendsName = "";
         if (!_type.getSuperclass().getName().equals(Object.class.getName())) {
-            extendsName = Strings.getClassName(_type.getSuperclass());
+            extendsName = ClassUtil.getClassName(_type.getSuperclass());
             extendsDec = "extends " + extendsName;
         }
 
@@ -193,12 +190,12 @@ public class CodeGenerator {
         Set pkgs = getImportPackages();
 
         CodeFormat imports = newCodeFormat();
-        String base = Strings.getPackageName(_type);
+        String base = ClassUtil.getPackageName(_type);
         String pkg;
-        for (Iterator itr = pkgs.iterator(); itr.hasNext();) {
-            pkg = (String) itr.next();
+        for (Object o : pkgs) {
+            pkg = (String) o;
             if (pkg.length() > 0 && !"java.lang".equals(pkg)
-                && !base.equals(pkg)) {
+                    && !base.equals(pkg)) {
                 if (imports.length() > 0)
                     imports.endl();
                 imports.append("import ").append(pkg).append(".*;");
@@ -212,15 +209,17 @@ public class CodeGenerator {
      */
     public Set getImportPackages() {
         Set pkgs = new TreeSet();
-        pkgs.add(Strings.getPackageName(_type.getSuperclass()));
+        pkgs.add(ClassUtil.getPackageName(_type.getSuperclass()));
 
         FieldMetaData[] fields = _meta.getDeclaredFields();
-        for (int i = 0; i < fields.length; i++)
-            pkgs.add(Strings.getPackageName(fields[i].getDeclaredType()));
+        for (FieldMetaData fieldMetaData : fields) {
+            pkgs.add(ClassUtil.getPackageName(fieldMetaData.getDeclaredType()));
+        }
 
         fields = _meta.getPrimaryKeyFields();
-        for (int i = 0; i < fields.length; i++)
-            pkgs.add(Strings.getPackageName(fields[i].getDeclaredType()));
+        for (FieldMetaData field : fields) {
+            pkgs.add(ClassUtil.getPackageName(field.getDeclaredType()));
+        }
 
         return pkgs;
     }
@@ -237,7 +236,7 @@ public class CodeGenerator {
         CodeFormat body = newCodeFormat();
 
         // public <class> (
-        cons.tab().append("public ").append(Strings.getClassName(_type));
+        cons.tab().append("public ").append(ClassUtil.getClassName(_type));
         cons.openParen(true);
 
         // append args to constructor, and build up body at same time
@@ -247,7 +246,7 @@ public class CodeGenerator {
             propertyName = fields[i].getName();
             if (propertyName.startsWith("_"))
                 propertyName = propertyName.substring(1);
-            fieldType = Strings.getClassName(fields[i].getDeclaredType());
+            fieldType = ClassUtil.getClassName(fields[i].getDeclaredType());
 
             if (i > 0)
                 cons.append(", ");
@@ -289,11 +288,13 @@ public class CodeGenerator {
         CodeFormat code = newCodeFormat();
 
         FieldMetaData[] fields = _meta.getDeclaredFields();
-        for (int i = 0; i < fields.length; i++)
-            appendFieldCode(fields[i], decs, code);
+        for (FieldMetaData fieldMetaData : fields) {
+            appendFieldCode(fieldMetaData, decs, code);
+        }
         fields = _meta.getDeclaredUnmanagedFields();
-        for (int i = 0; i < fields.length; i++)
-            appendFieldCode(fields[i], decs, code);
+        for (FieldMetaData field : fields) {
+            appendFieldCode(field, decs, code);
+        }
         return new String[]{ decs.toString(), code.toString() };
     }
 
@@ -303,11 +304,11 @@ public class CodeGenerator {
     private void appendFieldCode(FieldMetaData fmd, CodeFormat decs,
         CodeFormat code) {
         String fieldName = fmd.getName();
-        String capFieldName = StringUtils.capitalize(fieldName);
+        String capFieldName = StringUtil.capitalize(fieldName);
         String propertyName = fieldName;
         if (propertyName.startsWith("_"))
             propertyName = propertyName.substring(1);
-        String fieldType = Strings.getClassName(fmd.getDeclaredType());
+        String fieldType = ClassUtil.getClassName(fmd.getDeclaredType());
 
         String keyType = null;
         String elementType = null;
@@ -315,14 +316,14 @@ public class CodeGenerator {
         if (useGenericCollections()) {
             if (fmd.getDeclaredTypeCode() == JavaTypes.COLLECTION) {
                 Class elmCls = fmd.getElement().getDeclaredType();
-                elementType = Strings.getClassName(elmCls);
+                elementType = ClassUtil.getClassName(elmCls);
                 paramType = decs.getParametrizedType(
                     new String[] {elementType});
             } else if (fmd.getDeclaredTypeCode() == JavaTypes.MAP) {
                 Class keyCls = fmd.getKey().getDeclaredType();
                 Class elmCls = fmd.getElement().getDeclaredType();
-                keyType = Strings.getClassName(keyCls);
-                elementType = Strings.getClassName(elmCls);
+                keyType = ClassUtil.getClassName(keyCls);
+                elementType = ClassUtil.getClassName(elmCls);
                 paramType = decs.getParametrizedType(
                     new String[] {keyType, elementType});
             }
@@ -399,14 +400,24 @@ public class CodeGenerator {
                 code.append("is");
             else
                 code.append("get");
-            code.append(capFieldName).parens();
+            if (fieldName.length() > 1 && Character.isLowerCase(fieldName.charAt(0))
+                && Character.isUpperCase(fieldName.charAt(1))) {
+                code.append(fieldName).parens();
+            } else {
+                code.append(capFieldName).parens();
+            }
             code.openBrace(2).endl();
             code.tab(2).append("return ").append(fieldName).
                 append(";").endl();
             code.closeBrace(2).afterSection();
 
             // setter
-            code.tab().append("public void set").append(capFieldName);
+            if (fieldName.length() > 1 && Character.isLowerCase(fieldName.charAt(0))
+                && Character.isUpperCase(fieldName.charAt(1))) {
+                code.tab().append("public void set").append(fieldName);
+            } else {
+                code.tab().append("public void set").append(capFieldName);
+            }
             code.openParen(true).append(fieldType).append(paramType).
                 append(" ").append(propertyName).closeParen();
             code.openBrace(2).endl();
@@ -467,10 +478,10 @@ public class CodeGenerator {
         int tabLevel) {
         if (ann == null || ann.size() == 0)
             return;
-        for (Iterator i = ann.iterator(); i.hasNext();) {
+        for (Object o : ann) {
             if (tabLevel > 0)
                 code.tab(tabLevel);
-            String s = (String) i.next();
+            String s = (String) o;
             code.append(s).endl();
         }
     }
@@ -495,8 +506,8 @@ public class CodeGenerator {
      * Return Java file to write to.
      */
     public File getFile() {
-        String packageName = Strings.getPackageName(_type);
-        String fileName = Strings.getClassName(_type) + ".java";
+        String packageName = ClassUtil.getPackageName(_type);
+        String fileName = ClassUtil.getClassName(_type) + ".java";
 
         File dir = Files.getPackageFile(_dir, packageName, true);
         return new File(dir, fileName);
@@ -588,7 +599,7 @@ public class CodeGenerator {
     /**
      * Whether to use property-based access on generated code.
      * Defaults to false (field-based).
-     */    
+     */
     protected boolean usePropertyBasedAccess () {
         return false;
     }

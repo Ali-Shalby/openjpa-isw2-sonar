@@ -14,27 +14,25 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.identifier;
 
 import java.util.HashSet;
 import java.util.Set;
 
-import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.lang.CharUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * The standard identifier rule.  Rules are used for specific configuration
  * of identifier types.  For example.  A rule could be used to indicate that
- * an identifier type should not be delimited or has a max length of 255 
+ * an identifier type should not be delimited or has a max length of 255
  * characters.
  *
  */
 public class IdentifierRule {
-    
-    public static final Set<String> EMPTY_SET = new HashSet<String>(0);
+
+    public static final Set<String> EMPTY_SET = new HashSet<>(0);
     public static final String DEFAULT_RULE = "default";
     public static char UNDERSCORE = '_';
 
@@ -55,7 +53,7 @@ public class IdentifierRule {
     public void setName(String name) {
         _name = name;
     }
-    
+
     public String getName() {
         return _name;
     }
@@ -130,7 +128,7 @@ public class IdentifierRule {
 
     public Set<String> getReservedWords() {
         if (_reservedWords == null) {
-            _reservedWords = new HashSet<String>();
+            _reservedWords = new HashSet<>();
         }
         return _reservedWords;
     }
@@ -144,7 +142,7 @@ public class IdentifierRule {
     }
 
     public void setDelimitReservedWords(boolean delimitReservedWords) {
-        delimitReservedWords = _delimitReservedWords;
+        _delimitReservedWords = delimitReservedWords;
     }
 
     public boolean getDelimitReservedWords() {
@@ -156,7 +154,7 @@ public class IdentifierRule {
      * 1) Can be up to 128 characters long
      * 2) Must begin with a letter
      * 3) Can contain letters, digits, and underscores
-     * 4) Can't contain spaces or special characters such as #, $, &, %, or 
+     * 4) Can't contain spaces or special characters such as #, $, &, %, or
      *    punctuation.
      * 5) Can't be reserved words
      */
@@ -169,28 +167,28 @@ public class IdentifierRule {
             identifier.endsWith("()")) {
             return false;
         }
-        
+
         if (getMustDelimit()) {
             return true;
         }
-        
+
         // Assert identifier begins with a letter
         char[] chars = identifier.toCharArray();
         if (isMustBeginWithLetter()) {
-            if (!CharUtils.isAsciiAlpha(chars[0])) {
+            if (!Character.isJavaIdentifierStart(chars[0])) {
                 return true;
             }
         }
 
-        // Iterate through chars, asserting delimiting rules 
+        // Iterate through chars, asserting delimiting rules
         for (char ch : chars) {
             if (isOnlyLettersDigitsUnderscores()) {
-                if (!CharUtils.isAsciiAlphanumeric(ch) && !(ch == UNDERSCORE)) {
+                if (!Character.isJavaIdentifierPart(ch) && !(ch == UNDERSCORE)) {
                     return true;
                 }
             }
             // Look for special characters
-            if (StringUtils.contains(getSpecialCharacters(), ch)) {
+            if (StringUtil.contains(getSpecialCharacters(), ch)) {
                 return true;
             }
         }

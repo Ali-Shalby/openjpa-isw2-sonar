@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -36,48 +36,45 @@ public interface Path
      *
      * @param nullTraversal if true, allow traversal through a null field
      */
-    public void get(FieldMetaData field, boolean nullTraversal);
+    void get(FieldMetaData field, boolean nullTraversal);
 
     /**
      * Return the last field in the path, or null if the path does not
      * not contain a final field.
      */
-    public FieldMetaData last();
+    FieldMetaData last();
 
     /**
      * Traverse into the given field that maps to xml column, and update
      * the current object to that field value.
-     * 
+     *
      * @param fmd field maps to xml column
      * @param meta associated xml mapping
      */
-    public void get(FieldMetaData fmd, XMLMetaData meta);
-    
+    void get(FieldMetaData fmd, XMLMetaData meta);
+
     /**
      * Traverse into the gevin xpath name of the current object, and update
      * the current object to that xpath field.
-     * 
-     * @param meta
-     * @param name
+     *
      */
-    public void get(XMLMetaData meta, String name);
-    
+    void get(XMLMetaData meta, String name);
+
     /**
      * Return the current XPath's xmlmapping metadata.
      * @return Return xmlmapping
      */
-    public XMLMetaData getXmlMapping();
+    XMLMetaData getXmlMapping();
 
     /**
      * Set the schema alias (the identification variable)
      * this path is begin with.
-     * @param schemaAlias
      */
-    public void setSchemaAlias(String schemaAlias);
-        
-    public String getSchemaAlias();
-    
-    public void setSubqueryContext(Context context, String correlationVar);
+    void setSchemaAlias(String schemaAlias);
 
-    public String getCorrelationVar();
+    String getSchemaAlias();
+
+    void setSubqueryContext(Context context, String correlationVar);
+
+    String getCorrelationVar();
 }

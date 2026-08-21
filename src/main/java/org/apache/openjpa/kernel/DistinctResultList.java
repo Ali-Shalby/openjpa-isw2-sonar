@@ -14,10 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
+import java.io.ObjectStreamException;
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
@@ -32,19 +34,21 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  * traverses the entire result list on construction. So it is not suitable or
  * efficient for large results. All mutation operations (except clear()) throw
  * {@link UnsupportedOperationException}.
- * 
+ *
  * @author Pinaki Poddar
  * @since 2.0.0
- * 
+ *
  * @param <E>
  *            element type
  */
-public class DistinctResultList<E> implements List<E> {
+public class DistinctResultList<E> implements List<E>, Serializable {
+    private static final long serialVersionUID = -6140119764940777922L;
+
     private final ArrayList<E> _del;
     private final RuntimeExceptionTranslator _trans;
 
     public DistinctResultList(ResultList<E> list, RuntimeExceptionTranslator trans) {
-        _del = new ArrayList<E>();
+        _del = new ArrayList<>();
         _trans = trans;
         for (E e : list) {
             if (!_del.contains(e))
@@ -52,22 +56,27 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public boolean add(E o) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void add(int index, E element) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean addAll(Collection<? extends E> c) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean addAll(int index, Collection<? extends E> c) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public void clear() {
         try {
             _del.clear();
@@ -76,6 +85,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public boolean contains(Object o) {
         try {
             return _del.contains(o);
@@ -84,6 +94,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public boolean containsAll(Collection<?> c) {
         try {
             return _del.containsAll(c);
@@ -92,6 +103,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public E get(int index) {
         try {
             return _del.get(index);
@@ -100,6 +112,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public int indexOf(Object o) {
         try {
             return _del.indexOf(o);
@@ -108,6 +121,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public boolean isEmpty() {
         try {
             return _del.isEmpty();
@@ -116,6 +130,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public Iterator<E> iterator() {
         try {
             return _del.iterator();
@@ -124,6 +139,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public int lastIndexOf(Object o) {
         try {
             return _del.indexOf(o);
@@ -132,6 +148,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public ListIterator<E> listIterator() {
         try {
             return _del.listIterator();
@@ -140,6 +157,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public ListIterator<E> listIterator(int index) {
         try {
             return _del.listIterator(index);
@@ -148,26 +166,32 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public boolean remove(Object o) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public E remove(int index) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean removeAll(Collection<?> c) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public boolean retainAll(Collection<?> c) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public E set(int index, E element) {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int size() {
         try {
             return _del.size();
@@ -176,6 +200,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public List<E> subList(int fromIndex, int toIndex) {
         try {
             return _del.subList(fromIndex, toIndex);
@@ -184,6 +209,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public Object[] toArray() {
         try {
             return _del.toArray();
@@ -192,6 +218,7 @@ public class DistinctResultList<E> implements List<E> {
         }
     }
 
+    @Override
     public <T> T[] toArray(T[] a) {
         try {
             return _del.toArray(a);
@@ -202,6 +229,11 @@ public class DistinctResultList<E> implements List<E> {
 
     protected RuntimeException translate(RuntimeException re) {
         return (_trans == null) ? re : _trans.translate(re);
+    }
+
+    public Object writeReplace()
+        throws ObjectStreamException {
+        return _del;
     }
 
 }

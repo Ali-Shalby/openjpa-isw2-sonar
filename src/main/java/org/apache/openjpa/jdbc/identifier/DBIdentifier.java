@@ -14,21 +14,24 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.identifier;
 
 import java.io.Serializable;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.lib.identifier.Identifier;
 import org.apache.openjpa.lib.identifier.IdentifierImpl;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
- * Encapsulates a database identifier.  With a few exceptions, this class is 
- * intended to treated as immutable.  
+ * Encapsulates a database identifier.  With a few exceptions, this class is
+ * intended to treated as immutable.
  */
 public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifier, Serializable {
+
+
+    private static final long serialVersionUID = 1L;
 
     /**
      * Database identifier types.
@@ -39,21 +42,28 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         SCHEMA,
         CATALOG,
         DATABASE,
+        /**
+         * used for column names
+         */
         COLUMN,
+        /**
+         * used for column type definition
+         */
         COLUMN_DEFINITION,
         SEQUENCE,
         CONSTRAINT,
         INDEX,
         FOREIGN_KEY,
         CONSTANT,
+        PROCEDURE,
         NULL
     }
-    
+
     // Array for quick compound identifier determination.  Compound identifiers
     // can have multi-part names, such as {schema, table} and should be stored
     // as a QualifiedDBIdentifier.
     private static boolean _compoundIdentifier[] = new boolean[DBIdentifierType.values().length];
-    
+
     static {
         _compoundIdentifier[DBIdentifierType.TABLE.ordinal()] = true;
         _compoundIdentifier[DBIdentifierType.COLUMN.ordinal()] = true;
@@ -61,17 +71,30 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         _compoundIdentifier[DBIdentifierType.CONSTRAINT.ordinal()] = true;
         _compoundIdentifier[DBIdentifierType.INDEX.ordinal()] = true;
     }
-    
+
     private DBIdentifierType _type = DBIdentifierType.DEFAULT;
-    
+
     /**
      * Special NULL indicator for db identifiers.
      */
     public static final DBIdentifier NULL = new DBIdentifier(DBIdentifierType.NULL);
-    
+
+    public boolean _ignoreCase = false;
+
     // All constructors are protected or private.  Static factory operations
     // should be used to construct new identifiers.
     protected DBIdentifier() {
+    }
+
+    /**
+     * Returns whether case is ignored during equality operations.
+     */
+    public boolean getIgnoreCase() {
+        return _ignoreCase;
+    }
+
+    public void setIgnoreCase(boolean ignoreCase) {
+        _ignoreCase = ignoreCase;
     }
 
     private DBIdentifier(DBIdentifierType type) {
@@ -87,7 +110,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         setType(type);
         setName(name, delimit);
     }
-    
+
     protected DBIdentifier(String name, boolean delimit) {
         setName(name, delimit);
     }
@@ -96,6 +119,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Set the name of the identifier.
      */
+    @Override
     public void setName(String name) {
         setName(name, false);
     }
@@ -115,25 +139,25 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     }
 
     /**
-     * Set the name of the identifier and optionally force delimiting of the identifier. 
+     * Set the name of the identifier and optionally force delimiting of the identifier.
      */
     public void setName(String name, boolean delimit) {
         assertNotNull();
-        
+
         // Normalize the name, if necessary.  Do not normalize constants or column definitions.
         if (DBIdentifierType.CONSTANT != getType() && DBIdentifierType.COLUMN_DEFINITION != getType()) {
             if (delimit) {
                 name = Normalizer.delimit(name, true);
+                setNameDelimited(true);
              } else {
                  name = Normalizer.normalizeString(name);
              }
         }
         super.setName(name);
     }
-    
+
     /**
      * Set the type of the identifier
-     * @param type
      */
     protected void setType(DBIdentifierType type) {
         _type = type;
@@ -146,23 +170,19 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     public DBIdentifierType getType() {
         return _type;
     }
-    
+
 
     /**
      * Splits a string delimited by the specified delimiter of a given name type
      * into an array of DBIdentifier objects.
      * Example:  COL1|"COL 2"|COL3  delim=| --> DBIdentifier[]{ COL1, "COL 2", COL3 }
-     * @param name
-     * @param id
-     * @param delim
-     * @return
      */
     public static DBIdentifier[] split(String name, DBIdentifierType id, String delim) {
-        
+
         if (!Normalizer.canSplit(name, delim)) {
             return new DBIdentifier[] { new DBIdentifier(name, id) };
         }
-        
+
         String[] names = Normalizer.splitName(name, delim);
         if (names.length == 0) {
             return new DBIdentifier[] { };
@@ -173,13 +193,10 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         }
         return sNames;
     }
-    
+
     /**
      * Joins the list of identifiers using the appropriate delimiters and
      * returns a string based identifier.
-     * @param resultId
-     * @param names
-     * @return
      */
     public static String join(DBIdentifier...names) {
         if (names == null || names.length == 0) {
@@ -192,14 +209,13 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         return Normalizer.joinNames(strNames);
     }
     /**
-     * Splits a given DBIdentifier into multiple DBIdentifiers.  Uses the base name 
+     * Splits a given DBIdentifier into multiple DBIdentifiers.  Uses the base name
      * type and heuristics to determine the types and placement of the resulting
      * components.
      * @param name
-     * @return
      */
     public static DBIdentifier[] split(DBIdentifierType resultType, String name) {
-        
+
         String[] names = Normalizer.splitName(name);
         switch (names.length) {
             case 2:
@@ -284,20 +300,18 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Returns true if the identifier is null or the name is null or empty.
      * @param name
-     * @return
      */
     public static boolean isEmpty(DBIdentifier name) {
         if (isNull(name)) {
             return true;
         }
-        return StringUtils.isEmpty(name.getName());
+        return StringUtil.isEmpty(name.getName());
     }
 
-    
+
     /**
      * Returns true if the identifier is null.
      * @param name
-     * @return
      */
     public static boolean isNull(DBIdentifier name) {
         return (name == null || name.getType() == DBIdentifierType.NULL);
@@ -306,15 +320,18 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Clones an identifier using deep copy.
      */
+    @Override
     public DBIdentifier clone() {
         DBIdentifier sName = new DBIdentifier();
         sName.setNameInternal(getNameInternal());
         sName.setType(getType());
+        sName.setIgnoreCase(getIgnoreCase());
+        sName.setNameDelimited(isNameDelimited());
         return sName;
     }
-    
+
     /*
-     * Internal method to set the base name and avoid normalizing an already 
+     * Internal method to set the base name and avoid normalizing an already
      * normalized name.
      * @param name
      */
@@ -323,7 +340,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     }
 
     /*
-     * Internal method to get the base name. 
+     * Internal method to get the base name.
      * normalized name.
      * @param name
      */
@@ -334,14 +351,13 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Returns a copy of an identifier with name trimmed to null.
      * @param name
-     * @return
      */
     public static DBIdentifier trimToNull(DBIdentifier name) {
         if (DBIdentifier.isNull(name)) {
             return name;
         }
         DBIdentifier sName = name.clone();
-        sName.setNameInternal(StringUtils.trimToNull(sName.getNameInternal()));
+        sName.setNameInternal(StringUtil.trimToNull(sName.getNameInternal()));
         return sName;
     }
 
@@ -349,6 +365,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
      * Equality operation for identifiers.  Supports comparison with strings
      * and objects of this type.
      */
+    @Override
     public boolean equals(Object obj) {
         if (obj == null) {
             return false;
@@ -358,7 +375,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         }
         if (obj instanceof DBIdentifier) {
             DBIdentifier sName = (DBIdentifier)obj;
-            return this.equals(sName, false);
+            return this.equals(sName, getIgnoreCase() || sName.getIgnoreCase());
         } else if (obj instanceof String) {
             return obj.equals(this.getNameInternal());
         }
@@ -367,7 +384,6 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
 
     /**
      * Returns true if this object is NULL or has a null name component.
-     * @return
      */
     public boolean isNull() {
         return (_type == DBIdentifierType.NULL || getName() == null);
@@ -376,6 +392,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Comparison operator for identifiers.
      */
+    @Override
     public int compareTo(Identifier o) {
         if (o instanceof DBIdentifier) {
             if (this == DBIdentifier.NULL && (o == null || o == DBIdentifier.NULL)) {
@@ -388,25 +405,23 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         }
         return super.compareTo(o);
     }
-    
+
 
     /**
-     * Converts the provided set of names to an array of identifiers of the 
+     * Converts the provided set of names to an array of identifiers of the
      * provided type
      * @param columnNames
      * @param id
-     * @return
      */
     public static DBIdentifier[] toArray(String[] columnNames, DBIdentifierType id) {
         return toArray(columnNames, id, false);
     }
 
     /**
-     * Converts the provided set of names to an array of identifiers of the 
+     * Converts the provided set of names to an array of identifiers of the
      * provided type, optionally delimiting the names.
-     * @param columnNames
+     * @param names columnNames or other DB identifier names
      * @param id
-     * @return
      */
     public static DBIdentifier[] toArray(String[] names, DBIdentifierType id, boolean delimit) {
         if (names == null) {
@@ -414,15 +429,14 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         }
         DBIdentifier[] sNames = new DBIdentifier[names.length];
         for (int i = 0; i < names.length; i++) {
-            sNames[i] = new DBIdentifier(names[i], id, delimit);
+            sNames[i] = new DBIdentifier(names[i].trim(), id, delimit);
         }
         return sNames;
     }
-    
+
     /**
      * Returns a string array of names based upon the provided set of identifiers.
      * @param sNames
-     * @return
      */
     public static String[] toStringArray(DBIdentifier[] sNames) {
         if (sNames == null) {
@@ -449,7 +463,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     public static DBIdentifier newCatalog(String name, boolean delimit) {
         return newIdentifier(name, DBIdentifierType.CATALOG, false, delimit);
     }
-    
+
     /**
      * Constructs a new identifier of type Table.
      */
@@ -464,7 +478,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     public static DBIdentifier newTable(String name, boolean delimit) {
         return newIdentifier(name, DBIdentifierType.TABLE, false, delimit);
     }
-    
+
     /**
      * Constructs a new identifier of type Column.
      */
@@ -592,18 +606,32 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     }
 
     /**
-     * Constructs a new identifier (potentially a compound QualifiedDBIdentifier) with the provided 
+     * Constructs a new identifier (potentially a compound QualifiedDBIdentifier) with the provided
      * name an type. Optionally, converting the name to upper case and delimiting it.
      */
     protected static DBIdentifier newIdentifier(String name, DBIdentifierType id, boolean toUpper, boolean delimit) {
+        return newIdentifier(name,id, toUpper, delimit, false);
+    }
+
+    public static DBIdentifier newProcedure(String name) {
+        return newIdentifier(name, DBIdentifierType.PROCEDURE);
+    }
+
+    /**
+     * Constructs a new identifier (potentially a compound QualifiedDBIdentifier) with the provided
+     * name an type. Optionally, converting the name to upper case and delimiting it.
+     */
+    protected static DBIdentifier newIdentifier(String name, DBIdentifierType id, boolean toUpper, boolean delimit,
+        boolean ignoreCase) {
         if (name == null) {
             return DBIdentifier.NULL;
         }
-        
+
         DBIdentifier dbId = DBIdentifier.NULL;
         // Create a DBIDentifier for single component names.  Otherwise, create a QualifiedDBIdentifier.
         if (!_compoundIdentifier[id.ordinal()] || delimit) {
             dbId = new DBIdentifier(name, id, delimit);
+            dbId.setIgnoreCase(ignoreCase);
             if (toUpper) {
                 return toUpper(dbId);
             }
@@ -611,6 +639,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
             // Name can be split. Break it up into components and return a path
             DBIdentifier[] sNames = DBIdentifier.split(id, name);
             dbId = new QualifiedDBIdentifier(sNames);
+            dbId.setIgnoreCase(ignoreCase);
         }
         return dbId;
     }
@@ -619,7 +648,6 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
      * Static equality method for comparing two identifiers.
      * @param name1
      * @param name2
-     * @return
      */
     public static boolean equal(DBIdentifier name1, DBIdentifier name2) {
         boolean name1Null = DBIdentifier.isNull(name1);
@@ -632,23 +660,22 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         return ((DBIdentifier)name1).equals(name2, false);
     }
 
-    
+
     private void assertNotNull() {
         if (this == DBIdentifier.NULL || getType() == DBIdentifierType.NULL) {
             throw new IllegalStateException("Cannot modify NULL instance");
         }
     }
-    
+
     /**
      * Returns a new DBIdentifier truncated to length
      * @param name
      * @param length
-     * @return
      */
     public static DBIdentifier truncate(DBIdentifier name, int length) {
         DBIdentifier sName = name.clone();
         String strName = sName.getNameInternal();
-        if (StringUtils.isEmpty(strName)) {
+        if (StringUtil.isEmpty(strName)) {
             return sName;
         }
         strName = Normalizer.truncate(strName, length);
@@ -660,7 +687,6 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
      * Returns a new DBIdentifier with the given string appended.
      * @param name
      * @param length
-     * @return
      */
     public static DBIdentifier append(DBIdentifier name, String str) {
         DBIdentifier sName = name.clone();
@@ -671,11 +697,10 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     }
 
     /**
-     * Returns a new DBIdentifier with the given string combined using 
+     * Returns a new DBIdentifier with the given string combined using
      * delimiting rules and appropriate separators.
      * @param name
      * @param length
-     * @return
      */
     public static DBIdentifier combine(DBIdentifier name, String str) {
         DBIdentifier sName = name.clone();
@@ -688,17 +713,15 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Returns a new DBIdentifier converted to lower case - if not delimited.
      * @param name
-     * @return
      */
     public static DBIdentifier toLower(DBIdentifier name) {
         return toLower(name, false);
     }
-    
+
     /**
      * Returns a new DBIdentifier converted to lower case.  If delimited,
      * force to lower case using force option.
      * @param name
-     * @return
      */
     public static DBIdentifier toLower(DBIdentifier name, boolean force) {
         if (DBIdentifier.isNull(name)) {
@@ -719,7 +742,6 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Returns a new DBIdentifier converted to upper case - if not delimited.
      * @param name
-     * @return
      */
     public static DBIdentifier toUpper(DBIdentifier name) {
         return toUpper(name, false);
@@ -729,28 +751,27 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
      * Returns a new DBIdentifier converted to upper case.  If delimited,
      * force to upper case using force option.
      * @param name
-     * @return
      */
     public static DBIdentifier toUpper(DBIdentifier name, boolean force) {
         if (DBIdentifier.isNull(name)) {
             return name;
         }
-        DBIdentifier sName = name.clone();
-        if (sName.getNameInternal() == null) {
-            return sName;
+        if (name.getNameInternal() == null) {
+            return name;
         }
         // Do not convert delimited names to upper case.  They may have
         // been delimited to preserve case.
-        if (force || !Normalizer.isDelimited(sName.getNameInternal())) {
+        if (force || !Normalizer.isDelimited(name.getNameInternal())) {
+            DBIdentifier sName = name.clone();
             sName.setNameInternal(sName.getNameInternal().toUpperCase());
+            return sName;
         }
-        return sName;
+        return name;
     }
 
     /**
      * Returns a new DBIdentifier with the specified leading string removed.
      * @param name
-     * @return
      */
     public static DBIdentifier removeLeading(DBIdentifier name, String leadingStr) {
         DBIdentifier sName = name.clone();
@@ -765,11 +786,10 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         sName.setNameInternal(strName);
         return sName;
     }
-    
+
     /**
      * Returns a new DBIdentifier with Hungarian notation removed.
      * @param name
-     * @return
      */
     public static DBIdentifier removeHungarianNotation(DBIdentifier name) {
         DBIdentifier hName = name.clone();
@@ -784,8 +804,6 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
 
     /**
      * Equality operator which ignores case.
-     * @param name
-     * @return
      */
    public boolean equalsIgnoreCase(DBIdentifier name) {
        return equals(name, true);
@@ -793,8 +811,6 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
 
    /**
     * Static equality operator which ignores case.
-    * @param name
-    * @return
     */
     public static boolean equalsIgnoreCase(DBIdentifier name1, DBIdentifier name2) {
         boolean name1Null = DBIdentifier.isNull(name1);
@@ -814,7 +830,8 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         if (getNameInternal() == null) {
             return false;
         }
-        if (ignoreCase || !Normalizer.isDelimited(getNameInternal())) {
+        if (getIgnoreCase() || sName.getIgnoreCase() ||
+            ignoreCase || !Normalizer.isDelimited(getNameInternal())) {
             return getNameInternal().equalsIgnoreCase(sName.getNameInternal());
         }
         return getNameInternal().equals(sName.getNameInternal());
@@ -823,7 +840,6 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * Returns a new identifier with a combined prefix and name using the standard name
      * concatenation character ('_').
-     * @param prefix
      */
     public static DBIdentifier preCombine(DBIdentifier name, String prefix) {
         if (DBIdentifier.isNull(name)) {
@@ -838,27 +854,40 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
 
     /**
      * Returns a new identifier with delimiters removed.
-     * @param name
-     * @return
      */
     public static DBIdentifier removeDelimiters(DBIdentifier name) {
-        if (DBIdentifier.isNull(name)) {
+        if (DBIdentifier.isNull(name) || !name.isDelimited()) {
             return name;
         }
-        DBIdentifier sName = name.clone();
-        if (isEmpty(sName)) {
-            return sName;
+        if (!name.isDelimited()) {
+            return name;
         }
-        String strName = sName.getNameInternal();
-        strName = Normalizer.removeDelimiters(strName);
+        String strName = Normalizer.removeDelimiters(name.getNameInternal());
+        DBIdentifier sName = name.clone();
         sName.setNameInternal(strName);
         return sName;
     }
 
     /**
+     * Combine {@link #removeDelimiters(org.apache.openjpa.jdbc.identifier.DBIdentifier) }
+     * with {@link #toUpper(org.apache.openjpa.jdbc.identifier.DBIdentifier, boolean) }
+     * in order to save allocations and CPU cycles.
+     */
+    public static DBIdentifier removeDelimitersAndMakeUpper(DBIdentifier name) {
+        if (DBIdentifier.isNull(name) || name.getNameInternal() == null) {
+            return name;
+        }
+        if (!name.isDelimited()) {
+            return toUpper(name, true);
+        }
+        String strName = Normalizer.removeDelimiters(name.getNameInternal());
+        DBIdentifier sName = name.clone();
+        sName.setNameInternal(strName.toUpperCase());
+        return sName;
+    }
+
+    /**
      * Returns a new delimiter with leading and trailing spaces removed.
-     * @param name
-     * @return
      */
     public static DBIdentifier trim(DBIdentifier name) {
         if (DBIdentifier.isNull(name)) {
@@ -877,6 +906,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
     /**
      * The length of the name, including delimiting characters.
      */
+    @Override
     public int length() {
         if (DBIdentifier.isNull(this)) {
             return 0;
@@ -891,7 +921,7 @@ public class DBIdentifier extends IdentifierImpl implements Cloneable, Identifie
         if (DBIdentifier.isEmpty(this)) {
             return false;
         }
-        return Normalizer.isDelimited(getNameInternal());
+        return isNameDelimited() || Normalizer.isDelimited(getNameInternal());
     }
 
     /**

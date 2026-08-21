@@ -14,16 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.Broker;
@@ -46,6 +45,9 @@ import org.apache.openjpa.util.UserException;
 public class RemoteCommitEventManager
     extends AbstractConcurrentEventManager
     implements EndTransactionListener, Closeable {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage
         (RemoteCommitEventManager.class);
@@ -117,15 +119,18 @@ public class RemoteCommitEventManager
     /**
      * Close this manager and all registered listeners.
      */
+    @Override
     public void close() {
         if (_provider != null) {
             _provider.close();
             Collection listeners = getListeners();
-            for (Iterator itr = listeners.iterator(); itr.hasNext();)
-                ((RemoteCommitListener) itr.next()).close();
+            for (Object listener : listeners) {
+                ((RemoteCommitListener) listener).close();
+            }
         }
     }
 
+    @Override
     protected void fireEvent(Object event, Object listener) {
         RemoteCommitListener listen = (RemoteCommitListener) listener;
         RemoteCommitEvent ev = (RemoteCommitEvent) event;
@@ -149,6 +154,7 @@ public class RemoteCommitEventManager
     // TransactionListener implementation
     //////////////////////////////////////
 
+    @Override
     public void afterCommit(TransactionEvent event) {
         if (_provider != null) {
             RemoteCommitEvent rce = createRemoteCommitEvent(event);
@@ -186,8 +192,8 @@ public class RemoteCommitEventManager
             Object oid;
             Object obj;
             OpenJPAStateManager sm;
-            for (Iterator itr = trans.iterator(); itr.hasNext();) {
-                obj = itr.next();
+            for (Object tran : trans) {
+                obj = tran;
                 sm = broker.getStateManager(obj);
 
                 if (sm == null || !sm.isPersistent() || !sm.isDirty())
@@ -205,11 +211,13 @@ public class RemoteCommitEventManager
                     if (addClassNames == null)
                         addClassNames = new HashSet();
                     addClassNames.add(obj.getClass().getName());
-                } else if (sm.isDeleted()) {
+                }
+                else if (sm.isDeleted()) {
                     if (deletes == null)
                         deletes = new ArrayList();
                     deletes.add(oid);
-                } else {
+                }
+                else {
                     if (updates == null)
                         updates = new ArrayList();
                     updates.add(oid);
@@ -235,18 +243,23 @@ public class RemoteCommitEventManager
         return names;
     }
 
+    @Override
     public void beforeCommit(TransactionEvent event) {
     }
 
+    @Override
     public void afterRollback(TransactionEvent event) {
     }
 
+    @Override
     public void afterCommitComplete(TransactionEvent event) {
     }
 
+    @Override
     public void afterRollbackComplete(TransactionEvent event) {
     }
 
+    @Override
     public void afterStateTransitions(TransactionEvent event)
 	{
 	}

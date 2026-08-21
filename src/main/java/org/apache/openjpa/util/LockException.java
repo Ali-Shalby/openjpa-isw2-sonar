@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -30,15 +30,14 @@ import org.apache.openjpa.lib.util.Localizer;
  * @author Marc Prud'hommeaux
  * @since 0.3.1
  */
-@SuppressWarnings("serial")
-public class LockException
-    extends StoreException {
+public class LockException extends StoreException {
+    private static final long serialVersionUID = 1L;
 
     private static final transient Localizer _loc = Localizer.forPackage(LockException.class);
 
     private int timeout   = -1;
     private int lockLevel = -1;
-    
+
     public LockException(Object failed) {
         super(_loc.get("lock-failed", Exceptions.toString(failed)));
         setFailedObject(failed);
@@ -47,7 +46,7 @@ public class LockException
     public LockException(Object failed, int timeout) {
         this(failed, timeout, -1);
     }
-    
+
     public LockException(Object failed, int timeout, int lockLevel) {
         super(_loc.get("lock-timeout", Exceptions.toString(failed), String.valueOf(timeout)));
         setFailedObject(failed);
@@ -55,6 +54,7 @@ public class LockException
         setLockLevel(lockLevel);
     }
 
+    @Override
     public int getSubtype() {
         return LOCK;
     }
@@ -82,6 +82,7 @@ public class LockException
         return lockLevel;
     }
 
+    @Override
     public String toString() {
         String str = super.toString();
         if (timeout < 0)

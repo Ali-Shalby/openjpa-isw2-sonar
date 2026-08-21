@@ -14,14 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.log;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
@@ -53,7 +52,7 @@ public class MultiLogFactory implements LogFactory {
      */
     public MultiLogFactory(LogFactory[] delegates) {
         _delegates =
-            new CopyOnWriteArrayList<LogFactory>(Arrays.asList(delegates));
+            new CopyOnWriteArrayList<>(Arrays.asList(delegates));
     }
 
     public void addLogFactory(LogFactory factory) {
@@ -68,15 +67,16 @@ public class MultiLogFactory implements LogFactory {
      * Returns the delegates that this MultiLogFactory delegates messages to.
      */
     public LogFactory[] getDelegates() {
-        return (LogFactory[]) _delegates.toArray(new LogFactory[0]);
+        return (LogFactory[]) _delegates.toArray(new LogFactory[_delegates.size()]);
     }
 
     /**
      * Returns a Log impl that combines all logs.
      */
+    @Override
     public synchronized Log getLog(String channel) {
-        List<Log> logs = new ArrayList<Log>(_delegates.size());
-        for(LogFactory f : _delegates) { 
+        List<Log> logs = new ArrayList<>(_delegates.size());
+        for(LogFactory f : _delegates) {
             if (f != null) {
                 Log l = f.getLog(channel);
                 if (l != null)
@@ -104,87 +104,112 @@ public class MultiLogFactory implements LogFactory {
             return _logs;
         }
 
+        @Override
         public void trace(Object msg) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].trace(msg);
+            for (Log log : _logs) {
+                log.trace(msg);
+            }
         }
 
+        @Override
         public void trace(Object msg, Throwable t) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].trace(msg, t);
+            for (Log log : _logs) {
+                log.trace(msg, t);
+            }
         }
 
+        @Override
         public void info(Object msg) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].info(msg);
+            for (Log log : _logs) {
+                log.info(msg);
+            }
         }
 
+        @Override
         public void info(Object msg, Throwable t) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].info(msg, t);
+            for (Log log : _logs) {
+                log.info(msg, t);
+            }
         }
 
+        @Override
         public void warn(Object msg) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].warn(msg);
+            for (Log log : _logs) {
+                log.warn(msg);
+            }
         }
 
+        @Override
         public void warn(Object msg, Throwable t) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].warn(msg, t);
+            for (Log log : _logs) {
+                log.warn(msg, t);
+            }
         }
 
+        @Override
         public void error(Object msg) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].error(msg);
+            for (Log log : _logs) {
+                log.error(msg);
+            }
         }
 
+        @Override
         public void error(Object msg, Throwable t) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].error(msg, t);
+            for (Log log : _logs) {
+                log.error(msg, t);
+            }
         }
 
+        @Override
         public void fatal(Object msg) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].fatal(msg);
+            for (Log log : _logs) {
+                log.fatal(msg);
+            }
         }
 
+        @Override
         public void fatal(Object msg, Throwable t) {
-            for (int i = 0; i < _logs.length; i++)
-                _logs[i].fatal(msg, t);
+            for (Log log : _logs) {
+                log.fatal(msg, t);
+            }
         }
 
+        @Override
         public boolean isTraceEnabled() {
-            for (int i = 0; i < _logs.length; i++)
-                if (_logs[i].isTraceEnabled())
+            for (Log log : _logs)
+                if (log.isTraceEnabled())
                     return true;
             return false;
         }
 
+        @Override
         public boolean isInfoEnabled() {
-            for (int i = 0; i < _logs.length; i++)
-                if (_logs[i].isInfoEnabled())
+            for (Log log : _logs)
+                if (log.isInfoEnabled())
                     return true;
             return false;
         }
 
+        @Override
         public boolean isWarnEnabled() {
-            for (int i = 0; i < _logs.length; i++)
-                if (_logs[i].isWarnEnabled())
+            for (Log log : _logs)
+                if (log.isWarnEnabled())
                     return true;
             return false;
         }
 
+        @Override
         public boolean isErrorEnabled() {
-            for (int i = 0; i < _logs.length; i++)
-                if (_logs[i].isErrorEnabled())
+            for (Log log : _logs)
+                if (log.isErrorEnabled())
                     return true;
             return false;
         }
 
+        @Override
         public boolean isFatalEnabled() {
-            for (int i = 0; i < _logs.length; i++)
-                if (_logs[i].isFatalEnabled())
+            for (Log log : _logs)
+                if (log.isFatalEnabled())
                     return true;
             return false;
         }

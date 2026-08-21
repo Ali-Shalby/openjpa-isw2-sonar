@@ -14,14 +14,14 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
 import java.sql.SQLException;
 
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
-import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
 import org.apache.openjpa.jdbc.kernel.JDBCStoreQuery;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.JavaSQLTypes;
@@ -44,6 +44,8 @@ public class SubQ
     extends AbstractVal
     implements Subquery {
 
+    
+    private static final long serialVersionUID = 1L;
     private final ClassMapping _candidate;
     private final boolean _subs;
     private String _subqAlias;
@@ -67,6 +69,7 @@ public class SubQ
         _cons.setSubselect(_select);
     }
 
+    @Override
     public Object getSelect() {
         return _select;
     }
@@ -77,19 +80,22 @@ public class SubQ
     public ClassMapping getCandidate() {
         return _candidate;
     }
-    
+
     public boolean getSubs() {
         return _subs;
     }
 
+    @Override
     public void setSubqAlias(String subqAlias) {
         _subqAlias = subqAlias;
     }
-    
+
+    @Override
     public String getSubqAlias() {
         return _subqAlias;
     }
 
+    @Override
     public Class getType() {
         if (_exps != null && _type == null) {
             if (_exps.projections.length == 0)
@@ -100,29 +106,35 @@ public class SubQ
         return _type;
     }
 
+    @Override
     public void setImplicitType(Class type) {
         if (_exps != null && _exps.projections.length == 1)
             _exps.projections[0].setImplicitType(type);
         _type = type;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
 
+    @Override
     public String getCandidateAlias() {
         return _subqAlias;
     }
 
+    @Override
     public void setQueryExpressions(QueryExpressions query) {
         _exps = query;
         _select.setContext(query.ctx());
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         Select select = JDBCStoreQuery.getThreadLocalSelect(_select);
         select.setParent(sel, null);
@@ -132,32 +144,37 @@ public class SubQ
         return ExpState.NULL;
     }
 
-    public Object toDataStoreValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public Object toDataStoreValue(Select sel, ExpContext ctx, ExpState state,
         Object val) {
         if (_exps.projections.length == 0)
             return _candidate.toDataStoreValue(val,
                 _candidate.getPrimaryKeyColumns(), ctx.store);
         if (_exps.projections.length == 1)
-            return ((Val) _exps.projections[0]).toDataStoreValue(sel, ctx, 
+            return ((Val) _exps.projections[0]).toDataStoreValue(sel, ctx,
                 state, val);
         return val;
     }
 
-    public void select(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void select(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         selectColumns(sel, ctx, state, pks);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         sel.select(newSQLBuffer(sel, ctx, state), this);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         sel.groupBy(newSQLBuffer(sel, ctx, state));
     }
 
-    public void orderBy(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         sel.orderBy(newSQLBuffer(sel, ctx, state), asc, false, getSelectAs());
     }
@@ -168,47 +185,54 @@ public class SubQ
         return buf;
     }
 
-    public Object load(ExpContext ctx, ExpState state, Result res) 
+    @Override
+    public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
         return Filters.convert(res.getObject(this,
             JavaSQLTypes.JDBC_DEFAULT, null), getType());
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         Value[] projs = _exps.projections;
-        for (int i = 0; i < projs.length; i++) {
-            if (projs[i] instanceof GeneralCaseExpression) {
-                ((GeneralCaseExpression)projs[i]).setOtherPath(other);
-                ((GeneralCaseExpression)projs[i]).setOtherState(otherState);
-            } else if (projs[i] instanceof SimpleCaseExpression) {
-                ((SimpleCaseExpression)projs[i]).setOtherPath(other);
-                ((SimpleCaseExpression)projs[i]).setOtherState(otherState);
-            } else if (projs[i] instanceof NullIfExpression) {
-                ((NullIfExpression)projs[i]).setOtherPath(other);
-                ((NullIfExpression)projs[i]).setOtherState(otherState);
-            } else if (projs[i] instanceof CoalesceExpression) {
-                ((CoalesceExpression)projs[i]).setOtherPath(other);
-                ((CoalesceExpression)projs[i]).setOtherState(otherState);
+        for (Value proj : projs) {
+            if (proj instanceof GeneralCaseExpression) {
+                ((GeneralCaseExpression) proj).setOtherPath(other);
+                ((GeneralCaseExpression) proj).setOtherState(otherState);
+            }
+            else if (proj instanceof SimpleCaseExpression) {
+                ((SimpleCaseExpression) proj).setOtherPath(other);
+                ((SimpleCaseExpression) proj).setOtherState(otherState);
+            }
+            else if (proj instanceof NullIfExpression) {
+                ((NullIfExpression) proj).setOtherPath(other);
+                ((NullIfExpression) proj).setOtherState(otherState);
+            }
+            else if (proj instanceof CoalesceExpression) {
+                ((CoalesceExpression) proj).setOtherPath(other);
+                ((CoalesceExpression) proj).setOtherState(otherState);
             }
         }
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         appendTo(sel, ctx, state, sql, index, false);
     }
 
-    private void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    private void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index, boolean size) {
         QueryExpressionsState substate = new QueryExpressionsState();
         Select sub = _cons.evaluate(ctx, sel, _subqAlias, _exps, substate);
-        _cons.select(sub, ctx, _candidate, _subs, _exps, substate, 
-            JDBCFetchConfiguration.EAGER_NONE);
+        _cons.select(sub, ctx, _candidate, _subs, _exps, substate,
+            EagerFetchModes.EAGER_NONE);
 
         if (size)
             sql.appendCount(sub, ctx.fetch);
@@ -216,23 +240,27 @@ public class SubQ
             sql.append(sub, ctx.fetch);
     }
 
-    public void appendIsEmpty(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendIsEmpty(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
         sql.append("NOT EXISTS ");
         appendTo(sel, ctx, state, sql, 0);
     }
 
-    public void appendIsNotEmpty(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendIsNotEmpty(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
         sql.append("EXISTS ");
         appendTo(sel, ctx, state, sql, 0);
     }
 
-    public void appendSize(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendSize(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql) {
         appendTo(sel, ctx, state, sql, 0, true);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         for (int i = 0; i < _exps.projections.length; i++)

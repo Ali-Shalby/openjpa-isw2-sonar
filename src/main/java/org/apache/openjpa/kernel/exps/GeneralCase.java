@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -30,6 +30,9 @@ import org.apache.openjpa.lib.util.Localizer;
 class GeneralCase
     extends Val {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage(
         GeneralCase.class);
 
@@ -41,15 +44,16 @@ class GeneralCase
         _val = val;
     }
 
+    @Override
     protected Object eval(Object candidate, Object orig, StoreContext ctx,
         Object[] params) {
-        for (int i = 0; i < _exp.length; i++) {
-            boolean compare = ((WhenCondition) _exp[i]).getExp().
-                eval(candidate, orig, ctx, params);
-            
-            if (compare)
-                return ((WhenCondition) _exp[i]).getVal().
+        for (Exp exp : _exp) {
+            boolean compare = ((WhenCondition) exp).getExp().
                     eval(candidate, orig, ctx, params);
+
+            if (compare)
+                return ((WhenCondition) exp).getVal().
+                        eval(candidate, orig, ctx, params);
             else
                 continue;
         }
@@ -59,35 +63,39 @@ class GeneralCase
     protected Object eval(Object candidate,StoreContext ctx,
         Object[] params) {
 
-        for (int i = 0; i < _exp.length; i++) {
-            boolean compare = ((WhenCondition) _exp[i]).getExp().
-                eval(candidate, null, ctx, params);
-                
-            if (compare)
-                return ((WhenCondition) _exp[i]).getVal().
+        for (Exp exp : _exp) {
+            boolean compare = ((WhenCondition) exp).getExp().
                     eval(candidate, null, ctx, params);
+
+            if (compare)
+                return ((WhenCondition) exp).getVal().
+                        eval(candidate, null, ctx, params);
             else
                 continue;
         }
         return _val.eval(candidate, null, ctx, params);
     }
 
+    @Override
     public Class getType() {
         Class c1 = _val.getType();
-        for (int i = 0; i < _exp.length; i++) {
-            Class c2 = ((WhenCondition) _exp[i]).getVal().getType();
+        for (Exp exp : _exp) {
+            Class c2 = ((WhenCondition) exp).getVal().getType();
             c1 = Filters.promote(c1, c2);
         }
         return c1;
     }
 
+    @Override
     public void setImplicitType(Class type) {
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
-        for (int i = 0; i < _exp.length; i++)
-            _exp[i].acceptVisit(visitor);
+        for (Exp exp : _exp) {
+            exp.acceptVisit(visitor);
+        }
         _val.acceptVisit(visitor);
         visitor.exit(this);
     }

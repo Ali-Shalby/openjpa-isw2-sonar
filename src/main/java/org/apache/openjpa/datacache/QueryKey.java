@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
 
@@ -32,12 +32,11 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
-import org.apache.commons.lang.ObjectUtils;
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.kernel.Query;
 import org.apache.openjpa.kernel.QueryContext;
@@ -62,21 +61,21 @@ public class QueryKey
     // initialize the set of unmodifiable classes. This allows us
     // to avoid cloning collections that are not modifiable,
     // provided that they do not contain mutable objects.
-    private static Collection s_unmod = new HashSet();
+    private static Collection<Class<?>> s_unmod = new HashSet<>();
 
     static {
         // handle the set types; jdk uses different classes for collection,
         // set, and sorted set
-        TreeSet s = new TreeSet();
+        TreeSet<Object> s = new TreeSet<>();
         s_unmod.add(Collections.unmodifiableCollection(s).getClass());
         s_unmod.add(Collections.unmodifiableSet(s).getClass());
         s_unmod.add(Collections.unmodifiableSortedSet(s).getClass());
 
         // handle the list types; jdk uses different classes for standard
         // and random access lists
-        List l = new LinkedList();
+        List<Object> l = new LinkedList<>();
         s_unmod.add(Collections.unmodifiableList(l).getClass());
-        l = new ArrayList(0);
+        l = new ArrayList<>(0);
         s_unmod.add(Collections.unmodifiableList(l).getClass());
 
         // handle the constant types
@@ -88,10 +87,10 @@ public class QueryKey
     // because they are implicit in the filter
     private String _candidateClassName;
     private boolean _subclasses;
-    private Set _accessPathClassNames;
-    private String _query;
+    private Set<String> _accessPathClassNames;
+    private Object _query;
     private boolean _ignoreChanges;
-    private Map _params;
+    private Map<Object,Object> _params;
     private long _rangeStart;
     private long _rangeEnd;
 
@@ -117,26 +116,26 @@ public class QueryKey
         // via API calls (candidate class, result class, etc)
         q.compile();
         return newInstance(q, false, args, q.getCandidateType(),
-            q.hasSubclasses(), q.getStartRange(), q.getEndRange());
+            q.hasSubclasses(), q.getStartRange(), q.getEndRange(), null);
     }
 
     /**
      * Return a key for the given query, or null if it is not cacheable.
      */
-    public static QueryKey newInstance(Query q, Map args) {
+    public static QueryKey newInstance(Query q, Map<Object,Object> args) {
         // compile to make sure info encoded in query string is available
         // via API calls (candidate class, result class, etc)
         q.compile();
         return newInstance(q, false, args, q.getCandidateType(),
-            q.hasSubclasses(), q.getStartRange(), q.getEndRange());
+            q.hasSubclasses(), q.getStartRange(), q.getEndRange(), null);
     }
 
     /**
      * Return a key for the given query, or null if it is not cacheable.
      */
     static QueryKey newInstance(QueryContext q, boolean packed, Object[] args,
-        Class candidate, boolean subs, long startIdx, long endIdx) {
-        QueryKey key = createKey(q, packed, candidate, subs, startIdx, endIdx);
+        Class<?> candidate, boolean subs, long startIdx, long endIdx, Object parsed) {
+        QueryKey key = createKey(q, packed, candidate, subs, startIdx, endIdx, parsed);
         if (key != null && setParams(key, q, args))
             return key;
         return null;
@@ -145,11 +144,11 @@ public class QueryKey
     /**
      * Return a key for the given query, or null if it is not cacheable.
      */
-    static QueryKey newInstance(QueryContext q, boolean packed, Map args,
-        Class candidate, boolean subs, long startIdx, long endIdx) {
-        QueryKey key = createKey(q, packed, candidate, subs, startIdx, endIdx);
+    static QueryKey newInstance(QueryContext q, boolean packed, Map<Object,Object> args,
+        Class<?> candidate, boolean subs, long startIdx, long endIdx, Object parsed) {
+        QueryKey key = createKey(q, packed, candidate, subs, startIdx, endIdx, parsed);
         if (key != null && (args == null || args.isEmpty() ||
-            setParams(key, q.getStoreContext(), new HashMap(args))))
+            setParams(key, q.getStoreContext(), new HashMap<>(args))))
             return key;
         return null;
     }
@@ -160,7 +159,7 @@ public class QueryKey
      * class, query filter, etc.
      */
     private static QueryKey createKey(QueryContext q, boolean packed,
-        Class candidateClass, boolean subclasses, long startIdx, long endIdx) {
+        Class<?> candidateClass, boolean subclasses, long startIdx, long endIdx, Object parsed) {
         if (candidateClass == null)
             return null;
 
@@ -173,16 +172,16 @@ public class QueryKey
             return null;
 
         // can't cache non-serializable non-managed complex types
-        Class[] types = q.getProjectionTypes();
-        for (int i = 0; i < types.length; i++) {
-            switch (JavaTypes.getTypeCode(types[i])) {
+        Class<?>[] types = q.getProjectionTypes();
+        for (Class<?> type : types) {
+            switch (JavaTypes.getTypeCode(type)) {
                 case JavaTypes.ARRAY:
                     return null;
                 case JavaTypes.COLLECTION:
                 case JavaTypes.MAP:
                 case JavaTypes.OBJECT:
                     if (!ImplHelper.isManagedType(
-                        q.getStoreContext().getConfiguration(), types[i]))
+                            q.getStoreContext().getConfiguration(), type))
                         return null;
                     break;
             }
@@ -194,15 +193,15 @@ public class QueryKey
         if (metas.length == 0)
             return null;
 
-        Set accessPathClassNames = new HashSet((int) (metas.length * 1.33 + 1));
+        Set<String> accessPathClassNames = new HashSet<>((int) (metas.length * 1.33 + 1));
         ClassMetaData meta;
-        for (int i = 0; i < metas.length; i++) {
+        for (ClassMetaData metaData : metas) {
             // since the class change framework deals with least-derived types,
             // record the least-derived access path types
-            meta = metas[i];
+            meta = metaData;
             accessPathClassNames.add(meta.getDescribedType().getName());
             while (meta.getPCSuperclass() != null) {
-                meta = meta.getPCSuperclassMetaData(); 
+                meta = meta.getPCSuperclassMetaData();
             }
 
             accessPathClassNames.add(meta.getDescribedType().getName());
@@ -227,12 +226,12 @@ public class QueryKey
         if (subclasses) {
             metas = meta.getPCSubclassMetaDatas();
             int subTimeout;
-            for (int i = 0; i < metas.length; i++) {
-                if (metas[i].getDataCache() == null)
+            for (ClassMetaData classMetaData : metas) {
+                if (classMetaData.getDataCache() == null)
                     return null;
 
-                accessPathClassNames.add(metas[i].getDescribedType().getName());
-                subTimeout = metas[i].getDataCacheTimeout();
+                accessPathClassNames.add(classMetaData.getDescribedType().getName());
+                subTimeout = classMetaData.getDataCacheTimeout();
                 if (subTimeout != -1 && subTimeout < timeout)
                     timeout = subTimeout;
             }
@@ -245,6 +244,10 @@ public class QueryKey
         key._accessPathClassNames = accessPathClassNames;
         key._timeout = timeout;
         key._query = q.getQueryString();
+        if (key._query == null && parsed != null) {
+            // this is a criteria query. Store the Stringified query value rather than the full cq.
+            key._query = parsed.toString();
+        }
         key._ignoreChanges = q.getIgnoreChanges();
         key._rangeStart = startIdx;
         key._rangeEnd = endIdx;
@@ -263,10 +266,10 @@ public class QueryKey
         // Create a map for the given parameters, and convert the
         // parameter list into a map, using the query's parameter
         // declaration to determine ordering etc.
-        Map types = q.getOrderedParameterTypes();
-        Map map = new HashMap((int) (types.size() * 1.33 + 1));
+        Map<Object,Class<?>> types = q.getOrderedParameterTypes();
+        Map<Object,Object> map = new HashMap<>((int) (types.size() * 1.33 + 1));
         int idx = 0;
-        for (Iterator iter = types.keySet().iterator(); iter.hasNext(); idx++)
+        for (Iterator<Object> iter = types.keySet().iterator(); iter.hasNext(); idx++)
             map.put(iter.next(), args[idx]);
         return setParams(key, q.getStoreContext(), map);
     }
@@ -276,14 +279,12 @@ public class QueryKey
      * will be cloned.
      */
     private static boolean setParams(QueryKey key, StoreContext ctx,
-        Map params) {
+        Map<Object,Object> params) {
         if (params == null || params.isEmpty())
             return true;
 
-        Map.Entry e;
         Object v;
-        for (Iterator iter = params.entrySet().iterator(); iter.hasNext();) {
-            e = (Map.Entry) iter.next();
+        for (Map.Entry<Object,Object> e : params.entrySet()) {
             v = e.getValue();
             if (ImplHelper.isManageable(v)) {
                 if (!ctx.isPersistent(v) || ctx.isNew(v) || ctx.isDeleted(v))
@@ -292,7 +293,7 @@ public class QueryKey
             }
 
             if (v instanceof Collection) {
-                Collection c = (Collection) v;
+                Collection<Object> c = (Collection<Object>) v;
                 boolean contentsAreDates = false;
                 if (c.iterator().hasNext()) {
                     // this assumes that the collection is homogeneous
@@ -315,19 +316,20 @@ public class QueryKey
                     // clone it for good measure.
                     if (contentsAreDates || !s_unmod.contains(c.getClass())) {
                         // copy the collection
-                        Collection copy;
+                        Collection<Object> copy;
                         if (c instanceof SortedSet)
-                            copy = new TreeSet();
+                            copy = new TreeSet<>();
                         else if (c instanceof Set)
-                            copy = new HashSet();
+                            copy = new HashSet<>();
                         else
-                            copy = new ArrayList(c.size());
+                            copy = new ArrayList<>(c.size());
 
                         if (contentsAreDates) {
                             // must go through by hand and do the
                             // copy, since Date is mutable.
-                            for (Iterator itr2 = c.iterator(); itr2.hasNext();)
-                                copy.add(((Date) itr2.next()).clone());
+                            for (Object value : c) {
+                                copy.add(((Date) value).clone());
+                            }
                         } else
                             copy.addAll(c);
 
@@ -369,7 +371,7 @@ public class QueryKey
      * <code>false</code>. Invalidation is possible if one or more of
      * the classes in this query key's access path has been changed.
      */
-    public boolean changeInvalidatesQuery(Collection changed) {
+    public boolean changeInvalidatesQuery(Collection<Class<?>> changed) {
         return intersects(_accessPathClassNames, changed);
     }
 
@@ -377,11 +379,9 @@ public class QueryKey
      * Whether the given set of least-derived class names intersects with
      * the given set of changed classes.
      */
-    private static boolean intersects(Collection names, Collection changed) {
-        Class cls;
-        Class sup;
-        for (Iterator iter = changed.iterator(); iter.hasNext();) {
-            cls = (Class) iter.next();
+    private static boolean intersects(Collection<String> names, Collection<Class<?>> changed) {
+        Class<?> sup;
+        for (Class<?> cls : changed) {
             while ((sup = PCRegistry.getPersistentSuperclass(cls)) != null)
                 cls = sup;
             if (names.contains(cls.getName()))
@@ -395,6 +395,7 @@ public class QueryKey
      * created for queries that specify a candidate collection are
      * always not equal.
      */
+    @Override
     public boolean equals(Object ob) {
         if (this == ob)
             return true;
@@ -402,20 +403,21 @@ public class QueryKey
             return false;
 
         QueryKey other = (QueryKey) ob;
-        return StringUtils.equals(_candidateClassName,
+        return Objects.equals(_candidateClassName,
             other._candidateClassName)
             && _subclasses == other._subclasses
             && _ignoreChanges == other._ignoreChanges
             && _rangeStart == other._rangeStart
             && _rangeEnd == other._rangeEnd
-            && StringUtils.equals(_query, other._query)
-            && ObjectUtils.equals(_params, other._params);
+            && Objects.equals(_query, other._query)
+            && Objects.equals(_params, other._params);
     }
 
     /**
      * Define a hashing algorithm corresponding to the {@link #equals}
      * method defined above.
      */
+    @Override
     public int hashCode() {
         int code = 37 * 17 + _candidateClassName.hashCode();
         if (_query != null)
@@ -425,6 +427,7 @@ public class QueryKey
         return code;
     }
 
+    @Override
     public String toString() {
         StringBuilder buf = new StringBuilder(1024);
         buf.append(super.toString()).
@@ -441,6 +444,7 @@ public class QueryKey
 
     // ---------- Externalizable implementation ----------
 
+    @Override
     public void writeExternal(ObjectOutput out)
         throws IOException {
         out.writeObject(_candidateClassName);
@@ -454,19 +458,20 @@ public class QueryKey
         out.writeInt(_timeout);
     }
 
+    @Override
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
         _candidateClassName = (String) in.readObject();
         _subclasses = in.readBoolean();
-        _accessPathClassNames = (Set) in.readObject();
+        _accessPathClassNames = (Set<String>) in.readObject();
         _query = (String) in.readObject();
         _ignoreChanges = in.readBoolean();
-        _params = (Map) in.readObject();
+        _params = (Map<Object,Object>) in.readObject();
         _rangeStart = in.readLong();
         _rangeEnd = in.readLong ();
 		_timeout = in.readInt ();
 	}
-    
+
     /**
      * Returns the set of the accessPathClassnames that exists in the query
      * @return -- Returns a set of accesspath classnames.

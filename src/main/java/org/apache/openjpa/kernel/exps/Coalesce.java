@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -26,9 +26,11 @@ import org.apache.openjpa.kernel.StoreContext;
  *
  * @author Catalina Wei
  */
-public class Coalesce 
+public class Coalesce
     extends Val {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val[] _val;
 
     /**
@@ -75,6 +77,7 @@ public class Coalesce
         return _val;
     }
 
+    @Override
     public Class getType() {
         Class c1 = _val[0].getType();
         for (int i = 1; i < _val.length; i++) {
@@ -84,13 +87,16 @@ public class Coalesce
         return c1;
     }
 
-    public void setImplicitType(Class type) {       
+    @Override
+    public void setImplicitType(Class type) {
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
-        for (int i = 0; i < _val.length; i++)
-            _val[i].acceptVisit(visitor);
+        for (Val val : _val) {
+            val.acceptVisit(visitor);
+        }
         visitor.exit(this);
     }
 }

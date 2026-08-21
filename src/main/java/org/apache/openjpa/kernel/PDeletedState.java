@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -25,74 +25,87 @@ package org.apache.openjpa.kernel;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class PDeletedState
-    extends PCState {
+class PDeletedState extends PCState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
         context.saveFields(false);
     }
 
+    @Override
     PCState flush(StateManagerImpl context) {
         return PDELETEDFLUSHED;
     }
 
+    @Override
     PCState commit(StateManagerImpl context) {
-        context.clearFields();
         return TRANSIENT;
     }
 
+    @Override
     PCState commitRetain(StateManagerImpl context) {
-        context.clearFields();
         return TRANSIENT;
     }
 
+    @Override
     PCState rollback(StateManagerImpl context) {
         return HOLLOW;
     }
 
+    @Override
     PCState rollbackRestore(StateManagerImpl context) {
         context.restoreFields();
         return PNONTRANS;
     }
 
+    @Override
     PCState nontransactional(StateManagerImpl context) {
         return error("deleted", context);
     }
 
+    @Override
     PCState persist(StateManagerImpl context) {
         return (context.getDirty().length() > 0) ? PDIRTY : PCLEAN;
     }
 
+    @Override
     PCState release(StateManagerImpl context) {
         return error("deleted", context);
     }
 
+    @Override
     PCState beforeWrite(StateManagerImpl context, int field, boolean mutate) {
         return error("deleted", context);
     }
 
+    @Override
     PCState beforeOptimisticWrite(StateManagerImpl context, int field,
         boolean mutate) {
         return error("deleted", context);
     }
 
+    @Override
     boolean isTransactional() {
         return true;
     }
 
+    @Override
     boolean isPersistent() {
         return true;
     }
 
+    @Override
     boolean isDeleted() {
         return true;
     }
 
+    @Override
     boolean isDirty() {
         return true;
     }
-    
+
+    @Override
     public String toString() {
         return "Persistent-Deleted";
     }

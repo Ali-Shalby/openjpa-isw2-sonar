@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -44,7 +44,6 @@ import org.apache.openjpa.lib.util.MultiClassLoader;
  *
  * @author Abe White
  * @since 0.3.3
- * @nojavadoc
  */
 public class Serialization {
 
@@ -106,6 +105,7 @@ public class Serialization {
             super(delegate);
             _ctx = ctx;
             AccessController.doPrivileged(new PrivilegedAction() {
+                @Override
                 public Object run() {
                     enableReplaceObject(true);
                     return null;
@@ -113,6 +113,7 @@ public class Serialization {
             });
         }
 
+        @Override
         protected Object replaceObject(Object obj) {
             Object oid = _ctx.getObjectId(obj);
             return (oid == null) ? obj : new ObjectIdMarker(oid);
@@ -127,14 +128,16 @@ public class Serialization {
             super(delegate);
         }
 
-        protected Class resolveClass(ObjectStreamClass desc) 
+        @Override
+        protected Class resolveClass(ObjectStreamClass desc)
             throws IOException, ClassNotFoundException {
+            String name = BlacklistClassResolver.DEFAULT.check(desc.getName());
             MultiClassLoader loader = AccessController
                 .doPrivileged(J2DoPrivHelper.newMultiClassLoaderAction());
             addContextClassLoaders(loader);
             loader.addClassLoader(getClass().getClassLoader());
             loader.addClassLoader(MultiClassLoader.SYSTEM_LOADER);
-            return Class.forName(desc.getName(), true, loader);
+            return Class.forName(name, true, loader);
         }
 
         protected void addContextClassLoaders(MultiClassLoader loader) {
@@ -161,6 +164,7 @@ public class Serialization {
             super(delegate);
             _ctx = ctx;
             AccessController.doPrivileged(new PrivilegedAction() {
+                @Override
                 public Object run() {
                     enableResolveObject(true);
                     return null;
@@ -168,11 +172,13 @@ public class Serialization {
             });
         }
 
+        @Override
         protected void addContextClassLoaders(MultiClassLoader loader) {
             super.addContextClassLoaders(loader);
             loader.addClassLoader(_ctx.getClassLoader());
         }
 
+        @Override
         protected Object resolveObject(Object obj) {
             if (!(obj instanceof ObjectIdMarker))
                 return obj;
@@ -200,11 +206,13 @@ public class Serialization {
     private static class ObjectIdMarker
         implements Serializable {
 
+        
+        private static final long serialVersionUID = 1L;
         public Object oid;
 
         public ObjectIdMarker(Object oid) {
             this.oid = oid;
 		}
-	} 
+	}
 }
 

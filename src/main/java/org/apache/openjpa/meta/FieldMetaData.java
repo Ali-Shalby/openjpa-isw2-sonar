@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -38,45 +38,46 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TimeZone;
 
-import org.apache.commons.collections.comparators.ComparatorChain;
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StoreContext;
 import org.apache.openjpa.lib.conf.Configurations;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.JavaVersions;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.lib.util.Options;
+import org.apache.openjpa.lib.util.StringUtil;
+import org.apache.openjpa.lib.util.collections.ComparatorChain;
 import org.apache.openjpa.lib.xml.Commentable;
 import org.apache.openjpa.util.Exceptions;
+import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.OpenJPAException;
+import org.apache.openjpa.util.ProxyManager;
 import org.apache.openjpa.util.UnsupportedException;
-import org.apache.openjpa.util.ImplHelper;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Strings;
 
 /**
  * Metadata for a managed class field.
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
 public class FieldMetaData
     extends Extensions
     implements ValueMetaData, MetaDataContext, MetaDataModes, Commentable {
-    
+
+    private static final long serialVersionUID = -566180883009883198L;
+
     /**
      * Constant specifying that no null-value was given.
      */
@@ -114,7 +115,7 @@ public class FieldMetaData
      * Constant specifying the management level of a field.
      */
     public static final int MANAGE_NONE = 0;
-    
+
     public static final int ONE_TO_ONE = 1;
     public static final int ONE_TO_MANY = 2;
     public static final int MANY_TO_ONE = 3;
@@ -186,6 +187,8 @@ public class FieldMetaData
     private Boolean _lobField = null;
     private Boolean _serializableField = null;
     private boolean _generated = false;
+    private boolean _useSchemaElement = true;
+    private Class _converter;
 
     // Members aren't serializable. Use a proxy that can provide a Member
     // to avoid writing the full Externalizable implementation.
@@ -196,6 +199,10 @@ public class FieldMetaData
     private transient Method _extMethod = DEFAULT_METHOD;
     private transient Member _factMethod = DEFAULT_METHOD;
 
+    private transient Constructor _converterConstructor;
+    private transient Method _converterExtMethod;
+    private transient Method _converterFactMethod;
+    
     // intermediate and impl data
     private boolean _intermediate = true;
     private Boolean _implData = Boolean.TRUE;
@@ -215,11 +222,14 @@ public class FieldMetaData
     // ordering on load
     private Order[] _orders = null;
     private String _orderDec = null;
-    // indicate if this field is used by other field as "order by" value 
+    // indicate if this field is used by other field as "order by" value
     private boolean _usedInOrderBy = false;
     private boolean _isElementCollection = false;
     private int _associationType;
 
+    private boolean _persistentCollection = false;
+
+    private Boolean _delayCapable = null;
     /**
      * Constructor.
      *
@@ -242,7 +252,7 @@ public class FieldMetaData
     /**
      * Supply the backing member object; this allows us to utilize
      * parameterized type information if available.
-     * Sets the access style of this receiver based on whether the given 
+     * Sets the access style of this receiver based on whether the given
      * member represents a field or getter method.
      */
     public void backingMember(Member member) {
@@ -291,6 +301,7 @@ public class FieldMetaData
     /**
      * The metadata repository.
      */
+    @Override
     public MetaDataRepository getRepository() {
         return _owner.getRepository();
     }
@@ -305,7 +316,7 @@ public class FieldMetaData
     /**
      * The declaring class.
      */
-    public Class getDeclaringType() {
+    public Class<?> getDeclaringType() {
         return (_dec == null) ? _owner.getDescribedType() : _dec;
     }
 
@@ -342,6 +353,7 @@ public class FieldMetaData
      * The field name, qualified by the owning class.
      * @deprecated Use getFullName(boolean) instead.
      */
+    @Deprecated
     public String getFullName() {
         return getFullName(false);
     }
@@ -530,7 +542,7 @@ public class FieldMetaData
      * <li>{@link #MANAGE_TRANSACTIONAL}: the field is transactional but not
      * persistent</li>
      * <li>{@link #MANAGE_NONE}: the field is not managed</li>
-     * </ul> 
+     * </ul>
      * Defaults to {@link #MANAGE_PERSISTENT}.
      */
     public void setManagement(int manage) {
@@ -554,7 +566,7 @@ public class FieldMetaData
     }
 
     /**
-     * For a primary key field, return the type of the corresponding object id 
+     * For a primary key field, return the type of the corresponding object id
      * class field.
      */
     public int getObjectIdFieldTypeCode() {
@@ -572,7 +584,7 @@ public class FieldMetaData
     }
 
     /**
-     * For a primary key field, return the type of the corresponding object id 
+     * For a primary key field, return the type of the corresponding object id
      * class field.
      */
     public Class<?> getObjectIdFieldType() {
@@ -592,7 +604,7 @@ public class FieldMetaData
                     : relmeta.getObjectIdType();
             default:
                 return Object.class;
-        } 
+        }
     }
 
     /**
@@ -648,10 +660,10 @@ public class FieldMetaData
     private boolean isEnum() {
         if (_enumField == null) {
             Class<?> decl = getDeclaredType();
-            _enumField = JavaVersions.isEnumeration(decl)
+            _enumField =  Enum.class.isAssignableFrom(decl)
                 ? Boolean.TRUE : Boolean.FALSE;
         }
-        return _enumField.booleanValue();
+        return _enumField;
     }
 
     private boolean isSerializable() {
@@ -662,7 +674,7 @@ public class FieldMetaData
             else
                 _serializableField = Boolean.FALSE;
         }
-        return _serializableField.booleanValue();
+        return _serializableField;
     }
 
     private boolean isLobArray() {
@@ -675,7 +687,7 @@ public class FieldMetaData
             else
                 _lobField = Boolean.FALSE;
         }
-        return _lobField.booleanValue();
+        return _lobField;
     }
 
     /**
@@ -708,7 +720,7 @@ public class FieldMetaData
     }
 
     /**
-     * Gets the name of the custom fetch groups those are associated to this 
+     * Gets the name of the custom fetch groups those are associated to this
      * receiver.  This does not include the "default" and "all" fetch groups.
      *
      * @return the set of fetch group names, not including the default and
@@ -716,11 +728,11 @@ public class FieldMetaData
      */
     public String[] getCustomFetchGroups() {
         if (_fgs == null) {
-            if (_fgSet == null || _manage != MANAGE_PERSISTENT 
+            if (_fgSet == null || _manage != MANAGE_PERSISTENT
                 || isPrimaryKey() || isVersion())
                 _fgs = new String[0];
             else
-                _fgs = (String[]) _fgSet.toArray(new String[_fgSet.size()]);
+                _fgs = _fgSet.toArray(new String[_fgSet.size()]);
         }
         return _fgs;
     }
@@ -732,7 +744,7 @@ public class FieldMetaData
     public String getLoadFetchGroup () {
     	return _lfg;
     }
-    
+
     /**
      * The fetch group that is to be loaded when this receiver is loaded, or
      * null if none set.
@@ -763,7 +775,7 @@ public class FieldMetaData
      * class that declared this field or any of its persistent superclasses.
      */
     public void setInFetchGroup(String fg, boolean in) {
-        if (StringUtils.isEmpty(fg))
+        if (StringUtil.isEmpty(fg))
             throw new MetaDataException(_loc.get("empty-fg-name", this));
         if (fg.equals(FetchGroup.NAME_ALL))
             return;
@@ -774,12 +786,12 @@ public class FieldMetaData
         if (_owner.getFetchGroup(fg) == null)
             throw new MetaDataException(_loc.get("unknown-fg", fg, this));
         if (in && _fgSet == null)
-            _fgSet = new HashSet<String>();
+            _fgSet = new HashSet<>();
         if ((in && _fgSet.add(fg))
             || (!in && _fgSet != null && _fgSet.remove(fg)))
             _fgs = null;
     }
-    
+
     /**
      * How the data store should treat null values for this field:
      * <ul>
@@ -885,7 +897,7 @@ public class FieldMetaData
         FieldMetaData field = meta.getField(mappedBy);
         if (field != null)
             return field;
-        int dotIdx = mappedBy.indexOf("."); 
+        int dotIdx = mappedBy.indexOf(".");
         if ( dotIdx == -1)
             return null;
         String fieldName = mappedBy.substring(0, dotIdx);
@@ -898,8 +910,8 @@ public class FieldMetaData
         String mappedBy1 = mappedBy.substring(dotIdx + 1);
         return getMappedByField(meta1, mappedBy1);
     }
-    
-    
+
+
     /**
      * Logical inverse field.
      */
@@ -950,7 +962,7 @@ public class FieldMetaData
                     // inverses must be
                     if (field.getTypeCode() == JavaTypes.PC
                         || field.getElement().getTypeCode() == JavaTypes.PC) {
-                        inverses = new ArrayList<FieldMetaData>(3);
+                        inverses = new ArrayList<>(3);
                         inverses.add(field);
                     }
                 } else if (inv != null) {
@@ -958,24 +970,24 @@ public class FieldMetaData
                     if (field == null)
                         throw new MetaDataException(_loc.get("no-inverse",
                             this, inv));
-                    inverses = new ArrayList<FieldMetaData>(3);
+                    inverses = new ArrayList<>(3);
                     inverses.add(field);
                 }
 
                 // scan rel type for fields that name this field as an inverse
                 FieldMetaData[] fields = meta.getFields();
                 Class<?> type = getDeclaringMetaData().getDescribedType();
-                for (int i = 0; i < fields.length; i++) {
+                for (FieldMetaData fieldMetaData : fields) {
                     // skip fields that aren't compatible with our owning class
-                    switch (fields[i].getTypeCode()) {
+                    switch (fieldMetaData.getTypeCode()) {
                         case JavaTypes.PC:
-                            if (!type.isAssignableFrom(fields[i].getType()))
+                            if (!type.isAssignableFrom(fieldMetaData.getType()))
                                 continue;
                             break;
                         case JavaTypes.COLLECTION:
                         case JavaTypes.ARRAY:
-                            if (!type.isAssignableFrom(fields[i].
-                                getElement().getType()))
+                            if (!type.isAssignableFrom(fieldMetaData.
+                                    getElement().getType()))
                                 continue;
                             break;
                         default:
@@ -985,12 +997,12 @@ public class FieldMetaData
                     // if the field declares us as its inverse and we haven't
                     // already added it (we might have if we also declared it
                     // as our inverse), add it now
-                    if (_name.equals(fields[i].getMappedBy())
-                        || _name.equals(fields[i].getInverse())) {
+                    if (_name.equals(fieldMetaData.getMappedBy())
+                            || _name.equals(fieldMetaData.getInverse())) {
                         if (inverses == null)
-                            inverses = new ArrayList<FieldMetaData>(3);
-                        if (!inverses.contains(fields[i]))
-                            inverses.add(fields[i]);
+                            inverses = new ArrayList<>(3);
+                        if (!inverses.contains(fieldMetaData))
+                            inverses.add(fieldMetaData);
                     }
                 }
             }
@@ -1094,7 +1106,7 @@ public class FieldMetaData
     public boolean isStream() {
         return _stream == Boolean.TRUE && _manage == MANAGE_PERSISTENT;
     }
-    
+
     /**
      * Whether this field is backed by a stream.
      *
@@ -1103,7 +1115,7 @@ public class FieldMetaData
     public void setStream(boolean stream) {
         _stream = (stream) ? Boolean.TRUE : Boolean.FALSE;
     }
-    
+
     /**
      * Whether this field uses intermediate data when loading/storing
      * information through a {@link OpenJPAStateManager}. Defaults to true.
@@ -1160,7 +1172,7 @@ public class FieldMetaData
             if (_orderDec == null)
                 _orders = getRepository().EMPTY_ORDERS;
             else {
-                String[] decs = Strings.split(_orderDec, ",", 0);
+                String[] decs = StringUtil.split(_orderDec, ",", 0);
                 Order[] orders = getRepository().newOrderArray(decs.length);
                 int spc;
                 boolean asc;
@@ -1181,7 +1193,7 @@ public class FieldMetaData
                     if (elemCls != null) {
                       FieldMetaData fmd = elemCls.getDeclaredField(decs[i]);
                       if (fmd != null)
-                        fmd.setUsedInOrderBy(true);                      
+                        fmd.setUsedInOrderBy(true);
                     }
                 }
                 _orders = orders;
@@ -1227,7 +1239,7 @@ public class FieldMetaData
      * the field's elements.
      */
     public void setOrderDeclaration(String dec) {
-        _orderDec = StringUtils.trimToNull(dec);
+        _orderDec = StringUtil.trimToNull(dec);
         _orders = null;
     }
 
@@ -1253,7 +1265,7 @@ public class FieldMetaData
                 curComp = orders[i].getComparator();
                 if (curComp != null) {
                     if (comps == null)
-                        comps = new ArrayList<Comparator<?>>(orders.length);
+                        comps = new ArrayList<>(orders.length);
                     if (i != comps.size())
                         throw new MetaDataException(_loc.get
                             ("mixed-inmem-ordering", this));
@@ -1310,35 +1322,58 @@ public class FieldMetaData
         }
 
         Method externalizer = getExternalizerMethod();
-        if (externalizer == null)
-            return val;
+        if (externalizer != null) {
+            // special case for queries: allow the given value to pass through
+            // as-is if it is already in externalized form
+            if (val != null && getType().isInstance(val)
+                && (!getDeclaredType().isInstance(val)
+                || getDeclaredType() == Object.class))
+                return val;
 
-        // special case for queries: allow the given value to pass through
-        // as-is if it is already in externalized form
-        if (val != null && getType().isInstance(val)
-            && (!getDeclaredType().isInstance(val)
-            || getDeclaredType() == Object.class))
-            return val;
-
-        try {
-            // either invoke the static toExternal(val[, ctx]) method, or the
-            // non-static val.toExternal([ctx]) method
-            if (Modifier.isStatic(externalizer.getModifiers())) {
-                if (externalizer.getParameterTypes().length == 1)
-                    return externalizer.invoke(null, new Object[]{ val });
-                return externalizer.invoke(null, new Object[]{ val, ctx });
+            try {
+                // either invoke the static toExternal(val[, ctx]) method, or the
+                // non-static val.toExternal([ctx]) method
+                if (Modifier.isStatic(externalizer.getModifiers())) {
+                    if (externalizer.getParameterTypes().length == 1)
+                        return externalizer.invoke(null, new Object[]{ val });
+                    return externalizer.invoke(null, new Object[]{ val, ctx });
+                }
+                if (val == null)
+                    return null;
+                if (externalizer.getParameterTypes().length == 0)
+                    return externalizer.invoke(val, (Object[]) null);
+                return externalizer.invoke(val, new Object[]{ ctx });
+            } catch (OpenJPAException ke) {
+                throw ke;
+            } catch (Exception e) {
+                throw new MetaDataException(_loc.get("externalizer-err", this,
+                    Exceptions.toString(val), e.toString())).setCause(e);
             }
-            if (val == null)
-                return null;
-            if (externalizer.getParameterTypes().length == 0)
-                return externalizer.invoke(val, (Object[]) null);
-            return externalizer.invoke(val, new Object[]{ ctx });
-        } catch (OpenJPAException ke) {
-            throw ke;
-        } catch (Exception e) {
-            throw new MetaDataException(_loc.get("externalizer-err", this,
-                Exceptions.toString(val), e.toString())).setCause(e);
         }
+
+        Class converter = getConverter();
+        if (converter != null && val != null) {
+            try {
+                // TODO support CDI (OPENJPA-2714)
+                if (_converterConstructor == null) {
+                    _converterConstructor = converter.getDeclaredConstructor();
+                }
+                Object instance = _converterConstructor.newInstance();
+
+                // see AttributeConverter.java from the JPA specs
+                if (_converterExtMethod == null) {
+                    _converterExtMethod = converter.getDeclaredMethod("convertToDatabaseColumn", Object.class);
+                }
+                return _converterExtMethod.invoke(instance, val);
+            } catch (OpenJPAException ke) {
+                throw ke;
+            } catch (Exception e) {
+                throw new MetaDataException(_loc.get("converter-err", this,
+                    Exceptions.toString(val), e.toString())).setCause(e);
+            }
+        }
+
+        return val;
     }
 
     /**
@@ -1352,50 +1387,73 @@ public class FieldMetaData
             return fieldValues.get(val);
 
         Member factory = getFactoryMethod();
-        if (factory == null)
-            return val;
+        if (factory != null) {
+            try {
+                if (val == null && getNullValue() == NULL_DEFAULT)
+                    return AccessController.doPrivileged(
+                        J2DoPrivHelper.newInstanceAction(getDeclaredType()));
 
-        try {
-            if (val == null && getNullValue() == NULL_DEFAULT)
-                return AccessController.doPrivileged(
-                    J2DoPrivHelper.newInstanceAction(getDeclaredType())); 
+                // invoke either the constructor for the field type,
+                // or the static type.toField(val[, ctx]) method
+                if (factory instanceof Constructor) {
+                    if (val == null)
+                        return null;
+                    return ((Constructor) factory).newInstance
+                        (new Object[]{ val });
+                }
 
-            // invoke either the constructor for the field type,
-            // or the static type.toField(val[, ctx]) method
-            if (factory instanceof Constructor) {
-                if (val == null)
-                    return null;
-                return ((Constructor) factory).newInstance
-                    (new Object[]{ val });
+                Method meth = (Method) factory;
+                if (meth.getParameterTypes().length == 1)
+                    return meth.invoke(null, new Object[]{ val });
+                return meth.invoke(null, new Object[]{ val, ctx });
+            } catch (Exception e) {
+                // unwrap cause
+                if (e instanceof InvocationTargetException) {
+                    Throwable t = ((InvocationTargetException) e).
+                        getTargetException();
+                    if (t instanceof Error)
+                        throw (Error) t;
+                    e = (Exception) t;
+
+                    // allow null values to cause NPEs and illegal arg exceptions
+                    // without error
+                    if (val == null && (e instanceof NullPointerException
+                        || e instanceof IllegalArgumentException))
+                        return null;
+                }
+
+                if (e instanceof OpenJPAException)
+                    throw (OpenJPAException) e;
+                if (e instanceof PrivilegedActionException)
+                    e = ((PrivilegedActionException) e).getException();
+                throw new MetaDataException(_loc.get("factory-err", this,
+                    Exceptions.toString(val), e.toString())).setCause(e);
             }
-
-            Method meth = (Method) factory;
-            if (meth.getParameterTypes().length == 1)
-                return meth.invoke(null, new Object[]{ val });
-            return meth.invoke(null, new Object[]{ val, ctx });
-        } catch (Exception e) {
-            // unwrap cause
-            if (e instanceof InvocationTargetException) {
-                Throwable t = ((InvocationTargetException) e).
-                    getTargetException();
-                if (t instanceof Error)
-                    throw (Error) t;
-                e = (Exception) t;
-
-                // allow null values to cause NPEs and illegal arg exceptions
-                // without error
-                if (val == null && (e instanceof NullPointerException
-                    || e instanceof IllegalArgumentException))
-                    return null;
-            }
-
-            if (e instanceof OpenJPAException)
-                throw (OpenJPAException) e;
-            if (e instanceof PrivilegedActionException)
-                e = ((PrivilegedActionException) e).getException();
-            throw new MetaDataException(_loc.get("factory-err", this,
-                Exceptions.toString(val), e.toString())).setCause(e);
         }
+
+        Class converter = getConverter();
+        if (converter != null && val != null) {
+            try {
+                // TODO support CDI (OPENJPA-2714)
+                if (_converterConstructor == null) {
+                    _converterConstructor = converter.getDeclaredConstructor();
+                }
+                Object instance = _converterConstructor.newInstance();
+
+                // see AttributeConverter.java from the JPA specs
+                if (_converterFactMethod == null) {
+                    _converterFactMethod = converter.getDeclaredMethod("convertToEntityAttribute", Object.class);
+                }
+                return _converterFactMethod.invoke(instance, val);
+            } catch (OpenJPAException ke) {
+                throw ke;
+            } catch (Exception e) {
+                throw new MetaDataException(_loc.get("converter-err", this,
+                    Exceptions.toString(val), e.toString())).setCause(e);
+            }
+        }
+
+        return val;
     }
 
     /**
@@ -1413,6 +1471,12 @@ public class FieldMetaData
         _extMethod = DEFAULT_METHOD;
     }
 
+    public void setConverter(Class converter) {
+        _converter = converter;
+        _converterExtMethod = null;
+        _converterFactMethod = null;
+    }
+    
     /**
      * The name of this field's factory, or null if none.
      */
@@ -1483,10 +1547,10 @@ public class FieldMetaData
         Map fieldValues = new HashMap((int) (values.size() * 1.33 + 1));
         Map.Entry entry;
         Object extValue, fieldValue;
-        for (Iterator itr = values.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
+        for (Map.Entry<Object, Object> objectObjectEntry : values.entrySet()) {
+            entry = (Map.Entry) objectObjectEntry;
             fieldValue = transform((String) entry.getKey(),
-                getDeclaredTypeCode());
+                    getDeclaredTypeCode());
             extValue = transform((String) entry.getValue(), getTypeCode());
 
             extValues.put(fieldValue, extValue);
@@ -1529,7 +1593,7 @@ public class FieldMetaData
                 return Float.valueOf(val);
             case JavaTypes.CHAR:
             case JavaTypes.CHAR_OBJ:
-                return new Character(val.charAt(0));
+                return val.charAt(0);
             case JavaTypes.STRING:
                 return val;
             case JavaTypes.ENUM:
@@ -1571,7 +1635,7 @@ public class FieldMetaData
                         _factMethod = getDeclaredType().getConstructor
                             (new Class[]{ getType() });
                     else
-                        _factMethod = findMethod(_factName);
+                    	_factMethod = findMethodByNameAndType(_factName, getType());
                 } catch (OpenJPAException ke) {
                     throw ke;
                 } catch (Exception e) {
@@ -1597,13 +1661,29 @@ public class FieldMetaData
      * @return the method for invocation
      */
     private Method findMethod(String method) {
-        if (StringUtils.isEmpty(method))
+    	return findMethodByNameAndType(method, null);
+    }
+
+    /**
+     * Find the method for the specified name and type. Possible forms are:
+     * <ul>
+     * <li>toExternalString</li>
+     * <li>MyFactoryClass.toExternalString</li>
+     * <li>com.company.MyFactoryClass.toExternalString</li>
+     * </ul>
+     *
+     * @param method the name of the method to locate
+     * @param type The type of the parameter which will pass the object from the database.
+     * @return the method for invocation
+     */
+    private Method findMethodByNameAndType(String method, Class<?> type) {
+        if (StringUtil.isEmpty(method))
             return null;
 
         // get class name and get package name divide on the last '.', so the
         // names don't apply in this case, but the methods do what we want
-        String methodName = Strings.getClassName(method);
-        String clsName = Strings.getPackageName(method);
+        String methodName = ClassUtil.getClassName(method);
+        String clsName = ClassUtil.getPackageName(method);
 
         Class<?> cls = null;
         Class<?> owner = _owner.getDescribedType();
@@ -1611,7 +1691,7 @@ public class FieldMetaData
         if (clsName.length() == 0)
             cls = getDeclaredType();
         else if (clsName.equals(owner.getName())
-            || clsName.equals(Strings.getClassName(owner)))
+            || clsName.equals(ClassUtil.getClassName(owner)))
             cls = owner;
         else
             cls = JavaTypes.classForName(clsName, this);
@@ -1619,26 +1699,157 @@ public class FieldMetaData
         // find the named method
         Method[] methods = cls.getMethods();
         Class<?>[] params;
-        for (int i = 0; i < methods.length; i++) {
-            if (methods[i].getName().equals(methodName)) {
-                params = methods[i].getParameterTypes();
+        for (Method value : methods) {
+            if (value.getName().equals(methodName)) {
+                params = value.getParameterTypes();
 
                 // static factory methods require one argument or one argument
                 // plus a context; non-static methods require zero arguments or
                 // just a context
-                if (Modifier.isStatic(methods[i].getModifiers())
-                    && (params.length == 1 || (params.length == 2
-                    && isStoreContextParameter(params[1]))))
-                    return methods[i];
-                if (!Modifier.isStatic(methods[i].getModifiers())
-                    && (params.length == 0 || (params.length == 1
-                    && isStoreContextParameter(params[0]))))
-                    return methods[i];
+                if (Modifier.isStatic(value.getModifiers())
+                        && (params.length == 1 || (params.length == 2
+                        && isStoreContextParameter(params[1]))))
+
+                    if (type == null) {
+                        return value;
+                    }
+                    else if (isConvertibleToByMethodInvocationConversion(type, params[0])) {
+                        return value;
+                    }
+                if (!Modifier.isStatic(value.getModifiers())
+                        && (params.length == 0 || (params.length == 1
+                        && isStoreContextParameter(params[0]))))
+                    return value;
             }
         }
 
         return null;
     }
+
+	/**
+	 * Test if the {@code sourceType} is convertible to the {@code destType}.
+	 * Convertible follows the rules in Java Language Specification, 3rd Ed, s5.3 and means that:
+	 * <ul>
+	 * <li>{@code sourceType} and {@code destType} are the same type (identity conversion)</li>
+	 * <li>For primitive types: that {@code sourceType} can be widened into {@code destType}
+	 * or that {@code sourceType} can be boxed into a class assignable to {@code destType}.</li>
+	 * <li>For non-primitive types: that the {@code sourceType} can be unboxed into a primitive
+	 *  that is the same as, or can be widened into,
+	 * {@code destType} or {@code sourceType} can be assigned to {@code destType}.</li>
+	 *
+	 * @return True iff the conditions above are true.
+	 */
+	private boolean isConvertibleToByMethodInvocationConversion(Class<?> sourceType, Class<?> destType) {
+		// Note that class.isAssignableFrom is a widening reference conversion test
+		if (sourceType.isPrimitive()) {
+			return isConvertibleToByIdentityPrimitiveConversion(sourceType, destType)
+				|| isConvertibleToByWideningPrimitive(sourceType, destType)
+				|| destType.isAssignableFrom(box(sourceType));
+		} else {
+			// Note that unbox will return null if the sourceType is not a wrapper.
+			// The identity primitive conversion and widening primitive handle this.
+			return isConvertibleToByIdentityPrimitiveConversion(unbox(sourceType), destType)
+			|| isConvertibleToByWideningPrimitive(unbox(sourceType), destType)
+			|| destType.isAssignableFrom(sourceType);
+		}
+	}
+
+	/**
+	 * @return The results of unboxing {@code sourceType} following Java Language Specification, 3rd Ed, s5.1.8
+	 */
+	private Class<?> unbox(Class<?> sourceType) {
+		if (sourceType == java.lang.Boolean.class) {
+			return java.lang.Boolean.TYPE;
+		} else if (sourceType == java.lang.Byte.class) {
+			return java.lang.Byte.TYPE;
+		} else if (sourceType == java.lang.Short.class) {
+			return java.lang.Short.TYPE;
+		} else if (sourceType == java.lang.Character.class) {
+			return java.lang.Character.TYPE;
+		} else if (sourceType == java.lang.Integer.class) {
+			return java.lang.Integer.TYPE;
+		} else if (sourceType == java.lang.Long.class) {
+			return java.lang.Long.TYPE;
+		} else if (sourceType == java.lang.Float.class) {
+			return java.lang.Float.TYPE;
+		} else if (sourceType == java.lang.Double.class) {
+			return java.lang.Double.TYPE;
+		} else {
+			return null;
+		}
+	}
+
+	/**
+	 * @return The results of unboxing {@code sourceType} following Java Language Specification, 3rd Ed, s5.1.7
+	 */
+	private Class<?> box(Class<?> sourceType) {
+		if (sourceType.isPrimitive()) {
+			if (sourceType == java.lang.Boolean.TYPE) {
+				return java.lang.Boolean.class;
+			} else if (sourceType == java.lang.Byte.TYPE) {
+				return java.lang.Byte.class;
+			} else if (sourceType == java.lang.Short.TYPE) {
+				return java.lang.Short.class;
+			} else if (sourceType == java.lang.Character.TYPE) {
+				return java.lang.Character.class;
+			} else if (sourceType == java.lang.Integer.TYPE) {
+				return java.lang.Integer.class;
+			} else if (sourceType == java.lang.Long.TYPE) {
+				return java.lang.Long.class;
+			} else if (sourceType == java.lang.Float.TYPE) {
+				return java.lang.Float.class;
+			} else if (sourceType == java.lang.Double.TYPE) {
+				return java.lang.Double.class;
+			}
+			return null;  // Should never be reached because all primitives are accounted for above.
+		} else {
+			throw new IllegalArgumentException("Cannot box a type that is not a primitive.");
+		}
+	}
+
+	/**
+	 * @return true if {@code sourceType} can be converted by a widening primitive conversion
+	 *  following Java Language Specification, 3rd Ed, s5.1.2
+	 */
+	private boolean isConvertibleToByWideningPrimitive(Class<?> sourceType, Class<?> destType) {
+		// Widening conversion following Java Language Specification, s5.1.2.
+		if (sourceType == java.lang.Byte.TYPE) {
+			return destType == java.lang.Short.TYPE ||
+			    destType == java.lang.Integer.TYPE ||
+			    destType == java.lang.Long.TYPE ||
+			    destType == java.lang.Float.TYPE ||
+			    destType == java.lang.Double.TYPE;
+		} else if (sourceType == java.lang.Short.TYPE) {
+			return destType == java.lang.Integer.TYPE ||
+				destType == java.lang.Long.TYPE ||
+				destType == java.lang.Float.TYPE ||
+				destType == java.lang.Double.TYPE;
+		} else if (sourceType == java.lang.Character.TYPE) {
+			return destType == java.lang.Integer.TYPE ||
+			  	destType == java.lang.Long.TYPE ||
+			  	destType == java.lang.Float.TYPE ||
+			  	destType == java.lang.Double.TYPE;
+		} else if (sourceType == java.lang.Integer.TYPE) {
+			return destType == java.lang.Long.TYPE ||
+			  	destType == java.lang.Float.TYPE ||
+			  	destType == java.lang.Double.TYPE;
+		} else if (sourceType == java.lang.Long.TYPE) {
+			return destType == java.lang.Float.TYPE ||
+			  	destType == java.lang.Double.TYPE;
+		} else if (sourceType == java.lang.Float.TYPE) {
+			return destType == java.lang.Double.TYPE;
+		}
+		return false;
+	}
+
+	/**
+	 * Returns true iff the sourceType is a primitive that can be converted to
+	 * destType using an identity conversion - i.e. sourceType and destType are the same type.
+	 * following Java Language Specification, 3rd Ed, s5.1.1
+	 */
+	private boolean isConvertibleToByIdentityPrimitiveConversion(Class<?> sourceType, Class<?> destType) {
+		return sourceType != null && sourceType.isPrimitive() && sourceType == destType;
+	}
 
     /**
      * Return true if the given type is a store context type; we can't
@@ -1649,6 +1860,7 @@ public class FieldMetaData
         return StoreContext.class.getName().equals(type.getName());
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -1658,6 +1870,7 @@ public class FieldMetaData
             getFullName(true));
     }
 
+    @Override
     public int hashCode() {
         return getFullName(true).hashCode();
     }
@@ -1669,6 +1882,7 @@ public class FieldMetaData
             getFullName(true));
     }
 
+    @Override
     public String toString() {
         return getFullName(true);
     }
@@ -1680,6 +1894,7 @@ public class FieldMetaData
     /**
      * Resolve mode for this field.
      */
+    @Override
     public int getResolve() {
         return _resMode;
     }
@@ -1687,6 +1902,7 @@ public class FieldMetaData
     /**
      * Resolve mode for this field.
      */
+    @Override
     public void setResolve(int mode) {
         _resMode = mode;
     }
@@ -1694,6 +1910,7 @@ public class FieldMetaData
     /**
      * Resolve mode for this field.
      */
+    @Override
     public void setResolve(int mode, boolean on) {
         if (mode == MODE_NONE)
             _resMode = mode;
@@ -1706,6 +1923,7 @@ public class FieldMetaData
     /**
      * Resolve and validate metadata. Return true if already resolved.
      */
+    @Override
     public boolean resolve(int mode) {
         if ((_resMode & mode) == mode)
             return true;
@@ -1882,6 +2100,8 @@ public class FieldMetaData
         _isElementCollection = field._isElementCollection;
         _access = field._access;
         _orderDec = field._orderDec;
+        _useSchemaElement = field._useSchemaElement;
+        _converter = field._converter;
 
         // embedded fields can't be versions
         if (_owner.getEmbeddingMetaData() == null && _version == null)
@@ -1916,6 +2136,7 @@ public class FieldMetaData
         _elem.copy(field.getElement());
     }
 
+    @Override
     protected void addExtensionKeys(Collection exts) {
         getRepository().getMetaDataFactory().addFieldExtensionKeys(exts);
     }
@@ -1924,10 +2145,12 @@ public class FieldMetaData
     // Commentable
     ///////////////
 
+    @Override
     public String[] getComments() {
         return (_comments == null) ? EMPTY_COMMENTS : _comments;
     }
 
+    @Override
     public void setComments(String[] comments) {
         _comments = comments;
     }
@@ -1936,14 +2159,17 @@ public class FieldMetaData
     // ValueMetaData implementation
     ////////////////////////////////
 
+    @Override
     public FieldMetaData getFieldMetaData() {
         return this;
     }
 
+    @Override
     public Class getType() {
         return _val.getType();
     }
 
+    @Override
     public void setType(Class type) {
         _val.setType(type);
         if (type.isArray())
@@ -1954,26 +2180,32 @@ public class FieldMetaData
         }
     }
 
+    @Override
     public int getTypeCode() {
         return _val.getTypeCode();
     }
 
+    @Override
     public void setTypeCode(int code) {
         _val.setTypeCode(code);
     }
 
+    @Override
     public boolean isTypePC() {
         return _val.isTypePC();
     }
 
+    @Override
     public ClassMetaData getTypeMetaData() {
         return _val.getTypeMetaData();
     }
 
+    @Override
     public Class getDeclaredType() {
         return _val.getDeclaredType();
     }
 
+    @Override
     public void setDeclaredType(Class type) {
         _val.setDeclaredType(type);
         if (type.isArray())
@@ -1984,114 +2216,147 @@ public class FieldMetaData
         }
     }
 
+    @Override
     public int getDeclaredTypeCode() {
         return _val.getDeclaredTypeCode();
     }
 
+    @Override
     public void setDeclaredTypeCode(int type) {
         _val.setDeclaredTypeCode(type);
     }
 
+    @Override
     public boolean isDeclaredTypePC() {
         return _val.isDeclaredTypePC();
     }
 
+    @Override
     public ClassMetaData getDeclaredTypeMetaData() {
         return _val.getDeclaredTypeMetaData();
     }
 
+    @Override
     public boolean isEmbedded() {
         return _val.isEmbedded();
     }
 
+    @Override
     public void setEmbedded(boolean embedded) {
         _val.setEmbedded(embedded);
     }
 
+    @Override
     public boolean isEmbeddedPC() {
         return _val.isEmbeddedPC();
     }
 
+    @Override
     public ClassMetaData getEmbeddedMetaData() {
         return _val.getEmbeddedMetaData();
     }
 
+    @Override
     public ClassMetaData addEmbeddedMetaData(int access) {
         return _val.addEmbeddedMetaData(access);
     }
+    @Override
     public ClassMetaData addEmbeddedMetaData() {
         return _val.addEmbeddedMetaData();
     }
 
+    @Override
     public int getCascadeDelete() {
         return _val.getCascadeDelete();
     }
 
+    @Override
     public void setCascadeDelete(int delete) {
         _val.setCascadeDelete(delete);
     }
 
+    @Override
     public int getCascadePersist() {
         return _val.getCascadePersist();
     }
 
+    @Override
     public void setCascadePersist(int persist) {
         _val.setCascadePersist(persist);
     }
 
+    @Override
+    public void setCascadePersist(int cascade, boolean checkPUDefault) {
+        _val.setCascadePersist(cascade, checkPUDefault);
+    }
+
+    @Override
     public int getCascadeAttach() {
         return _val.getCascadeAttach();
     }
 
+    @Override
     public void setCascadeAttach(int attach) {
         _val.setCascadeAttach(attach);
     }
-    
+
+    @Override
     public int getCascadeDetach() {
         return _val.getCascadeDetach();
     }
 
+    @Override
     public void setCascadeDetach(int detach) {
         _val.setCascadeDetach(detach);
     }
 
+    @Override
     public int getCascadeRefresh() {
         return _val.getCascadeRefresh();
     }
 
+    @Override
     public void setCascadeRefresh(int refresh) {
         _val.setCascadeRefresh(refresh);
     }
 
+    @Override
     public boolean isSerialized() {
         return _val.isSerialized();
     }
 
+    @Override
     public void setSerialized(boolean serialized) {
         _val.setSerialized(serialized);
     }
 
+    @Override
     public String getValueMappedBy() {
         return _val.getValueMappedBy();
     }
 
+    @Override
     public void setValueMappedBy(String mapped) {
         _val.setValueMappedBy(mapped);
     }
 
+    @Override
     public FieldMetaData getValueMappedByMetaData () {
 		return _val.getValueMappedByMetaData ();
 	}
 
-	public Class<?> getTypeOverride () {
+	@Override
+    public Class<?> getTypeOverride () {
 		return _val.getTypeOverride ();
 	}
 
-	public void setTypeOverride(Class type) {
+	@Override
+    public void setTypeOverride(Class type) {
 		_val.setTypeOverride (type);
 	}
 
-	public void copy (ValueMetaData vmd) {
+	@Override
+    public void copy (ValueMetaData vmd) {
 		_val.copy (vmd);
 	}
 
@@ -2103,7 +2368,7 @@ public class FieldMetaData
     public boolean isUsedInOrderBy() {
     	return _usedInOrderBy;
     }
-    
+
     /**
      * Whether this field is used by other field as "order by" value .
      *
@@ -2112,9 +2377,9 @@ public class FieldMetaData
     public void setUsedInOrderBy(boolean isUsed) {
     	_usedInOrderBy = isUsed;
     }
-    
+
     /**
-     * Serializable wrapper around a {@link Method} or {@link Field}. For 
+     * Serializable wrapper around a {@link Method} or {@link Field}. For
      * space considerations, this does not support {@link Constructor}s.
      */
 	public static class MemberProvider
@@ -2137,6 +2402,7 @@ public class FieldMetaData
             return _member;
         }
 
+        @Override
         public void readExternal(ObjectInput in)
             throws IOException, ClassNotFoundException {
             boolean isField = in.readBoolean();
@@ -2146,7 +2412,7 @@ public class FieldMetaData
                 if (isField)
                     _member = AccessController.doPrivileged(
                         J2DoPrivHelper.getDeclaredFieldAction(
-                            cls, memberName)); 
+                            cls, memberName));
                 else {
                     Class<?>[] parameterTypes = (Class[]) in.readObject();
                     _member = AccessController.doPrivileged(
@@ -2154,17 +2420,16 @@ public class FieldMetaData
                             cls, memberName, parameterTypes));
                 }
             } catch (SecurityException e) {
-                IOException ioe = new IOException(e.getMessage());
-                ioe.initCause(e);
+                IOException ioe = new IOException(e.getMessage(), e);
                 throw ioe;
             } catch (PrivilegedActionException pae) {
                 IOException ioe = new IOException(
-                    pae.getException().getMessage());
-                ioe.initCause(pae);
+                    pae.getException().getMessage(), pae);
                 throw ioe;
             }
         }
 
+        @Override
         public void writeExternal(ObjectOutput out)
             throws IOException {
             boolean isField = _member instanceof Field;
@@ -2199,11 +2464,11 @@ public class FieldMetaData
     public void setMappedByIdValue(String mappedByIdValue) {
         this._mappedByIdValue = mappedByIdValue;
     }
-    
+
     public boolean isMappedById() {
     	return (_mappedByIdValue != null);
     }
-    
+
     /**
      * Gets the access type used by this field. If no access type is set for
      * this field then return the access type used by the declaring class.
@@ -2216,7 +2481,7 @@ public class FieldMetaData
         }
         return _access;
     }
-    
+
     /**
      * Sets access type of this field. The access code is verified for validity
      * as well as against the access style used by the declaring class.
@@ -2226,13 +2491,98 @@ public class FieldMetaData
     	owner.mergeFieldAccess(this, fCode);
         _access = fCode;
     }
-    
+
     public int getAssociationType() {
         return _associationType;
     }
-    
+
     public void setAssociationType(int type) {
         _associationType = type;
     }
-    
+
+    public boolean isPersistentCollection() {
+        return _persistentCollection;
+    }
+
+    public void setPersistentCollection(boolean persistentCollection) {
+        _persistentCollection = persistentCollection;
+    }
+    private Class<?> _relationType = Unknown.class;
+    public Class<?> getRelationType() {
+    	if (_relationType == Unknown.class) {
+            if (isDeclaredTypePC())
+            	_relationType = getDeclaredType();
+            else if (getElement().isDeclaredTypePC())
+            	_relationType = getElement().getDeclaredType();
+            else if (getKey().isDeclaredTypePC())
+            	_relationType = getKey().getDeclaredType();
+            else
+            	_relationType = null;
+    	}
+    	return _relationType;
+    }
+    private class Unknown{}
+
+    public boolean isDelayCapable() {
+        if (_delayCapable != null) {
+            return _delayCapable;
+        }
+        if (getTypeCode() != JavaTypes.COLLECTION || isLRS()) {
+           _delayCapable = Boolean.FALSE;
+           return _delayCapable;
+        } else {
+            // Verify the proxy manager is configured to handle delay loading
+            ProxyManager pm = getRepository().getConfiguration().getProxyManagerInstance();
+            if (pm != null) {
+                _delayCapable = pm.getDelayCollectionLoading();
+            } else {
+                _delayCapable = Boolean.FALSE;
+            }
+        }
+        return _delayCapable;
+    }
+
+    public void setDelayCapable(Boolean delayCapable) {
+        _delayCapable = delayCapable;
+    }
+
+    /**
+     * Whether to include schema name in generated files
+     */
+    public boolean getUseSchemaElement() {
+        return _useSchemaElement;
+    }
+
+    /**
+     * Whether to include schema name in generated files
+     */
+    public void setUseSchemaElement(boolean _useSchemaElement) {
+        this._useSchemaElement = _useSchemaElement;
+    }
+
+    public String getSetterName() {
+        String setterName = "set" + StringUtil.capitalize(_name);
+        if (_name.length() > 1 && Character.isLowerCase(_name.charAt(0)) && Character.isUpperCase(_name.charAt(1))) {
+            // We have the special case where the first char is lower, and the
+            // following char is capital. We need to support using the
+            // setaStart() (correct) and setAStart() (incorrect -- old way)
+            Class<?> type = getDeclaringMetaData().getDescribedType();
+            setterName = "set" + _name;
+            try {
+                type.getDeclaredMethod(setterName, getType());
+                return setterName;
+            } catch (Exception e) {
+            }
+            setterName = "set" + StringUtil.capitalize(_name);
+            try {
+                type.getDeclaredMethod(setterName, getType());
+            } catch (Exception e) {
+            }
+        }
+        return setterName;
+    }
+
+    public Class getConverter() {
+        return _converter;
+    }
 }

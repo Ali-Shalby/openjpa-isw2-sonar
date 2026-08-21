@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
@@ -32,7 +32,6 @@ import java.util.Map;
  *
  * @author Marc Prud'hommeaux
  * @author Abe White
- * @nojavadoc
  */
 public class RandomAccessResultList extends AbstractNonSequentialResultList {
 
@@ -75,14 +74,17 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
         return new HashMap();
     }
 
+    @Override
     public boolean isProviderOpen() {
         return _state == OPEN;
     }
 
+    @Override
     public boolean isClosed() {
         return _state == CLOSED;
     }
 
+    @Override
     public void close() {
         if (_state != CLOSED) {
             free();
@@ -90,6 +92,7 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     protected Object getInternal(int index) {
         if (_full != null) {
             if (index >= _full.length)
@@ -115,7 +118,7 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
     private Object instantiateRow(Integer i) {
         _requests++;
         try {
-            if (!_rop.absolute(i.intValue()))
+            if (!_rop.absolute(i))
                 return PAST_END;
 
             Object ob = _rop.getResultObject();
@@ -154,7 +157,7 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
         Integer key;
         for (Iterator itr = _rows.keySet().iterator(); itr.hasNext(); count++) {
             key = (Integer) itr.next();
-            full[key.intValue()] = _rows.get(key);
+            full[key] = _rows.get(key);
         }
 
         // double-check, in case any of the soft references were
@@ -166,6 +169,7 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
         }
     }
 
+    @Override
     public int size() {
         assertOpen();
         if (_size != -1)
@@ -200,11 +204,13 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
         if (_full != null)
             return new ListResultList(Arrays.asList(_full));
         ArrayList list = new ArrayList();
-        for (Iterator itr = iterator(); itr.hasNext();)
-            list.add(itr.next());
+        for (Object o : this) {
+            list.add(o);
+        }
         return list;
     }
 
+    @Override
     public String toString() {
         return getClass().getName()
             + "; identity: " + System.identityHashCode(this)
@@ -212,11 +218,13 @@ public class RandomAccessResultList extends AbstractNonSequentialResultList {
             + "; requests: " + _requests;
     }
 
+    @Override
     public int hashCode() {
         // superclass tries to traverses entire list for hashcode
         return System.identityHashCode(this);
     }
 
+    @Override
     public boolean equals(Object other) {
         // superclass tries to traverse entire list for equality
         return other == this;

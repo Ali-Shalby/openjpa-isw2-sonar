@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -107,8 +107,8 @@ public class InterbaseDictionary
             && col.getTable() != null) {
             // indexed varchar cols have to be <= 250 chars
             Index[] idx = col.getTable().getIndexes();
-            for (int i = 0; i < idx.length; i++) {
-                if (idx[i].containsColumn(col)) {
+            for (Index index : idx) {
+                if (index.containsColumn(col)) {
                     col.setSize(Math.min(col.getSize(), 200));
                     break;
                 }

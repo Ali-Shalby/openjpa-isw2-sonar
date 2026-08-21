@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -27,10 +27,8 @@ import org.apache.openjpa.jdbc.identifier.DBIdentifier;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public class PrimaryKey
-    extends LocalConstraint {
-
+public class PrimaryKey extends LocalConstraint {
+    private static final long serialVersionUID = 1L;
     private boolean _logical = false;
 
     /**
@@ -46,6 +44,7 @@ public class PrimaryKey
      * @param table the table of the primary key
      * @deprecated
      */
+    @Deprecated
     public PrimaryKey(String name, Table table) {
         super(name, table);
     }
@@ -54,6 +53,7 @@ public class PrimaryKey
         super(name, table);
     }
 
+    @Override
     public boolean isLogical() {
         return _logical;
     }
@@ -62,6 +62,7 @@ public class PrimaryKey
         _logical = logical;
     }
 
+    @Override
     void remove() {
         // check all foreign keys in the schema group, removing ones that
         // reference this primary key
@@ -70,12 +71,14 @@ public class PrimaryKey
             && table.getSchema().getSchemaGroup() != null) {
             ForeignKey[] fks = table.getSchema().getSchemaGroup().
                 findExportedForeignKeys(this);
-            for (int i = 0; i < fks.length; i++)
-                fks[i].getTable().removeForeignKey(fks[i]);
+            for (ForeignKey fk : fks) {
+                fk.getTable().removeForeignKey(fk);
+            }
         }
         super.remove();
     }
 
+    @Override
     public void addColumn(Column col) {
         super.addColumn(col);
         col.setPrimaryKey(true);

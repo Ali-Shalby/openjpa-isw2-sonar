@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -31,12 +31,12 @@ public interface SchemaFactory {
     /**
      * Return the schema group for the current object model and database.
      */
-    public SchemaGroup readSchema();
+    SchemaGroup readSchema();
 
     /**
      * Record the schema group after changes may have been made.
      *
      * @param schema the schema definition for the entire system
      */
-    public void storeSchema(SchemaGroup schema);
+    void storeSchema(SchemaGroup schema);
 }

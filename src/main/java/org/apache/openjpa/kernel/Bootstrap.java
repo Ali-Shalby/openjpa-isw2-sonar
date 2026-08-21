@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -39,8 +39,11 @@ import org.apache.openjpa.util.UserException;
  */
 public class Bootstrap {
 
-    private static final Class[] FACTORY_ARGS =
-        new Class[]{ ConfigurationProvider.class };
+    private static final Class<?>[] CONFIGURATION_ARG =
+        new Class<?>[]{ ConfigurationProvider.class };
+
+    private static final Class<?>[] CONFIGURATION_CLASSLOADER_ARGS =
+        new Class<?>[] { ConfigurationProvider.class, ClassLoader.class };
 
     private static Localizer s_loc = Localizer.forPackage(Bootstrap.class);
 
@@ -59,7 +62,10 @@ public class Bootstrap {
     public static BrokerFactory newBrokerFactory(ConfigurationProvider conf,
         ClassLoader loader) {
         try {
-            return invokeFactory(conf, loader, "newInstance");
+            BrokerFactory factory =
+                invokeFactory(conf, loader, "newInstance", CONFIGURATION_ARG, new Object[] { conf });
+            factory.postCreationCallback();
+            return factory;
         } catch (InvocationTargetException ite) {
             Throwable cause = ite.getTargetException();
             if (cause instanceof OpenJPAException)
@@ -87,7 +93,8 @@ public class Bootstrap {
     public static BrokerFactory getBrokerFactory(ConfigurationProvider conf,
         ClassLoader loader) {
         try {
-            return invokeFactory(conf, loader, "getInstance");
+            return invokeFactory(conf, loader, "getInstance", CONFIGURATION_CLASSLOADER_ARGS, new Object[] { conf,
+                loader });
         } catch (InvocationTargetException ite) {
             Throwable cause = ite.getTargetException();
             if (cause instanceof OpenJPAException)
@@ -101,7 +108,7 @@ public class Bootstrap {
     }
 
     private static BrokerFactory invokeFactory(ConfigurationProvider conf,
-        ClassLoader loader, String methodName)
+        ClassLoader loader, String methodName, Class<?>[] argTypes, Object[] args)
         throws InvocationTargetException, NoSuchMethodException,
             IllegalAccessException {
         if (conf == null)
@@ -111,17 +118,17 @@ public class Bootstrap {
         Class cls = getFactoryClass(conf, loader);
         Method meth;
         try {
-            meth = cls.getMethod(methodName, FACTORY_ARGS); 
+            meth = cls.getMethod(methodName, argTypes);
         } catch (NoSuchMethodException nsme) {
             // handle cases where there is a mismatch between loaders by falling
             // back to the configuration's class loader for broker resolution
             cls = getFactoryClass(conf,
                 AccessController.doPrivileged(
-                    J2DoPrivHelper.getClassLoaderAction(conf.getClass()))); 
-            meth = cls.getMethod(methodName, FACTORY_ARGS); 
+                    J2DoPrivHelper.getClassLoaderAction(conf.getClass())));
+            meth = cls.getMethod(methodName, argTypes);
         }
 
-        return (BrokerFactory) meth.invoke(null, new Object[]{ conf });
+        return (BrokerFactory) meth.invoke(null, args);
     }
 
     private static String getFactoryClassName(ConfigurationProvider conf,
@@ -140,7 +147,7 @@ public class Bootstrap {
         ClassLoader loader) {
         if (loader == null)
             loader = AccessController.doPrivileged(
-                J2DoPrivHelper.getContextClassLoaderAction()); 
+                J2DoPrivHelper.getContextClassLoaderAction());
 
         Object cls = BrokerFactoryValue.get(conf);
         if (cls instanceof Class)
@@ -150,7 +157,7 @@ public class Bootstrap {
         value.setString((String) cls);
         String clsName = value.getClassName();
         if (clsName == null)
-            throw new UserException(s_loc.get("no-brokerfactory", 
+            throw new UserException(s_loc.get("no-brokerfactory",
                 conf.getProperties())).setFatal(true);
 
         try {

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -30,20 +30,20 @@ public interface ExpressionVisitor {
      * Enter an expression.  The expression will then invoke visits on its
      * components.
      */
-    public void enter(Expression exp);
+    void enter(Expression exp);
 
     /**
      * Leave an expression.
      */
-    public void exit(Expression exp);
+    void exit(Expression exp);
 
     /**
      * Enter a value.  The value will then invoke visits on its components.
      */
-    public void enter(Value val);
+    void enter(Value val);
 
     /**
      * Leave a value.
      */
-    public void exit(Value val);
+    void exit(Value val);
 }

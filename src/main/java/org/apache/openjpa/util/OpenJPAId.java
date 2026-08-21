@@ -14,33 +14,37 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
 import java.io.Serializable;
 
-import org.apache.openjpa.lib.util.ReferenceMap;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap.ReferenceStrength;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 
 /**
- * Identity class extended by builtin OpenJPA identity objects.
+ * Identity class extended by built-in OpenJPA identity objects.
  *
  * @author Steve Kim
  */
 public abstract class OpenJPAId
     implements Comparable, Serializable {
 
-    // cache the types' generated hashcodes
+    private static final long serialVersionUID = 1L;
+
+    public static final char TYPE_VALUE_SEP = '-';
+
+    // cache the types' generated hash codes
     private static ConcurrentReferenceHashMap _typeCache =
-        new ConcurrentReferenceHashMap(ReferenceMap.WEAK, ReferenceMap.HARD);
+        new ConcurrentReferenceHashMap(ReferenceStrength.WEAK, ReferenceStrength.HARD);
 
     protected Class type;
     protected boolean subs = true;
 
-    // type has his based on the least-derived non-object class so that
+    // type hash is based on the least-derived non-object class so that
     // user-given ids with non-exact types match ids with exact types
-    private transient int _typeHash = 0;
+    private int _typeHash = 0;
 
     protected OpenJPAId() {
     }
@@ -100,9 +104,10 @@ public abstract class OpenJPAId
     protected abstract boolean idEquals(OpenJPAId other);
 
     /**
-     * Generate the hashcode for this Id.  Cache the type's generated hashcode
+     * Generate the hash code for this Id.  Cache the type's generated hash code
      * so that it doesn't have to be generated each time.
      */
+    @Override
     public int hashCode() {
         if (_typeHash == 0) {
             Integer typeHashInt = (Integer) _typeCache.get(type);
@@ -113,15 +118,16 @@ public abstract class OpenJPAId
                     base = base.getSuperclass();
                     superclass = base.getSuperclass();
                 }
-                _typeHash = base.hashCode();
-                _typeCache.put(type, new Integer(_typeHash));
+                _typeHash = base.getName().hashCode();
+                _typeCache.put(type, _typeHash);
             } else {
-                _typeHash = typeHashInt.intValue();
+                _typeHash = typeHashInt;
             }
         }
         return _typeHash ^ idHash();
     }
 
+    @Override
     public boolean equals(Object o) {
         if (o == this)
             return true;
@@ -133,16 +139,17 @@ public abstract class OpenJPAId
             || (subs && type.isAssignableFrom(id.type)));
     }
 
+    @Override
     public String toString() {
-        return type.getName() + "-" + getIdObject();
+        return type.getName() + TYPE_VALUE_SEP + getIdObject();
     }
 
+    @Override
     public int compareTo(Object other) {
         if (other == this)
             return 0;
         if (other == null)
             return 1;
-        return ((Comparable) getIdObject()).compareTo(((OpenJPAId) other).
-            getIdObject ());
+        return ((Comparable) getIdObject()).compareTo(((OpenJPAId) other).getIdObject ());
 	}
 }

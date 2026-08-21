@@ -14,10 +14,13 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice.jdbc;
 
+import java.util.Date;
+
+import org.apache.openjpa.kernel.Filters;
 import org.apache.openjpa.kernel.StoreQuery;
 import org.apache.openjpa.kernel.exps.QueryExpressions;
 import org.apache.openjpa.kernel.exps.Value;
@@ -27,8 +30,8 @@ import org.apache.openjpa.util.InternalException;
 
 /**
  * Aggregates individual single query results from different databases.
- * 
- * @author Pinaki Poddar 
+ *
+ * @author Pinaki Poddar
  *
  */
 public class UniqueResultObjectProvider implements ResultObjectProvider {
@@ -37,58 +40,64 @@ public class UniqueResultObjectProvider implements ResultObjectProvider {
     private final QueryExpressions[] _exps;
     private Object _single;
     private boolean _opened;
-    
+
     private static final String COUNT = "Count";
     private static final String MAX   = "Max";
     private static final String MIN   = "Min";
     private static final String SUM   = "Sum";
-    
+
     private static final Localizer _loc =
         Localizer.forPackage(UniqueResultObjectProvider.class);
-    
-    public UniqueResultObjectProvider(ResultObjectProvider[] rops, 
+
+    public UniqueResultObjectProvider(ResultObjectProvider[] rops,
             StoreQuery q, QueryExpressions[] exps) {
         _rops = rops;
         _query = q;
         _exps = exps;
     }
-    
+
+    @Override
     public boolean absolute(int pos) throws Exception {
         return false;
     }
 
+    @Override
     public void close() throws Exception {
         _opened = false;
         for (ResultObjectProvider rop:_rops)
             rop.close();
     }
 
+    @Override
     public Object getResultObject() throws Exception {
         if (!_opened)
             throw new InternalException(_loc.get("not-open"));
         return _single;
     }
 
+    @Override
     public void handleCheckedException(Exception e) {
         _rops[0].handleCheckedException(e);
     }
 
+    @Override
     public boolean next() throws Exception {
         if (!_opened) {
             open();
         }
-            
+
         if (_single != null)
             return false;
-        
+
         Value[] values = _exps[0].projections;
-        Object[] single = new Object[values.length]; 
+        Object[] single = new Object[values.length];
         for (int i=0; i<values.length; i++) {
             Value v = values[i];
             boolean isAggregate = v.isAggregate();
+
             String op = v.getClass().getSimpleName();
             for (ResultObjectProvider rop:_rops) {
-                if (i == 0) 
+                if (i == 0)
                 	rop.next();
                 Object[] row = (Object[]) rop.getResultObject();
                 if (isAggregate) {
@@ -107,12 +116,13 @@ public class UniqueResultObjectProvider implements ResultObjectProvider {
                 } else {
                     single[i] = row[i];
                 }
+                single[i] = Filters.convert(single[i], v.getType());
             }
         }
         _single = single;
         return true;
     }
-    
+
     Object count(Object current, Object other) {
         if (current == null)
             return other;
@@ -120,42 +130,72 @@ public class UniqueResultObjectProvider implements ResultObjectProvider {
         	return current;
         return ((Number)current).longValue() + ((Number)other).longValue();
     }
-    
+
     Object max(Object current, Object other) {
         if (current == null)
             return other;
         if (other == null)
         	return current;
-        return Math.max(((Number)current).doubleValue(), 
+        if (current instanceof Number) {
+        	return Math.max(((Number)current).doubleValue(),
                 ((Number)other).doubleValue());
+        }
+        if (current instanceof String) {
+        	return  ((String)current).compareTo((String)other) > 0 ? current : other;
+        }
+        if (current instanceof Date) {
+        	return ((Date)current).compareTo((Date)other) > 0 ? current : other;
+        }
+        if (current instanceof Character) {
+        	return ((Character)current).compareTo((Character)other) > 0 ? current : other;
+        }
+        throw new UnsupportedOperationException(_loc.get("aggregate-unsupported-on-type",
+        		"MAX()", (current == null ? other : current).getClass().getName()).toString());
     }
-    
+
     Object min(Object current, Object other) {
         if (current == null)
             return other;
         if (other == null)
         	return current;
-        return Math.min(((Number)current).doubleValue(), 
-                ((Number)other).doubleValue());
+        if (current instanceof Number) {
+	        return Math.min(((Number)current).doubleValue(),
+	                ((Number)other).doubleValue());
+        }
+        if (current instanceof String) {
+        	return ((String)current).compareTo((String)other) < 0 ? current : other;
+        }
+        if (current instanceof Date) {
+        	return ((Date)current).compareTo((Date)other) < 0 ? current : other;
+        }
+        if (current instanceof Character) {
+        	return ((Character)current).compareTo((Character)other) < 0 ? current : other;
+        }
+        throw new UnsupportedOperationException(_loc.get("aggregate-unsupported-on-type",
+        		"MIN()", (current == null ? other : current).getClass().getName()).toString());
     }
-    
+
     Object sum(Object current, Object other) {
         if (current == null)
             return other;
         if (other == null)
         	return current;
-        return (((Number)current).doubleValue() +
+        if (current instanceof Number) {
+        	return (((Number)current).doubleValue() +
                 ((Number)other).doubleValue());
+        }
+        throw new UnsupportedOperationException(_loc.get("aggregate-unsupported-on-type",
+        		"SUM()", (current == null ? other : current).getClass().getName()).toString());
     }
 
-
-
+    @Override
     public void open() throws Exception {
         for (ResultObjectProvider rop:_rops)
             rop.open();
         _opened = true;
     }
 
+    @Override
     public void reset() throws Exception {
         _single = null;
         for (ResultObjectProvider rop : _rops) {
@@ -163,10 +203,12 @@ public class UniqueResultObjectProvider implements ResultObjectProvider {
         }
     }
 
+    @Override
     public int size() throws Exception {
         return 1;
     }
 
+    @Override
     public boolean supportsRandomAccess() {
          return false;
     }

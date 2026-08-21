@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -31,16 +31,19 @@ import org.apache.openjpa.util.UserException;
  *  Examples:<br />
  * <code>"address.street.ext:stringContains (\"main\")"</code>
  *
- * @nojavadoc
  * @deprecated Use <code>matches()</code> instead.
  */
+@Deprecated
 public class JDBCStringContains
     extends StringContains
     implements JDBCFilterListener {
 
+    
+    private static final long serialVersionUID = 1L;
     private static final Localizer _loc = Localizer.forPackage
         (JDBCStringContains.class);
 
+    @Override
     public void appendTo(SQLBuffer buf, FilterValue target, FilterValue[] args,
         ClassMapping type, JDBCStore store) {
         if (!args[0].isConstant())

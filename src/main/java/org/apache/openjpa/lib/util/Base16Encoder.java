@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -22,7 +22,6 @@ package org.apache.openjpa.lib.util;
  * Base 16 encoder.
  *
  * @author Marc Prud'hommeaux
- * @nojavadoc
  */
 public class Base16Encoder {
 
@@ -35,9 +34,9 @@ public class Base16Encoder {
      */
     public static String encode(byte[] byteArray) {
         StringBuilder hexBuffer = new StringBuilder(byteArray.length * 2);
-        for (int i = 0; i < byteArray.length; i++)
+        for (byte b : byteArray)
             for (int j = 1; j >= 0; j--)
-                hexBuffer.append(HEX[(byteArray[i] >> (j * 4)) & 0xF]);
+                hexBuffer.append(HEX[(b >> (j * 4)) & 0xF]);
         return hexBuffer.toString();
     }
 

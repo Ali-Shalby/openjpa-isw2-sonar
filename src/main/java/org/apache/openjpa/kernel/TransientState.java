@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -26,18 +26,19 @@ package org.apache.openjpa.kernel;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class TransientState
-    extends PCState {
+class TransientState extends PCState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
         // mark r/w ok, remove from management
         context.unproxyFields();
         context.getPersistenceCapable().pcReplaceStateManager(null);
         context.getBroker().setStateManager(context.getId(),
             context, BrokerImpl.STATUS_TRANSIENT);
     }
-    
+
+    @Override
     public String toString() {
         return "Transient";
     }

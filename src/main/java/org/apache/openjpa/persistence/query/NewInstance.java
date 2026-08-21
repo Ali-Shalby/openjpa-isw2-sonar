@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
@@ -22,14 +22,16 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Denotes NEW fully.qualified.class.name(arg1, arg2,...) 
- * 
+ * Denotes NEW fully.qualified.class.name(arg1, arg2,...)
+ *
  * @author Pinaki Poddar
  *
  */
-public class NewInstance extends AbstractVisitable 
+public class NewInstance extends AbstractVisitable
 	implements SelectItem, Visitable {
-	private final Class _cls;
+	
+    private static final long serialVersionUID = 1L;
+    private final Class _cls;
 	private List<SelectItem> _args;
 	NewInstance(Class cls, SelectItem...args) {
 		_cls = cls;
@@ -37,17 +39,20 @@ public class NewInstance extends AbstractVisitable
 			_args = Arrays.asList(args);
 		}
 	}
-	
-	public OrderByItem asc() {
+
+	@Override
+    public OrderByItem asc() {
 		throw new UnsupportedOperationException();
 	}
 
-	public OrderByItem desc() {
+	@Override
+    public OrderByItem desc() {
 		throw new UnsupportedOperationException();
 	}
-	
-	
-	public String asProjection(AliasContext ctx) {
+
+
+	@Override
+    public String asProjection(AliasContext ctx) {
             StringBuilder tmp = new StringBuilder("NEW ").append(_cls.getName())
 		    .append("(");
 		if (_args == null || _args.isEmpty())

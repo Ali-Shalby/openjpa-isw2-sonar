@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.meta;
 
@@ -25,11 +25,10 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.lib.log.Log;
 import org.apache.openjpa.lib.meta.ClassArgParser;
-import serp.util.Strings;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * Abstract {@link MetaDataFactory} that provides default implementations
@@ -60,10 +59,11 @@ public abstract class AbstractMetaDataFactory
      * auto-configuration.
      */
     public void setTypes(String types) {
-        this.types = (StringUtils.isEmpty(types)) ? null
-            : new HashSet(Arrays.asList(Strings.split(types, ";", 0)));
+        this.types = (StringUtil.isEmpty(types)) ? null
+            : new HashSet(Arrays.asList(StringUtil.split(types, ";", 0)));
     }
 
+    @Override
     public void setRepository(MetaDataRepository repos) {
         this.repos = repos;
         if (repos != null)
@@ -71,50 +71,62 @@ public abstract class AbstractMetaDataFactory
                 (OpenJPAConfiguration.LOG_METADATA);
     }
 
+    @Override
     public void setStoreDirectory(File dir) {
         this.dir = dir;
     }
 
+    @Override
     public void setStoreMode(int store) {
         this.store = store;
     }
 
+    @Override
     public void setStrict(boolean strict) {
         this.strict = strict;
     }
 
+    @Override
     public boolean store(ClassMetaData[] metas, QueryMetaData[] queries,
         SequenceMetaData[] seqs, int mode, Map<File, String> output) {
         return false;
     }
 
+    @Override
     public boolean drop(Class[] cls, int mode, ClassLoader envLoader) {
         return false;
     }
 
+    @Override
     public Set getPersistentTypeNames(boolean devpath, ClassLoader envLoader) {
         return types;
     }
 
+    @Override
     public Class getQueryScope(String queryName, ClassLoader loader) {
         return null;
     }
 
+    @Override
     public Class getResultSetMappingScope(String resultSetMappingName,
         ClassLoader loader) {
         return null;
     }
 
+    @Override
     public ClassArgParser newClassArgParser() {
         return new ClassArgParser();
     }
 
+    @Override
     public void clear() {
     }
 
+    @Override
     public void addClassExtensionKeys(Collection exts) {
     }
 
+    @Override
     public void addFieldExtensionKeys(Collection exts) {
     }
 }

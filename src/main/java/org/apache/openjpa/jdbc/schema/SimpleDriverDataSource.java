@@ -14,26 +14,25 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
 import java.io.PrintWriter;
-import java.lang.reflect.Constructor;
 import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.sql.Connection;
 import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.util.List;
 import java.util.Properties;
-
-import javax.sql.DataSource;
+import java.util.logging.Logger;
 
 import org.apache.openjpa.jdbc.sql.DBDictionary;
+import org.apache.openjpa.lib.jdbc.ConnectionDecorator;
 import org.apache.openjpa.lib.jdbc.DelegatingDataSource;
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.StoreException;
@@ -41,7 +40,7 @@ import org.apache.openjpa.util.StoreException;
 /**
  * Non-pooling driver data source.
  */
-public abstract class SimpleDriverDataSource
+public class SimpleDriverDataSource
     implements DriverDataSource {
 
     private String _connectionDriverName;
@@ -52,29 +51,17 @@ public abstract class SimpleDriverDataSource
     private Properties _connectionFactoryProperties;
     private Driver _driver;
     private ClassLoader _classLoader;
-    
+
     protected static Localizer _loc = Localizer.forPackage(SimpleDriverDataSource.class);
     protected static Localizer _eloc = Localizer.forPackage(DelegatingDataSource.class);
 
-    private static final Class<? extends SimpleDriverDataSource> implClass;
-
-    static {
-        try {
-            implClass = ConcreteClassGenerator.makeConcrete(SimpleDriverDataSource.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
-
-    public static SimpleDriverDataSource newInstance() {
-        return ConcreteClassGenerator.newInstance(implClass);
-    }
-
+    @Override
     public Connection getConnection()
         throws SQLException {
         return getConnection(null);
     }
 
+    @Override
     public Connection getConnection(String username, String password)
         throws SQLException {
         Properties props = new Properties();
@@ -91,94 +78,128 @@ public abstract class SimpleDriverDataSource
         return getConnection(props);
     }
 
-    public Connection getConnection(Properties props)
-        throws SQLException {
-    	Connection con = getDriver().connect(_connectionURL, props);
-    	if (con == null) {
+    public Connection getConnection(Properties props) throws SQLException {
+        return getSimpleConnection(props);
+    }
+
+    protected Connection getSimpleConnection(Properties props) throws SQLException {
+        Properties conProps = new Properties();
+        if (props != null) {
+            conProps.putAll(props);
+        }
+        if (_connectionProperties != null) {
+            conProps.putAll(_connectionProperties);
+        }
+        Connection con = getSimpleDriver().connect(_connectionURL, conProps);
+        if (con == null) {
             throw new SQLException(_eloc.get("poolds-null",
                     _connectionDriverName, _connectionURL).getMessage());
         }
         return con;
     }
 
+    @Override
     public int getLoginTimeout() {
         return 0;
     }
 
+    @Override
     public void setLoginTimeout(int seconds) {
     }
 
+    @Override
     public PrintWriter getLogWriter() {
         return DriverManager.getLogWriter();
     }
 
+    @Override
     public void setLogWriter(PrintWriter out) {
     }
 
+    @Override
     public void initDBDictionary(DBDictionary dict) {
     }
 
+    @Override
     public void setConnectionURL(String connectionURL) {
         _connectionURL = connectionURL;
     }
 
+    @Override
     public String getConnectionURL() {
         return _connectionURL;
     }
 
+    @Override
     public void setConnectionUserName(String connectionUserName) {
         _connectionUserName = connectionUserName;
     }
 
+    @Override
     public String getConnectionUserName() {
         return _connectionUserName;
     }
 
+    @Override
     public void setConnectionPassword(String connectionPassword) {
         _connectionPassword = connectionPassword;
     }
 
+    // Only allow sub-classes to retrieve the password
+    protected String getConnectionPassword() {
+        return _connectionPassword;
+    }
+
+    @Override
     public void setConnectionProperties(Properties props) {
         _connectionProperties = props;
     }
 
+    @Override
     public Properties getConnectionProperties() {
         return _connectionProperties;
     }
 
+    @Override
     public void setConnectionFactoryProperties(Properties props) {
         _connectionFactoryProperties = props;
     }
 
+    @Override
     public Properties getConnectionFactoryProperties() {
         return _connectionFactoryProperties;
     }
 
-    public List createConnectionDecorators() {
+    @Override
+    public List<ConnectionDecorator> createConnectionDecorators() {
         return null;
     }
 
+    @Override
     public void setClassLoader(ClassLoader classLoader) {
         _classLoader = classLoader;
     }
 
+    @Override
     public ClassLoader getClassLoader() {
         return _classLoader;
     }
 
+    @Override
     public void setConnectionDriverName(String connectionDriverName) {
         _connectionDriverName = connectionDriverName;
     }
 
+    @Override
     public String getConnectionDriverName() {
         return _connectionDriverName;
     }
 
-    private Driver getDriver() {
+    protected Driver getSimpleDriver() {
         if (_driver != null)
             return _driver;
 
-        try { 
+        try {
             _driver = DriverManager.getDriver(_connectionURL);
             if (_driver != null)
                 return _driver;
@@ -197,7 +218,7 @@ public abstract class SimpleDriverDataSource
         }
 
         try {
-            Class c = Class.forName(_connectionDriverName,
+            Class<?> c = Class.forName(_connectionDriverName,
                 true, _classLoader);
             _driver = (Driver) AccessController.doPrivileged(
                 J2DoPrivHelper.newInstanceAction(c));
@@ -210,13 +231,16 @@ public abstract class SimpleDriverDataSource
             throw new StoreException(e);
         }
     }
-    
+
 
     // java.sql.Wrapper implementation (JDBC 4)
-    public boolean isWrapperFor(Class iface) {
+    @Override
+    public boolean isWrapperFor(Class<?> iface) {
         return iface.isAssignableFrom(SimpleDriverDataSource.class);
     }
 
+    @Override
+    @SuppressWarnings("unchecked")
     public Object unwrap(Class iface) {
         if (isWrapperFor(iface))
             return this;
@@ -224,5 +248,11 @@ public abstract class SimpleDriverDataSource
             return null;
     }
 
+    // Java 7 methods follow
+
+    @Override
+    public Logger getParentLogger() throws SQLFeatureNotSupportedException{
+    	throw new SQLFeatureNotSupportedException();
+    }
 }
 

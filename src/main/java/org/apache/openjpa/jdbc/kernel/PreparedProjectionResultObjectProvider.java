@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -34,22 +34,24 @@ import org.apache.openjpa.kernel.exps.QueryExpressions;
 class PreparedProjectionResultObjectProvider
     extends ProjectionResultObjectProvider {
 
-    public PreparedProjectionResultObjectProvider(SelectExecutor sel, 
+    public PreparedProjectionResultObjectProvider(SelectExecutor sel,
         QueryExpressions exps, QueryExpressionsState state, ExpContext ctx, Result res) {
         super(sel, exps, state, ctx);
         _res = res;
     }
 
-    public PreparedProjectionResultObjectProvider(SelectExecutor sel, 
+    public PreparedProjectionResultObjectProvider(SelectExecutor sel,
         QueryExpressions[] exps, QueryExpressionsState[] state, ExpContext ctx, Result res){
         super(sel, exps, state, ctx);
         _res = res;
     }
 
+    @Override
     public Result getResult() {
         return _res;
     }
-    
+
+    @Override
     public void open() throws SQLException {
         // do nothing
     }

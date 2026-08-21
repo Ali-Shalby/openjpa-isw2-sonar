@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -22,15 +22,16 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Predicate;
 
-import org.apache.commons.collections.Predicate;
-import org.apache.commons.collections.iterators.FilterIterator;
-import org.apache.commons.collections.iterators.IteratorChain;
 import org.apache.openjpa.lib.rop.ResultObjectProvider;
 import org.apache.openjpa.lib.rop.ResultObjectProviderIterator;
 import org.apache.openjpa.lib.util.Closeable;
 import org.apache.openjpa.lib.util.ReferenceHashSet;
-import java.util.concurrent.locks.ReentrantLock;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap;
+import org.apache.openjpa.lib.util.collections.FilterIterator;
+import org.apache.openjpa.lib.util.collections.IteratorChain;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.MetaDataRepository;
 import org.apache.openjpa.util.GeneralException;
@@ -42,15 +43,14 @@ import org.apache.openjpa.util.OpenJPAException;
  *
  * @author Abe White
  * @author Patrick Linskey
- * @nojavadoc
  */
-public class ExtentImpl
-    implements Extent {
+public class ExtentImpl<T>
+    implements Extent<T> {
 
     private static final ClassMetaData[] EMPTY_METAS = new ClassMetaData[0];
 
     private final Broker _broker;
-    private final Class _type;
+    private final Class<T> _type;
     private final boolean _subs;
     private final FetchConfiguration _fc;
     private final ReentrantLock _lock;
@@ -66,7 +66,7 @@ public class ExtentImpl
      * @param type the candidate class
      * @param subs whether subclasses are included in the extent
      */
-    ExtentImpl(Broker broker, Class type, boolean subs,
+    ExtentImpl(Broker broker, Class<T> type, boolean subs,
         FetchConfiguration fetch) {
         _broker = broker;
         _type = type;
@@ -82,22 +82,26 @@ public class ExtentImpl
             _lock = null;
     }
 
+    @Override
     public FetchConfiguration getFetchConfiguration() {
         return _fc;
     }
 
+    @Override
     public boolean getIgnoreChanges() {
         return _ignore;
     }
 
+    @Override
     public void setIgnoreChanges(boolean ignoreChanges) {
         _broker.assertOpen();
         _ignore = ignoreChanges;
     }
 
-    public List list() {
-        List list = new ArrayList();
-        Iterator itr = iterator();
+    @Override
+    public List<T> list() {
+        List<T> list = new ArrayList<>();
+        Iterator<T> itr = iterator();
         try {
             while (itr.hasNext())
                 list.add(itr.next());
@@ -107,7 +111,8 @@ public class ExtentImpl
         }
     }
 
-    public Iterator iterator() {
+    @Override
+    public Iterator<T> iterator() {
         _broker.assertNontransactionalRead();
         CloseableIterator citr = null;
         try {
@@ -135,9 +140,9 @@ public class ExtentImpl
                 metas = EMPTY_METAS;
 
             ResultObjectProvider rop;
-            for (int i = 0; i < metas.length; i++) {
-                rop = _broker.getStoreManager().executeExtent(metas[i],
-                    _subs, _fc);
+            for (ClassMetaData classMetaData : metas) {
+                rop = _broker.getStoreManager().executeExtent(classMetaData,
+                        _subs, _fc);
                 if (rop != null)
                     chain.addIterator(new ResultObjectProviderIterator(rop));
             }
@@ -157,7 +162,7 @@ public class ExtentImpl
         lock();
         try {
             if (_openItrs == null)
-                _openItrs = new ReferenceHashSet(ReferenceHashSet.WEAK);
+                _openItrs = new ReferenceHashSet(AbstractReferenceMap.ReferenceStrength.WEAK);
             _openItrs.add(citr);
         } finally {
             unlock();
@@ -165,18 +170,22 @@ public class ExtentImpl
         return citr;
     }
 
+    @Override
     public Broker getBroker() {
         return _broker;
     }
 
-    public Class getElementType() {
+    @Override
+    public Class<T> getElementType() {
         return _type;
     }
 
+    @Override
     public boolean hasSubclasses() {
         return _subs;
     }
 
+    @Override
     public void closeAll() {
         if (_openItrs == null)
             return;
@@ -184,12 +193,13 @@ public class ExtentImpl
         lock();
         try {
             CloseableIterator citr;
-            for (Iterator itr = _openItrs.iterator(); itr.hasNext();) {
-                citr = (CloseableIterator) itr.next();
+            for (Object openItr : _openItrs) {
+                citr = (CloseableIterator) openItr;
                 citr.setRemoveOnClose(null);
                 try {
                     citr.close();
-                } catch (Exception e) {
+                }
+                catch (Exception e) {
                 }
             }
             _openItrs.clear();
@@ -202,11 +212,13 @@ public class ExtentImpl
         }
     }
 
+    @Override
     public void lock() {
         if (_lock != null)
             _lock.lock();
     }
 
+    @Override
     public void unlock() {
         if (_lock != null)
             _lock.unlock();
@@ -215,13 +227,13 @@ public class ExtentImpl
     /**
      * Closeable iterator.
      */
-    private static interface CloseableIterator
-        extends Closeable, Iterator {
+    private interface CloseableIterator<T>
+        extends Closeable, Iterator<T> {
 
         /**
          * Set the extent to remove self from on close.
          */
-        public void setRemoveOnClose(ExtentImpl extent);
+        void setRemoveOnClose(ExtentImpl<T> extent);
     }
 
     /**
@@ -231,27 +243,32 @@ public class ExtentImpl
         extends IteratorChain
         implements CloseableIterator {
 
-        private ExtentImpl _extent = null;
+        private ExtentImpl<?> _extent = null;
         private boolean _closed = false;
 
+        @Override
         public boolean hasNext() {
             return (_closed) ? false : super.hasNext();
         }
 
+        @Override
         public Object next() {
             if (_closed)
                 throw new NoSuchElementException();
             return super.next();
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void setRemoveOnClose(ExtentImpl extent) {
             _extent = extent;
         }
 
+        @Override
         public void close()
             throws Exception {
             if (_extent != null && _extent._openItrs != null) {
@@ -264,7 +281,7 @@ public class ExtentImpl
             }
 
             _closed = true;
-            for (Iterator itr = getIterators().iterator(); itr.hasNext();)
+            for (Iterator itr = this; itr.hasNext();)
                 ((Closeable) itr.next()).close();
         }
     }
@@ -284,24 +301,29 @@ public class ExtentImpl
             setPredicate(this);
         }
 
+        @Override
         public boolean hasNext() {
             return (_closed) ? false : super.hasNext();
         }
 
+        @Override
         public Object next() {
             if (_closed)
                 throw new NoSuchElementException();
             return super.next();
         }
 
+        @Override
         public void remove() {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void setRemoveOnClose(ExtentImpl extent) {
             _extent = extent;
         }
 
+        @Override
         public void close()
             throws Exception {
             if (_extent != null && _extent._openItrs != null) {
@@ -317,7 +339,8 @@ public class ExtentImpl
             ((Closeable) getIterator()).close();
         }
 
-        public boolean evaluate(Object o) {
+        @Override
+        public boolean test(Object o) {
             return !_extent._broker.isDeleted(o);
         }
     }
@@ -335,14 +358,16 @@ public class ExtentImpl
             setPredicate(this);
         }
 
+        @Override
         public void close() {
         }
 
-        public boolean evaluate(Object o) {
+        @Override
+        public boolean test(Object o) {
             if (!_broker.isNew(o))
                 return false;
 
-            Class type = o.getClass();
+            Class<?> type = o.getClass();
             if (!_subs && type != _type)
                 return false;
             if (_subs && !_type.isAssignableFrom(type))

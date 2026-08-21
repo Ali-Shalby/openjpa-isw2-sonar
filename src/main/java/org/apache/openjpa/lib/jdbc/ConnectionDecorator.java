@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
@@ -32,5 +32,5 @@ public interface ConnectionDecorator {
     /**
      * Decorate the given connection if desired.
      */
-    public Connection decorate(Connection conn) throws SQLException;
+    Connection decorate(Connection conn) throws SQLException;
 }

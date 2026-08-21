@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -26,6 +26,9 @@ package org.apache.openjpa.kernel.exps;
 class NotEqualExpression
     extends CompareExpression {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Supply values to compare.
      */
@@ -33,6 +36,7 @@ class NotEqualExpression
         super(val1, val2);
     }
 
+    @Override
     protected boolean compare(Object o1, Object o2) {
         return (o1 == null && o2 != null)
             || (o1 != null && !o1.equals(o2));

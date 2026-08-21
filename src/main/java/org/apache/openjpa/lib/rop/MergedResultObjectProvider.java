@@ -14,13 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.rop;
 
 import java.util.Comparator;
 
-import org.apache.commons.lang.exception.NestableRuntimeException;
 
 /**
  * A result object provider that merges multiple result object provider
@@ -64,10 +63,12 @@ public class MergedResultObjectProvider implements ResultObjectProvider {
         _orderValues = (comp == null) ? null : new Object[rops.length];
     }
 
+    @Override
     public boolean supportsRandomAccess() {
         return false;
     }
 
+    @Override
     public void open() throws Exception {
         // if we have a comparator, then open all; else open first
         int len = (_comp != null) ? _rops.length : 1;
@@ -77,10 +78,12 @@ public class MergedResultObjectProvider implements ResultObjectProvider {
         }
     }
 
+    @Override
     public boolean absolute(int pos) throws Exception {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     public int size() throws Exception {
         if (_size != -1)
             return _size;
@@ -95,8 +98,8 @@ public class MergedResultObjectProvider implements ResultObjectProvider {
 
         int total = 0;
         int size;
-        for (int i = 0; i < _rops.length; i++) {
-            size = _rops[i].size();
+        for (ResultObjectProvider rop : _rops) {
+            size = rop.size();
             if (size == Integer.MAX_VALUE) {
                 total = size;
                 break;
@@ -107,6 +110,7 @@ public class MergedResultObjectProvider implements ResultObjectProvider {
         return _size;
     }
 
+    @Override
     public void reset() throws Exception {
         for (int i = 0; i < _rops.length; i++)
             if (_status[i] != UNOPENED)
@@ -114,6 +118,7 @@ public class MergedResultObjectProvider implements ResultObjectProvider {
         clear();
     }
 
+    @Override
     public void close() throws Exception {
         Exception err = null;
         for (int i = 0; i < _rops.length; i++) {
@@ -142,12 +147,14 @@ public class MergedResultObjectProvider implements ResultObjectProvider {
         }
     }
 
+    @Override
     public void handleCheckedException(Exception e) {
         if (_rops.length == 0)
-            throw new NestableRuntimeException(e);
+            throw new RuntimeException(e);
         _rops[0].handleCheckedException(e);
     }
 
+    @Override
     public boolean next() throws Exception {
         // initialize all rops with the latest values
         boolean hasValue = false;
@@ -210,6 +217,7 @@ public class MergedResultObjectProvider implements ResultObjectProvider {
         return true;
     }
 
+    @Override
     public Object getResultObject() throws Exception {
         return _cur;
     }

@@ -14,13 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
 import java.util.BitSet;
-
-import org.apache.commons.lang.ObjectUtils;
+import java.util.Objects;
 
 /**
  * Utilities for dealing with a simple state image consisting of an
@@ -29,7 +28,6 @@ import org.apache.commons.lang.ObjectUtils;
  * for optimistic versioning.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ArrayStateImage {
 
@@ -99,9 +97,9 @@ public class ArrayStateImage {
         BitSet loaded2 = getLoaded(state2);
         for (int i = 0, max = loaded1.length(); i < max; i++) {
             if (loaded1.get(i) && loaded2.get(i)
-                && !ObjectUtils.equals(state1[i], state2[i]))
+                && !Objects.equals(state1[i], state2[i]))
                 return false;
         }
         return true;
 	}
-} 
+}

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -28,59 +28,70 @@ package org.apache.openjpa.kernel;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-class HollowState
-    extends PCState {
+class HollowState extends PCState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
         context.clearFields();
         context.clearSavedFields();
         context.setDirty(false);
     }
 
+    @Override
     PCState delete(StateManagerImpl context) {
         context.preDelete();
         return PDELETED;
     }
 
+    @Override
     PCState transactional(StateManagerImpl context) {
         return PCLEAN;
     }
 
+    @Override
     PCState release(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState beforeRead(StateManagerImpl context, int field) {
         return PCLEAN;
     }
 
+    @Override
     PCState beforeOptimisticRead(StateManagerImpl context, int field) {
         return PNONTRANS;
     }
 
+    @Override
     PCState beforeNontransactionalRead(StateManagerImpl context, int field) {
         return PNONTRANS;
     }
 
+    @Override
     PCState beforeWrite(StateManagerImpl context, int field, boolean mutate) {
         return PDIRTY;
     }
 
+    @Override
     PCState beforeOptimisticWrite(StateManagerImpl context, int field,
         boolean mutate) {
         return PDIRTY;
     }
 
+    @Override
     PCState beforeNontransactionalWrite(StateManagerImpl context, int field,
         boolean mutate) {
         return PNONTRANS;
     }
 
+    @Override
     boolean isPersistent() {
         return true;
     }
-    
+
+    @Override
     public String toString() {
         return "Hollow";
     }

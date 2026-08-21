@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
@@ -23,47 +23,45 @@ import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.MissingResourceException;
 import java.util.Properties;
 import java.util.TreeSet;
-import java.util.concurrent.ConcurrentHashMap;
 
 import javax.naming.Context;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 
-import org.apache.commons.lang.StringUtils;
-import org.apache.commons.lang.exception.NestableRuntimeException;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap.ReferenceStrength;
 import org.apache.openjpa.lib.log.Log;
+import org.apache.openjpa.lib.util.ClassUtil;
 import org.apache.openjpa.lib.util.J2DoPrivHelper;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.lib.util.MultiClassLoader;
 import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.lib.util.ParseException;
 import org.apache.openjpa.lib.util.StringDistance;
+import org.apache.openjpa.lib.util.StringUtil;
 import org.apache.openjpa.lib.util.concurrent.ConcurrentReferenceHashMap;
 
-import serp.util.Strings;
 
 /**
  * Utility methods dealing with configuration.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class Configurations {
 
-    private static final Localizer _loc = Localizer.forPackage
-        (Configurations.class);
-    
+    private static final Localizer _loc = Localizer.forPackage(Configurations.class);
+
     private static final ConcurrentReferenceHashMap _loaders = new
-        ConcurrentReferenceHashMap(ConcurrentReferenceHashMap.WEAK, 
-                ConcurrentReferenceHashMap.HARD);
+        ConcurrentReferenceHashMap(ReferenceStrength.WEAK, ReferenceStrength.HARD);
 
     private static final Object NULL_LOADER = "null-loader";
+
+    public static final String CONFIG_RESOURCE_PATH = "configResourcePath";
+    public static final String CONFIG_RESOURCE_ANCHOR = "configResourceAnchor";
 
     /**
      * Return the class name from the given plugin string, or null if none.
@@ -85,7 +83,7 @@ public class Configurations {
     private static String getPluginComponent(String plugin, boolean clsName) {
         if (plugin != null)
             plugin = plugin.trim();
-        if (StringUtils.isEmpty(plugin))
+        if (StringUtil.isEmpty(plugin))
             return null;
 
         int openParen = -1;
@@ -110,9 +108,9 @@ public class Configurations {
      * Combine the given class name and properties into a plugin string.
      */
     public static String getPlugin(String clsName, String props) {
-        if (StringUtils.isEmpty(clsName))
+        if (StringUtil.isEmpty(clsName))
             return props;
-        if (StringUtils.isEmpty(props))
+        if (StringUtil.isEmpty(props))
             return clsName;
         return clsName + "(" + props + ")";
     }
@@ -123,17 +121,17 @@ public class Configurations {
      * same properties of <code>orig</code>.
      */
     public static String combinePlugins(String orig, String override) {
-        if (StringUtils.isEmpty(orig))
+        if (StringUtil.isEmpty(orig))
             return override;
-        if (StringUtils.isEmpty(override))
+        if (StringUtil.isEmpty(override))
             return orig;
 
         String origCls = getClassName(orig);
         String overrideCls = getClassName(override);
         String cls;
-        if (StringUtils.isEmpty(origCls))
+        if (StringUtil.isEmpty(origCls))
             cls = overrideCls;
-        else if (StringUtils.isEmpty(overrideCls))
+        else if (StringUtil.isEmpty(overrideCls))
             cls = origCls;
         else if (!origCls.equals(overrideCls))
             return override; // completely different plugin
@@ -142,14 +140,14 @@ public class Configurations {
 
         String origProps = getProperties(orig);
         String overrideProps = getProperties(override);
-        if (StringUtils.isEmpty(origProps))
+        if (StringUtil.isEmpty(origProps))
             return getPlugin(cls, overrideProps);
-        if (StringUtils.isEmpty(overrideProps))
+        if (StringUtil.isEmpty(overrideProps))
             return getPlugin(cls, origProps);
 
         Properties props = parseProperties(origProps);
         props.putAll(parseProperties(overrideProps));
-        return getPlugin(cls, serializeProperties(props)); 
+        return getPlugin(cls, serializeProperties(props));
     }
 
     /**
@@ -163,7 +161,7 @@ public class Configurations {
 
     /**
      * Create and configure an instance with the given class name and
-     * properties.
+     * properties as a String.
      */
     public static Object newInstance(String clsName, Configuration conf,
         String props, ClassLoader loader) {
@@ -173,61 +171,78 @@ public class Configurations {
     }
 
     /**
+     * Create and configure an instance with the given class name and
+     * properties.
+     */
+    public static Object newInstance(String clsName, Configuration conf,
+        Properties props, ClassLoader loader) {
+        Object obj = newInstance(clsName, null, conf, loader, true);
+        configureInstance(obj, conf, props);
+        return obj;
+    }
+
+    /**
+     * Loads the given class name by the given loader.
+     * For efficiency, a cache per class loader is maintained of classes already loader.
+     * @param clsName
+     * @param loader
+     */
+    static Class<?> loadClass(String clsName, ClassLoader loader) {
+        Class<?> cls = null;
+        Object key = loader == null ? NULL_LOADER : loader;
+        Map<String,Class<?>> loaderCache = (Map<String,Class<?>>) _loaders.get(key);
+        if (loaderCache == null) { // We don't have a cache for this loader.
+            //OPENJPA-2636: Changed to HARD/WEAK to avoid Classloader leak:
+            loaderCache = new ConcurrentReferenceHashMap(ReferenceStrength.HARD,
+                ReferenceStrength.WEAK);
+            _loaders.put(key, loaderCache);
+        } else {  // We have a cache for this loader.
+            cls = (Class<?>) loaderCache.get(clsName);
+        }
+        if (cls == null) {
+            try {
+                cls = ClassUtil.toClass(clsName, loader);
+                loaderCache.put(clsName, cls);
+            } catch (RuntimeException re) {
+                // TODO, empty block is never good
+            }
+        }
+        return cls;
+    }
+
+    /**
      * Helper method used by members of this package to instantiate plugin
      * values.
      */
     static Object newInstance(String clsName, Value val, Configuration conf,
         ClassLoader loader, boolean fatal) {
-        if (StringUtils.isEmpty(clsName))
+        if (StringUtil.isEmpty(clsName))
             return null;
 
-        Class cls = null; 
-
-        while (cls == null) {
-            // can't have a null reference in the map, so use symbolic
-            // constant as key
-            Object key = loader == null ? NULL_LOADER : loader;
-            Map loaderCache = (Map) _loaders.get(key);
-            if (loaderCache == null) { // We don't have a cache for this loader.
-                loaderCache = new ConcurrentHashMap();
-                _loaders.put(key, loaderCache);
-            } else {  // We have a cache for this loader.
-                cls = (Class) loaderCache.get(clsName);
-            }
-
-            if (cls == null) {
-                try {
-                    cls = Strings.toClass(clsName, findDerivedLoader(conf,
-                            loader));
-                    loaderCache.put(clsName, cls);
-                } catch (RuntimeException re) {
-                    if (loader != null)  // Try one more time with loader=null
-                        loader = null;
-                    else {
-                        if (val != null)
-                            re = getCreateException(clsName, val, re);
-                        if (fatal)
-                            throw re;
-                        Log log = (conf == null) ? null : conf
-                                .getConfigurationLog();
-                        if (log != null && log.isErrorEnabled())
-                            log.error(_loc
-                                    .get("plugin-creation-exception", val), re);
-                        return null;
-                    }
-                }
-            }
+        Class<?> cls = loadClass(clsName, findDerivedLoader(conf, loader));
+        if (cls == null) {
+        	cls = loadClass(clsName, findDerivedLoader(conf, null));
+        }
+        if (cls == null && conf.getUserClassLoader() != null) {
+        	cls = loadClass(clsName, conf.getUserClassLoader());
         }
 
+        if (cls == null) {
+            if (fatal)
+              throw getCreateException(clsName, val, new ClassNotFoundException(clsName));
+            Log log = (conf == null) ? null : conf.getConfigurationLog();
+	        if (log != null && log.isErrorEnabled())
+	            log.error(_loc.get("plugin-creation-exception", val));
+	        return null;
+       }
+
         try {
-            return AccessController.doPrivileged(
-                J2DoPrivHelper.newInstanceAction(cls));
+            return AccessController.doPrivileged(J2DoPrivHelper.newInstanceAction(cls));
         } catch (Exception e) {
             if (e instanceof PrivilegedActionException) {
-                e = ((PrivilegedActionException) e).getException();   
+                e = ((PrivilegedActionException) e).getException();
             }
-            RuntimeException re = new NestableRuntimeException(_loc.get
-                ("obj-create", cls).getMessage(), e);
+            RuntimeException re = new RuntimeException(_loc.get("obj-create", cls).getMessage(), e);
             if (fatal)
                 throw re;
             Log log = (conf == null) ? null : conf.getConfigurationLog();
@@ -242,41 +257,41 @@ public class Configurations {
      * This allows application loaders that delegate appropriately for known
      * classes first crack at class names.
      */
-    private static ClassLoader findDerivedLoader(Configuration conf,
-        ClassLoader loader) {
+    private static ClassLoader findDerivedLoader(Configuration conf, ClassLoader loader) {
         // we always prefer the thread loader, because it's the only thing we
         // can access that isn't bound to the OpenJPA classloader, unless
         // the conf object is of a custom class
-        ClassLoader ctxLoader = AccessController.doPrivileged(
-            J2DoPrivHelper.getContextClassLoaderAction());
+        ClassLoader ctxLoader = AccessController.doPrivileged(J2DoPrivHelper.getContextClassLoaderAction());
         if (loader == null) {
-            if (ctxLoader != null)
+            if (ctxLoader != null) {
                 return ctxLoader;
-            if (conf != null)
-                return AccessController.doPrivileged(
-                    J2DoPrivHelper.getClassLoaderAction(conf.getClass())); 
-            return Configurations.class.getClassLoader();
+            } else if (conf != null) {
+                return classLoaderOf(conf.getClass());
+            } else {
+            	return classLoaderOf(Configurations.class);
+            }
         }
 
-        for (ClassLoader parent = ctxLoader; parent != null; 
-            parent = AccessController.doPrivileged(
-                J2DoPrivHelper.getParentAction(parent))) {
+        for (ClassLoader parent = ctxLoader; parent != null; parent = parentClassLoaderOf(parent)) {
             if (parent == loader)
                 return ctxLoader;
         }
         if (conf != null) {
-            for (ClassLoader parent = (ClassLoader)
-                AccessController.doPrivileged(
-                    J2DoPrivHelper.getClassLoaderAction(conf.getClass())); 
-                parent != null; 
-                parent = AccessController.doPrivileged(
-                    J2DoPrivHelper.getParentAction(parent))) {
+            for (ClassLoader parent = classLoaderOf(conf.getClass()); parent != null;
+                    parent = parentClassLoaderOf(parent)) {
                 if (parent == loader)
-                    return AccessController.doPrivileged(
-                        J2DoPrivHelper.getClassLoaderAction(conf.getClass())); 
+                    return classLoaderOf(conf.getClass());
             }
         }
         return loader;
+    }
+
+    static ClassLoader classLoaderOf(Class<?> cls) {
+    	return AccessController.doPrivileged(J2DoPrivHelper.getClassLoaderAction(cls));
+    }
+
+    static ClassLoader parentClassLoaderOf(ClassLoader loader) {
+    	return AccessController.doPrivileged(J2DoPrivHelper.getParentAction(loader));
     }
 
     /**
@@ -319,28 +334,19 @@ public class Configurations {
     public static void populateConfiguration(Configuration conf, Options opts) {
         String props = opts.removeProperty("properties", "p", null);
         ConfigurationProvider provider;
-        if (!StringUtils.isEmpty(props)) {
-            String path = props;
-            String anchor = null;
-            int idx = path.lastIndexOf('#');
-            if (idx != -1) {
-                if (idx < path.length() - 1)
-                    anchor = path.substring(idx + 1);
-                path = path.substring(0, idx);
-                if (path.length() == 0)
-                    throw new MissingResourceException(_loc.get("anchor-only",
-                        props).getMessage(), Configurations.class.getName(), 
-                        props);
-            }
+        if (!StringUtil.isEmpty(props)) {
+            Map<String, String> result = parseConfigResource(props);
+            String path = result.get(CONFIG_RESOURCE_PATH);
+            String anchor = result.get(CONFIG_RESOURCE_ANCHOR);
 
             File file = new File(path);
-            if ((AccessController.doPrivileged(J2DoPrivHelper
-                .isFileAction(file))).booleanValue())
+            if (AccessController.doPrivileged(J2DoPrivHelper
+                    .isFileAction(file)))
                 provider = ProductDerivations.load(file, anchor, null);
             else {
                 file = new File("META-INF" + File.separatorChar + path);
-                if ((AccessController.doPrivileged(J2DoPrivHelper
-                    .isFileAction(file))).booleanValue())
+                if (AccessController.doPrivileged(J2DoPrivHelper
+                        .isFileAction(file)))
                     provider = ProductDerivations.load(file, anchor, null);
                 else
                     provider = ProductDerivations.load(path, anchor, null);
@@ -349,7 +355,7 @@ public class Configurations {
                 provider.setInto(conf);
             else
                 throw new MissingResourceException(_loc.get("no-provider",
-                    props).getMessage(), Configurations.class.getName(), 
+                    props).getMessage(), Configurations.class.getName(),
                     props);
         } else {
             provider = ProductDerivations.loadDefaults(null);
@@ -359,11 +365,29 @@ public class Configurations {
         opts.setInto(conf);
     }
 
+    public static Map<String, String> parseConfigResource(String props) {
+        String path = props;
+        String anchor = null;
+        int idx = path.lastIndexOf('#');
+        if (idx != -1) {
+            if (idx < path.length() - 1)
+                anchor = path.substring(idx + 1);
+            path = path.substring(0, idx);
+            if (path.length() == 0)
+                throw new MissingResourceException(_loc.get("anchor-only",
+                    props).getMessage(), Configurations.class.getName(),
+                    props);
+        }
+        Map <String, String> result = new HashMap<>();
+        result.put(CONFIG_RESOURCE_PATH, path);
+        result.put(CONFIG_RESOURCE_ANCHOR, anchor);
+        return result;
+    }
+
     /**
      * Helper method to throw an informative description on instantiation error.
      */
-    private static RuntimeException getCreateException(String clsName,
-        Value val, Exception e) {
+    private static RuntimeException getCreateException(String clsName, Value val, Exception e) {
         // re-throw the exception with some better information
         final String msg;
         final Object[] params;
@@ -388,12 +412,12 @@ public class Configurations {
             msg = "invalid-plugin-aliases";
             params = new Object[]{
                 val.getProperty(), alias, e.toString(),
-                new TreeSet<String>(Arrays.asList(keys)), };
+                new TreeSet<>(Arrays.asList(keys)), };
         } else {
             msg = "invalid-plugin-aliases-hint";
             params = new Object[]{
                 val.getProperty(), alias, e.toString(),
-                new TreeSet<String>(Arrays.asList(keys)), closest, };
+                new TreeSet<>(Arrays.asList(keys)), closest, };
         }
         return new ParseException(_loc.get(msg, params), e);
     }
@@ -427,7 +451,7 @@ public class Configurations {
             return;
 
         Properties props = null;
-        if (!StringUtils.isEmpty(properties))
+        if (!StringUtil.isEmpty(properties))
             props = parseProperties(properties);
         configureInstance(obj, conf, props, configurationName);
     }
@@ -461,7 +485,7 @@ public class Configurations {
         Options opts;
         if (properties instanceof Options)
             opts = (Options) properties;
-        else { 
+        else {
             opts = new Options();
             if (properties != null)
                 opts.putAll(properties);
@@ -509,14 +533,14 @@ public class Configurations {
 
     private static Collection<String> findOptionsFor(Class<?> cls) {
         Collection<String> c = Options.findOptionsFor(cls);
-        
-        // remove Configurable.setConfiguration() and 
+
+        // remove Configurable.setConfiguration() and
         // GenericConfigurable.setInto() from the set, if applicable.
         if (Configurable.class.isAssignableFrom(cls))
             c.remove("Configuration");
         if (GenericConfigurable.class.isAssignableFrom(cls))
             c.remove("Into");
-        
+
         return c;
     }
 
@@ -530,8 +554,8 @@ public class Configurations {
         StringBuilder buf = new StringBuilder();
         Map.Entry entry;
         String val;
-        for (Iterator itr = map.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
+        for (Object o : map.entrySet()) {
+            entry = (Map.Entry) o;
             if (buf.length() > 0)
                 buf.append(", ");
             buf.append(entry.getKey()).append('=');
@@ -549,12 +573,12 @@ public class Configurations {
      */
     public static Options parseProperties(String properties) {
         Options opts = new Options();
-        properties = StringUtils.trimToNull(properties);
+        properties = StringUtil.trimToNull(properties);
         if (properties == null)
             return opts;
 
         try {
-            String[] props = Strings.split(properties, ",", 0);
+            String[] props = StringUtil.split(properties, ",", 0);
             int idx;
             char quote;
             String prop;
@@ -612,7 +636,7 @@ public class Configurations {
      * Looks up the given name in JNDI. If the name is null, null is returned.
      */
     public static Object lookup(String name, String userKey, Log log) {
-        if (StringUtils.isEmpty(name))
+        if (StringUtil.isEmpty(name))
             return null;
 
         Context ctx = null;
@@ -623,11 +647,16 @@ public class Configurations {
             	log.warn(_loc.get("jndi-lookup-failed", userKey, name));
             return result;
         } catch (NamingException ne) {
-            throw new NestableRuntimeException(
+            throw new RuntimeException(
                 _loc.get("naming-err", name).getMessage(), ne);
         } finally {
-            if (ctx != null)
-                try { ctx.close(); } catch (Exception e) {}
+            if (ctx != null) {
+                try {
+                    ctx.close();
+                } catch (NamingException ne) {
+                    // ignore
+                }
+            }
         }
     }
 
@@ -646,7 +675,7 @@ public class Configurations {
         }
         return false;
     }
-    
+
     /**
      * Test whether the map contains the given partial key, prefixed with any
      * possible configuration prefix.
@@ -666,7 +695,7 @@ public class Configurations {
     public static Object getProperty(String partialKey, Map m) {
         if (partialKey == null || m == null || m.isEmpty())
             return null;
-        else 
+        else
             return m.get(ProductDerivations.getConfigurationKey(partialKey, m));
     }
 
@@ -677,15 +706,21 @@ public class Configurations {
     public static Object removeProperty(String partialKey, Map props) {
         if (partialKey == null || props == null || props.isEmpty())
             return null;
- 	if (containsProperty(partialKey, props))
-	    return props.remove(ProductDerivations.getConfigurationKey(partialKey, props));
-	else 
-	    return null;
+        if (containsProperty(partialKey, props))
+            return props.remove(ProductDerivations.getConfigurationKey(partialKey, props));
+        else
+            return null;
+    }
+
+    public static void removeProperty(String partialKey, Map<?,?> remaining, Map<?,?> props) {
+        if (removeProperty(partialKey, remaining) != null) {
+            removeProperty(partialKey, props);
+        }
     }
 
     /**
      * Runs <code>runnable</code> against all the anchors in the configuration
-     * pointed to by <code>opts</code>. Each invocation gets a fresh clone of 
+     * pointed to by <code>opts</code>. Each invocation gets a fresh clone of
      * <code>opts</code> with the <code>properties</code> option set
      * appropriately.
      *
@@ -709,7 +744,7 @@ public class Configurations {
         if (anchors.size() == 0) {
             ret = launchRunnable(opts, runnable);
         } else {
-            for(String s : anchors ) { 
+            for(String s : anchors ) {
                 Options clonedOptions = (Options) opts.clone();
                 clonedOptions.setProperty("properties", s);
                 ret &= launchRunnable(clonedOptions, runnable);
@@ -733,6 +768,6 @@ public class Configurations {
     }
 
     public interface Runnable {
-        public boolean run(Options opts) throws Exception;
+        boolean run(Options opts) throws Exception;
     }
 }

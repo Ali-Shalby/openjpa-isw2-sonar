@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -28,10 +28,10 @@ public interface AttachListener {
     /**
      * Invoked before the instance is attached.
      */
-    public void beforeAttach(LifecycleEvent event);
+    void beforeAttach(LifecycleEvent event);
 
     /**
      * Invoked after the instance has been attached.
      */
-    public void afterAttach(LifecycleEvent event);
+    void afterAttach(LifecycleEvent event);
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -34,12 +34,9 @@ import org.apache.openjpa.util.MetaDataException;
 /**
  * Value handler for JDK1.5 enum field types.
  *
- * @nojavadoc
  */
-@SuppressWarnings("serial")
-public class EnumValueHandler
-    extends AbstractValueHandler {
-
+public class EnumValueHandler extends AbstractValueHandler {
+    private static final long serialVersionUID = 1L;
     private Enum<?>[] _vals = null;
     private boolean _ordinal = false;
     private static final Localizer _loc = Localizer.forPackage(EnumValueHandler.class);
@@ -61,13 +58,15 @@ public class EnumValueHandler
     /**
      * @deprecated
      */
+    @Deprecated
+    @Override
     public Column[] map(ValueMapping vm, String name, ColumnIO io,
         boolean adapt) {
         DBDictionary dict = vm.getMappingRepository().getDBDictionary();
         DBIdentifier colName = DBIdentifier.newColumn(name, dict != null ? dict.delimitAll() : false);
         return map(vm, colName, io, adapt);
     }
-    
+
     public Column[] map(ValueMapping vm, DBIdentifier name, ColumnIO io,
         boolean adapt) {
         // all enum classes have a static method called 'values()'
@@ -76,8 +75,8 @@ public class EnumValueHandler
             Method m = vm.getType().getMethod("values", (Class[]) null);
             _vals = (Enum[]) m.invoke(null, (Object[]) null);
         } catch (Exception e) {
-            
-            throw new MetaDataException(_loc.get("not-enum-field", 
+
+            throw new MetaDataException(_loc.get("not-enum-field",
                     vm.getFieldMapping().getFullName(true), Exceptions.toClassName(vm.getType()))).setCause(e);
         }
 
@@ -89,8 +88,9 @@ public class EnumValueHandler
             // look for the longest enum value name; use 20 as min length to
             // leave room for future long names
             int len = 20;
-            for (int i = 0; i < _vals.length; i++)
-                len = Math.max(_vals[i].name().length(), len);
+            for (Enum<?> val : _vals) {
+                len = Math.max(val.name().length(), len);
+            }
 
             col.setJavaType(JavaTypes.STRING);
             col.setSize(len);
@@ -98,18 +98,21 @@ public class EnumValueHandler
         return new Column[]{ col };
     }
 
-    public boolean isVersionable() {
+    @Override
+    public boolean isVersionable(ValueMapping vm) {
         return true;
     }
 
+    @Override
     public Object toDataStoreValue(ValueMapping vm, Object val, JDBCStore store) {
         if (val == null)
             return null;
         if (_ordinal)
-            return new Integer(((Enum) val).ordinal());
+            return ((Enum) val).ordinal();
         return ((Enum) val).name();
     }
 
+    @Override
     public Object toObjectValue(ValueMapping vm, Object val) {
         if (val == null)
             return null;

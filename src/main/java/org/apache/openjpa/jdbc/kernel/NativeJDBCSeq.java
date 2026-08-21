@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -45,16 +45,16 @@ import org.apache.openjpa.lib.util.Options;
 import org.apache.openjpa.util.MetaDataException;
 import org.apache.openjpa.util.UserException;
 
-import serp.util.Strings;
-
 ///////////////////////////////////////////////////////////
 // NOTE: Do not change property names; see SequenceMetaData
 // and SequenceMapping for standard property names.
 ////////////////////////////////////////////////////////////
 
 /**
- * {@link JDBCSeq} implementation that uses a database sequences
+ * {@link JDBCSeq} implementation that uses a database sequence
  * to generate numbers.
+ * Supports allocation (caching). In order for allocation to work properly, the database sequence must be defined
+ * with INCREMENT BY value equal to allocate * increment.
  *
  * @see JDBCSeq
  * @see AbstractJDBCSeq
@@ -73,17 +73,18 @@ public class NativeJDBCSeq
     private DBIdentifier _seqName = DBIdentifier.newSequence("OPENJPA_SEQUENCE");
     private int _increment = 1;
     private int _initial = 1;
-    private int _allocate = 0;
+    private int _allocate = 50;
     private Sequence _seq = null;
     private String _select = null;
-
-    // for deprecated auto-configuration support
-    private String _format = null;
-    private DBIdentifier _tableName = DBIdentifier.newTable("DUAL");
-    private boolean _subTable = false;
+    private long _nextValue = 0;
+    private long _maxValue = -1;
 
     private DBIdentifier _schema = DBIdentifier.NULL;
-        
+
+    private boolean alterIncrementBy = false;
+    private boolean alreadyLoggedAlterSeqFailure = false;
+    private boolean alreadyLoggedAlterSeqDisabled = false;
+
     /**
      * The sequence name. Defaults to <code>OPENJPA_SEQUENCE</code>.
      */
@@ -97,15 +98,6 @@ public class NativeJDBCSeq
      */
     public void setSequence(String seqName) {
         _seqName = DBIdentifier.newSequence(seqName);
-    }
-
-    /**
-     * @deprecated Use {@link #setSequence}. Retained for
-     * backwards-compatibility for auto-configuration.
-     */
-    @Deprecated
-    public void setSequenceName(String seqName) {
-        setSequence(seqName);
     }
 
     /**
@@ -150,23 +142,6 @@ public class NativeJDBCSeq
         _increment = increment;
     }
 
-    /**
-     * @deprecated Retained for backwards-compatibility for auto-configuration.
-     */
-    @Deprecated
-    public void setTableName(String table) {
-        _tableName = DBIdentifier.newTable(table);
-    }
-
-    /**
-     * @deprecated Retained for backwards-compatibility for auto-configuration.
-     */
-    @Deprecated
-    public void setFormat(String format) {
-        _format = format;
-        _subTable = true;
-    }
-
     @Override
     public void addSchema(ClassMapping mapping, SchemaGroup group) {
         // sequence already exists?
@@ -192,40 +167,95 @@ public class NativeJDBCSeq
     public JDBCConfiguration getConfiguration() {
         return _conf;
     }
-    
+
+    @Override
     public void setConfiguration(Configuration conf) {
         _conf = (JDBCConfiguration) conf;
     }
 
+    @Override
     public void startConfiguration() {
     }
 
+    @Override
     public void endConfiguration() {
         buildSequence();
 
         DBDictionary dict = _conf.getDBDictionaryInstance();
-        if (_format == null) {
-            _format = dict.nextSequenceQuery;
-            if (_format == null)
-                throw new MetaDataException(_loc.get("no-seq-sql", _seqName));
+        String format = dict.nextSequenceQuery;
+        if (format == null) {
+            throw new MetaDataException(_loc.get("no-seq-sql", _seqName));
         }
-        if (DBIdentifier.isNull(_tableName))
-            _tableName = DBIdentifier.newTable("DUAL");
 
         String name = dict.getFullName(_seq);
-        Object[] subs = (_subTable) ? new Object[]{ name, _tableName }
-            : new Object[]{ name };
-        _select = MessageFormat.format(_format, subs);
-        
+        // Increment step is needed for Firebird which uses non-standard sequence fetch syntax.
+        // Use String.valueOf to get rid of possible locale-specific number formatting.
+        _select = MessageFormat.format(format, new Object[]{name, String.valueOf(_allocate * _increment)});
+
         type = dict.nativeSequenceType;
     }
-    
+
     @Override
-    protected Object nextInternal(JDBCStore store, ClassMapping mapping)
+    protected synchronized Object nextInternal(JDBCStore store, ClassMapping mapping)
+        throws SQLException {
+        if (!alterIncrementBy) {
+            allocateInternal(0, store, mapping);
+            alterIncrementBy = true;
+        }
+        if (_nextValue >= _maxValue) {
+            allocateInternal(0, store, mapping);
+        }
+        long result = _nextValue;
+        _nextValue += _increment;
+        return result;
+    }
+
+    /**
+     * Allocate additional sequence values.
+     * @param additional ignored - the allocation size is fixed and determined by allocate and increment properties.
+     * @param store used to obtain connection
+     * @param mapping ignored
+     */
+    @Override
+    protected synchronized void allocateInternal(int additional, JDBCStore store, ClassMapping mapping)
         throws SQLException {
         Connection conn = getConnection(store);
         try {
-            return getSequence(conn);
+            if (!alterIncrementBy) {
+                DBDictionary dict = _conf.getDBDictionaryInstance();
+                if (!dict.disableAlterSeqenceIncrementBy) {
+                    // If this fails, we will warn the user at most one time and set _allocated and _increment to 1 so
+                    // as to not potentially insert records ahead of what the database thinks is the next sequence
+                    // value.
+
+                    // first we have to allocate a new connection as some databases do an implicit commit
+                    // if a DDL gets changed. Others do blow up on a DDL change
+                    try (Connection newConn = getConnection(store, true)) {
+                        if (updateSql(newConn, dict.getAlterSequenceSQL(_seq)) == -1) {
+                            newConn.commit(); // new connection has autoCommit=false
+                            if (!alreadyLoggedAlterSeqFailure) {
+                                Log log = _conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
+                                if (log.isWarnEnabled()) {
+                                    log.warn(_loc.get("fallback-no-seq-cache", _seqName));
+                                }
+                            }
+                            alreadyLoggedAlterSeqFailure = true;
+                            _allocate = 1;
+                        }
+                    }
+                } else {
+                    if (!alreadyLoggedAlterSeqDisabled) {
+                        Log log = _conf.getLog(OpenJPAConfiguration.LOG_RUNTIME);
+                        if (log.isWarnEnabled()) {
+                            log.warn(_loc.get("alter-seq-disabled", _seqName));
+                        }
+                    }
+
+                    alreadyLoggedAlterSeqDisabled = true;
+                }
+            }
+            _nextValue = getSequence(conn);
+            _maxValue = _nextValue + _allocate * _increment;
         } finally {
             closeConnection(conn);
         }
@@ -237,10 +267,10 @@ public class NativeJDBCSeq
     private void buildSequence() {
         QualifiedDBIdentifier path = QualifiedDBIdentifier.getPath(_seqName);
         DBIdentifier seqName = path.getIdentifier();
-        // JPA 2 added schema as a configurable attribute on  
+        // JPA 2 added schema as a configurable attribute on
         // sequence generator.  OpenJPA <= 1.x allowed this via
         // schema.sequence on the sequence name.  Specifying a schema
-        // name on the annotation or in the orm will override the old 
+        // name on the annotation or in the orm will override the old
         // behavior.
         DBIdentifier schemaName = _schema;
         if (DBIdentifier.isEmpty(schemaName)) {
@@ -300,9 +330,7 @@ public class NativeJDBCSeq
         try {
             stmnt = conn.prepareStatement(_select);
             dict.setTimeouts(stmnt, _conf, false);
-            synchronized(this) {
-                rs = stmnt.executeQuery();
-            }
+            rs = stmnt.executeQuery();
             if (rs.next())
                 return rs.getLong(1);
 
@@ -317,6 +345,29 @@ public class NativeJDBCSeq
         }
     }
 
+    private int updateSql(Connection conn, String sql) throws SQLException {
+        DBDictionary dict = _conf.getDBDictionaryInstance();
+        PreparedStatement stmnt = null;
+        int rc = -1;
+        try {
+            stmnt = conn.prepareStatement(sql);
+            dict.setTimeouts(stmnt, _conf, false);
+            rc = stmnt.executeUpdate();
+        } catch (Exception e) {
+            // tolerate exception when attempting to alter increment,
+            // however, caller should check rc and not cache sequence values if rc != -1.
+        } finally {
+            // clean up our resources
+            if (stmnt != null) {
+                try {
+                    stmnt.close();
+                } catch (SQLException se) {
+                }
+            }
+        }
+        return rc;
+    }
+
     /////////
     // Main
     /////////
@@ -327,13 +378,12 @@ public class NativeJDBCSeq
      *  Where the following options are recognized.
      * <ul>
      * <li><i>-properties/-p &lt;properties file or resource&gt;</i>: The
-     * path or resource name of a OpenJPA properties file containing
-     * information such as the license key	and connection data as
+     * path or resource name of an OpenJPA properties file containing
+     * information such as connection data as
      * outlined in {@link JDBCConfiguration}. Optional.</li>
      * <li><i>-&lt;property name&gt; &lt;property value&gt;</i>: All bean
      * properties of the OpenJPA {@link JDBCConfiguration} can be set by
-     * using their	names and supplying a value. For example:
-     * <code>-licenseKey adslfja83r3lkadf</code></li>
+     * using their names and supplying a value.</li>
      * </ul>
      *  The various actions are as follows.
      * <ul>
@@ -348,6 +398,7 @@ public class NativeJDBCSeq
         final String[] arguments = opts.setFromCmdLine(args);
         boolean ret = Configurations.runAgainstAllAnchors(opts,
             new Configurations.Runnable() {
+            @Override
             public boolean run(Options opts) throws Exception {
                 JDBCConfiguration conf = new JDBCConfigurationImpl();
                 try {
@@ -357,8 +408,11 @@ public class NativeJDBCSeq
                 }
             }
         });
-        if (!ret)
+        if (!ret) {
+            // START - ALLOW PRINT STATEMENTS
             System.out.println(_loc.get("native-seq-usage"));
+            // STOP - ALLOW PRINT STATEMENTS
+        }
     }
 
     /**
@@ -373,7 +427,7 @@ public class NativeJDBCSeq
     }
 
     /**
-     * Run the tool. Return false if an invalid option was given.
+     * Run the tool. Returns false if an invalid option was given.
      */
     public static boolean run(JDBCConfiguration conf, String[] args,
         String action)
@@ -393,7 +447,9 @@ public class NativeJDBCSeq
             Connection conn = conf.getDataSource2(null).getConnection();
             try {
                 long cur = seq.getSequence(conn);
+                // START - ALLOW PRINT STATEMENTS
                 System.out.println(cur);
+                // STOP - ALLOW PRINT STATEMENTS
             } finally {
                 try { conn.close(); } catch (SQLException se) {}
             }
@@ -405,6 +461,7 @@ public class NativeJDBCSeq
     /**
      * @deprecated
      */
+    @Deprecated
     public void setSchema(String schema) {
         _schema = DBIdentifier.newSchema(schema);
     }
@@ -412,6 +469,7 @@ public class NativeJDBCSeq
     /**
      * @deprecated
      */
+    @Deprecated
     public String getSchema() {
         return _schema.getName();
     }

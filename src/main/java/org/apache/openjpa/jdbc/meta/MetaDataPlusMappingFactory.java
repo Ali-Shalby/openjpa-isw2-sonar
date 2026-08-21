@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.meta.ClassMetaData;
 import org.apache.openjpa.meta.DelegatingMetaDataFactory;
 import org.apache.openjpa.meta.MetaDataFactory;
@@ -35,23 +36,36 @@ import org.apache.openjpa.meta.SequenceMetaData;
  * metadata, one for mappings -- into a single {@link MetaDataFactory} facade.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class MetaDataPlusMappingFactory
     extends DelegatingMetaDataFactory {
 
     private final MetaDataFactory _map;
 
+
     /**
      * Constructor; supply delegates.
      */
-    public MetaDataPlusMappingFactory(MetaDataFactory meta,
-        MetaDataFactory map) {
+    public MetaDataPlusMappingFactory(MetaDataFactory meta, MetaDataFactory map) {
+        this(meta, map, null);
+
+    }
+
+    /**
+     * Constructor, supply delegates and Configuration.
+     *
+     * @param meta MetaFactory delegate, should not be null.
+     * @param map  MappingFactory delegate, should not be null.
+     * @param conf Configuration in use. Used to determine whether delegates should use strict mode.
+     */
+    public MetaDataPlusMappingFactory(MetaDataFactory meta, MetaDataFactory map, OpenJPAConfiguration conf) {
         super(meta);
         _map = map;
 
-        meta.setStrict(true);
-        map.setStrict(true);
+        if(conf.getCompatibilityInstance().getMetaFactoriesAreStrict()) {
+            meta.setStrict(true);
+            map.setStrict(true);
+        }
     }
 
     /**
@@ -70,25 +84,30 @@ public class MetaDataPlusMappingFactory
         return _map;
     }
 
+    @Override
     public void setRepository(MetaDataRepository repos) {
         super.setRepository(repos);
         _map.setRepository(repos);
     }
 
+    @Override
     public void setStoreDirectory(File dir) {
         super.setStoreDirectory(dir);
         _map.setStoreDirectory(dir);
     }
 
+    @Override
     public void setStoreMode(int store) {
         super.setStoreMode(store);
         _map.setStoreMode(store);
     }
 
+    @Override
     public void setStrict(boolean strict) {
         // always in strict mode
     }
 
+    @Override
     public void load(Class cls, int mode, ClassLoader envLoader) {
         if ((mode & ~MODE_MAPPING) != MODE_NONE)
             super.load(cls, mode & ~MODE_MAPPING, envLoader);
@@ -96,6 +115,7 @@ public class MetaDataPlusMappingFactory
             _map.load(cls, mode & ~MODE_META, envLoader);
     }
 
+    @Override
     public boolean store(ClassMetaData[] metas, QueryMetaData[] queries,
         SequenceMetaData[] seqs, int mode, Map output) {
         boolean store = true;
@@ -108,6 +128,7 @@ public class MetaDataPlusMappingFactory
         return store;
     }
 
+    @Override
     public boolean drop(Class[] cls, int mode, ClassLoader envLoader) {
         boolean drop = true;
         if ((mode & ~MODE_MAPPING) != MODE_NONE)
@@ -117,6 +138,7 @@ public class MetaDataPlusMappingFactory
         return drop;
     }
 
+    @Override
     public Set getPersistentTypeNames(boolean classpath,
         ClassLoader envLoader) {
         Set names = super.getPersistentTypeNames(classpath, envLoader);
@@ -125,16 +147,19 @@ public class MetaDataPlusMappingFactory
         return _map.getPersistentTypeNames(classpath, envLoader);
     }
 
+    @Override
     public void clear() {
         super.clear();
         _map.clear();
     }
 
+    @Override
     public void addClassExtensionKeys(Collection exts) {
         super.addClassExtensionKeys(exts);
         _map.addClassExtensionKeys(exts);
     }
 
+    @Override
     public void addFieldExtensionKeys(Collection exts) {
         super.addFieldExtensionKeys(exts);
         _map.addFieldExtensionKeys(exts);

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -32,9 +32,8 @@ import org.apache.openjpa.util.InvalidStateException;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public abstract class LocalConstraint
-    extends Constraint {
+public abstract class LocalConstraint extends Constraint {
+    private static final long serialVersionUID = 1L;
 
     private static final Localizer _loc = Localizer.forPackage
         (LocalConstraint.class);
@@ -55,6 +54,7 @@ public abstract class LocalConstraint
      * @param table the table of the constraint
      * @deprecated
      */
+    @Deprecated
     public LocalConstraint(String name, Table table) {
         super(name, table);
     }
@@ -65,8 +65,12 @@ public abstract class LocalConstraint
 /**
      * Called when the constraint is removed from its table.
      */
+    @Override
     void remove() {
         // remove all columns
+        for (Column c : _cols) {
+            c.removeConstraint(this);
+        }
         setColumns(null);
         super.remove();
     }
@@ -86,12 +90,14 @@ public abstract class LocalConstraint
      */
     public void setColumns(Column[] cols) {
         Column[] cur = getColumns();
-        for (int i = 0; i < cur.length; i++)
-            removeColumn(cur[i]);
+        for (Column column : cur) {
+            removeColumn(column);
+        }
 
         if (cols != null)
-            for (int i = 0; i < cols.length; i++)
-                addColumn(cols[i]);
+            for (Column col : cols) {
+                addColumn(col);
+            }
     }
 
     /**
@@ -102,14 +108,15 @@ public abstract class LocalConstraint
             throw new InvalidStateException(_loc.get("table-mismatch",
                 col == null ? null : col.getTable(),
                 col == null ? null : getTable()));
-    	
+
         if (_colList == null)
-            _colList = new ArrayList<Column>(3);
+            _colList = new ArrayList<>(3);
         else if (_colList.contains(col))
             return;
 
         _colList.add(col);
         _cols = null;
+        col.addConstraint(this);
     }
 
     /**
@@ -123,6 +130,7 @@ public abstract class LocalConstraint
             return false;
         if (_colList.remove(col)) {
             _cols = null;
+            col.removeConstraint(this);
             return true;
         }
         return false;
@@ -142,8 +150,9 @@ public abstract class LocalConstraint
      */
     public void refColumns() {
         Column[] cols = getColumns();
-        for (int i = 0; i < cols.length; i++)
-            cols[i].ref();
+        for (Column col : cols) {
+            col.ref();
+        }
     }
 
     /**
@@ -151,8 +160,9 @@ public abstract class LocalConstraint
      */
     public void derefColumns() {
         Column[] cols = getColumns();
-        for (int i = 0; i < cols.length; i++)
-            cols[i].deref();
+        for (Column col : cols) {
+            col.deref();
+        }
     }
 
     /**
@@ -162,8 +172,8 @@ public abstract class LocalConstraint
         Column[] cols = getColumns();
         if (cols.length != ocols.length)
             return false;
-        for (int i = 0; i < ocols.length; i++)
-            if (!hasColumn(cols, ocols[i]))
+        for (Column ocol : ocols)
+            if (!hasColumn(cols, ocol))
                 return false;
         return true;
     }
@@ -172,8 +182,8 @@ public abstract class LocalConstraint
      * Return whether the given column exists in the array.
      */
     private static boolean hasColumn(Column[] cols, Column col) {
-        for (int i = 0; i < cols.length; i++)
-            if (cols[i].getQualifiedPath().equals(col.getQualifiedPath()))
+        for (Column column : cols)
+            if (column.getQualifiedPath().equals(col.getQualifiedPath()))
                 return true;
         return false;
     }

@@ -14,11 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence;
 
-import javax.persistence.Query;
+import jakarta.persistence.Query;
 
 import org.apache.openjpa.datacache.QueryCache;
 
@@ -34,31 +34,31 @@ public interface QueryResultCache {
     /**
      * Pin the given query's result to the cache.
      */
-    public void pin(Query q);
+    void pin(Query q);
 
     /**
      * Unpin a previously-pinned query result.
      */
-    public void unpin(Query q);
+    void unpin(Query q);
 
     /**
      * Evict a query result from the cache.
      */
-    public void evict(Query q);
+    void evict(Query q);
 
     /**
      * Clear the cache.
      */
-    public void evictAll();
+    void evictAll();
 
     /**
      * Evict all result for queries involving the given class.
      */
-    public void evictAll(Class cls);
+    void evictAll(Class cls);
 
     /**
      * @deprecated cast to {@link QueryResultCacheImpl} instead. This
      * method pierces the published-API boundary, as does the SPI cast.
      */
-    public QueryCache getDelegate();
+    @Deprecated QueryCache getDelegate();
 }

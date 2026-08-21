@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util;
 
@@ -24,32 +24,24 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 
-import org.apache.commons.collections.set.MapBackedSet;
+import org.apache.openjpa.lib.util.collections.AbstractReferenceMap;
+import org.apache.openjpa.lib.util.collections.MapBackedSet;
+import org.apache.openjpa.lib.util.collections.ReferenceMap;
 
 /**
  * A set whose values may be stored as weak or soft references.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ReferenceHashSet implements Set, Serializable {
-
-    /**
-     * Hard reference marker.
-     */
-    public static final int HARD = 0;
-
-    /**
-     * Soft reference marker.
-     */
-    public static final int SOFT = 1;
-
-    /**
-     * Weak reference marker.
-     */
-    public static final int WEAK = 2;
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Object DUMMY_VAL = new Serializable() {
+        
+        private static final long serialVersionUID = 1L;
+
+        @Override
         public String toString() {
             return ReferenceHashSet.class.getName() + ".DUMMY_VAL";
         }
@@ -60,76 +52,85 @@ public class ReferenceHashSet implements Set, Serializable {
     /**
      * Construct a set with the given reference type.
      */
-    public ReferenceHashSet(int refType) {
-        if (refType == HARD)
+    public ReferenceHashSet(AbstractReferenceMap.ReferenceStrength refType) {
+        if (refType == AbstractReferenceMap.ReferenceStrength.HARD)
             _set = new HashSet();
         else {
-            int mapRefType = (refType == WEAK) ? org.apache.commons.
-                collections.map.ReferenceMap.WEAK : org.apache.
-                commons.collections.map.ReferenceMap.SOFT;
-            _set = MapBackedSet.decorate(new org.apache.commons.
-                collections.map.ReferenceMap(mapRefType,
-                org.apache.commons.collections.map.
-                    ReferenceMap.HARD), DUMMY_VAL);
+            _set = MapBackedSet.mapBackedSet(new ReferenceMap(refType, AbstractReferenceMap.ReferenceStrength.HARD), DUMMY_VAL);
         }
     }
 
+    @Override
     public boolean add(Object obj) {
         return _set.add(obj);
     }
 
+    @Override
     public boolean addAll(Collection coll) {
         return _set.addAll(coll);
     }
 
+    @Override
     public void clear() {
         _set.clear();
     }
 
+    @Override
     public boolean contains(Object obj) {
         return _set.contains(obj);
     }
 
+    @Override
     public boolean containsAll(Collection coll) {
         return _set.containsAll(coll);
     }
 
+    @Override
     public boolean isEmpty() {
         return _set.isEmpty();
     }
 
+    @Override
     public Iterator iterator() {
         return _set.iterator();
     }
 
+    @Override
     public boolean remove(Object obj) {
         return _set.remove(obj);
     }
 
+    @Override
     public boolean removeAll(Collection coll) {
         return _set.removeAll(coll);
     }
 
+    @Override
     public boolean retainAll(Collection coll) {
         return _set.retainAll(coll);
     }
 
+    @Override
     public int size() {
         return _set.size();
     }
 
+    @Override
     public Object[] toArray() {
         return _set.toArray();
     }
 
+    @Override
     public Object[] toArray(Object[] arr) {
         return _set.toArray(arr);
     }
 
+    @Override
     public int hashCode() {
         return _set.hashCode();
     }
 
+    @Override
     public boolean equals(Object obj) {
         if (this == obj)
             return true;

@@ -14,11 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.conf;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * A double {@link Value}.
@@ -33,6 +33,7 @@ public class DoubleValue extends Value {
         super(prop);
     }
 
+    @Override
     public Class<Double> getValueType() {
         return double.class;
     }
@@ -51,21 +52,25 @@ public class DoubleValue extends Value {
     /**
      * The internal value.
      */
+    @Override
     public Double get() {
         return value;
     }
 
+    @Override
     protected String getInternalString() {
         return String.valueOf(value);
     }
 
+    @Override
     protected void setInternalString(String val) {
-        if (StringUtils.isEmpty(val))
+        if (StringUtil.isEmpty(val))
             set(0D);
         else
             set(Double.parseDouble(val));
     }
 
+    @Override
     protected void setInternalObject(Object obj) {
         if (obj == null)
             set(0D);

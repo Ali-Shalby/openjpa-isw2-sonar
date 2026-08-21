@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.event;
 
@@ -47,7 +47,7 @@ public class MethodLifecycleCallbacks
     /**
      * Constructor. Supply callback class and its callback method name.
      *
-     * @arg Whether we expect a further argument such as in AfterDetach
+     * @param arg Whether we expect a further argument such as in AfterDetach
      */
     public MethodLifecycleCallbacks(Class cls, String method, boolean arg) {
         Class[] args = arg ? new Class[]{ Object.class } : null;
@@ -77,10 +77,12 @@ public class MethodLifecycleCallbacks
         return _arg;
     }
 
+    @Override
     public boolean hasCallback(Object obj, int eventType) {
         return true;
     }
 
+    @Override
     public void makeCallback(Object obj, Object arg, int eventType)
         throws Exception {
         if (!_callback.isAccessible())
@@ -93,6 +95,7 @@ public class MethodLifecycleCallbacks
             _callback.invoke(obj, (Object[]) null);
     }
 
+    @Override
     public String toString() {
         return getClass().getName() + ":" + _callback;
     }
@@ -105,13 +108,13 @@ public class MethodLifecycleCallbacks
         Class currentClass = cls;
         do {
             Method[] methods = (Method[]) AccessController.doPrivileged(
-                J2DoPrivHelper.getDeclaredMethodsAction(currentClass)); 
-            for (int i = 0; i < methods.length; i++) {
-                if (!method.equals(methods[i].getName()))
+                J2DoPrivHelper.getDeclaredMethodsAction(currentClass));
+            for (Method value : methods) {
+                if (!method.equals(value.getName()))
                     continue;
 
-                if (isAssignable(methods[i].getParameterTypes(), args))
-                    return methods[i];
+                if (isAssignable(value.getParameterTypes(), args))
+                    return value;
             }
         } while ((currentClass = currentClass.getSuperclass()) != null);
 
@@ -120,9 +123,9 @@ public class MethodLifecycleCallbacks
                 method, args == null ? null : Arrays.asList(args)));
 	}
 
-    /** 
+    /**
      * Returns true if all parameters in the from array are assignable
-     * from the corresponding parameters of the to array. 
+     * from the corresponding parameters of the to array.
      */
     private static boolean isAssignable(Class[] from, Class[] to) {
         if (from == null)
@@ -141,6 +144,7 @@ public class MethodLifecycleCallbacks
         return true;
     }
 
+    @Override
     public void readExternal(ObjectInput in)
         throws IOException, ClassNotFoundException {
         Class cls = (Class) in.readObject();
@@ -151,10 +155,11 @@ public class MethodLifecycleCallbacks
         _callback = getMethod(cls, methName, args);
     }
 
+    @Override
     public void writeExternal(ObjectOutput out)
         throws IOException {
         out.writeObject(_callback.getClass());
         out.writeObject(_callback.getName());
         out.writeBoolean(_arg);
-    } 
+    }
 }

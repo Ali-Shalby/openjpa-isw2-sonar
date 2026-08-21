@@ -14,18 +14,19 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
 import java.sql.SQLException;
-import java.util.Map;
 import java.util.Collections;
+import java.util.Map;
 
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.Version;
 import org.apache.openjpa.jdbc.meta.VersionStrategy;
+import org.apache.openjpa.jdbc.sql.Joins;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
@@ -40,37 +41,52 @@ public abstract class AbstractVersionStrategy
     extends AbstractStrategy
     implements VersionStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
     /**
      * The owning version.
      */
     protected Version vers = null;
 
+    @Override
     public void setVersion(Version owner) {
         vers = owner;
     }
 
+    @Override
     public boolean select(Select sel, ClassMapping mapping) {
         return false;
     }
 
+    @Override
     public Object load(OpenJPAStateManager sm, JDBCStore store, Result res)
         throws SQLException {
     	return null;
     }
 
+    @Override
+    public Object load(OpenJPAStateManager sm, JDBCStore store, Result res, Joins joins)
+        throws SQLException {
+        return null;
+    }
+
+    @Override
     public void afterLoad(OpenJPAStateManager sm, JDBCStore store) {
     }
 
+    @Override
     public boolean checkVersion(OpenJPAStateManager sm, JDBCStore store,
         boolean updateVersion)
         throws SQLException {
         return !updateVersion;
     }
 
+    @Override
     public int compareVersion(Object v1, Object v2) {
         return StoreManager.VERSION_SAME;
     }
 
+    @Override
     public Map getBulkUpdateValues() {
         return Collections.EMPTY_MAP;
     }

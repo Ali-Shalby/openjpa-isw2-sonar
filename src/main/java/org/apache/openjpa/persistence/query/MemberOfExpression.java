@@ -14,19 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.persistence.query;
 
 /**
  * Denotes e1 MEMBER OF e2 Expression.
- * 
+ *
  * @author Pinaki Poddar
  *
  */
 public class MemberOfExpression extends BinaryExpressionPredicate {
-	public MemberOfExpression(Expression op, Expression op2) {
-		super(op, BinaryConditionalOperator.MEMBER, 
+	
+    private static final long serialVersionUID = 1L;
+
+    public MemberOfExpression(Expression op, Expression op2) {
+		super(op, BinaryConditionalOperator.MEMBER,
 			BinaryConditionalOperator.MEMBER_NOT, op2);
 	}
 }

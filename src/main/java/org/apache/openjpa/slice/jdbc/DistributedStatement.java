@@ -14,39 +14,22 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.slice.jdbc;
 
-import java.lang.reflect.Constructor;
 import java.sql.Statement;
-
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 
 /**
  * A virtual Statement that delegates to many actual Statements.
- * 
+ *
  * @author Pinaki Poddar
- * 
+ *
  */
-public abstract class DistributedStatement extends
+public class DistributedStatement extends
     DistributedTemplate<Statement> {
-    static final Constructor<DistributedStatement> concreteImpl;
-
-    static {
-        try {
-            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DistributedStatement.class, 
-                DistributedConnection.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
 
     public DistributedStatement(DistributedConnection c) {
         super(c);
-    }
-
-    public static DistributedStatement newInstance(DistributedConnection conn) {
-        return ConcreteClassGenerator.newInstance(concreteImpl, conn);
     }
 }

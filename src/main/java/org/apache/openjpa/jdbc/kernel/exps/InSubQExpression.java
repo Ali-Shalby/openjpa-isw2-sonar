@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -33,6 +33,8 @@ import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 class InSubQExpression
     implements Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
     private final SubQ _sub;
 
@@ -44,6 +46,7 @@ class InSubQExpression
         _sub = sub;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         ExpState subqState = _sub.initialize(sel, ctx, 0);
         ExpState valueState = _val.initialize(sel, ctx, 0);
@@ -59,7 +62,7 @@ class InSubQExpression
         public final ExpState subqState;
         public final ExpState valueState;
 
-        public InSubQExpState(Joins joins, ExpState subqState, 
+        public InSubQExpState(Joins joins, ExpState subqState,
             ExpState valueState) {
             super(joins);
             this.subqState = subqState;
@@ -67,7 +70,8 @@ class InSubQExpression
         }
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         InSubQExpState istate = (InSubQExpState) state;
         _sub.calculateValue(sel, ctx, istate.subqState, null, null);
@@ -77,13 +81,15 @@ class InSubQExpression
         _sub.appendTo(sel, ctx, istate.valueState, buf, 0);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         InSubQExpState istate = (InSubQExpState) state;
         _sub.selectColumns(sel, ctx, istate.subqState, pks);
         _val.selectColumns(sel, ctx, istate.valueState, true);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

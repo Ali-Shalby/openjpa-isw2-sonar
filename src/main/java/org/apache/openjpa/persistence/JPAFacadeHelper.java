@@ -18,17 +18,23 @@
  */
 package org.apache.openjpa.persistence;
 
+import java.lang.reflect.Modifier;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
-import java.util.Iterator;
-import javax.persistence.EntityManager;
-import javax.persistence.EntityManagerFactory;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.EntityManagerFactory;
+
+import org.apache.openjpa.enhance.PCRegistry;
 import org.apache.openjpa.kernel.Broker;
 import org.apache.openjpa.kernel.BrokerFactory;
+import org.apache.openjpa.kernel.BrokerImpl.StateManagerId;
+import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
+import org.apache.openjpa.meta.FieldMetaData;
+import org.apache.openjpa.util.ApplicationIds;
 import org.apache.openjpa.util.BigDecimalId;
 import org.apache.openjpa.util.BigIntegerId;
 import org.apache.openjpa.util.ByteId;
@@ -43,14 +49,13 @@ import org.apache.openjpa.util.ObjectId;
 import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.ShortId;
 import org.apache.openjpa.util.StringId;
-import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.util.UserException;
 
 /**
  * Helper class for switching between OpenJPA's JPA facade and the underlying
  * Broker kernel.
  *
  * @since 1.0.0
- * @nojavadoc
  */
 public class JPAFacadeHelper {
 
@@ -209,37 +214,71 @@ public class JPAFacadeHelper {
     }
 
     /**
-     * Translate from a Persistence identity object to a OpenJPA one.
+     * Translate from a Persistence identity object to a OpenJPA one. If the provided oid isn't of the expected type
+     * a UserException will be thrown.
      */
     public static Object toOpenJPAObjectId(ClassMetaData meta, Object oid) {
         if (oid == null || meta == null)
             return null;
+        if (oid instanceof OpenJPAId) {
+            return oid;
+        }
 
-        Class cls = meta.getDescribedType();
-        if (meta.getIdentityType() == ClassMetaData.ID_DATASTORE)
-            return new Id(cls, ((Number) oid).longValue());
+        Class<?> cls = meta.getDescribedType();
+        FieldMetaData[] pks = meta.getPrimaryKeyFields();
 
-        if (oid instanceof Byte)
-            return new ByteId(cls, (Byte) oid);
-        if (oid instanceof Character)
-            return new CharId(cls, (Character) oid);
-        if (oid instanceof Double)
-            return new DoubleId(cls, (Double) oid);
-        if (oid instanceof Float)
-            return new FloatId(cls, (Float) oid);
-        if (oid instanceof Integer)
-            return new IntId(cls, (Integer) oid);
-        if (oid instanceof Long)
-            return new LongId(cls, (Long) oid);
-        if (oid instanceof Short)
-            return new ShortId(cls, (Short) oid);
-        if (oid instanceof String)
-            return new StringId(cls, (String) oid);
-        if (oid instanceof BigDecimal)
-            return new BigDecimalId(cls, (BigDecimal) oid);
-        if (oid instanceof BigInteger)
-            return new BigIntegerId(cls, (BigInteger) oid);
-        return new ObjectId(cls, oid);
+        Object expected = meta.getObjectIdType();
+        try {
+            switch (meta.getIdentityType()) {
+            case ClassMetaData.ID_DATASTORE:
+                if (oid instanceof String && ((String) oid).startsWith(StateManagerId.STRING_PREFIX))
+                    return new StateManagerId((String) oid);
+                return new Id(cls, ((Number) oid).longValue());
+            case ClassMetaData.ID_APPLICATION:
+                if (ImplHelper.isAssignable(meta.getObjectIdType(), oid.getClass())) {
+                    if (!meta.isOpenJPAIdentity() && meta.isObjectIdTypeShared())
+                        return new ObjectId(cls, oid);
+                    return oid;
+                }
+
+                if (meta.getIdClass() == null) {
+                    expected = pks[0].getDeclaredType();
+                } else {
+                    expected = meta.getIdClass();
+                }
+                // stringified app id?
+                if (oid instanceof String
+                    && !meta.getRepository().getConfiguration().getCompatibilityInstance().getStrictIdentityValues()
+                    && !Modifier.isAbstract(cls.getModifiers()))
+                    return PCRegistry.newObjectId(cls, (String) oid);
+
+                Object[] arr = (oid instanceof Object[]) ? (Object[]) oid : new Object[] { oid };
+                Object rtrn = ApplicationIds.fromPKValues(arr, meta);
+                if (rtrn != null && meta.getObjectIdType() != null) {
+                    if (rtrn instanceof ObjectId) {
+                        // embedded id and composite id with a derived id that
+                        // uses an embedded id
+                        if (pks.length > 0 && (pks[0].isEmbedded() || pks[0].isTypePC())) {
+                            Class idClass = meta.getIdClass();
+                            if (pks[0].getDeclaredType().equals(oid.getClass()) || idClass != null
+                                && idClass.equals(oid.getClass())) {
+                                return rtrn;
+                            }
+                        }
+                    } else {
+                        if (!(rtrn instanceof StringId) || rtrn instanceof StringId && oid instanceof String) {
+                            return rtrn;
+                        }
+                    }
+                }
+            default:
+                throw new UserException(_loc.get("invalid-oid", new Object[] { expected, oid.getClass() }));
+            }
+        } catch (RuntimeException re) {
+            if (expected == null)
+                throw new UserException(_loc.get("invalid-oid", new Object[] { Number.class, oid.getClass() }));
+            throw new UserException(_loc.get("invalid-oid", new Object[] { expected, oid.getClass() }));
+        }
     }
 
     /**
@@ -266,25 +305,13 @@ public class JPAFacadeHelper {
     /**
      * Return a collection of OpenJPA oids for the given native oid collection.
      */
-    public static Collection toOpenJPAObjectIds(ClassMetaData meta,
-        Collection oids) {
-        if (oids == null || oids.isEmpty())
+    public static Collection<Object> toOpenJPAObjectIds(ClassMetaData meta, Collection<Object> oids) {
+        if (oids == null || oids.size() == 0) {
             return oids;
-
-        // since the class if fixed for all oids, we can tell if we have to
-        // translate the array based on whether the first oid needs translating
-        Iterator itr = oids.iterator();
-        Object orig = itr.next();
-        Object oid = toOpenJPAObjectId(meta, orig);
-        if (oid == orig)
-            return oids;
-
-        Collection copy = new ArrayList(oids.size());
-        copy.add(oid);
-        while (itr.hasNext())
-            copy.add(toOpenJPAObjectId(meta, itr.next()));
-        return copy;
+        }
+        return Arrays.asList(toOpenJPAObjectIds(meta, oids.toArray()));
     }
+
 
     /**
      * Translate from a OpenJPA identity class to a native one.

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -27,8 +27,11 @@ import org.apache.openjpa.kernel.StoreContext;
  *
  * @author Abe White
  */
-class Exp
+public class Exp
     implements Expression {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Evaluate the expression for the given candidate.
@@ -37,9 +40,7 @@ class Exp
         StoreContext ctx, Object[] params) {
         try {
             return eval(candidate, candidate, ctx, params);
-        } catch (ClassCastException cce) {
-            return false;
-        } catch (NullPointerException npe) {
+        } catch (ClassCastException | NullPointerException cce) {
             return false;
         }
     }
@@ -51,9 +52,7 @@ class Exp
         StoreContext ctx, Object[] params) {
         try {
             return eval(candidates, ctx, params);
-        } catch (ClassCastException cce) {
-            return false;
-        } catch (NullPointerException npe) {
+        } catch (ClassCastException | NullPointerException cce) {
             return false;
         }
     }
@@ -75,6 +74,7 @@ class Exp
         return true;
 	}
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         visitor.exit(this);

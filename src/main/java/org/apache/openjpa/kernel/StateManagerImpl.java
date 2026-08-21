@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -25,6 +25,7 @@ import java.io.ObjectOutput;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 import java.lang.reflect.Modifier;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
@@ -32,13 +33,12 @@ import java.util.Calendar;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.locks.ReentrantLock;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.conf.OpenJPAConfiguration;
 import org.apache.openjpa.enhance.DynamicPersistenceCapable;
 import org.apache.openjpa.enhance.FieldManager;
@@ -83,9 +83,9 @@ import org.apache.openjpa.util.UserException;
  *
  * @author Abe White
  */
-public class StateManagerImpl
-    implements OpenJPAStateManager, Serializable {
-
+public class StateManagerImpl implements OpenJPAStateManager, Serializable {
+    
+    private static final long serialVersionUID = 1L;
     public static final int LOAD_FGS = 0;
     public static final int LOAD_ALL = 1;
     public static final int LOAD_SERIALIZE = 2;
@@ -114,10 +114,15 @@ public class StateManagerImpl
 
     // information about the instance
     private transient PersistenceCapable _pc = null;
-    private transient ClassMetaData _meta = null;
-    private BitSet _loaded = null;
+    protected transient ClassMetaData _meta = null;
+    protected BitSet _loaded = null;
+
+    // Care needs to be taken when accessing these fields as they will can be null if no fields are
+    // dirty, or have been flushed.
     private BitSet _dirty = null;
     private BitSet _flush = null;
+
+    private BitSet _delayed = null;
     private int _flags = 0;
 
     // id is the state manager identity; oid is the persistent identity.  oid
@@ -130,11 +135,11 @@ public class StateManagerImpl
 
     // the managing persistence manager and lifecycle state
     private transient BrokerImpl _broker; // this is serialized specially
-    private PCState _state = PCState.TRANSIENT;
+    protected PCState _state = PCState.TRANSIENT;
 
     // the current and last loaded version indicators, and the lock object
-    private Object _version = null;
-    private Object _loadVersion = null;
+    protected Object _version = null;
+    protected Object _loadVersion = null;
     private Object _lock = null;
     private int _readLockLevel = -1;
     private int _writeLockLevel = -1;
@@ -146,7 +151,7 @@ public class StateManagerImpl
 
     // impldata; field impldata and intermediate data share the same array
     private Object _impl = null;
-    private Object[] _fieldImpl = null;
+    protected Object[] _fieldImpl = null;
 
     // information about the owner of this instance, if it is embedded
     private StateManagerImpl _owner = null;
@@ -154,14 +159,22 @@ public class StateManagerImpl
     private Object _ownerId = null;
     private int _ownerIndex = -1;
     private List<FieldMetaData> _mappedByIdFields = null;
-    
+
     private transient ReentrantLock _instanceLock = null;
+
+    private int _datePrecision = -1;
+
+    /**
+     * <p>set to <code>false</code> to prevent the postLoad method from
+     * sending lifecycle callback events.</p>
+     * <p>Callbacks are enabled by default</>
+     */
+    private boolean postLoadCallback = true;
 
     /**
      * Constructor; supply id, type metadata, and owning persistence manager.
      */
-    protected StateManagerImpl(Object id, ClassMetaData meta, 
-        BrokerImpl broker) {
+    protected StateManagerImpl(Object id, ClassMetaData meta, BrokerImpl broker) {
         _id = id;
         _meta = meta;
         _broker = broker;
@@ -169,7 +182,7 @@ public class StateManagerImpl
         if (broker.getMultithreaded())
         	_instanceLock = new ReentrantLock();
 
-        if (_meta.getIdentityType() == ClassMetaData.ID_UNKNOWN)
+        if (_meta.getIdentityType() == ClassMetaData.ID_UNKNOWN && !_meta.isEmbeddable())
             throw new UserException(_loc.get("meta-unknownid", _meta));
     }
 
@@ -178,7 +191,7 @@ public class StateManagerImpl
      * new PersistenceCapable instance will be created and associated with the
      * new StateManager. All fields will be copied into the ne PC instance as
      * well as the dirty, loaded, and flushed bitsets.
-     * 
+     *
      * @param sm A statemanager instance which will effectively be cloned.
      */
     public StateManagerImpl(StateManagerImpl sm) {
@@ -188,18 +201,18 @@ public class StateManagerImpl
     /**
      * Create a new StateManager instance, optionally overriding the state
      * (FLUSHED, DELETED, etc) of the underlying PersistenceCapable instance).
-     * 
+     *
      * @param sm
      *            A statemanager instance which will effectively be cloned.
      * @param newState
      *            The new state of the underlying persistence capable object.
      */
-    public StateManagerImpl(StateManagerImpl sm, PCState newState) { 
+    public StateManagerImpl(StateManagerImpl sm, PCState newState) {
         this(sm.getId(), sm.getMetaData(), sm.getBroker());
 
         PersistenceCapable origPC = sm.getPersistenceCapable();
         _pc = origPC.pcNewInstance(sm, false);
-        
+
         int[] fields = new int[sm.getMetaData().getFields().length];
         for (int i = 0; i < fields.length; i++) {
             fields[i] = i;
@@ -208,16 +221,16 @@ public class StateManagerImpl
         _pc.pcReplaceStateManager(this);
         _state = newState;
 
-        // clone the field bitsets. 
+        // clone the field bitsets.
         _dirty=(BitSet)sm.getDirty().clone();
         _loaded = (BitSet)sm.getLoaded().clone();
         _flush = (BitSet) sm.getFlushed().clone();
         _version = sm.getVersion();
-        
-        _oid = sm.getObjectId(); 
+
+        _oid = sm.getObjectId();
         _id = sm.getId();
-        
-        // more data may need to be copied. 
+
+        // more data may need to be copied.
     }
 
     /**
@@ -258,6 +271,7 @@ public class StateManagerImpl
         if (_state == state)
             return;
 
+        PCState prev = _state;
         lock();
         try {
             // notify the store manager that we're changing states; can veto
@@ -283,8 +297,7 @@ public class StateManagerImpl
             else
                 _broker.removeFromTransaction(this);
 
-            // initialize
-            _state.initialize(this);
+            _state.initialize(this, prev);
             if (_state.isDeleted() && !wasDeleted)
                 fireLifecycleEvent(LifecycleEvent.AFTER_DELETE);
         } finally {
@@ -296,6 +309,7 @@ public class StateManagerImpl
     // OpenJPAStateManager implementation
     //////////////////////////////////////
 
+    @Override
     public void initialize(Class cls, PCState state) {
         // check to see if our current object id instance is the
         // correct id type for the specified class; this is for cases
@@ -346,30 +360,17 @@ public class StateManagerImpl
 
         FieldMetaData[] fmds = _meta.getFields();
         _loaded = new BitSet(fmds.length);
-        _flush = new BitSet(fmds.length);
-        _dirty = new BitSet(fmds.length);
 
-        for (int i = 0; i < fmds.length; i++) {
-            // mark primary key and non-persistent fields as loaded
-            if (fmds[i].isPrimaryKey()
-                || fmds[i].getManagement() != fmds[i].MANAGE_PERSISTENT)
-                _loaded.set(i);
-            
-            if (_meta.getIdentityType() == ClassMetaData.ID_APPLICATION) {
-                String mappedByIdValue = fmds[i].getMappedByIdValue(); 
-                if (mappedByIdValue != null) { 
-                    if (!ApplicationIds.isIdSet(_id, _meta, mappedByIdValue)) {
-                        if (_mappedByIdFields == null)
-                            _mappedByIdFields = new ArrayList<FieldMetaData>();
-                        _mappedByIdFields.add(fmds[i]);
-                    }
-                }
-            }
-            // record whether there are any managed inverse fields
-            if (_broker.getInverseManager() != null
-                && fmds[i].getInverseMetaDatas().length > 0)
-                _flags |= FLAG_INVERSES;
+        // mark primary key and non-persistent fields as loaded
+        for(int i : _meta.getPkAndNonPersistentManagedFmdIndexes()){
+            _loaded.set(i);
         }
+
+        _mappedByIdFields = _meta.getMappyedByIdFields();
+
+        // record whether there are any managed inverse fields
+        if (_broker.getInverseManager() != null && _meta.hasInverseManagedFields())
+            _flags |= FLAG_INVERSES;
 
         pc.pcSetDetachedState(null);
         _pc = pc;
@@ -379,7 +380,7 @@ public class StateManagerImpl
 
         // initialize our state and add ourselves to the broker's cache
         setPCState(state);
-        if ( _oid == null ||  
+        if ( _oid == null ||
             _broker.getStateManagerImplById(_oid, false) == null) {
         	_broker.setStateManager(_id, this, BrokerImpl.STATUS_INIT);
         }
@@ -406,7 +407,7 @@ public class StateManagerImpl
     public boolean isIntercepting() {
         if (getMetaData().isIntercepting())
             return true;
-        // TODO:JRB Intercepting 
+        // TODO:JRB Intercepting
         if (AccessCode.isProperty(getMetaData().getAccessType())
             && _pc instanceof DynamicPersistenceCapable)
             return true;
@@ -424,6 +425,7 @@ public class StateManagerImpl
         return _broker.fireLifecycleEvent(getManagedInstance(), null, _meta, type);
     }
 
+    @Override
     public void load(FetchConfiguration fetch) {
         load(fetch, LOAD_FGS, null, null, false);
     }
@@ -453,6 +455,7 @@ public class StateManagerImpl
         return ret;
     }
 
+    @Override
     public Object getManagedInstance() {
         if (_pc instanceof ManagedInstanceProvider)
             return ((ManagedInstanceProvider) _pc).getManagedInstance();
@@ -460,18 +463,22 @@ public class StateManagerImpl
             return _pc;
     }
 
+    @Override
     public PersistenceCapable getPersistenceCapable() {
         return _pc;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public OpenJPAStateManager getOwner() {
         return _owner;
     }
 
+    @Override
     public int getOwnerIndex() {
         return _ownerIndex;
     }
@@ -480,31 +487,28 @@ public class StateManagerImpl
         _ownerId = oid;
     }
 
+    @Override
     public boolean isEmbedded() {
         // _owner may not be set if embed object is from query result
         return _owner != null || _state instanceof ENonTransState;
     }
 
+    @Override
     public boolean isFlushed() {
         return (_flags & FLAG_FLUSHED) > 0;
     }
 
+    @Override
     public boolean isFlushedDirty() {
         return (_flags & FLAG_FLUSHED_DIRTY) > 0;
     }
 
+    @Override
     public BitSet getLoaded() {
         return _loaded;
     }
 
-    public BitSet getFlushed() {
-        return _flush;
-    }
-
-    public BitSet getDirty() {
-        return _dirty;
-    }
-
+    @Override
     public BitSet getUnloaded(FetchConfiguration fetch) {
         // collect fields to load from data store based on fetch configuration
         BitSet fields = getUnloadedInternal(fetch, LOAD_FGS, null);
@@ -533,7 +537,7 @@ public class StateManagerImpl
                     load = !fmds[i].isTransient();
                     break;
                 case LOAD_FGS:
-                    load = fetch == null || fetch.requiresFetch(fmds[i]) 
+                    load = fetch == null || fetch.requiresFetch(fmds[i])
                         != FetchConfiguration.FETCH_NONE;
                     break;
                 default: // LOAD_ALL
@@ -549,6 +553,7 @@ public class StateManagerImpl
         return fields;
     }
 
+    @Override
     public StoreContext getContext() {
         return _broker;
     }
@@ -560,10 +565,12 @@ public class StateManagerImpl
         return _broker;
     }
 
+    @Override
     public Object getId() {
         return _id;
     }
 
+    @Override
     public Object getObjectId() {
         StateManagerImpl sm = this;
         while (sm.getOwner() != null)
@@ -573,6 +580,7 @@ public class StateManagerImpl
         return sm._oid;
     }
 
+    @Override
     public void setObjectId(Object oid) {
         _oid = oid;
         if (_pc != null && oid instanceof OpenJPAId)
@@ -585,6 +593,7 @@ public class StateManagerImpl
             sm = (StateManagerImpl) sm.getOwner();
         return sm;
     }
+    @Override
     public boolean assignObjectId(boolean flush) {
         lock();
         try {
@@ -619,7 +628,7 @@ public class StateManagerImpl
      * @param recache whether to recache ourself on the new oid
      */
     private void assertObjectIdAssigned(boolean recache) {
-        if (!isNew() || isDeleted() || isProvisional() 
+        if (!isNew() || isDeleted() || isProvisional()
             || (_flags & FLAG_OID_ASSIGNED) != 0)
             return;
         if (_oid == null) {
@@ -683,7 +692,7 @@ public class StateManagerImpl
         // Just return if there's no value generation strategy
         if (fmd.getValueStrategy() == ValueStrategies.NONE)
             return false;
-        
+
         // Throw exception if field already has a value assigned.
         // @GeneratedValue overrides POJO initial values and setter methods
         if (!fmd.isValueGenerated() && !isDefaultValue(field))
@@ -705,18 +714,22 @@ public class StateManagerImpl
         return !preFlushing;
     }
 
+    @Override
     public Object getLock() {
         return _lock;
     }
 
+    @Override
     public void setLock(Object lock) {
         _lock = lock;
     }
 
+    @Override
     public Object getVersion() {
         return _version;
     }
 
+    @Override
     public void setVersion(Object version) {
         _loadVersion = version;
         assignVersionField(version);
@@ -726,26 +739,65 @@ public class StateManagerImpl
         return _loadVersion;
     }
 
+    @Override
     public void setNextVersion(Object version) {
         assignVersionField(version);
     }
 
+    public static Timestamp roundTimestamp(Timestamp val, int datePrecision) {
+        // ensure that we do not insert dates at a greater precision than
+        // that at which they will be returned by a SELECT
+        int rounded = (int) Math.round(val.getNanos() / (double) datePrecision);
+        long time = val.getTime();
+        int nanos = rounded * datePrecision;
+        if (nanos > 999999999) {
+            // rollover to next second
+            time = time + 1000;
+            nanos = 0;
+        }
+
+        val = new Timestamp(time);
+        val.setNanos(nanos);
+        return val;
+    }
+
     private void assignVersionField(Object version) {
+
+        if (version instanceof Timestamp) {
+            if (_datePrecision == -1) {
+                try {
+                    OpenJPAConfiguration conf = _broker.getConfiguration();
+                    Class confCls = Class.forName("org.apache.openjpa.jdbc.conf.JDBCConfigurationImpl");
+                    if (confCls.isAssignableFrom(conf.getClass())) {
+                        Object o = conf.getClass().getMethod("getDBDictionaryInstance").invoke(conf, (Object[]) null);
+                        _datePrecision = o.getClass().getField("datePrecision").getInt(o);
+                    } else {
+                        _datePrecision = 1000;
+                    }
+                } catch (Throwable e) {
+                    _datePrecision = 1000;
+                }
+            }
+
+            version = roundTimestamp((Timestamp) version, _datePrecision);
+        }
         _version = version;
         FieldMetaData vfield = _meta.getVersionField();
         if (vfield != null)
-            store(vfield.getIndex(), JavaTypes.convert(version,
-                vfield.getTypeCode()));
+            store(vfield.getIndex(), JavaTypes.convert(version, vfield.getTypeCode()));
     }
 
+    @Override
     public PCState getPCState() {
         return _state;
     }
 
+    @Override
     public synchronized Object getImplData() {
         return _impl;
     }
 
+    @Override
     public synchronized Object setImplData(Object data, boolean cacheable) {
         Object old = _impl;
         _impl = data;
@@ -756,18 +808,22 @@ public class StateManagerImpl
         return old;
     }
 
+    @Override
     public boolean isImplDataCacheable() {
         return (_flags & FLAG_IMPL_CACHE) != 0;
     }
 
+    @Override
     public Object getImplData(int field) {
         return getExtraFieldData(field, true);
     }
 
+    @Override
     public Object setImplData(int field, Object data) {
         return setExtraFieldData(field, data, true);
     }
 
+    @Override
     public synchronized boolean isImplDataCacheable(int field) {
         if (_fieldImpl == null || !_loaded.get(field))
             return false;
@@ -777,10 +833,12 @@ public class StateManagerImpl
         return idx != -1 && _fieldImpl[idx] != null;
     }
 
+    @Override
     public Object getIntermediate(int field) {
         return getExtraFieldData(field, false);
     }
 
+    @Override
     public void setIntermediate(int field, Object data) {
         setExtraFieldData(field, data, false);
     }
@@ -788,7 +846,7 @@ public class StateManagerImpl
     /**
      * Return the data from the proper index of the extra field data array.
      */
-    private synchronized Object getExtraFieldData(int field, boolean isLoaded) {
+    protected synchronized Object getExtraFieldData(int field, boolean isLoaded) {
         // only return the field data if the field is in the right loaded
         // state; otherwise we might return intermediate for impl data or
         // vice versa
@@ -823,11 +881,13 @@ public class StateManagerImpl
         return old;
     }
 
+    @Override
     public Object fetch(int field) {
         Object val = fetchField(field, false);
         return _meta.getField(field).getExternalValue(val, _broker);
     }
 
+    @Override
     public Object fetchField(int field, boolean transitions) {
         FieldMetaData fmd = _meta.getField(field);
         if (fmd == null)
@@ -848,29 +908,31 @@ public class StateManagerImpl
                 return (fetchBooleanField(field)) ? Boolean.TRUE
                     : Boolean.FALSE;
             case JavaTypes.BYTE:
-                return new Byte(fetchByteField(field));
+                return fetchByteField(field);
             case JavaTypes.CHAR:
-                return new Character(fetchCharField(field));
+                return fetchCharField(field);
             case JavaTypes.DOUBLE:
-                return new Double(fetchDoubleField(field));
+                return fetchDoubleField(field);
             case JavaTypes.FLOAT:
-                return new Float(fetchFloatField(field));
+                return fetchFloatField(field);
             case JavaTypes.INT:
                 return fetchIntField(field);
             case JavaTypes.LONG:
                 return fetchLongField(field);
             case JavaTypes.SHORT:
-                return new Short(fetchShortField(field));
+                return fetchShortField(field);
             default:
                 return fetchObjectField(field);
         }
     }
 
+    @Override
     public void store(int field, Object val) {
         val = _meta.getField(field).getFieldValue(val, _broker);
         storeField(field, val);
     }
 
+    @Override
     public void storeField(int field, Object val) {
         storeField(field, val, this);
     }
@@ -928,6 +990,7 @@ public class StateManagerImpl
         return true;
     }
 
+    @Override
     public Object fetchInitialField(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (_broker.getRestoreState() == RestoreState.RESTORE_NONE
@@ -952,7 +1015,7 @@ public class StateManagerImpl
 
         lock();
         try {
-            if (_saved == null || !_loaded.get(field) || !_dirty.get(field))
+            if (_saved == null || !_loaded.get(field) || !isFieldDirty(field))
                 return fetchField(field, false);
 
             // if the field is dirty but we never loaded it, we can't restore it
@@ -979,19 +1042,19 @@ public class StateManagerImpl
                 return (fm.fetchBooleanField(field)) ? Boolean.TRUE
                     : Boolean.FALSE;
             case JavaTypes.BYTE:
-                return new Byte(fm.fetchByteField(field));
+                return fm.fetchByteField(field);
             case JavaTypes.CHAR:
-                return new Character(fm.fetchCharField(field));
+                return fm.fetchCharField(field);
             case JavaTypes.DOUBLE:
-                return new Double(fm.fetchDoubleField(field));
+                return fm.fetchDoubleField(field);
             case JavaTypes.FLOAT:
-                return new Float(fm.fetchFloatField(field));
+                return fm.fetchFloatField(field);
             case JavaTypes.INT:
                 return fm.fetchIntField(field);
             case JavaTypes.LONG:
                 return fm.fetchLongField(field);
             case JavaTypes.SHORT:
-                return new Short(fm.fetchShortField(field));
+                return fm.fetchShortField(field);
             case JavaTypes.STRING:
                 return fm.fetchStringField(field);
             default:
@@ -999,6 +1062,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void setRemote(int field, Object value) {
         lock();
         try {
@@ -1066,8 +1130,11 @@ public class StateManagerImpl
             boolean needPostUpdate = !(wasNew && !wasFlushed)
                     && (ImplHelper.getUpdateFields(this) != null);
 
-            // all dirty fields were flushed
-            _flush.or(_dirty);
+            // all dirty fields were flushed, we are referencing the _dirty BitSet directly here
+            // because we don't want to instantiate it if we don't have to.
+            if (_dirty != null) {
+                getFlushed().or(_dirty);
+            }
 
             // important to set flushed bit after calling _state.flush so
             // that the state can tell whether this is the first flush
@@ -1279,6 +1346,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public boolean beforeRefresh(boolean refreshAll) {
         // note: all logic placed here rather than in the states for
         // optimization; this method public b/c used by remote package
@@ -1347,7 +1415,7 @@ public class StateManagerImpl
                 _broker.addDereferencedDependent(this);
         }
     }
-    
+
     void setDereferencedEmbedDependent(boolean deref) {
         if (!deref && (_flags & FLAG_EMBED_DEREF) > 0) {
             _flags &= ~FLAG_EMBED_DEREF;
@@ -1355,7 +1423,7 @@ public class StateManagerImpl
             _flags |= FLAG_EMBED_DEREF;
         }
     }
-    
+
     public boolean getDereferencedEmbedDependent() {
         return ((_flags & FLAG_EMBED_DEREF) == 0 ? false : true);
     }
@@ -1391,9 +1459,9 @@ public class StateManagerImpl
         if (fetch == null)
             fetch = _broker.getFetchConfiguration();
 
-        if (_readLockLevel == -1)
+        if (_readLockLevel == -1 || _readLockLevel < fetch.getReadLockLevel())
             _readLockLevel = fetch.getReadLockLevel();
-        if (_writeLockLevel == -1)
+        if (_writeLockLevel == -1 || _writeLockLevel < fetch.getWriteLockLevel())
             _writeLockLevel = fetch.getWriteLockLevel();
         return (forWrite) ? _writeLockLevel : _readLockLevel;
     }
@@ -1442,6 +1510,7 @@ public class StateManagerImpl
     /**
      * @return whether or not unloaded fields should be closed.
      */
+    @Override
     public boolean serializing() {
         // if the broker is in the midst of a serialization, then no special
         // handling should be performed on the instance, and no subsequent
@@ -1453,7 +1522,7 @@ public class StateManagerImpl
             if (_meta.isDetachable())
                 return DetachManager.preSerialize(this);
 
-            load(_broker.getFetchConfiguration(), LOAD_SERIALIZE, null, null, 
+            load(_broker.getFetchConfiguration(), LOAD_SERIALIZE, null, null,
                 false);
             return false;
         } catch (RuntimeException re) {
@@ -1461,6 +1530,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public boolean writeDetached(ObjectOutput out)
         throws IOException {
         BitSet idxs = new BitSet(_meta.getFields().length);
@@ -1487,11 +1557,13 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void proxyDetachedDeserialized(int idx) {
         // we don't serialize state manager impls
         throw new InternalException();
     }
 
+    @Override
     public boolean isTransactional() {
         // special case for TCLEAN, which we want to appear non-trans to
         // internal code, but which publicly should be transactional
@@ -1502,38 +1574,46 @@ public class StateManagerImpl
         return _state.isPendingTransactional();
     }
 
+    @Override
     public boolean isProvisional() {
         return _state.isProvisional();
     }
 
+    @Override
     public boolean isPersistent() {
         return _state.isPersistent();
     }
 
+    @Override
     public boolean isNew() {
         return _state.isNew();
     }
 
+    @Override
     public boolean isDeleted() {
         return _state.isDeleted();
     }
 
+    @Override
     public boolean isDirty() {
         return _state.isDirty();
     }
 
+    @Override
     public boolean isDetached() {
         return (_flags & FLAG_DETACHING) != 0;
     }
 
+    @Override
     public Object getGenericContext() {
         return _broker;
     }
 
+    @Override
     public Object fetchObjectId() {
         try {
-            if (hasGeneratedKey() && _state instanceof PNewState && 
-                _oid == null) 
+            if (hasGeneratedKey() && _state instanceof PNewState &&
+                _oid == null)
                 return _oid;
             assignObjectId(true);
             if (_oid == null || !_broker.getConfiguration().
@@ -1547,16 +1627,17 @@ public class StateManagerImpl
             throw translate(re);
         }
     }
-    
+
     private boolean hasGeneratedKey() {
         FieldMetaData[] pkFields = _meta.getPrimaryKeyFields();
-        for (int i = 0; i < pkFields.length; i++) {
-            if (pkFields[i].getValueStrategy() == ValueStrategies.AUTOASSIGN)
+        for (FieldMetaData pkField : pkFields) {
+            if (pkField.getValueStrategy() == ValueStrategies.AUTOASSIGN)
                 return true;
         }
         return false;
     }
 
+    @Override
     public Object getPCPrimaryKey(Object oid, int field) {
         FieldMetaData fmd = _meta.getField(field);
         Object pk = ApplicationIds.get(oid, fmd);
@@ -1568,7 +1649,7 @@ public class StateManagerImpl
         if (relmeta.getIdentityType() == ClassMetaData.ID_DATASTORE
             && fmd.getObjectIdFieldTypeCode() == JavaTypes.LONG)
             pk = _broker.getStoreManager().newDataStoreId(pk, relmeta);
-        else if (relmeta.getIdentityType() == ClassMetaData.ID_APPLICATION 
+        else if (relmeta.getIdentityType() == ClassMetaData.ID_APPLICATION
             && fmd.getObjectIdFieldType() != relmeta.getObjectIdType())
             pk = ApplicationIds.fromPKValues(new Object[] { pk }, relmeta);
         return _broker.find(pk, false, null);
@@ -1580,17 +1661,78 @@ public class StateManagerImpl
         return PersistenceCapable.LOAD_REQUIRED;
     }
 
+    @Override
     public StateManager replaceStateManager(StateManager sm) {
         return sm;
     }
 
+    @Override
     public void accessingField(int field) {
         // possibly change state
         try {
+            // If this field is loaded, and not a PK field allow pass through
+            // TODO -- what about version fields? Could probably UT this
+            if(_loaded.get(field) && !_meta.getField(field).isPrimaryKey())
+                return;
+
             beforeRead(field);
             beforeAccessField(field);
         } catch (RuntimeException re) {
             throw translate(re);
+        }
+    }
+
+    @Override
+    public boolean isDelayed(int field) {
+        if (_delayed == null) {
+            return false;
+        }
+        return _delayed.get(field);
+    }
+
+    @Override
+    public void setDelayed(int field, boolean delay) {
+        if (_delayed == null) {
+            _delayed = new BitSet();
+        }
+        if (delay) {
+            _delayed.set(field);
+        } else {
+            _delayed.clear(field);
+        }
+    }
+
+    /**
+     * Loads a delayed access field.
+     */
+    @Override
+    public void loadDelayedField(int field) {
+        if (!isDelayed(field)) {
+            return;
+        }
+
+        try {
+            beforeRead(field);
+        } catch (RuntimeException re) {
+            throw translate(re);
+        }
+        lock();
+        try {
+            boolean active = _broker.isActive();
+            int lockLevel = calculateLockLevel(active, false, null);
+            BitSet fields = new BitSet();
+            fields.set(field);
+            if (!_broker.getStoreManager().load(this, fields, _broker.getFetchConfiguration(), lockLevel, null)) {
+                throw new ObjectNotFoundException(_loc.get("del-instance", _meta.getDescribedType(), _oid)).
+                    setFailedObject(getManagedInstance());
+            }
+            // Cleared the delayed bit
+            _delayed.clear(field);
+            obtainLocks(active, false, lockLevel, null, null);
+        } catch (RuntimeException re) {
+            throw translate(re);
+        } finally {
+            unlock();
         }
     }
 
@@ -1614,6 +1756,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void dirty(String field) {
         FieldMetaData fmd = _meta.getField(field);
         if (fmd == null)
@@ -1624,6 +1767,7 @@ public class StateManagerImpl
         dirty(fmd.getIndex(), null, true);
     }
 
+    @Override
     public void dirty(int field) {
         dirty(field, null, true);
     }
@@ -1696,10 +1840,10 @@ public class StateManagerImpl
             if (active) {
                 if (_broker.getOptimistic())
                     setPCState(_state.beforeOptimisticWrite(this, field,
-                        mutate.booleanValue()));
+                            mutate));
                 else
                     setPCState(_state.beforeWrite(this, field,
-                        mutate.booleanValue()));
+                            mutate));
             } else if (fmd.getManagement() == FieldMetaData.MANAGE_PERSISTENT) {
                 if (isPersistent() && !_broker.getNontransactionalWrite())
                     throw new InvalidStateException(_loc.get
@@ -1707,7 +1851,7 @@ public class StateManagerImpl
                         (getManagedInstance());
 
                 setPCState(_state.beforeNontransactionalWrite(this, field,
-                    mutate.booleanValue()));
+                        mutate));
             }
 
             if ((_flags & FLAG_FLUSHED) != 0) {
@@ -1720,7 +1864,7 @@ public class StateManagerImpl
 
             // note that the field is in need of flushing again, and tell the
             // broker too
-            _flush.clear(field);
+            clearFlushField(field);
             _broker.setDirty(this, newFlush && !clean);
 
             // save the field for rollback if needed
@@ -1728,13 +1872,13 @@ public class StateManagerImpl
 
             // dirty the field and mark loaded; load fetch group if needed
             int lockLevel = calculateLockLevel(active, true, null);
-            if (!_dirty.get(field)) {
+            if (!isFieldDirty(field)) {
                 setLoaded(field, true);
-                _dirty.set(field);
+                setFieldDirty(field);
 
                 // make sure the field's fetch group is loaded
                 if (loadFetchGroup && isPersistent()
-                    && fmd.getManagement() == fmd.MANAGE_PERSISTENT)
+                    && fmd.getManagement() == FieldMetaData.MANAGE_PERSISTENT)
                     loadField(field, lockLevel, true, true);
             }
             obtainLocks(active, true, lockLevel, null, null);
@@ -1767,6 +1911,7 @@ public class StateManagerImpl
             fireLifecycleEvent(LifecycleEvent.AFTER_DIRTY_FLUSHED);
     }
 
+    @Override
     public void removed(int field, Object removed, boolean key) {
         if (removed == null)
             return;
@@ -1784,6 +1929,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public Object newProxy(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -1808,6 +1954,7 @@ public class StateManagerImpl
         return null;
     }
 
+    @Override
     public Object newFieldProxy(int field) {
         FieldMetaData fmd = _meta.getField(field);
         ProxyManager mgr = _broker.getConfiguration().
@@ -1835,6 +1982,7 @@ public class StateManagerImpl
         return null;
     }
 
+    @Override
     public boolean isDefaultValue(int field) {
         lock();
         try {
@@ -1852,6 +2000,7 @@ public class StateManagerImpl
     // Record that the field is dirty (which might load DFG)
     /////////////////////////////////////////////////////////
 
+    @Override
     public void settingBooleanField(PersistenceCapable pc, int field,
         boolean curVal, boolean newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1871,6 +2020,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingByteField(PersistenceCapable pc, int field,
         byte curVal, byte newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1890,6 +2040,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingCharField(PersistenceCapable pc, int field,
         char curVal, char newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1909,6 +2060,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingDoubleField(PersistenceCapable pc, int field,
         double curVal, double newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1928,6 +2080,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingFloatField(PersistenceCapable pc, int field,
         float curVal, float newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1947,6 +2100,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingIntField(PersistenceCapable pc, int field,
         int curVal, int newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1966,6 +2120,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingLongField(PersistenceCapable pc, int field,
         long curVal, long newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1985,6 +2140,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingObjectField(PersistenceCapable pc, int field,
         Object curVal, Object newVal, int set) {
         if (set != SET_REMOTE) {
@@ -1999,9 +2155,25 @@ public class StateManagerImpl
                     case JavaTypes.ARRAY:
                     case JavaTypes.COLLECTION:
                     case JavaTypes.MAP:
-                    case JavaTypes.PC:
                     case JavaTypes.PC_UNTYPED:
                         break;
+                    case JavaTypes.PC:
+                        if (_meta.getField(field).isPrimaryKey()) {
+                            // this field is a derived identity
+                            //if (newVal != null && newVal.equals(curVal))
+                            //    return;
+                            //else {
+                                if (curVal != null && newVal != null &&
+                                    curVal instanceof PersistenceCapable && newVal instanceof PersistenceCapable) {
+                                    PersistenceCapable curPc = (PersistenceCapable) curVal;
+                                    PersistenceCapable newPc = (PersistenceCapable) newVal;
+                                    if (curPc.pcFetchObjectId().equals(newPc.pcFetchObjectId()))
+                                        return;
+
+                                }
+                            //}
+                        } else
+                            break;
                     default:
                         if (newVal != null && newVal.equals(curVal))
                             return;
@@ -2039,6 +2211,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingShortField(PersistenceCapable pc, int field,
         short curVal, short newVal, int set) {
         if (set != SET_REMOTE) {
@@ -2058,10 +2231,11 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void settingStringField(PersistenceCapable pc, int field,
         String curVal, String newVal, int set) {
         if (set != SET_REMOTE) {
-            if (StringUtils.equals(newVal, curVal) && _loaded.get(field))
+            if (Objects.equals(newVal, curVal) && _loaded.get(field))
                 return;
             assertNoPrimaryKeyChange(field);
         }
@@ -2103,92 +2277,112 @@ public class StateManagerImpl
     // Delegate to FieldManager
     ////////////////////////////
 
+    @Override
     public void providedBooleanField(PersistenceCapable pc, int field,
         boolean curVal) {
         _fm.storeBooleanField(field, curVal);
     }
 
+    @Override
     public void providedByteField(PersistenceCapable pc, int field,
         byte curVal) {
         _fm.storeByteField(field, curVal);
     }
 
+    @Override
     public void providedCharField(PersistenceCapable pc, int field,
         char curVal) {
         _fm.storeCharField(field, curVal);
     }
 
+    @Override
     public void providedDoubleField(PersistenceCapable pc, int field,
         double curVal) {
         _fm.storeDoubleField(field, curVal);
     }
 
+    @Override
     public void providedFloatField(PersistenceCapable pc, int field,
         float curVal) {
         _fm.storeFloatField(field, curVal);
     }
 
+    @Override
     public void providedIntField(PersistenceCapable pc, int field,
         int curVal) {
         _fm.storeIntField(field, curVal);
     }
 
+    @Override
     public void providedLongField(PersistenceCapable pc, int field,
         long curVal) {
         _fm.storeLongField(field, curVal);
     }
 
+    @Override
     public void providedObjectField(PersistenceCapable pc, int field,
         Object curVal) {
         _fm.storeObjectField(field, curVal);
     }
 
+    @Override
     public void providedShortField(PersistenceCapable pc, int field,
         short curVal) {
         _fm.storeShortField(field, curVal);
     }
 
+    @Override
     public void providedStringField(PersistenceCapable pc, int field,
         String curVal) {
         _fm.storeStringField(field, curVal);
     }
 
+    @Override
     public boolean replaceBooleanField(PersistenceCapable pc, int field) {
         return _fm.fetchBooleanField(field);
     }
 
+    @Override
     public byte replaceByteField(PersistenceCapable pc, int field) {
         return _fm.fetchByteField(field);
     }
 
+    @Override
     public char replaceCharField(PersistenceCapable pc, int field) {
         return _fm.fetchCharField(field);
     }
 
+    @Override
     public double replaceDoubleField(PersistenceCapable pc, int field) {
         return _fm.fetchDoubleField(field);
     }
 
+    @Override
     public float replaceFloatField(PersistenceCapable pc, int field) {
         return _fm.fetchFloatField(field);
     }
 
+    @Override
     public int replaceIntField(PersistenceCapable pc, int field) {
         return _fm.fetchIntField(field);
     }
 
+    @Override
     public long replaceLongField(PersistenceCapable pc, int field) {
         return _fm.fetchLongField(field);
     }
 
+    @Override
     public Object replaceObjectField(PersistenceCapable pc, int field) {
         return _fm.fetchObjectField(field);
     }
 
+    @Override
     public short replaceShortField(PersistenceCapable pc, int field) {
         return _fm.fetchShortField(field);
     }
 
+    @Override
     public String replaceStringField(PersistenceCapable pc, int field) {
         return _fm.fetchStringField(field);
     }
@@ -2197,15 +2391,17 @@ public class StateManagerImpl
     // Implementation of FieldManager
     //////////////////////////////////
 
+    @Override
     public boolean fetchBoolean(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
             return fetchBooleanField(field);
 
         Object val = fetchField(field, false);
-        return ((Boolean) fmd.getExternalValue(val, _broker)).booleanValue();
+        return (Boolean) fmd.getExternalValue(val, _broker);
     }
 
+    @Override
     public boolean fetchBooleanField(int field) {
         lock();
         try {
@@ -2219,6 +2415,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public byte fetchByte(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2228,6 +2425,7 @@ public class StateManagerImpl
         return ((Number) fmd.getExternalValue(val, _broker)).byteValue();
     }
 
+    @Override
     public byte fetchByteField(int field) {
         lock();
         try {
@@ -2241,15 +2439,17 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public char fetchChar(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
             return fetchCharField(field);
 
         Object val = fetchField(field, false);
-        return ((Character) fmd.getExternalValue(val, _broker)).charValue();
+        return (Character) fmd.getExternalValue(val, _broker);
     }
 
+    @Override
     public char fetchCharField(int field) {
         lock();
         try {
@@ -2263,6 +2463,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public double fetchDouble(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2272,6 +2473,7 @@ public class StateManagerImpl
         return ((Number) fmd.getExternalValue(val, _broker)).doubleValue();
     }
 
+    @Override
     public double fetchDoubleField(int field) {
         lock();
         try {
@@ -2285,6 +2487,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public float fetchFloat(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2294,6 +2497,7 @@ public class StateManagerImpl
         return ((Number) fmd.getExternalValue(val, _broker)).floatValue();
     }
 
+    @Override
     public float fetchFloatField(int field) {
         lock();
         try {
@@ -2307,6 +2511,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public int fetchInt(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2316,6 +2521,7 @@ public class StateManagerImpl
         return ((Number) fmd.getExternalValue(val, _broker)).intValue();
     }
 
+    @Override
     public int fetchIntField(int field) {
         lock();
         try {
@@ -2329,6 +2535,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public long fetchLong(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2338,6 +2545,7 @@ public class StateManagerImpl
         return ((Number) fmd.getExternalValue(val, _broker)).longValue();
     }
 
+    @Override
     public long fetchLongField(int field) {
         lock();
         try {
@@ -2351,6 +2559,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public Object fetchObject(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2360,6 +2569,7 @@ public class StateManagerImpl
         return fmd.getExternalValue(val, _broker);
     }
 
+    @Override
     public Object fetchObjectField(int field) {
         lock();
         try {
@@ -2373,6 +2583,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public short fetchShort(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2382,6 +2593,7 @@ public class StateManagerImpl
         return ((Number) fmd.getExternalValue(val, _broker)).shortValue();
     }
 
+    @Override
     public short fetchShortField(int field) {
         lock();
         try {
@@ -2395,6 +2607,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public String fetchString(int field) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2404,6 +2617,7 @@ public class StateManagerImpl
         return (String) fmd.getExternalValue(val, _broker);
     }
 
+    @Override
     public String fetchStringField(int field) {
         lock();
         try {
@@ -2417,6 +2631,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeBoolean(int field, boolean externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2427,6 +2642,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeBooleanField(int field, boolean curVal) {
         lock();
         try {
@@ -2439,15 +2655,17 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeByte(int field, byte externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
             storeByteField(field, externalVal);
         else
-            storeField(field, fmd.getFieldValue(new Byte(externalVal),
+            storeField(field, fmd.getFieldValue(externalVal,
                 _broker));
     }
 
+    @Override
     public void storeByteField(int field, byte curVal) {
         lock();
         try {
@@ -2460,15 +2678,17 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeChar(int field, char externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
             storeCharField(field, externalVal);
         else
-            storeField(field, fmd.getFieldValue(new Character(externalVal),
+            storeField(field, fmd.getFieldValue(externalVal,
                 _broker));
     }
 
+    @Override
     public void storeCharField(int field, char curVal) {
         lock();
         try {
@@ -2481,15 +2701,16 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeDouble(int field, double externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
             storeDoubleField(field, externalVal);
         else
-            storeField(field, fmd.getFieldValue(new Double(externalVal),
-                _broker));
+            storeField(field, fmd.getFieldValue(externalVal, _broker));
     }
 
+    @Override
     public void storeDoubleField(int field, double curVal) {
         lock();
         try {
@@ -2502,15 +2723,16 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeFloat(int field, float externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
             storeFloatField(field, externalVal);
         else
-            storeField(field, fmd.getFieldValue(new Float(externalVal),
-                _broker));
+            storeField(field, fmd.getFieldValue(externalVal, _broker));
     }
 
+    @Override
     public void storeFloatField(int field, float curVal) {
         lock();
         try {
@@ -2523,6 +2745,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeInt(int field, int externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2532,6 +2755,7 @@ public class StateManagerImpl
                 _broker));
     }
 
+    @Override
     public void storeIntField(int field, int curVal) {
         lock();
         try {
@@ -2544,6 +2768,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeLong(int field, long externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2553,6 +2778,7 @@ public class StateManagerImpl
                 _broker));
     }
 
+    @Override
     public void storeLongField(int field, long curVal) {
         lock();
         try {
@@ -2565,6 +2791,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeObject(int field, Object externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         externalVal = fmd.order(externalVal);
@@ -2574,6 +2801,7 @@ public class StateManagerImpl
             storeField(field, fmd.getFieldValue(externalVal, _broker));
     }
 
+    @Override
     public void storeObjectField(int field, Object curVal) {
         lock();
         try {
@@ -2587,15 +2815,17 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeShort(int field, short externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
             storeShortField(field, externalVal);
         else
-            storeField(field, fmd.getFieldValue(new Short(externalVal),
+            storeField(field, fmd.getFieldValue(externalVal,
                 _broker));
     }
 
+    @Override
     public void storeShortField(int field, short curVal) {
         lock();
         try {
@@ -2608,6 +2838,7 @@ public class StateManagerImpl
         }
     }
 
+    @Override
     public void storeString(int field, String externalVal) {
         FieldMetaData fmd = _meta.getField(field);
         if (!fmd.isExternalized())
@@ -2616,6 +2847,7 @@ public class StateManagerImpl
             storeField(field, fmd.getFieldValue(externalVal, _broker));
     }
 
+    @Override
     public void storeStringField(int field, String curVal) {
         lock();
         try {
@@ -2640,7 +2872,7 @@ public class StateManagerImpl
 
         switch (fmd.getDeclaredTypeCode()) {
             case JavaTypes.BOOLEAN:
-                boolean bool = val != null && ((Boolean) val).booleanValue();
+                boolean bool = val != null && (Boolean) val;
                 fm.storeBooleanField(field, bool);
                 break;
             case JavaTypes.BYTE:
@@ -2648,7 +2880,7 @@ public class StateManagerImpl
                 fm.storeByteField(field, b);
                 break;
             case JavaTypes.CHAR:
-                char c = (val == null) ? 0 : ((Character) val).charValue();
+                char c = (val == null) ? 0 : (Character) val;
                 fm.storeCharField(field, c);
                 break;
             case JavaTypes.DOUBLE:
@@ -2674,6 +2906,13 @@ public class StateManagerImpl
             case JavaTypes.STRING:
                 fm.storeStringField(field, (String) val);
                 break;
+            case JavaTypes.UUID_OBJ:
+                if (val instanceof String) {
+                    fm.storeObjectField(field, (UUID) UUID.fromString((String) val));
+                } else if (val instanceof UUID) {
+                    fm.storeObjectField(field, (UUID) val);
+                }
+                break;
             default:
                 fm.storeObjectField(field, val);
         }
@@ -2690,9 +2929,7 @@ public class StateManagerImpl
         _flags &= ~FLAG_FLUSHED;
         _flags &= ~FLAG_FLUSHED_DIRTY;
 
-        int fmds = _meta.getFields().length;
-        for (int i = 0; i < fmds; i++)
-            _flush.clear(i);
+        _flush = null;
     }
 
     /**
@@ -2703,7 +2940,7 @@ public class StateManagerImpl
         FieldMetaData[] fmds = _meta.getFields();
         for (int i = 0; i < fmds.length; i++) {
             if (!fmds[i].isPrimaryKey()
-                && fmds[i].getManagement() == fmds[i].MANAGE_PERSISTENT)
+                && fmds[i].getManagement() == FieldMetaData.MANAGE_PERSISTENT)
                 setLoaded(i, val);
         }
         if (!val) {
@@ -2721,14 +2958,13 @@ public class StateManagerImpl
         FieldMetaData[] fmds = _meta.getFields();
         boolean update = !isNew() || isFlushed();
         for (int i = 0; i < fmds.length; i++) {
-            if (val && (!update
-                || fmds[i].getUpdateStrategy() != UpdateStrategies.IGNORE))
-                _dirty.set(i);
+            if (val && (!update || fmds[i].getUpdateStrategy() != UpdateStrategies.IGNORE))
+                setFieldDirty(i);
             else if (!val) {
                 // we never consider clean fields flushed; this also takes
                 // care of clearing the flushed fields on commit/rollback
-                _flush.clear(i);
-                _dirty.clear(i);
+                clearFlushField(i);
+                clearDirty(i);
             }
         }
 
@@ -2791,8 +3027,7 @@ public class StateManagerImpl
             // record a saved field manager even if no field is currently loaded
             // as existence of a SaveFieldManager is critical for a dirty check
             if (_saved == null)
-            	_saved = new SaveFieldManager(this, getPersistenceCapable(), 
-            				_dirty);
+                _saved = new SaveFieldManager(this, getPersistenceCapable(), getDirty());
         }
     }
 
@@ -2815,7 +3050,7 @@ public class StateManagerImpl
         // save the old field value anyway
         if (_saved == null) {
             if (_loaded.get(field))
-                _saved = new SaveFieldManager(this, null, _dirty);
+                _saved = new SaveFieldManager(this, null, getDirty());
             else
                 return;
         }
@@ -2878,8 +3113,12 @@ public class StateManagerImpl
     /**
      * Replaces all second class object fields with fresh proxied instances
      * containing the same information as the originals.
+     * <br>
+     * <B>Note:</B> Proxying is bypassed if {@link AutoDetach#DETACH_NONE} option is set.
      */
     void proxyFields(boolean reset, boolean replaceNull) {
+    	if (getBroker().getAutoDetach() == AutoDetach.DETACH_NONE)
+           return;
         // we only replace nulls if the runtime can't differentiate between
         // null and empty containers.  we replace nulls in this case to
         // maintain consistency whether values are being retained or not
@@ -2891,7 +3130,8 @@ public class StateManagerImpl
         try {
             for (FieldMetaData fmd : _meta.getProxyFields()) {
                 int index = fmd.getIndex();
-                if (_loaded.get(index)) {
+                // only reload if dirty
+                if (_loaded.get(index) && isFieldDirty(index)) {
                     provideField(_pc, _single, index);
                     if (_single.proxy(reset, replaceNull)) {
                         replaceField(_pc, _single, index);
@@ -2951,8 +3191,7 @@ public class StateManagerImpl
             if (!logical)
                 assignObjectId(false, true);
             for (int i = 0, len = _meta.getFields().length; i < len; i++) {
-                if ((logical || !assignField(i, true)) && !_flush.get(i)
-                    && _dirty.get(i)) {
+                if ((logical || !assignField(i, true)) && !isFieldFlushed(i) && isFieldDirty(i)) {
                     provideField(_pc, _single, i);
                     if (_single.preFlush(logical, call))
                         replaceField(_pc, _single, i);
@@ -3055,7 +3294,10 @@ public class StateManagerImpl
             // always be set after the first state load or set (which is why
             // we do this even if no fields were loaded -- could be that this
             // method is being called after a field is set)
-            if (_loadVersion == null && (_meta == null || _meta.getVersionField() != null)) {
+            // If the _loadVersion field is null AND the version field has been loaded, skip calling sync version.
+            // This indicates that the DB has a null value for the version column.
+            FieldMetaData versionMeta = _meta != null ? _meta.getVersionField() : null;
+            if (_loadVersion == null && (versionMeta != null && !_loaded.get(versionMeta.getIndex()))) {
                 syncVersion(sdata);
                 ret = ret || _loadVersion != null;
             }
@@ -3080,15 +3322,17 @@ public class StateManagerImpl
         FetchConfiguration fetch = _broker.getFetchConfiguration();
         FieldMetaData fmd = _meta.getField(field);
         BitSet fields = null;
+        boolean unloadedDFGFieldMarked = false;
 
         // if this is a dfg field or we need to load our dfg, do so
-        if (fgs && (_flags & FLAG_LOADED) == 0)
+        if (fgs && (_flags & FLAG_LOADED) == 0){
             fields = getUnloadedInternal(fetch, LOAD_FGS, null);
-        
+            unloadedDFGFieldMarked = true;
+        }
         // check for load fetch group
         String lfg = fmd.getLoadFetchGroup();
         boolean lfgAdded = false;
-        if (lfg != null) {  
+        if (lfg != null) {
             FieldMetaData[] fmds = _meta.getFields();
             for (int i = 0; i < fmds.length; i++) {
                 if (!_loaded.get(i) && (i == field
@@ -3105,9 +3349,10 @@ public class StateManagerImpl
                 fetch.addFetchGroup(lfg);
                 lfgAdded = true;
             }
-        } else if (fmd.isInDefaultFetchGroup() && fields == null) {
+        } else if (fetch.hasFetchGroup(FetchGroup.NAME_DEFAULT) && fmd.isInDefaultFetchGroup() && fields == null) {
             // no load group but dfg: add dfg fields if we haven't already
-            fields = getUnloadedInternal(fetch, LOAD_FGS, null);
+            if (!unloadedDFGFieldMarked)
+                fields = getUnloadedInternal(fetch, LOAD_FGS, null);
         } else if (!_loaded.get(fmd.getIndex())) {
             // no load group or dfg: load individual field
             if (fields == null)
@@ -3130,11 +3375,13 @@ public class StateManagerImpl
      * field manager.
      */
     void provideField(PersistenceCapable pc, FieldManager store, int field) {
-        FieldManager beforeFM = _fm;
-        _fm = store;
-        pc.pcProvideField(field);
-        // Retaining original FM because of the possibility of reentrant calls
-        if (beforeFM != null) _fm = beforeFM;
+        if (pc != null) {
+            FieldManager beforeFM = _fm;
+            _fm = store;
+            pc.pcProvideField(field);
+            // Retaining original FM because of the possibility of reentrant calls
+            if (beforeFM != null) _fm = beforeFM;
+        }
     }
 
     /**
@@ -3172,6 +3419,14 @@ public class StateManagerImpl
     }
 
     /**
+     * Set to <code>false</code> to prevent the postLoad method from
+     * sending lifecycle callback events.
+     */
+    public void setPostLoadCallback(boolean enabled) {
+        this.postLoadCallback = enabled;
+    }
+
+    /**
      * Perform post-load steps, including the post load callback.
      * We have to check the dfg after all field loads because it might be
      * loaded in multiple steps when paging is involved; the initial load
@@ -3193,7 +3448,7 @@ public class StateManagerImpl
 
         // no listeners?
         LifecycleEventManager mgr = _broker.getLifecycleEventManager();
-        if (mgr == null || !mgr.hasLoadListeners(getManagedInstance(), _meta))
+        if (mgr == null || !mgr.isActive(_meta) || !mgr.hasLoadListeners(getManagedInstance(), _meta))
             return;
 
         if (fetch == null)
@@ -3201,18 +3456,17 @@ public class StateManagerImpl
         // is this field a post-load field?
         if (field != -1) {
             FieldMetaData fmd = _meta.getField(field);
-            if (fmd.isInDefaultFetchGroup() 
+            if (fmd.isInDefaultFetchGroup()
                 && fetch.hasFetchGroup(FetchGroup.NAME_DEFAULT)
                 && postLoad(FetchGroup.NAME_DEFAULT, fetch))
                 return;
             String[] fgs = fmd.getCustomFetchGroups();
-            for (int i = 0; i < fgs.length; i++)
-                if (fetch.hasFetchGroup(fgs[i]) && postLoad(fgs[i], fetch))
+            for (String fg : fgs)
+                if (fetch.hasFetchGroup(fg) && postLoad(fg, fetch))
                     return;
         } else {
-            for (Iterator itr = fetch.getFetchGroups().iterator(); 
-                itr.hasNext();) {
-                if (postLoad((String) itr.next(), fetch))
+            for (String s : fetch.getFetchGroups()) {
+                if (postLoad(s, fetch))
                     return;
             }
         }
@@ -3233,8 +3487,8 @@ public class StateManagerImpl
                 return false;
 
         _flags |= FLAG_LOADED;
-        _broker.fireLifecycleEvent(getManagedInstance(), fetch, _meta, 
-        	LifecycleEvent.AFTER_LOAD);
+        if (postLoadCallback)
+            _broker.fireLifecycleEvent(getManagedInstance(), fetch, _meta, LifecycleEvent.AFTER_LOAD);
         return true;
     }
 
@@ -3248,6 +3502,7 @@ public class StateManagerImpl
     /**
      * Returns whether this instance needs a version check.
      */
+    @Override
     public boolean isVersionCheckRequired() {
         // explicit flag for version check
         if ((_flags & FLAG_VERSION_CHECK) != 0)
@@ -3272,6 +3527,7 @@ public class StateManagerImpl
     /**
      * Returns whether this instance needs a version update.
      */
+    @Override
     public boolean isVersionUpdateRequired() {
         return (_flags & FLAG_VERSION_UPDATE) > 0;
     }
@@ -3373,16 +3629,78 @@ public class StateManagerImpl
         pc.pcReplaceStateManager(this);
         return pc;
     }
-    
+
     public List<FieldMetaData> getMappedByIdFields() {
         return _mappedByIdFields;
     }
-    
+
     public boolean requiresFetch(FieldMetaData fmd) {
         return (_broker.getFetchConfiguration().requiresFetch(fmd) != FetchConfiguration.FETCH_NONE);
     }
-    
+
     public void setPc(PersistenceCapable pc) {
         _pc = pc;
     }
+
+    public void setBroker(BrokerImpl ctx) {
+        _broker = ctx;
+    }
+
+    @Override
+    public BitSet getFlushed() {
+        if (_flush == null) {
+            _flush = new BitSet(_meta.getFields().length);
+        }
+        return _flush;
+    }
+
+    private boolean isFieldFlushed(int index) {
+        if (_flush == null) {
+            return false;
+        }
+        return _flush.get(index);
+    }
+
+    /**
+     * Will clear the bit at the specified if the _flush BetSet has been created.
+     */
+    private void clearFlushField(int index) {
+        if (_flush != null) {
+            getFlushed().clear(index);
+        }
+    }
+
+    @Override
+    public BitSet getDirty() {
+        if (_dirty == null) {
+            _dirty = new BitSet(_meta.getFields().length);
+        }
+        return _dirty;
+    }
+
+    private boolean isFieldDirty(int index) {
+        if (_dirty == null) {
+            return false;
+        }
+        return _dirty.get(index);
+    }
+
+    private void setFieldDirty(int index) {
+        getDirty().set(index);
+    }
+
+    /**
+     * Will clear the bit at the specified index if the _dirty BetSet has been created.
+     */
+    private void clearDirty(int index) {
+        if (_dirty != null) {
+            getDirty().clear(index);
+        }
+    }
+
+    @Override
+    public String toString() {
+    	return "SM[" + _meta.getDescribedType().getSimpleName() + "]:" + getObjectId();
+    }
+
 }

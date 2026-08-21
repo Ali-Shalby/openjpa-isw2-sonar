@@ -18,17 +18,34 @@
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
-import java.sql.*;
-import java.util.*;
+import java.sql.SQLException;
+import java.util.Collection;
+import java.util.Map;
 
-import org.apache.openjpa.lib.util.*;
-import org.apache.openjpa.meta.*;
-import org.apache.openjpa.kernel.*;
-import org.apache.openjpa.util.*;
-import org.apache.openjpa.jdbc.meta.*;
-import org.apache.openjpa.jdbc.kernel.*;
-import org.apache.openjpa.jdbc.schema.*;
-import org.apache.openjpa.jdbc.sql.*;
+import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
+import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
+import org.apache.openjpa.jdbc.kernel.JDBCStore;
+import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.ValueHandler;
+import org.apache.openjpa.jdbc.meta.ValueMapping;
+import org.apache.openjpa.jdbc.meta.ValueMappingInfo;
+import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.jdbc.schema.ColumnIO;
+import org.apache.openjpa.jdbc.schema.ForeignKey;
+import org.apache.openjpa.jdbc.sql.Joins;
+import org.apache.openjpa.jdbc.sql.Result;
+import org.apache.openjpa.jdbc.sql.Row;
+import org.apache.openjpa.jdbc.sql.RowManager;
+import org.apache.openjpa.jdbc.sql.Select;
+import org.apache.openjpa.jdbc.sql.Union;
+import org.apache.openjpa.kernel.OpenJPAStateManager;
+import org.apache.openjpa.kernel.StoreContext;
+import org.apache.openjpa.lib.util.Localizer;
+import org.apache.openjpa.meta.JavaTypes;
+import org.apache.openjpa.util.ChangeTracker;
+import org.apache.openjpa.util.MetaDataException;
+import org.apache.openjpa.util.Proxies;
+import org.apache.openjpa.util.Proxy;
 
 /**
  * <p>Mapping for a map whose keys are relations to other persistent objects
@@ -40,6 +57,9 @@ import org.apache.openjpa.jdbc.sql.*;
 public class RelationHandlerMapTableFieldStrategy
     extends MapTableFieldStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final Localizer _loc = Localizer.forPackage
         (RelationHandlerMapTableFieldStrategy.class);
 
@@ -47,26 +67,31 @@ public class RelationHandlerMapTableFieldStrategy
     private ColumnIO _vio = null;
     private boolean _vload = false;
 
+    @Override
     public Column[] getKeyColumns(ClassMapping cls) {
         return field.getKeyMapping().getColumns();
     }
 
+    @Override
     public Column[] getValueColumns(ClassMapping cls) {
         return _vcols;
     }
 
+    @Override
     public void selectKey(Select sel, ClassMapping key, OpenJPAStateManager sm,
         JDBCStore store, JDBCFetchConfiguration fetch, Joins joins) {
         sel.select(key, field.getKeyMapping().getSelectSubclasses(),
-            store, fetch, JDBCFetchConfiguration.EAGER_NONE, joins);
+            store, fetch, EagerFetchModes.EAGER_NONE, joins);
     }
 
+    @Override
     public void selectValue(Select sel, ClassMapping val,
-        OpenJPAStateManager sm, JDBCStore store, JDBCFetchConfiguration fetch, 
+        OpenJPAStateManager sm, JDBCStore store, JDBCFetchConfiguration fetch,
         Joins joins) {
         sel.select(_vcols, joins);
     }
 
+    @Override
     public Result[] getResults(final OpenJPAStateManager sm,
         final JDBCStore store, final JDBCFetchConfiguration fetch,
         final int eagerMode, final Joins[] resJoins, boolean lrs)
@@ -74,11 +99,12 @@ public class RelationHandlerMapTableFieldStrategy
         ValueMapping key = field.getKeyMapping();
         final ClassMapping[] keys = key.getIndependentTypeMappings();
         Union union = store.getSQLFactory().newUnion(keys.length);
-        if (fetch.getSubclassFetchMode(key.getTypeMapping()) 
-            != JDBCFetchConfiguration.EAGER_JOIN)
+        if (fetch.getSubclassFetchMode(key.getTypeMapping())
+            != EagerFetchModes.EAGER_JOIN)
             union.abortUnion();
         union.setLRS(lrs);
         union.select(new Union.Selector() {
+            @Override
             public void select(Select sel, int idx) {
                 sel.select(_vcols);
                 sel.whereForeignKey(field.getJoinForeignKey(),
@@ -98,6 +124,7 @@ public class RelationHandlerMapTableFieldStrategy
         return new Result[]{ res, res };
     }
 
+    @Override
     public Object loadKey(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res, Joins joins)
         throws SQLException {
@@ -107,6 +134,7 @@ public class RelationHandlerMapTableFieldStrategy
         return res.load(key, store, fetch, joins);
     }
 
+    @Override
     public Object loadValue(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res, Joins joins)
         throws SQLException {
@@ -114,12 +142,14 @@ public class RelationHandlerMapTableFieldStrategy
             sm, store, fetch, res, joins, _vcols, _vload);
     }
 
+    @Override
     public Joins joinKeyRelation(Joins joins, ClassMapping key) {
         ValueMapping vm = field.getKeyMapping();
         return joins.joinRelation(field.getName(), vm.getForeignKey(key), key,
             vm.getSelectSubclasses(), false, false);
     }
 
+    @Override
     public void map(boolean adapt) {
         super.map(adapt);
 
@@ -147,11 +177,13 @@ public class RelationHandlerMapTableFieldStrategy
         field.mapPrimaryKey(adapt);
     }
 
+    @Override
     public void initialize() {
         _vload = field.getElementMapping().getHandler().
             objectValueRequiresLoad(field.getElementMapping());
     }
 
+    @Override
     public void insert(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         insert(sm, store, rm, (Map) sm.fetchObject(field.getIndex()));
@@ -172,16 +204,17 @@ public class RelationHandlerMapTableFieldStrategy
         StoreContext ctx = store.getContext();
         OpenJPAStateManager keysm;
         Map.Entry entry;
-        for (Iterator itr = map.entrySet().iterator(); itr.hasNext();) {
-            entry = (Map.Entry) itr.next();
+        for (Object o : map.entrySet()) {
+            entry = (Map.Entry) o;
             keysm = RelationStrategies.getStateManager(entry.getKey(), ctx);
             key.setForeignKey(row, keysm);
             HandlerStrategies.set(val, entry.getValue(), store, row, _vcols,
-                _vio, true);
+                    _vio, true);
             rm.flushSecondaryRow(row);
         }
     }
 
+    @Override
     public void update(OpenJPAStateManager sm, JDBCStore store, RowManager rm)
         throws SQLException {
         Map map = (Map) sm.fetchObject(field.getIndex());
@@ -208,8 +241,8 @@ public class RelationHandlerMapTableFieldStrategy
             Row delRow = rm.getSecondaryRow(field.getTable(),
                 Row.ACTION_DELETE);
             delRow.whereForeignKey(field.getJoinForeignKey(), sm);
-            for (Iterator itr = rem.iterator(); itr.hasNext();) {
-                keysm = RelationStrategies.getStateManager(itr.next(), ctx);
+            for (Object o : rem) {
+                keysm = RelationStrategies.getStateManager(o, ctx);
                 key.whereForeignKey(delRow, keysm);
                 rm.flushSecondaryRow(delRow);
             }
@@ -225,12 +258,12 @@ public class RelationHandlerMapTableFieldStrategy
             addRow.setForeignKey(field.getJoinForeignKey(),
                 field.getJoinColumnIO(), sm);
 
-            for (Iterator itr = add.iterator(); itr.hasNext();) {
-                mkey = itr.next();
+            for (Object o : add) {
+                mkey = o;
                 keysm = RelationStrategies.getStateManager(mkey, ctx);
                 key.setForeignKey(addRow, keysm);
                 HandlerStrategies.set(val, map.get(mkey), store, addRow,
-                    _vcols, _vio, true);
+                        _vcols, _vio, true);
                 rm.flushSecondaryRow(addRow);
             }
         }
@@ -242,17 +275,18 @@ public class RelationHandlerMapTableFieldStrategy
                 Row.ACTION_UPDATE);
             changeRow.whereForeignKey(field.getJoinForeignKey(), sm);
 
-            for (Iterator itr = change.iterator(); itr.hasNext();) {
-                mkey = itr.next();
+            for (Object o : change) {
+                mkey = o;
                 keysm = RelationStrategies.getStateManager(mkey, ctx);
                 key.whereForeignKey(changeRow, keysm);
                 HandlerStrategies.set(val, map.get(mkey), store, changeRow,
-                    _vcols, _vio, true);
+                        _vcols, _vio, true);
                 rm.flushSecondaryRow(changeRow);
             }
         }
     }
 
+    @Override
     public Joins joinRelation(Joins joins, boolean forceOuter,
         boolean traverse) {
         if (traverse)
@@ -260,6 +294,7 @@ public class RelationHandlerMapTableFieldStrategy
         return joins;
     }
 
+    @Override
     public Joins joinKeyRelation(Joins joins, boolean forceOuter,
         boolean traverse) {
         ValueMapping key = field.getKeyMapping();
@@ -278,11 +313,13 @@ public class RelationHandlerMapTableFieldStrategy
             false, false);
     }
 
+    @Override
     public Object toDataStoreValue(Object val, JDBCStore store) {
         return HandlerStrategies.toDataStoreValue(field.getElementMapping(),
             val, _vcols, store);
     }
 
+    @Override
     public Object toKeyDataStoreValue(Object val, JDBCStore store) {
         return RelationStrategies.toDataStoreValue(field.getKeyMapping(), val,
             store);

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -24,7 +24,7 @@ import java.util.List;
 import org.apache.openjpa.util.RuntimeExceptionTranslator;
 
 ///////////////////////////////////////////////////////////////
-// NOTE: when adding a public API method, be sure to add it to 
+// NOTE: when adding a public API method, be sure to add it to
 // JDO and JPA facades!
 ///////////////////////////////////////////////////////////////
 
@@ -34,29 +34,28 @@ import org.apache.openjpa.util.RuntimeExceptionTranslator;
  *
  * @since 0.4.0
  * @author Abe White
- * @nojavadoc
  */
-public class DelegatingExtent
-    implements Extent {
+public class DelegatingExtent<T>
+    implements Extent<T> {
 
-    private final Extent _extent;
-    private final DelegatingExtent _del;
+    private final Extent<T> _extent;
+    private final DelegatingExtent<T> _del;
     private final RuntimeExceptionTranslator _trans;
 
     /**
      * Constructor; supply delegate.
      */
-    public DelegatingExtent(Extent extent) {
+    public DelegatingExtent(Extent<T> extent) {
         this(extent, null);
     }
 
     /**
      * Constructor; supply delegate and exception translator.
      */
-    public DelegatingExtent(Extent extent, RuntimeExceptionTranslator trans) {
+    public DelegatingExtent(Extent<T> extent, RuntimeExceptionTranslator trans) {
         _extent = extent;
         if (extent instanceof DelegatingExtent)
-            _del = (DelegatingExtent) extent;
+            _del = (DelegatingExtent<T>) extent;
         else
             _del = null;
         _trans = trans;
@@ -65,26 +64,28 @@ public class DelegatingExtent
     /**
      * Return the direct delegate.
      */
-    public Extent getDelegate() {
+    public Extent<T> getDelegate() {
         return _extent;
     }
 
     /**
      * Return the native delegate.
      */
-    public Extent getInnermostDelegate() {
+    public Extent<T> getInnermostDelegate() {
         return (_del == null) ? _extent : _del.getInnermostDelegate();
     }
 
+    @Override
     public int hashCode() {
         return getInnermostDelegate().hashCode();
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
         if (other instanceof DelegatingExtent)
-            other = ((DelegatingExtent) other).getInnermostDelegate();
+            other = ((DelegatingExtent<T>) other).getInnermostDelegate();
         return getInnermostDelegate().equals(other);
     }
 
@@ -95,7 +96,8 @@ public class DelegatingExtent
         return (_trans == null) ? re : _trans.translate(re);
     }
 
-    public Class getElementType() {
+    @Override
+    public Class<T> getElementType() {
         try {
             return _extent.getElementType();
         } catch (RuntimeException re) {
@@ -103,6 +105,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public boolean hasSubclasses() {
         try {
             return _extent.hasSubclasses();
@@ -111,6 +114,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public Broker getBroker() {
         try {
             return _extent.getBroker();
@@ -119,6 +123,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public FetchConfiguration getFetchConfiguration() {
         try {
             return _extent.getFetchConfiguration();
@@ -127,6 +132,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public boolean getIgnoreChanges() {
         try {
             return _extent.getIgnoreChanges();
@@ -135,6 +141,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public void setIgnoreChanges(boolean ignoreCache) {
         try {
             _extent.setIgnoreChanges(ignoreCache);
@@ -143,7 +150,8 @@ public class DelegatingExtent
         }
     }
 
-    public List list() {
+    @Override
+    public List<T> list() {
         try {
             return _extent.list();
         } catch (RuntimeException re) {
@@ -151,7 +159,8 @@ public class DelegatingExtent
         }
     }
 
-    public Iterator iterator() {
+    @Override
+    public Iterator<T> iterator() {
         try {
             return _extent.iterator();
         } catch (RuntimeException re) {
@@ -159,6 +168,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public void closeAll() {
         try {
             _extent.closeAll();
@@ -167,6 +177,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public void lock() {
         try {
             _extent.lock();
@@ -175,6 +186,7 @@ public class DelegatingExtent
         }
     }
 
+    @Override
     public void unlock() {
         try {
             _extent.unlock();

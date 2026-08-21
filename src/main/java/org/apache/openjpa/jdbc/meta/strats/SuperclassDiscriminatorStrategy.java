@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -31,11 +31,14 @@ import org.apache.openjpa.jdbc.sql.Select;
  * Discriminator strategy that delegates to superclass discriminator.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class SuperclassDiscriminatorStrategy
     extends AbstractDiscriminatorStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
+    @Override
     public void map(boolean adapt) {
         // if a superclass maps the discriminator value, so should we.
         // otherwise assume it's calculated
@@ -51,6 +54,7 @@ public class SuperclassDiscriminatorStrategy
         }
     }
 
+    @Override
     public void loadSubclasses(JDBCStore store)
         throws SQLException, ClassNotFoundException {
         disc.getClassMapping().getPCSuperclassMapping().
@@ -58,18 +62,21 @@ public class SuperclassDiscriminatorStrategy
         disc.setSubclassesLoaded(true);
     }
 
+    @Override
     public Class getClass(JDBCStore store, ClassMapping base, Result res)
         throws SQLException, ClassNotFoundException {
         return disc.getClassMapping().getPCSuperclassMapping().
             getDiscriminator().getClass(store, base, res);
     }
 
+    @Override
     public boolean hasClassConditions(ClassMapping base, boolean subclasses) {
         return disc.getClassMapping().getPCSuperclassMapping().
             getDiscriminator().hasClassConditions(base, subclasses);
     }
 
-    public SQLBuffer getClassConditions(Select sel, Joins joins, 
+    @Override
+    public SQLBuffer getClassConditions(Select sel, Joins joins,
         ClassMapping base, boolean subclasses) {
         return disc.getClassMapping().getPCSuperclassMapping().
             getDiscriminator().getClassConditions(sel, joins, base, subclasses);

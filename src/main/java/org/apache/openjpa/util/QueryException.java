@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -32,6 +32,9 @@ import org.apache.openjpa.lib.util.Localizer;
 public class QueryException
     extends StoreException {
 
+    
+    private static final long serialVersionUID = 1L;
+
     private static final transient Localizer _loc =
             Localizer.forPackage(QueryException.class);
 
@@ -48,10 +51,11 @@ public class QueryException
         setTimeout(timeout);
     }
 
+    @Override
     public int getSubtype() {
         return QUERY;
     }
-    
+
     /**
      * The number of milliseconds to wait for a query to complete.
      */
@@ -67,6 +71,7 @@ public class QueryException
         return this;
     }
 
+    @Override
     public String toString() {
         String str = super.toString();
         if (timeout < 0)

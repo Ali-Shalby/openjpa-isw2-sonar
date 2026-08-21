@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -27,10 +27,9 @@ import java.security.AccessController;
 import java.security.PrivilegedActionException;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import javax.xml.transform.Result;
 import javax.xml.transform.TransformerConfigurationException;
@@ -57,7 +56,6 @@ import org.xml.sax.helpers.AttributesImpl;
  * they were parsed from. Serializers are not thread safe.
  *
  * @author Abe White
- * @nojavadoc
  */
 public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
 
@@ -88,10 +86,12 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
         _log = log;
     }
 
+    @Override
     public void serialize(int flags) throws IOException {
         serialize((Map) null, flags);
     }
 
+    @Override
     public void serialize(Map output, int flags)
         throws IOException {
         Map<File, Collection<Object>> files = getFileMap();
@@ -99,9 +99,9 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
             return;
 
         // for each file, serialize objects
-        Collection<Object> fileObjs; 
-        for(File file : files.keySet()) { 
-            fileObjs = files.get(file); 
+        for (Entry<File, Collection<Object>> entry : files.entrySet()) {
+            File file = entry.getKey();
+            Collection<Object> fileObjs = entry.getValue();
             if (_log != null && _log.isInfoEnabled())
                 _log.info(_loc.get("ser-file", file));
 
@@ -122,10 +122,8 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
 
                 if (output != null)
                     output.put(file, ((StringWriter) writer).toString());
-            } catch (SAXException se) {
+            } catch (SAXException | TransformerConfigurationException se) {
                 throw new IOException(se.toString());
-            } catch (TransformerConfigurationException tce) {
-                throw new IOException(tce.toString());
             }
         }
     }
@@ -138,8 +136,8 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
         File backup = Files.backup(file, false);
         if (backup == null) {
             File parent = file.getParentFile();
-            if (parent != null && !(AccessController.doPrivileged(
-                J2DoPrivHelper.existsAction(parent))).booleanValue())
+            if (parent != null && !AccessController.doPrivileged(
+                    J2DoPrivHelper.existsAction(parent)))
                 AccessController.doPrivileged(
                     J2DoPrivHelper.mkdirsAction(parent));
         }
@@ -158,10 +156,10 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
 
         // create a map of files to lists of objects
         Map<File, Collection<Object>> files =
-            new HashMap<File, Collection<Object>>();
+            new HashMap<>();
         File file;
         Collection<Object> fileObjs;
-        for(Object obj : objs) { 
+        for(Object obj : objs) {
             file = getSourceFile(obj);
             if (file == null) {
                 if (_log != null && _log.isTraceEnabled())
@@ -171,7 +169,7 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
 
             fileObjs = (Collection<Object>) files.get(file);
             if (fileObjs == null) {
-                fileObjs = new LinkedList<Object>();
+                fileObjs = new LinkedList<>();
                 files.put(file, fileObjs);
             }
             fileObjs.add(obj);
@@ -190,6 +188,7 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
         return null;
     }
 
+    @Override
     public void serialize(File file, int flags) throws IOException {
         if (_log != null)
             _log.info(_loc.get("ser-file", file));
@@ -207,6 +206,7 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
         }
     }
 
+    @Override
     public void serialize(Writer out, int flags) throws IOException {
         try {
             if ((flags & PRETTY) > 0)
@@ -323,8 +323,8 @@ public abstract class XMLMetaDataSerializer implements MetaDataSerializer {
 
         LexicalHandler lh = (LexicalHandler) _handler;
         char[] chars;
-        for (int i = 0; i < comments.length; i++) {
-            chars = comments[i].toCharArray();
+        for (String comment : comments) {
+            chars = comment.toCharArray();
             lh.comment(chars, 0, chars.length);
         }
     }

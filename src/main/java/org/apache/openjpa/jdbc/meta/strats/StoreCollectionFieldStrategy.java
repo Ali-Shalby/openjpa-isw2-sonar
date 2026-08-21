@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -22,15 +22,17 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
+import org.apache.openjpa.enhance.FieldManager;
 import org.apache.openjpa.enhance.PersistenceCapable;
+import org.apache.openjpa.jdbc.kernel.EagerFetchModes;
 import org.apache.openjpa.jdbc.kernel.JDBCFetchConfiguration;
 import org.apache.openjpa.jdbc.kernel.JDBCStore;
 import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.meta.FieldStrategy;
+import org.apache.openjpa.jdbc.meta.RelationId;
 import org.apache.openjpa.jdbc.meta.ValueMapping;
 import org.apache.openjpa.jdbc.schema.Column;
 import org.apache.openjpa.jdbc.schema.ForeignKey;
@@ -41,11 +43,13 @@ import org.apache.openjpa.jdbc.sql.SelectExecutor;
 import org.apache.openjpa.jdbc.sql.Union;
 import org.apache.openjpa.kernel.OpenJPAStateManager;
 import org.apache.openjpa.kernel.StateManagerImpl;
-import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.meta.ClassMetaData;
+import org.apache.openjpa.meta.FieldMetaData;
 import org.apache.openjpa.meta.JavaTypes;
 import org.apache.openjpa.util.ChangeTracker;
+import org.apache.openjpa.util.proxy.DelayedProxy;
 import org.apache.openjpa.util.Id;
+import org.apache.openjpa.util.OpenJPAId;
 import org.apache.openjpa.util.Proxy;
 
 /**
@@ -60,6 +64,9 @@ import org.apache.openjpa.util.Proxy;
  */
 public abstract class StoreCollectionFieldStrategy
     extends ContainerFieldStrategy {
+
+    
+    private static final long serialVersionUID = 1L;
 
     /**
      * Return the foreign key used to join to the owning field for the given
@@ -121,7 +128,7 @@ public abstract class StoreCollectionFieldStrategy
      * By default, assumes the structure is a collection.
      */
     protected void add(JDBCStore store, Object coll, Object obj) {
-        ((Collection) coll).add(obj);
+        ((Collection<Object>) coll).add(obj);
     }
 
     /**
@@ -132,6 +139,7 @@ public abstract class StoreCollectionFieldStrategy
         return (elems.length == 0) ? null : elems[0];
     }
 
+    @Override
     public int supportsSelect(Select sel, int type, OpenJPAStateManager sm,
         JDBCStore store, JDBCFetchConfiguration fetch) {
         if (field.isLRS())
@@ -147,6 +155,7 @@ public abstract class StoreCollectionFieldStrategy
                 (getDefaultElementMapping(false)))) ? 1 : 0;
     }
 
+    @Override
     public void selectEagerParallel(SelectExecutor sel,
         final OpenJPAStateManager sm, final JDBCStore store,
         final JDBCFetchConfiguration fetch, final int eagerMode) {
@@ -157,31 +166,34 @@ public abstract class StoreCollectionFieldStrategy
             final ClassMapping[] elems = getIndependentElementMappings(true);
             Union union = (Union) sel;
             if (fetch.getSubclassFetchMode(field.getElementMapping().
-                getTypeMapping()) != fetch.EAGER_JOIN)
+                getTypeMapping()) != EagerFetchModes.EAGER_JOIN)
                 union.abortUnion();
             union.select(new Union.Selector() {
+                @Override
                 public void select(Select sel, int idx) {
-                    selectEager(sel, elems[idx], sm, store, fetch, eagerMode, 
+                    selectEager(sel, elems[idx], sm, store, fetch, eagerMode,
                         true, false);
                 }
             });
         }
     }
 
+    @Override
     public void selectEagerJoin(Select sel, OpenJPAStateManager sm,
         JDBCStore store, JDBCFetchConfiguration fetch, int eagerMode) {
         // we limit further eager fetches to joins, because after this point
         // the select has been modified such that parallel clones may produce
         // invalid sql
-        boolean outer = field.getNullValue() != FieldMapping.NULL_EXCEPTION;
-        // force inner join for inner join fetch 
+        boolean outer = field.getNullValue() != FieldMetaData.NULL_EXCEPTION;
+        // force inner join for inner join fetch
         if (fetch.hasFetchInnerJoin(field.getFullName(false)))
             outer = false;
-        selectEager(sel, getDefaultElementMapping(true), sm, store, fetch, 
-            JDBCFetchConfiguration.EAGER_JOIN, false,
+        selectEager(sel, getDefaultElementMapping(true), sm, store, fetch,
+            EagerFetchModes.EAGER_JOIN, false,
             outer);
     }
 
+    @Override
     public boolean isEagerSelectToMany() {
         return true;
     }
@@ -195,7 +207,7 @@ public abstract class StoreCollectionFieldStrategy
         // force distinct if there was a to-many join to avoid dups, but
         // if this is a parallel select don't make distinct based on the
         // eager joins alone if the original wasn't distinct
-        if (eagerMode == JDBCFetchConfiguration.EAGER_PARALLEL) {
+        if (eagerMode == EagerFetchModes.EAGER_PARALLEL) {
             if (sel.hasJoin(true))
                 sel.setDistinct(true);
             else if (!sel.isDistinct())
@@ -218,11 +230,7 @@ public abstract class StoreCollectionFieldStrategy
                 joins = sel.outer(joins);
             if (!selectOid) {
                 Column[] refs = getJoinForeignKey(elem).getColumns();
-                if (requiresOrderBy()) {
-                    sel.orderBy(refs, true, joins, true);
-                } else {
-                    sel.select(refs, joins);
-                }
+                sel.orderBy(refs, true, joins, true);
             }
             field.orderLocal(sel, elem, joins);
         }
@@ -235,6 +243,7 @@ public abstract class StoreCollectionFieldStrategy
         selectElement(sel, elem, store, fetch, eagerMode, joins);
     }
 
+    @Override
     public Object loadEagerParallel(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Object res)
         throws SQLException {
@@ -305,7 +314,7 @@ public abstract class StoreCollectionFieldStrategy
                 seq = res.getInt(field.getOrderColumn(), orderJoins) + 1;
 
             // for inverse relation field
-            setMappedBy(oid.equals(sm.getObjectId()) ? 
+            setMappedBy(oid.equals(sm.getObjectId()) ?
                 sm.getPersistenceCapable() : oid, res);
             Object val = loadElement(null, store, fetch, res, dataJoins);
             add(store, coll, val);
@@ -318,15 +327,15 @@ public abstract class StoreCollectionFieldStrategy
     private void setMappedBy(Object oid, Result res) {
         //  for inverse toOne relation field
         FieldMapping mappedByFieldMapping = field.getMappedByMapping();
-        
+
         if (mappedByFieldMapping != null) {
             ValueMapping val = mappedByFieldMapping.getValueMapping();
             ClassMetaData decMeta = val.getTypeMetaData();
             // this inverse field does not have corresponding classMapping
             // its value may be a collection/map etc.
-            if (decMeta == null) 
+            if (decMeta == null)
                 return;
-            
+
             res.setMappedByFieldMapping(mappedByFieldMapping);
             res.setMappedByValue(oid);
         }
@@ -337,21 +346,21 @@ public abstract class StoreCollectionFieldStrategy
         // for inverseEager field
         FieldMapping mappedByFieldMapping = field.getMappedByMapping();
         PersistenceCapable mappedByValue = null;
-        
+
         if (mappedByFieldMapping != null) {
             ValueMapping val = mappedByFieldMapping.getValueMapping();
             ClassMetaData decMeta = val.getTypeMetaData();
             // this inverse field does not have corresponding classMapping
             // its value may be a collection/map etc.
-            if (decMeta == null) 
+            if (decMeta == null)
                 return;
-        	
+
             StateManagerImpl owner = ((StateManagerImpl)sm).getObjectIdOwner();
             if (oid.equals(owner.getObjectId())) {
                 mappedByValue = owner.getPersistenceCapable();
                 res.setMappedByFieldMapping(mappedByFieldMapping);
                 res.setMappedByValue(mappedByValue);
-            } else if (coll instanceof Collection && 
+            } else if (coll instanceof Collection &&
                 ((Collection) coll).size() > 0) {
                 // Customer (1) <--> Orders(n)
                 // coll contains the values of the toMany field (Orders)
@@ -362,7 +371,7 @@ public abstract class StoreCollectionFieldStrategy
                     ((Collection) coll).iterator().next();
                 OpenJPAStateManager sm1 = (OpenJPAStateManager) pc.
                     pcGetStateManager();
-                
+
                 ClassMapping clm = ((ClassMapping) sm1.getMetaData());
                 FieldMapping fm = (FieldMapping) clm.getField(
                     mappedByFieldMapping.getName());
@@ -371,7 +380,7 @@ public abstract class StoreCollectionFieldStrategy
             } else {
                 res.setMappedByValue(null);
             }
-        }        
+        }
     }
 
     /**
@@ -383,7 +392,7 @@ public abstract class StoreCollectionFieldStrategy
         throws SQLException {
         // if this is a datastore id class we can avoid creating a new oid
         // object for the common case
-        if (oid != null && owner.getIdentityType() == ClassMapping.ID_DATASTORE
+        if (oid != null && owner.getIdentityType() == ClassMetaData.ID_DATASTORE
             && owner.isPrimaryKeyObjectId(true)) {
             long nid = res.getLong(owner.getPrimaryKeyColumns()[0]);
             long id = ((Id) oid).getId();
@@ -396,6 +405,7 @@ public abstract class StoreCollectionFieldStrategy
         return (noid.equals(oid)) ? oid : noid;
     }
 
+    @Override
     public void loadEagerJoin(OpenJPAStateManager sm, JDBCStore store,
         JDBCFetchConfiguration fetch, Result res)
         throws SQLException {
@@ -486,11 +496,25 @@ public abstract class StoreCollectionFieldStrategy
         return refs;
     }
 
+    @Override
     public void load(final OpenJPAStateManager sm, final JDBCStore store,
         final JDBCFetchConfiguration fetch)
         throws SQLException {
+
+        Object coll = null;
+        final int fieldIndex = field.getIndex();
+        final boolean delayed = sm.isDelayed(fieldIndex);
+        if (!delayed && field.isDelayCapable()) {
+            coll = sm.newProxy(fieldIndex);
+            if (coll instanceof DelayedProxy) {
+                sm.storeObject(fieldIndex, coll);
+                sm.setDelayed(fieldIndex, true);
+                return;
+            }
+        }
+
         if (field.isLRS()) {
-            Proxy coll = newLRSProxy();
+            Proxy pcoll = newLRSProxy();
 
             // if this is ordered we need to know the next seq to use in case
             // objects are added to the collection
@@ -511,13 +535,13 @@ public abstract class StoreCollectionFieldStrategy
                 Result res = sel.execute(store, fetch);
                 try {
                     res.next();
-                    coll.getChangeTracker().setNextSequence
+                    pcoll.getChangeTracker().setNextSequence
                         (res.getInt(field) + 1);
                 } finally {
                     res.close();
                 }
             }
-            sm.storeObjectField(field.getIndex(), coll);
+            sm.storeObjectField(fieldIndex, pcoll);
             return;
         }
 
@@ -527,22 +551,36 @@ public abstract class StoreCollectionFieldStrategy
         Union union = store.getSQLFactory().newUnion
             (Math.max(1, elems.length));
         union.select(new Union.Selector() {
+            @Override
             public void select(Select sel, int idx) {
                 ClassMapping elem = (elems.length == 0) ? null : elems[idx];
                 resJoins[idx] = selectAll(sel, elem, sm, store, fetch,
-                    JDBCFetchConfiguration.EAGER_PARALLEL);
+                    EagerFetchModes.EAGER_PARALLEL);
             }
         });
 
         // create proxy
-        Object coll;
         ChangeTracker ct = null;
-        if (field.getTypeCode() == JavaTypes.ARRAY)
-            coll = new ArrayList();
-        else {
-            coll = sm.newProxy(field.getIndex());
+        if (delayed) {
+            if (sm.isDetached() || sm.getOwner() == null) {
+                sm.getPersistenceCapable().pcProvideField(fieldIndex);
+                coll =
+                    ((FieldManager)sm.getPersistenceCapable().pcGetStateManager()).fetchObjectField(fieldIndex);
+            } else {
+                coll = sm.fetchObjectField(fieldIndex);
+            }
             if (coll instanceof Proxy)
                 ct = ((Proxy) coll).getChangeTracker();
+        } else {
+            if (field.getTypeCode() == JavaTypes.ARRAY)
+                coll = new ArrayList();
+            else {
+                if (coll == null) {
+                    coll = sm.newProxy(fieldIndex);
+                }
+                if (coll instanceof Proxy)
+                    ct = ((Proxy) coll).getChangeTracker();
+            }
         }
 
         // load values
@@ -562,12 +600,14 @@ public abstract class StoreCollectionFieldStrategy
             res.close();
         }
 
-        // set into sm
-        if (field.getTypeCode() == JavaTypes.ARRAY)
-            sm.storeObject(field.getIndex(), JavaTypes.toArray
-                ((Collection) coll, field.getElement().getType()));
-        else
-            sm.storeObject(field.getIndex(), coll);
+        // if not a delayed collection, set into sm
+        if (!delayed) {
+            if (field.getTypeCode() == JavaTypes.ARRAY)
+                sm.storeObject(fieldIndex, JavaTypes.toArray
+                    ((Collection) coll, field.getElement().getType()));
+            else
+                sm.storeObject(fieldIndex, coll);
+        }
     }
 
     /**
@@ -576,8 +616,9 @@ public abstract class StoreCollectionFieldStrategy
     protected Joins selectAll(Select sel, ClassMapping elem,
         OpenJPAStateManager sm, JDBCStore store, JDBCFetchConfiguration fetch,
         int eagerMode) {
-        sel.whereForeignKey(getJoinForeignKey(elem), sm.getObjectId(),
-            field.getDefiningMapping(), store);
+        ForeignKey fk = getJoinForeignKey(elem);
+        Object oid = getObjectIdForJoin(fk, sm);
+        sel.whereForeignKey(fk, oid, field.getDefiningMapping(), store);
 
         // order first, then select so that if the projection introduces
         // additional ordering, it will be after our required ordering
@@ -588,17 +629,35 @@ public abstract class StoreCollectionFieldStrategy
         return joins;
     }
 
+    @Override
     public Object loadProjection(JDBCStore store, JDBCFetchConfiguration fetch,
         Result res, Joins joins)
         throws SQLException {
         return loadElement(null, store, fetch, res, joins);
     }
 
-    protected ForeignKey getJoinForeignKey() {
+    @Override
+    public ForeignKey getJoinForeignKey() {
         return getJoinForeignKey(getDefaultElementMapping(false));
     }
-    
-    boolean requiresOrderBy() {
-    	return List.class.isAssignableFrom(field.getProxyType());
+
+    /**
+     * Gets the identity value of the given instance that is suitable to join to the given foreign key.
+     * The special case of the foreign key being a relation identifier will encode the value.
+     */
+    Object getObjectIdForJoin(ForeignKey fk, OpenJPAStateManager sm) {
+        Object oid = sm.getObjectId();
+        if (!RelationStrategies.isRelationId(fk)) {
+            return oid;
+        }
+
+        FieldMapping owningField = field.getMappedByMapping();
+        if (owningField != null && owningField.getHandler() instanceof RelationId) {
+            return ((RelationId)owningField.getHandler()).toRelationDataStoreValue(sm, null);
+        }
+        if (oid instanceof OpenJPAId) {
+            return ((OpenJPAId)oid).getIdObject();
+        }
+        return oid;
     }
 }

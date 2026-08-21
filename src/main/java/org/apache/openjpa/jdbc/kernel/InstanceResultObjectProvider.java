@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -24,12 +24,12 @@ import org.apache.openjpa.jdbc.meta.ClassMapping;
 import org.apache.openjpa.jdbc.sql.Result;
 import org.apache.openjpa.jdbc.sql.Select;
 import org.apache.openjpa.jdbc.sql.SelectExecutor;
+import org.apache.openjpa.util.proxy.ProxyCalendar;
 
 /**
  * Object provider implementation wrapped around a {@link Select}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class InstanceResultObjectProvider
     extends SelectResultObjectProvider {
@@ -50,12 +50,17 @@ public class InstanceResultObjectProvider
         _mapping = mapping;
     }
 
+    @Override
     public Object getResultObject()
         throws SQLException {
         Result res = getResult();
         ClassMapping mapping = res.getBaseMapping();
         if (mapping == null)
             mapping = _mapping;
-        return res.load(mapping, getStore(), getFetchConfiguration());
+        Object ret = res.load(mapping, getStore(), getFetchConfiguration());
+        if (ret != null && ret instanceof ProxyCalendar) {
+            ret = ((ProxyCalendar) ret).copy(ret);
+        }
+        return ret;
     }
 }

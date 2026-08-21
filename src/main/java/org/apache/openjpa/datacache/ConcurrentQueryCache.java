@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.datacache;
 
@@ -36,7 +36,12 @@ public class ConcurrentQueryCache
     extends AbstractQueryCache
     implements RemoteCommitListener {
 
-    private CacheMap _cache = newCacheMap();
+    
+    private static final long serialVersionUID = 1L;
+    private CacheMap _cache;
+    protected boolean _lru = false;
+    private int _cacheSize = Integer.MIN_VALUE;
+    private int _softRefs = Integer.MIN_VALUE;
 
     /**
      * Returns the underlying {@link CacheMap} that this cache is using.
@@ -67,7 +72,7 @@ public class ConcurrentQueryCache
      * flushing old values.
      */
     public void setCacheSize(int size) {
-        _cache.setCacheSize(size);
+        _cacheSize = size;
     }
 
     /**
@@ -85,19 +90,29 @@ public class ConcurrentQueryCache
      * flushing values.
      */
     public void setSoftReferenceSize(int size) {
-        _cache.setSoftReferenceSize(size);
+        _softRefs = size;
     }
 
+    @Override
     public void initialize(DataCacheManager mgr) {
         super.initialize(mgr);
         conf.getRemoteCommitEventManager().addInternalListener(this);
+        _cache = newCacheMap();
+        if (_cacheSize != Integer.MIN_VALUE) {
+            _cache.setCacheSize(_cacheSize);
+        }
+        if (_softRefs != Integer.MIN_VALUE) {
+            _cache.setSoftReferenceSize(_softRefs);
+        }
     }
 
+    @Override
     public void writeLock() {
         // delegate actually does nothing, but in case that changes...
         _cache.writeLock();
     }
 
+    @Override
     public void writeUnlock() {
         // delegate actually does nothing, but in case that changes...
         _cache.writeUnlock();
@@ -107,33 +122,42 @@ public class ConcurrentQueryCache
      * Return the map to use as an internal cache.
      */
     protected CacheMap newCacheMap() {
-        return new CacheMap();
+        CacheMap res = new CacheMap(_lru);
+
+        return res;
     }
 
+    @Override
     protected QueryResult getInternal(QueryKey qk) {
         return (QueryResult) _cache.get(qk);
     }
 
+    @Override
     protected QueryResult putInternal(QueryKey qk, QueryResult result) {
         return (QueryResult) _cache.put(qk, result);
     }
 
+    @Override
     protected QueryResult removeInternal(QueryKey qk) {
         return (QueryResult) _cache.remove(qk);
     }
 
+    @Override
     protected void clearInternal() {
         _cache.clear();
     }
 
+    @Override
     protected boolean pinInternal(QueryKey qk) {
         return _cache.pin(qk);
     }
 
+    @Override
     protected boolean unpinInternal(QueryKey qk) {
         return _cache.unpin(qk);
     }
 
+    @Override
     protected Collection keySet() {
         return _cache.keySet ();
 	}
@@ -141,7 +165,16 @@ public class ConcurrentQueryCache
     /**
      * Returns the eviction policy of the query cache
      */
+    @Override
     public EvictPolicy getEvictPolicy() {
         return super.evictPolicy;
+    }
+
+    public void setLru(boolean l) {
+        _lru = l;
+    }
+
+    public boolean getLru() {
+        return _lru;
     }
 }

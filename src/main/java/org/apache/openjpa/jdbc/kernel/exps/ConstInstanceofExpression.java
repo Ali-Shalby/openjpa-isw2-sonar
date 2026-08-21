@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -33,6 +33,8 @@ import org.apache.openjpa.kernel.exps.ExpressionVisitor;
 class ConstInstanceofExpression
     implements Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Const _const;
     private final Class _cls;
 
@@ -44,11 +46,13 @@ class ConstInstanceofExpression
         _cls = Filters.wrap(cls);
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, Map contains) {
         return _const.initialize(sel, ctx, 0);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf) {
         _const.calculateValue(sel, ctx, state, null, null);
         if (_cls.isInstance(_const.getValue(ctx, state)))
@@ -57,11 +61,13 @@ class ConstInstanceofExpression
             buf.append("1 <> 1");
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         _const.selectColumns(sel, ctx, state, pks);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _const.acceptVisit(visitor);

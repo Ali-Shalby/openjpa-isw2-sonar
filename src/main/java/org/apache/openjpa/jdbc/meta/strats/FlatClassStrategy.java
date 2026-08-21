@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
@@ -33,15 +33,20 @@ import org.apache.openjpa.util.MetaDataException;
 public class FlatClassStrategy
     extends AbstractClassStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     public static final String ALIAS = "flat";
 
     private static final Localizer _loc = Localizer.forPackage
         (FlatClassStrategy.class);
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
 
+    @Override
     public void map(boolean adapt) {
         ClassMapping sup = cls.getMappedPCSuperclassMapping();
         if (sup == null || cls.getEmbeddingMetaData() != null)
@@ -63,6 +68,7 @@ public class FlatClassStrategy
         cls.setColumnIO(sup.getColumnIO());
     }
 
+    @Override
     public boolean isPrimaryKeyObjectId(boolean hasAll) {
         return cls.getMappedPCSuperclassMapping().isPrimaryKeyObjectId(hasAll);
     }

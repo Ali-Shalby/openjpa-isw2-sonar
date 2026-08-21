@@ -14,23 +14,23 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
 import java.sql.Types;
 import java.util.Date;
+import java.util.Locale;
 
-import org.apache.commons.lang.StringUtils;
 import org.apache.openjpa.jdbc.conf.JDBCConfiguration;
-import org.apache.openjpa.jdbc.identifier.Normalizer;
 import org.apache.openjpa.jdbc.identifier.DBIdentifier;
+import org.apache.openjpa.jdbc.identifier.Normalizer;
+import org.apache.openjpa.lib.util.StringUtil;
 
 /**
  * Helper class to deal with schemas.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class Schemas {
 
@@ -45,6 +45,7 @@ public class Schemas {
      * none.
      * @deprecated
      */
+    @Deprecated
     public static String getNewTableSchema(JDBCConfiguration conf) {
         return getNewTableSchemaIdentifier(conf).getName();
     }
@@ -57,7 +58,7 @@ public class Schemas {
         if (schemas.length == 0)
             return DBIdentifier.NULL;
         String[] names = Normalizer.splitName(schemas[0]);
-        if (names.length == 0 || StringUtils.isEmpty(names[0])) {
+        if (names.length == 0 || StringUtil.isEmpty(names[0])) {
             return DBIdentifier.NULL;
         }
         return DBIdentifier.newSchema(names[0]);
@@ -189,7 +190,7 @@ public class Schemas {
             return Types.VARBINARY;
         if ("varchar".equalsIgnoreCase(name))
             return Types.VARCHAR;
-        if (name == null || name.toLowerCase().startsWith("unknown"))
+        if (name == null || name.toLowerCase(Locale.ENGLISH).startsWith("unknown"))
             return Types.OTHER;
         throw new IllegalArgumentException("name = " + name);
     }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta;
 
@@ -22,6 +22,11 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.OffsetDateTime;
+import java.time.OffsetTime;
 
 import org.apache.openjpa.meta.JavaTypes;
 
@@ -49,18 +54,18 @@ public class JavaSQLTypes
     public static final int TIMESTAMP = 1011;
     public static final int JDBC_DEFAULT = 1012;
 
-    private static final Byte ZERO_BYTE = new Byte((byte) 0);
-    private static final Character ZERO_CHAR = new Character((char) 0);
-    private static final Double ZERO_DOUBLE = new Double(0d);
-    private static final Float ZERO_FLOAT = new Float(0f);
-    private static final Short ZERO_SHORT = new Short((short) 0);
+    private static final Byte ZERO_BYTE = (byte) 0;
+    private static final Character ZERO_CHAR = (char) 0;
+    private static final Double ZERO_DOUBLE = 0d;
+    private static final Float ZERO_FLOAT = 0f;
+    private static final Short ZERO_SHORT = (short) 0;
     private static final BigDecimal ZERO_BIGDECIMAL = new BigDecimal(0d);
 
-    private static final Byte NONZERO_BYTE = new Byte((byte) 1);
-    private static final Character NONZERO_CHAR = new Character((char) 'a');
-    private static final Double NONZERO_DOUBLE = new Double(1d);
-    private static final Float NONZERO_FLOAT = new Float(1f);
-    private static final Short NONZERO_SHORT = new Short((short) 1);
+    private static final Byte NONZERO_BYTE = (byte) 1;
+    private static final Character NONZERO_CHAR = (char) 'a';
+    private static final Double NONZERO_DOUBLE = 1d;
+    private static final Float NONZERO_FLOAT = 1f;
+    private static final Short NONZERO_SHORT = (short) 1;
     private static final BigInteger NONZERO_BIGINTEGER = new BigInteger("1");
     private static final BigDecimal NONZERO_BIGDECIMAL = new BigDecimal(1d);
 
@@ -76,6 +81,17 @@ public class JavaSQLTypes
             return TIMESTAMP;
         if (dtype == Time.class)
             return TIME;
+        if (dtype == LocalDate.class)
+            return LOCAL_DATE;
+        if (dtype == LocalDateTime.class)
+            return LOCAL_DATETIME;
+        if (dtype == LocalTime.class)
+            return LOCAL_TIME;
+        if (dtype == OffsetTime.class)
+            return OFFSET_TIME;
+        if (dtype == OffsetDateTime.class)
+            return OFFSET_DATETIME;
+
         return OBJECT;
     }
 

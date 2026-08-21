@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.sql;
 
@@ -39,7 +39,7 @@ import org.apache.openjpa.jdbc.schema.Sequence;
 import org.apache.openjpa.jdbc.schema.Unique;
 import org.apache.openjpa.lib.identifier.IdentifierUtil;
 import org.apache.openjpa.lib.util.Localizer;
-import org.apache.openjpa.util.StoreException;
+import org.apache.openjpa.util.ExceptionInfo;
 import org.apache.openjpa.util.UnsupportedException;
 
 /**
@@ -59,11 +59,6 @@ public class FirebirdDictionary
     protected String createSequenceSQLFB15 = "CREATE GENERATOR {0}";
     protected String createSequenceSQLFB20 = "CREATE SEQUENCE {0}";
     protected String dropSequenceSQLFB15 = "DROP GENERATOR ";
-    protected String nextSequenceQueryFB15 =
-        "SELECT GEN_ID({0}, 1) FROM RDB$DATABASE";
-    protected String nextSequenceQueryFB20 =
-        "SELECT NEXT VALUE FOR {0} FROM RDB$DATABASE";
-
     protected String alterSequenceSQL = alterSequenceSQLFB20;
     protected String createSequenceSQL = createSequenceSQLFB20;
 
@@ -98,7 +93,9 @@ public class FirebirdDictionary
 
         supportsMultipleNontransactionalResultSets = false;
 
-        nextSequenceQuery = nextSequenceQueryFB20;
+        // On Firebird 2 the recommended syntax is "SELECT NEXT VALUE FOR {0} FROM RDB$DATABASE".
+        // However, that syntax allows incrementing the sequence value by 1 only.
+        nextSequenceQuery = "SELECT GEN_ID({0}, {1}) FROM RDB$DATABASE";
         sequenceSQL =
             "SELECT NULL AS SEQUENCE_SCHEMA, RDB$GENERATOR_NAME "
                 + "AS SEQUENCE_NAME FROM RDB$GENERATORS "
@@ -176,7 +173,6 @@ public class FirebirdDictionary
             trimBothFunction = "LTRIM(RTRIM({0}))";
             alterSequenceSQL = alterSequenceSQLFB15;
             createSequenceSQL = createSequenceSQLFB15;
-            nextSequenceQuery = nextSequenceQueryFB15;
         }
     }
 
@@ -289,10 +285,11 @@ public class FirebirdDictionary
      */
     @Override
     protected String getTableNameForMetadata(String tableName) {
-        return (tableName == null) ? IdentifierUtil.PERCENT : 
+        return (tableName == null) ? IdentifierUtil.PERCENT :
             getTableNameForMetadata(DBIdentifier.newTable(tableName));
     }
 
+    @Override
     protected String getTableNameForMetadata(DBIdentifier tableName) {
         if (DBIdentifier.isNull(tableName)) {
             return IdentifierUtil.PERCENT;
@@ -355,8 +352,9 @@ public class FirebirdDictionary
     @Override
     protected String getSequencesSQL(DBIdentifier schemaName, DBIdentifier sequenceName) {
         StringBuilder buf = new StringBuilder(sequenceSQL);
-        if (sequenceName != null)
+        if (!DBIdentifier.isNull(sequenceName)) {
             buf.append(sequenceNameSQL);
+        }
         return buf.toString();
     }
 
@@ -387,16 +385,26 @@ public class FirebirdDictionary
     }
 
     /**
-     * Throw {@link UnsupportedException}. Firebird in version earlier than 2.1
-     * has no suitable function. Firebird 2.1 has the <code>POSITION</code>
-     * function but using it here results in errors like "data type unknown" or
-     * "expression evaluation not supported".
+     * On Firebird 2.1 return <code>POSITION(&lt;find&gt;, &lt;str&gt; [, &lt;start&gt;])<code>.
+     * On older versions throw {@link UnsupportedException} - no suitable function exists.
      */
     @Override
     public void indexOf(SQLBuffer buf, FilterValue str, FilterValue find,
         FilterValue start) {
-        throw new UnsupportedException(_loc.get("function-not-supported",
-            getClass(), "LOCATE"));
+        if (firebirdVersion < FB_VERSION_21) {
+            throw new UnsupportedException(_loc.get("function-not-supported", getClass(), "LOCATE"));
+        }
+        buf.append("POSITION(");
+        find.appendTo(buf);
+        buf.append(", ");
+        str.appendTo(buf);
+        if (start != null) {
+            buf.append(", ");
+            buf.append("CAST(");
+            start.appendTo(buf);
+            buf.append(" AS INTEGER)");
+        }
+        buf.append(")");
     }
 
     /**
@@ -405,28 +413,26 @@ public class FirebirdDictionary
      * Parameters are inlined because neither parameter binding nor expressions
      * are accepted by Firebird here. As a result, an
      * {@link UnsupportedException} is thrown when something else than a
-     * constant is used in <code>start</code> or <code>end</code>.
+     * constant is used in <code>start</code> or <code>length</code>.
      */
     @Override
     public void substring(SQLBuffer buf, FilterValue str, FilterValue start,
-        FilterValue end) {
+        FilterValue length) {
         buf.append(substringFunctionName).append("(");
         str.appendTo(buf);
         buf.append(" FROM ");
         if (start.getValue() instanceof Number) {
             long startLong = toLong(start);
-            buf.append(Long.toString(startLong + 1));
+            buf.append(Long.toString(startLong));
         } else {
             throw new UnsupportedException(_loc.get("function-not-supported",
                 getClass(), substringFunctionName + " with non-constants"));
         }
-        if (end != null) {
+        if (length != null) {
             buf.append(" FOR ");
-            if (start.getValue() instanceof Number
-                && end.getValue() instanceof Number) {
-                long startLong = toLong(start);
-                long endLong = toLong(end);
-                buf.append(Long.toString(endLong - startLong));
+            if (length.getValue() instanceof Number) {
+                long lengthLong = toLong(length);
+                buf.append(Long.toString(lengthLong));
             } else {
                 throw new UnsupportedException(_loc.get(
                     "function-not-supported", getClass(), substringFunctionName
@@ -490,6 +496,6 @@ public class FirebirdDictionary
             if (states.getValue().contains(errorState))
                 return states.getKey();
         }
-        return StoreException.GENERAL;
+        return ExceptionInfo.GENERAL;
     }
 }

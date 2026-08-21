@@ -14,18 +14,17 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.xml;
 
 import java.text.MessageFormat;
 
-import org.xml.sax.Locator;
 import org.apache.openjpa.lib.util.Localizer;
+import org.xml.sax.Locator;
 
 /**
  * @author Stephen Kim
- * @nojavadoc
  */
 public class Location {
 

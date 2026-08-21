@@ -14,12 +14,11 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
 import java.util.Collection;
-import java.util.Iterator;
 
 import org.apache.openjpa.kernel.StoreContext;
 
@@ -34,6 +33,9 @@ import org.apache.openjpa.kernel.StoreContext;
 class BindVariableAndExpression
     extends AndExpression {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Provide expression binding the variable and the
      * expression it is AND'd with.
@@ -42,6 +44,7 @@ class BindVariableAndExpression
         super(var, exp);
     }
 
+    @Override
     protected boolean eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         // execute the tree for every element in the variable's collection;
@@ -60,8 +63,8 @@ class BindVariableAndExpression
 
         // the subtree is true if true for any variable in the collection
         BoundVariable var = bind.getVariable();
-        for (Iterator itr = vals.iterator(); itr.hasNext();) {
-            if (!var.setValue(itr.next()))
+        for (Object val : vals) {
+            if (!var.setValue(val))
                 continue;
             if (getExpression2().evaluate(candidate, orig, ctx, params))
                 return true;
@@ -69,6 +72,7 @@ class BindVariableAndExpression
         return false;
     }
 
+    @Override
     protected boolean eval(Collection candidates, StoreContext ctx,
         Object[] params) {
         if (candidates == null || candidates.isEmpty())

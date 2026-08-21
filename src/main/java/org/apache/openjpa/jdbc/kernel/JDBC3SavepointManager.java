@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel;
 
@@ -22,6 +22,8 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Savepoint;
 
+import org.apache.openjpa.kernel.Broker;
+import org.apache.openjpa.kernel.SavepointManager;
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.UserException;
 
@@ -29,7 +31,7 @@ import org.apache.openjpa.util.UserException;
  * {@link SavepointManager} implementation that uses JDBC 3 savepoints
  * to store state. This plugin has the side effect of triggering
  * a flush on the {@link Broker}.
- * 
+ *
  * <b>Note that this plugin requires a database and JDBC driver which
  * supports JDBC 3 savepoints</b>
  *
@@ -42,6 +44,7 @@ public class JDBC3SavepointManager
     private static final Localizer _loc = Localizer.forPackage
         (JDBC3SavepointManager.class);
 
+    @Override
     protected void rollbackDataStore(ConnectionSavepoint savepoint) {
         try {
             Connection conn = savepoint.getConnection();
@@ -52,6 +55,7 @@ public class JDBC3SavepointManager
         }
     }
 
+    @Override
     protected void setDataStore(ConnectionSavepoint savepoint) {
         try {
             Connection conn = savepoint.getConnection();

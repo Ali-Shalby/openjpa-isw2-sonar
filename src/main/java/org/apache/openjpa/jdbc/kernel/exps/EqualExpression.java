@@ -14,10 +14,12 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
+import org.apache.openjpa.jdbc.meta.ClassMapping;
+import org.apache.openjpa.jdbc.meta.FieldMapping;
 import org.apache.openjpa.jdbc.sql.SQLBuffer;
 import org.apache.openjpa.jdbc.sql.Select;
 
@@ -29,6 +31,9 @@ import org.apache.openjpa.jdbc.sql.Select;
 class EqualExpression
     extends CompareEqualExpression {
 
+    
+    private static final long serialVersionUID = 1L;
+
     /**
      * Constructor. Supply values to compare.
      */
@@ -36,7 +41,8 @@ class EqualExpression
         super(val1, val2);
     }
 
-    public void appendTo(Select sel, ExpContext ctx, BinaryOpExpState bstate, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, BinaryOpExpState bstate,
         SQLBuffer buf, boolean val1Null, boolean val2Null) {
         if (val1Null && val2Null)
             buf.append("1 = 1");
@@ -56,14 +62,37 @@ class EqualExpression
         } else {
             Val val1 = getValue1();
             Val val2 = getValue2();
-            if (val1.length(sel, ctx, bstate.state1) == 1 
+            if (val1.length(sel, ctx, bstate.state1) == 1
                 && val2.length(sel, ctx, bstate.state2) == 1) {
                 ctx.store.getDBDictionary().comparison(buf, "=",
                     new FilterValueImpl(sel, ctx, bstate.state1, val1),
                     new FilterValueImpl(sel, ctx, bstate.state2, val2));
             } else {
-                int len = java.lang.Math.min(val1.length(sel, ctx, 
-                    bstate.state1), val2.length(sel, ctx, bstate.state2));
+                int lenVal1 = val1.length(sel, ctx, bstate.state1);
+                int lenVal2 = val2.length(sel, ctx, bstate.state2);
+                int len = java.lang.Math.min(lenVal1, lenVal2);
+
+                // OPENJPA-2631: Detect and handle slightly differently the
+                // case where a composite PK is in use. When an equals comparison
+                // is created by CriteriaBuilder, and the comparison is done against
+                // an entity with a composite PK, 'val2' can be either a:
+                // 1) Lit - in this case a Lit is hard coded to return a length of 1.
+                // 2) Param - in this case the metadata is null so length will return 1.
+                // Given this, first look to see if lenVal1 is greater than lenVal2.
+                if (lenVal1 > lenVal2) {
+                    // If here, lets get the metadata from val1 and see if its PK
+                    // is an embeddable. If so, the length (val1Len) will be the
+                    // size of the number of colunns in the PK. Use this length
+                    // in order to create an equal expression with the right number
+                    // of 'AND' statementes.
+                    ClassMapping cm = (ClassMapping) val1.getMetaData();
+                    FieldMapping[] fmsPK = cm.getPrimaryKeyFieldMappings();
+
+                    if (fmsPK[0].isEmbedded()) {
+                        len = lenVal1;
+                    }
+                }
+
                 for (int i = 0; i < len; i++) {
                     if (i > 0)
                         buf.append(" AND ");

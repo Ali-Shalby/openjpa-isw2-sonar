@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel;
 
@@ -24,43 +24,51 @@ package org.apache.openjpa.kernel;
  *
  * @author Steve Kim
  */
-@SuppressWarnings("serial")
-class PNonTransNewState
-    extends PCState {
+class PNonTransNewState extends PCState {
+    private static final long serialVersionUID = 1L;
 
-    void initialize(StateManagerImpl context) {
+    @Override
+    void initialize(StateManagerImpl context, PCState previous) {
         context.setLoaded(true);
         context.setDirty(true);
     }
 
+    @Override
     PCState delete(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     PCState transactional(StateManagerImpl context) {
         return PNEW;
     }
 
+    @Override
     PCState release(StateManagerImpl context) {
         return TRANSIENT;
     }
 
+    @Override
     boolean isPersistent() {
         return true;
     }
 
+    @Override
     boolean isNew() {
         return true;
     }
 
+    @Override
     boolean isDirty() {
         return true;
     }
 
+    @Override
     boolean isPendingTransactional() {
         return true;
     }
-    
+
+    @Override
     public String toString() {
         return "Persistent-Notransactional-New";
     }

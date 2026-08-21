@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.meta;
 
@@ -37,7 +37,6 @@ import org.apache.openjpa.lib.util.J2DoPrivHelper;
  * Iterator over all metadata resources in a given zip file.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class ZipFileMetaDataIterator
     implements MetaDataIterator, MetaDataFilter.Resource {
@@ -78,6 +77,7 @@ public class ZipFileMetaDataIterator
         _entries = (file == null) ? null : file.entries();
     }
 
+    @Override
     public boolean hasNext() throws IOException {
         if (_entries == null)
             return false;
@@ -91,6 +91,7 @@ public class ZipFileMetaDataIterator
         return _entry != null;
     }
 
+    @Override
     public String next() throws IOException {
         if (!hasNext())
             throw new NoSuchElementException();
@@ -100,18 +101,21 @@ public class ZipFileMetaDataIterator
         return ret;
     }
 
+    @Override
     public InputStream getInputStream() throws IOException {
         if (_last == null)
             throw new IllegalStateException();
         return _file.getInputStream(_last);
     }
 
+    @Override
     public File getFile() {
         if (_last == null)
             throw new IllegalStateException();
         return null;
     }
 
+    @Override
     public void close() {
         try {
            if (_file != null)
@@ -124,10 +128,12 @@ public class ZipFileMetaDataIterator
     // MetaDataFilter.Resource implementation
     //////////////////////////////////////////
 
+    @Override
     public String getName() {
         return _entry.getName();
     }
 
+    @Override
     public byte[] getContent() throws IOException {
         long size = _entry.getSize();
         if (size == 0)

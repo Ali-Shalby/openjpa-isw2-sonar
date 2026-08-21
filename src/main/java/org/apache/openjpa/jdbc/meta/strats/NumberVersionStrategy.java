@@ -14,16 +14,15 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.meta.strats;
 
-import java.util.Map;
 import java.util.HashMap;
+import java.util.Map;
 
-import org.apache.openjpa.meta.JavaTypes;
-import org.apache.openjpa.util.InternalException;
 import org.apache.openjpa.jdbc.schema.Column;
+import org.apache.openjpa.meta.JavaTypes;
 
 /**
  * Uses a version number for optimistic versioning.
@@ -33,9 +32,13 @@ import org.apache.openjpa.jdbc.schema.Column;
 public class NumberVersionStrategy
     extends ColumnVersionStrategy {
 
+    
+    private static final long serialVersionUID = 1L;
+
     public static final String ALIAS = "version-number";
 
     private Number _initial = 1;
+    private Integer _javaType = null;
 
     /**
      * Set the initial value for version column. Defaults to 1.
@@ -51,25 +54,36 @@ public class NumberVersionStrategy
         return _initial.intValue();
     }
 
+    @Override
     public String getAlias() {
         return ALIAS;
     }
 
+    @Override
     protected int getJavaType() {
-        return JavaTypes.INT;
+        if (_javaType == null && vers.getClassMapping().getVersionFieldMapping() != null) {
+            _javaType = vers.getClassMapping().getVersionFieldMapping().getTypeCode();
+        } else {
+            return JavaTypes.INT;
+        }
+
+        return _javaType;
     }
-    
+
+    @Override
     protected Object nextVersion(Object version) {
         if (version == null)
             return _initial;
         return ((Number) version).intValue() + 1;
     }
 
+    @Override
     public Map<Column,String> getBulkUpdateValues() {
         Column[] cols = vers.getColumns();
-        Map<Column,String> map = new HashMap<Column,String>(cols.length);
-        for (int i = 0; i < cols.length; i++)
-            map.put(cols[i], cols[i].getName() + " + 1");
+        Map<Column,String> map = new HashMap<>(cols.length);
+        for (Column col : cols) {
+            map.put(col, col.getName() + " + 1");
+        }
         return map;
     }
 }

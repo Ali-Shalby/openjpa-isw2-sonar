@@ -14,19 +14,20 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.jdbc;
 
 import java.io.PrintWriter;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
+import java.util.logging.Logger;
+
 import javax.sql.DataSource;
 
 import org.apache.openjpa.lib.util.Closeable;
-import org.apache.openjpa.lib.util.ConcreteClassGenerator;
 
 /**
  * Wrapper around an existing data source. Subclasses can override the
@@ -35,17 +36,7 @@ import org.apache.openjpa.lib.util.ConcreteClassGenerator;
  *
  * @author Abe White
  */
-public abstract class DelegatingDataSource implements DataSource, Closeable {
-
-    static final Constructor<DelegatingDataSource> concreteImpl;
-
-    static {
-        try {
-            concreteImpl = ConcreteClassGenerator.getConcreteConstructor(DelegatingDataSource.class, DataSource.class);
-        } catch (Exception e) {
-            throw new ExceptionInInitializerError(e);
-        }
-    }
+public class DelegatingDataSource implements DataSource, Closeable {
 
     private final DataSource _ds;
     private final DelegatingDataSource _del;
@@ -62,18 +53,6 @@ public abstract class DelegatingDataSource implements DataSource, Closeable {
             _del = null;
     }
 
-    /** 
-     *  Constructor for the concrete implementation of this abstract class.
-     */
-    public static DelegatingDataSource newInstance(DataSource ds) {
-        return ConcreteClassGenerator.newInstance(concreteImpl, ds);
-    }
-
-    /** 
-     *  Marker to enforce that subclasses of this class are abstract.
-     */
-    protected abstract void enforceAbstract();
-
     /**
      * Return the wrapped data source.
      */
@@ -88,10 +67,12 @@ public abstract class DelegatingDataSource implements DataSource, Closeable {
         return (_del == null) ? _ds : _del.getInnermostDelegate();
     }
 
+    @Override
     public int hashCode() {
         return getInnermostDelegate().hashCode();
     }
 
+    @Override
     public boolean equals(Object other) {
         if (other == this)
             return true;
@@ -100,6 +81,7 @@ public abstract class DelegatingDataSource implements DataSource, Closeable {
         return getInnermostDelegate().equals(other);
     }
 
+    @Override
     public String toString() {
         StringBuffer buf = new StringBuffer("datasource "). append(hashCode());
         appendInfo(buf);
@@ -111,26 +93,32 @@ public abstract class DelegatingDataSource implements DataSource, Closeable {
             _del.appendInfo(buf);
     }
 
+    @Override
     public PrintWriter getLogWriter() throws SQLException {
         return _ds.getLogWriter();
     }
 
+    @Override
     public void setLogWriter(PrintWriter out) throws SQLException {
         _ds.setLogWriter(out);
     }
 
+    @Override
     public int getLoginTimeout() throws SQLException {
         return _ds.getLoginTimeout();
     }
 
+    @Override
     public void setLoginTimeout(int timeout) throws SQLException {
         _ds.setLoginTimeout(timeout);
     }
 
+    @Override
     public Connection getConnection() throws SQLException {
         return _ds.getConnection();
     }
 
+    @Override
     public Connection getConnection(String user, String pass)
         throws SQLException {
         if (user == null && pass == null)
@@ -143,41 +131,47 @@ public abstract class DelegatingDataSource implements DataSource, Closeable {
             // that does not support getConnection(user, password)
             // see http://commons.apache.org/dbcp/apidocs/org/apache/commons/dbcp/BasicDataSource.html
             // hence this workaround
-            try {
-                if (setBeanProperty(_ds, "setUsername", user)
-                 && setBeanProperty(_ds, "setPassword", pass))
-                    return _ds.getConnection();
-            } catch (Exception e) {
-                throw ex;
-            }
+            if (setBeanProperty(_ds, "setUsername", user)
+             && setBeanProperty(_ds, "setPassword", pass))
+                return _ds.getConnection();
         }
         return null;
     }
 
+    @Override
     public void close() throws Exception {
         if (_ds instanceof Closeable)
             ((Closeable) _ds).close();
     }
 
     // java.sql.Wrapper implementation (JDBC 4)
+    @Override
     public boolean isWrapperFor(Class iface) {
         return iface.isAssignableFrom(getDelegate().getClass());
     }
 
+    @Override
     public Object unwrap(Class iface) {
         if (isWrapperFor(iface))
             return getDelegate();
         else
             return null;
     }
-    
+
     private boolean setBeanProperty(Object target, String method, Object val) {
         try {
-            Method setter = target.getClass().getMethod(method, new Class[]{});
+            Method setter = target.getClass().getMethod(method, new Class[]{String.class});
             setter.invoke(target, val);
             return true;
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    // Java 7 methods follow
+
+    @Override
+    public Logger getParentLogger() throws SQLFeatureNotSupportedException{
+        return _ds.getParentLogger();
     }
 }

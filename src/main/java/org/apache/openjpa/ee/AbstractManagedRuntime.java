@@ -17,11 +17,10 @@
 
 package org.apache.openjpa.ee;
 
-import javax.transaction.InvalidTransactionException;
-import javax.transaction.NotSupportedException;
-import javax.transaction.SystemException;
-import javax.transaction.Transaction;
-import javax.transaction.TransactionManager;
+import jakarta.transaction.NotSupportedException;
+import jakarta.transaction.SystemException;
+import jakarta.transaction.Transaction;
+import jakarta.transaction.TransactionManager;
 
 import org.apache.openjpa.lib.util.Localizer;
 import org.apache.openjpa.util.GeneralException;
@@ -39,10 +38,11 @@ public abstract class AbstractManagedRuntime implements ManagedRuntime {
     /**
      * Returns a transaction key that can be used to associate transactions
      * and Brokers.
-     * The default implementation returns the Transaction associated 
+     * The default implementation returns the Transaction associated
      * with the current thread's transaction.
      * @return the transaction key
      */
+    @Override
     public Object getTransactionKey() throws Exception, SystemException {
         return getTransactionManager().getTransaction();
     }
@@ -53,23 +53,24 @@ public abstract class AbstractManagedRuntime implements ManagedRuntime {
      * transaction. The default implementation suspends the transaction prior to
      * execution, and resumes the transaction afterwards.
      * </P>
-     * 
+     *
      * @param runnable
      *            The runnable wrapper for the work that will be done. The
      *            runnable object should be fully initialized with any state
      *            needed to execute.
-     * 
+     *
      * @throws NotSupportedException
-     *            if the current transaction can not be obtained, or an error 
+     *            if the current transaction can not be obtained, or an error
      *            occurs when suspending or resuming the transaction.
      */
-    public void doNonTransactionalWork(Runnable runnable) throws 
+    @Override
+    public void doNonTransactionalWork(Runnable runnable) throws
             NotSupportedException {
         TransactionManager tm = null;
         Transaction transaction = null;
-        
-        try { 
-            tm = getTransactionManager(); 
+
+        try {
+            tm = getTransactionManager();
         }
         catch(Exception e) {
             NotSupportedException nse =
@@ -80,14 +81,14 @@ public abstract class AbstractManagedRuntime implements ManagedRuntime {
         try {
             transaction = tm.suspend();
         } catch (Exception e) {
-            NotSupportedException nse = new NotSupportedException(  
+            NotSupportedException nse = new NotSupportedException(
                     _loc.get("exc-suspend-tran", e.getClass()).getMessage());
             nse.initCause(e);
             throw nse;
         }
-        
+
         runnable.run();
-        
+
         try {
             tm.resume(transaction);
         } catch (Exception e) {
@@ -102,7 +103,7 @@ public abstract class AbstractManagedRuntime implements ManagedRuntime {
                         _loc.get("exc-resume-tran", e.getClass()).getMessage());
             nse.initCause(e);
             throw nse;
-        } 
+        }
 
     }
 }

@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.util;
 
@@ -24,7 +24,6 @@ import java.util.Map;
  * Default {@link MapChangeTracker}.
  *
  * @author Abe White
- * @nojavadoc
  */
 public class MapChangeTrackerImpl
     extends AbstractChangeTracker
@@ -41,14 +40,17 @@ public class MapChangeTrackerImpl
         this.setAutoOff(autoOff);
     }
 
+    @Override
     public boolean getTrackKeys() {
         return _keys;
     }
 
+    @Override
     public void setTrackKeys(boolean keys) {
         _keys = keys;
     }
 
+    @Override
     public void added(Object key, Object val) {
         if (_keys)
             super.added(key);
@@ -56,6 +58,7 @@ public class MapChangeTrackerImpl
             super.added(val);
     }
 
+    @Override
     public void removed(Object key, Object val) {
         if (_keys)
             super.removed(key);
@@ -63,6 +66,7 @@ public class MapChangeTrackerImpl
             super.removed(val);
     }
 
+    @Override
     public void changed(Object key, Object oldVal, Object newVal) {
         if (_keys)
             super.changed(key);
@@ -72,6 +76,7 @@ public class MapChangeTrackerImpl
         }
     }
 
+    @Override
     protected void add(Object obj) {
         // if the key was previously removed and now added back, mark
         // it as a change; otherwise it's a new addition
@@ -92,6 +97,7 @@ public class MapChangeTrackerImpl
         }
     }
 
+    @Override
     protected void remove(Object obj) {
         // no longer a change, if it was before
         if (change != null)
@@ -112,6 +118,7 @@ public class MapChangeTrackerImpl
         }
     }
 
+    @Override
     protected void change(Object key) {
         // if the key is already changed or the key is newly added, nothing
         // to do

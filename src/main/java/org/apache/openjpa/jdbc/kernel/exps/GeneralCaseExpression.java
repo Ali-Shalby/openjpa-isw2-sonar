@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -39,6 +39,8 @@ import org.apache.openjpa.meta.ClassMetaData;
 public class GeneralCaseExpression
     extends AbstractVal {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Exp[] _exp;
     private final Val _val;
     private ClassMetaData _meta = null;
@@ -62,18 +64,20 @@ public class GeneralCaseExpression
         return _val;
     }
 
+    @Override
     public Class getType() {
         if (_cast != null)
             return _cast;
         Class type = _val.getType();
-        for (int i = 0; i < _exp.length; i++)
+        for (Exp exp : _exp)
             type = Filters.promote(type,
-                ((WhenCondition) _exp[i]).getVal().getType());
+                    ((WhenCondition) exp).getVal().getType());
         if (type == Raw.class)
             return String.class;
         return type;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         ExpState[] states = new ExpState[_exp.length+1];
         Joins joins = null;
@@ -95,16 +99,17 @@ public class GeneralCaseExpression
 
     private static class GeneralCaseExpState
         extends ExpState {
-        
+
         public ExpState[] states;
-        
+
         public GeneralCaseExpState(Joins joins, ExpState[] states) {
             super(joins);
             this.states = states;
         }
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf, int index) {
         GeneralCaseExpState cstate = (GeneralCaseExpState) state;
 
@@ -119,7 +124,8 @@ public class GeneralCaseExpression
         buf.append(" END ");
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         GeneralCaseExpState cstate = (GeneralCaseExpState) state;
         int i = 0;
@@ -128,34 +134,40 @@ public class GeneralCaseExpression
         _val.selectColumns(sel, ctx, cstate.states[i], pks);
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
-        for (int i = 0; i < _exp.length; i++)
-            _exp[i].acceptVisit(visitor);
+        for (Exp exp : _exp) {
+            exp.acceptVisit(visitor);
+        }
         _val.acceptVisit(visitor);
         visitor.exit(this);
     }
 
+    @Override
     public int getId() {
         return Val.SIMPLECASE_VAL;
     }
 
+    @Override
     public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         GeneralCaseExpState gstate = (GeneralCaseExpState) state;
-        for (int i = 0; i < _exp.length; i++) {   
+        for (int i = 0; i < _exp.length; i++) {
             BinaryOpExpState bstate = (BinaryOpExpState) gstate.states[i];
             ((WhenCondition) _exp[i]).getVal().calculateValue(sel, ctx,
                 bstate.state2, other, otherState);
         }
-        _val.calculateValue(sel, ctx, gstate.states[_exp.length], other, 
+        _val.calculateValue(sel, ctx, gstate.states[_exp.length], other,
             otherState);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         sel.groupBy(newSQLBuffer(sel, ctx, state));
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
@@ -167,44 +179,50 @@ public class GeneralCaseExpression
         return buf;
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
         return Filters.convert(res.getObject(this,
             JavaSQLTypes.JDBC_DEFAULT, null), getType());
     }
 
+    @Override
     public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         sel.orderBy(newSQLBuffer(sel, ctx, state), asc, false, getSelectAs());
     }
 
+    @Override
     public void select(Select sel, ExpContext ctx, ExpState state, boolean pks){
         sel.select(newSQLBuffer(sel, ctx, state), this);
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setImplicitType(Class type) {
-        _cast = type;        
+        _cast = type;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
     public void setOtherPath(Value other) {
         this.other = other;
     }
-    
+
     public Value getOtherPath() {
         return other;
     }
-    
+
     public void setOtherState(ExpState otherState) {
         this.otherState = otherState;
     }
-    
+
     public ExpState getOtherState() {
         return otherState;
     }

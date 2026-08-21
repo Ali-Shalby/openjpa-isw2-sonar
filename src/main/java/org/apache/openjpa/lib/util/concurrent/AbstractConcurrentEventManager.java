@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.lib.util.concurrent;
 
@@ -31,7 +31,7 @@ import org.apache.openjpa.lib.util.EventManager;
 /**
  * Base event manager that handles adding/removing listeners
  * and firing events. Meant for high concurrency. This class is
- * reentrant-safe; listeners can be added and removed by other listeners when 
+ * reentrant-safe; listeners can be added and removed by other listeners when
  * they receive events. The changes will not be visible until the event fire
  * that initiated the recursive sequence of calls completes, however.
  *
@@ -39,6 +39,9 @@ import org.apache.openjpa.lib.util.EventManager;
  */
 public abstract class AbstractConcurrentEventManager
     implements EventManager, Serializable {
+
+    
+    private static final long serialVersionUID = 1L;
 
     private static final Exception[] EMPTY_EXCEPTIONS = new Exception[0];
 
@@ -69,6 +72,7 @@ public abstract class AbstractConcurrentEventManager
     /**
      * Register an event listener.
      */
+    @Override
     public void addListener(Object listener) {
         if (listener != null)
             _listeners.add(listener);
@@ -77,6 +81,7 @@ public abstract class AbstractConcurrentEventManager
     /**
      * Remove an event listener.
      */
+    @Override
     public boolean removeListener(Object listener) {
         return _listeners.remove(listener);
     }
@@ -84,6 +89,7 @@ public abstract class AbstractConcurrentEventManager
     /**
      * Return whether the given instance is in the list of listeners.
      */
+    @Override
     public boolean hasListener(Object listener) {
         return _listeners.contains(listener);
     }
@@ -91,6 +97,7 @@ public abstract class AbstractConcurrentEventManager
     /**
      * Return true if there are any registered listeners.
      */
+    @Override
     public boolean hasListeners() {
         return !_listeners.isEmpty();
     }
@@ -98,6 +105,7 @@ public abstract class AbstractConcurrentEventManager
     /**
      * Return a read-only list of listeners.
      */
+    @Override
     public Collection getListeners() {
         return Collections.unmodifiableCollection(_listeners);
     }
@@ -105,6 +113,7 @@ public abstract class AbstractConcurrentEventManager
     /**
      * Fire the given event to all listeners.
      */
+    @Override
     public Exception[] fireEvent(Object event) {
         if (_listeners.isEmpty())
             return EMPTY_EXCEPTIONS;
@@ -135,7 +144,7 @@ public abstract class AbstractConcurrentEventManager
         throws Exception;
 
     /**
-     * Return a new concurrent container for listeners. Uses a 
+     * Return a new concurrent container for listeners. Uses a
      * {@link CopyOnWriteArrayList} by default.
      */
     protected Collection newListenerCollection() {

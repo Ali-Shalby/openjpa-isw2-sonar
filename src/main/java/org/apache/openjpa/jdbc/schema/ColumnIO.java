@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.schema;
 
@@ -27,23 +27,28 @@ import java.io.Serializable;
  *
  * @author Abe White
  */
-@SuppressWarnings("serial")
-public class ColumnIO
-    implements Serializable {
+public class ColumnIO implements Serializable {
+    private static final long serialVersionUID = 1L;
 
     public static final ColumnIO UNRESTRICTED = new ColumnIO() {
+        private static final long serialVersionUID = 1L;
+
+        @Override
         public void setInsertable(int col, boolean insertable) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void setUpdatable(int col, boolean updatable) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void setNullInsertable(int col, boolean insertable) {
             throw new UnsupportedOperationException();
         }
 
+        @Override
         public void setNullUpdatable(int col, boolean insertable) {
             throw new UnsupportedOperationException();
         }
@@ -301,8 +306,8 @@ public class ColumnIO
      */
     private boolean isNullable(ForeignKey fk) {
         Column[] cols = fk.getColumns();
-        for (int i = 0; i < cols.length; i++)
-            if (cols[i].isNotNull() || cols[i].isPrimaryKey())
+        for (Column col : cols)
+            if (col.isNotNull() || col.isPrimaryKey())
                 return false;
         return true;
     }

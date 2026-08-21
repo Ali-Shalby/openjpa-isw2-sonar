@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.kernel.exps;
 
@@ -31,6 +31,8 @@ import org.apache.openjpa.kernel.StoreContext;
 class IsEmptyExpression
     extends Exp {
 
+    
+    private static final long serialVersionUID = 1L;
     private final Val _val;
 
     /**
@@ -40,6 +42,7 @@ class IsEmptyExpression
         _val = val;
     }
 
+    @Override
     protected boolean eval(Object candidate, Object orig,
         StoreContext ctx, Object[] params) {
         Object obj = _val.eval(candidate, orig, ctx, params);
@@ -52,6 +55,7 @@ class IsEmptyExpression
         return false;
     }
 
+    @Override
     protected boolean eval(Collection candidates, StoreContext ctx,
         Object[] params) {
         Collection c = _val.eval(candidates, null, ctx, params);
@@ -67,6 +71,7 @@ class IsEmptyExpression
         return false;
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val.acceptVisit(visitor);

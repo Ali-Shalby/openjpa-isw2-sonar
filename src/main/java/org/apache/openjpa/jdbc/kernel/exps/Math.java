@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -36,11 +36,15 @@ import org.apache.openjpa.meta.ClassMetaData;
 public class Math
     extends AbstractVal {
 
+    
+    private static final long serialVersionUID = 1L;
     public static final String ADD = "+";
     public static final String SUBTRACT = "-";
     public static final String MULTIPLY = "*";
     public static final String DIVIDE = "/";
     public static final String MOD = "MOD";
+    public static final String POWER = "POWER";
+    public static final String ROUND = "ROUND";
 
     private final Val _val1;
     private final Val _val2;
@@ -55,6 +59,10 @@ public class Math
         _val1 = val1;
         _val2 = val2;
         _op = op;
+        if (op == ROUND) {
+            _val1.setImplicitType(Double.class);
+            _val2.setImplicitType(Integer.class);
+        }
     }
 
     public Val getVal1() {
@@ -69,14 +77,17 @@ public class Math
         return _op;
     }
 
+    @Override
     public ClassMetaData getMetaData() {
         return _meta;
     }
 
+    @Override
     public void setMetaData(ClassMetaData meta) {
         _meta = meta;
     }
 
+    @Override
     public Class getType() {
         if (_cast != null)
             return _cast;
@@ -85,33 +96,39 @@ public class Math
         return Filters.promote(c1, c2);
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _cast = type;
     }
 
+    @Override
     public ExpState initialize(Select sel, ExpContext ctx, int flags) {
         ExpState s1 = _val1.initialize(sel, ctx, 0);
         ExpState s2 = _val2.initialize(sel, ctx, 0);
         return new BinaryOpExpState(sel.and(s1.joins, s2.joins), s1, s2);
     }
 
-    public void select(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void select(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         sel.select(newSQLBuffer(sel, ctx, state), this);
     }
 
-    public void selectColumns(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void selectColumns(Select sel, ExpContext ctx, ExpState state,
         boolean pks) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _val1.selectColumns(sel, ctx, bstate.state1, true);
         _val2.selectColumns(sel, ctx, bstate.state2, true);
     }
 
+    @Override
     public void groupBy(Select sel, ExpContext ctx, ExpState state) {
         sel.groupBy(newSQLBuffer(sel, ctx, state));
     }
 
-    public void orderBy(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void orderBy(Select sel, ExpContext ctx, ExpState state,
         boolean asc) {
         sel.orderBy(newSQLBuffer(sel, ctx, state), asc, false, getSelectAs());
     }
@@ -123,24 +140,28 @@ public class Math
         return buf;
     }
 
+    @Override
     public Object load(ExpContext ctx, ExpState state, Result res)
         throws SQLException {
-        return Filters.convert(res.getObject(this, JavaSQLTypes.JDBC_DEFAULT, 
+        return Filters.convert(res.getObject(this, JavaSQLTypes.JDBC_DEFAULT,
             null), getType());
     }
 
-    public void calculateValue(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void calculateValue(Select sel, ExpContext ctx, ExpState state,
         Val other, ExpState otherState) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         _val1.calculateValue(sel, ctx, bstate.state1, _val2, bstate.state2);
         _val2.calculateValue(sel, ctx, bstate.state2, _val1, bstate.state1);
     }
 
+    @Override
     public int length(Select sel, ExpContext ctx, ExpState state) {
         return 1;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer sql, int index) {
         BinaryOpExpState bstate = (BinaryOpExpState) state;
         ctx.store.getDBDictionary().mathFunction(sql, _op,
@@ -148,6 +169,7 @@ public class Math
             new FilterValueImpl(sel, ctx, bstate.state2, _val2));
     }
 
+    @Override
     public void acceptVisit(ExpressionVisitor visitor) {
         visitor.enter(this);
         _val1.acceptVisit(visitor);
@@ -155,6 +177,7 @@ public class Math
         visitor.exit(this);
     }
 
+    @Override
     public int getId() {
         return Val.MATH_VAL;
     }

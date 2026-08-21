@@ -14,7 +14,7 @@
  * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
- * under the License.    
+ * under the License.
  */
 package org.apache.openjpa.jdbc.kernel.exps;
 
@@ -30,6 +30,8 @@ import org.apache.openjpa.jdbc.sql.Select;
 public class StringLength
     extends StringFunction {
 
+    
+    private static final long serialVersionUID = 1L;
     private Class _cast = null;
 
     /**
@@ -39,29 +41,33 @@ public class StringLength
         super(val);
     }
 
+    @Override
     public Class getType() {
         if (_cast != null)
             return _cast;
         return int.class;
     }
 
+    @Override
     public void setImplicitType(Class type) {
         _cast = type;
     }
 
-    public void appendTo(Select sel, ExpContext ctx, ExpState state, 
+    @Override
+    public void appendTo(Select sel, ExpContext ctx, ExpState state,
         SQLBuffer buf, int index) {
         DBDictionary dict = ctx.store.getDBDictionary();
         String func = dict.stringLengthFunction;
         dict.assertSupport(func != null, "StringLengthFunction");
         func = dict.getCastFunction(getValue(), func);
-        
+
         int idx = func.indexOf("{0}");
         buf.append(func.substring(0, idx));
         getValue().appendTo(sel, ctx, state, buf, index);
         buf.append(func.substring(idx + 3));
     }
 
+    @Override
     public int getId() {
         return Val.LENGTH_VAL;
     }
