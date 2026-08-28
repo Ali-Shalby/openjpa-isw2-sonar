@@ -117,7 +117,7 @@ import org.apache.xbean.asm9.tree.*;
  * @author Mark Struberg
  */
 public class PCEnhancer {
-    // Designates a version for maintaining compatibility when PCEnhancer
+    // Designates a version for maintaining compatbility when PCEnhancer
     // modifies enhancement that can break serialization or other contracts
     // Each enhanced class will return the value of this field via
     // public int getEnhancementContractVersion()
@@ -166,8 +166,7 @@ public class PCEnhancer {
                         J2DoPrivHelper.newInstanceAction(aClass)));
             }
             catch (Throwable t) {
-                // Optional auxiliary enhancers may depend on unavailable specification classes.
-                // Preserve startup by ignoring linkage and initialization failures from plugins.
+                // aux enhancer may rely on non-existant spec classes, etc
             }
         }
         _auxEnhancers = (AuxiliaryEnhancer[]) auxEnhancers.toArray
@@ -185,7 +184,6 @@ public class PCEnhancer {
             rev = GitUtils.convertGitInfoToPCEnhancerVersion(revisionProps.getProperty("openjpa.enhancer.revision"));
         }
         catch (Exception e) {
-            // Keep the historical fallback enhancer version when revision metadata cannot be read.
         }
         if (rev > 0) {
             ENHANCER_VERSION = rev;
@@ -197,11 +195,11 @@ public class PCEnhancer {
         }
     }
 
-    private final MetaDataRepository repos;
-    private final ClassMetaData meta;
-    private final Log log;
+    private final MetaDataRepository _repos;
+    private final ClassMetaData _meta;
+    private final Log _log;
 
-    boolean addVersionInitFlag = true;
+    boolean _addVersionInitFlag = true;
 
 
     private final EnhancementProject project;
@@ -218,21 +216,21 @@ public class PCEnhancer {
      */
     private ClassNodeTracker pc;
 
-    private boolean addDefaultConstructor = true;
-    private boolean redefine = false;
-    private boolean subclass = false;
-    private boolean failOnPropertyViolation = false;
-    private Set violations = null;
-    private File directory = null;
-    private BytecodeWriter bytecodeWriter = null;
-    private Map<String, String> backingFields = null; // map of set / get names => field names
-    private Map<String, String> attributesToFields = null; // map of attr names => field names
-    private Map<String, String> fieldsToAttributes = null; // map of field names => attr names
-    private boolean alreadyRedefined = false;
-    private boolean alreadySubclassed = false;
-    private boolean bytecodeConfigured = false;
+    private boolean _defCons = true;
+    private boolean _redefine = false;
+    private boolean _subclass = false;
+    private boolean _fail = false;
+    private Set _violations = null;
+    private File _dir = null;
+    private BytecodeWriter _writer = null;
+    private Map<String, String> _backingFields = null; // map of set / get names => field names
+    private Map<String, String> _attrsToFields = null; // map of attr names => field names
+    private Map<String, String> _fieldsToAttrs = null; // map of field names => attr names
+    private boolean _isAlreadyRedefined = false;
+    private boolean _isAlreadySubclassed = false;
+    private boolean _bcsConfigured = false;
 
-    private boolean optimizeIdCopy = false; // whether to attempt optimizing id copy
+    private boolean _optimizeIdCopy = false; // whether to attempt optimizing id copy
 
     /**
      * Constructor. Supply configuration and type to enhance. This will look
@@ -258,7 +256,7 @@ public class PCEnhancer {
      * @param type  the bytecode representation fo the type to
      *              enhance; this can be created from any stream or file
      * @param repos a metadata repository to use for metadata access,
-     *              or null to create a new repository; the repository
+     *              or null to create a new reporitory; the repository
      *              from the given configuration isn't used by default
      *              because the configuration might be an
      *              implementation-specific subclass whose metadata
@@ -277,7 +275,7 @@ public class PCEnhancer {
      * @param type   the bytecode representation fo the type to
      *               enhance; this can be created from any stream or file
      * @param repos  a metadata repository to use for metadata access,
-     *               or null to create a new repository; the repository
+     *               or null to create a new reporitory; the repository
      *               from the given configuration isn't used by default
      *               because the configuration might be an
      *               implementation-specific subclass whose metadata
@@ -292,17 +290,17 @@ public class PCEnhancer {
         managedType = type;
         pc = managedType;
 
-        log = conf.getLog(OpenJPAConfiguration.LOG_ENHANCE);
+        _log = conf.getLog(OpenJPAConfiguration.LOG_ENHANCE);
 
         if (repos == null) {
-            repos = conf.newMetaDataRepositoryInstance();
-            repos.setSourceMode(MetaDataModes.MODE_META);
+            _repos = conf.newMetaDataRepositoryInstance();
+            _repos.setSourceMode(MetaDataModes.MODE_META);
         }
         else {
-            repos = repos;
+            _repos = repos;
         }
 
-        meta = repos.getMetaData(type.getType(), loader, false);
+        _meta = _repos.getMetaData(type.getType(), loader, false);
 
         configureOptimizeIdCopy();
     }
@@ -314,7 +312,7 @@ public class PCEnhancer {
      * during metadata load.
      *
      * @param repos a metadata repository to use for metadata access,
-     *              or null to create a new repository; the repository
+     *              or null to create a new reporitory; the repository
      *              from the given configuration isn't used by default
      *              because the configuration might be an
      *              implementation-specific subclass whose metadata
@@ -330,11 +328,11 @@ public class PCEnhancer {
         managedType = type;
         pc = managedType;
 
-        log = repos.getConfiguration()
+        _log = repos.getConfiguration()
                 .getLog(OpenJPAConfiguration.LOG_ENHANCE);
 
-        repos = repos;
-        meta = meta;
+        _repos = repos;
+        _meta = meta;
     }
 
     static String toPCSubclassName(ClassNodeTracker cnt) {
@@ -401,7 +399,7 @@ public class PCEnhancer {
      * a persistent type.
      */
     public ClassMetaData getMetaData() {
-        return meta;
+        return _meta;
     }
 
     /**
@@ -411,7 +409,7 @@ public class PCEnhancer {
      * or by the user) be present in a PC.
      */
     public boolean getAddDefaultConstructor() {
-        return addDefaultConstructor;
+        return _defCons;
     }
 
     /**
@@ -421,7 +419,7 @@ public class PCEnhancer {
      * or by the user) be present in a PC.
      */
     public void setAddDefaultConstructor(boolean addDefaultConstructor) {
-        this.addDefaultConstructor = addDefaultConstructor;
+        _defCons = addDefaultConstructor;
     }
 
     /**
@@ -432,7 +430,7 @@ public class PCEnhancer {
      * @since 1.0.0
      */
     public boolean getRedefine() {
-        return redefine;
+        return _redefine;
     }
 
     /**
@@ -443,7 +441,7 @@ public class PCEnhancer {
      * @since 1.0.0
      */
     public void setRedefine(boolean redefine) {
-        this.redefine = redefine;
+        _redefine = redefine;
     }
 
     /**
@@ -453,7 +451,7 @@ public class PCEnhancer {
      * @since 1.0.0
      */
     public boolean isAlreadyRedefined() {
-        return alreadyRedefined;
+        return _isAlreadyRedefined;
     }
 
     /**
@@ -463,7 +461,7 @@ public class PCEnhancer {
      * @since 1.0.0
      */
     public boolean isAlreadySubclassed() {
-        return alreadySubclassed;
+        return _isAlreadySubclassed;
     }
 
     /**
@@ -473,7 +471,7 @@ public class PCEnhancer {
      * @since 1.0.0
      */
     public boolean getCreateSubclass() {
-        return subclass;
+        return _subclass;
     }
 
     /**
@@ -483,8 +481,8 @@ public class PCEnhancer {
      * @since 1.0.0
      */
     public void setCreateSubclass(boolean subclass) {
-        this.subclass = subclass;
-        addVersionInitFlag = false;
+        _subclass = subclass;
+        _addVersionInitFlag = false;
     }
 
     /**
@@ -493,7 +491,7 @@ public class PCEnhancer {
      * access restrictions.
      */
     public boolean getEnforcePropertyRestrictions() {
-        return failOnPropertyViolation;
+        return _fail;
     }
 
     /**
@@ -502,7 +500,7 @@ public class PCEnhancer {
      * access restrictions.
      */
     public void setEnforcePropertyRestrictions(boolean fail) {
-        failOnPropertyViolation = fail;
+        _fail = fail;
     }
 
     /**
@@ -511,7 +509,7 @@ public class PCEnhancer {
      * overwriting the existing class file if null.
      */
     public File getDirectory() {
-        return directory;
+        return _dir;
     }
 
     /**
@@ -520,21 +518,21 @@ public class PCEnhancer {
      * overwriting the existing class file if null.
      */
     public void setDirectory(File dir) {
-        directory = dir;
+        _dir = dir;
     }
 
     /**
      * Return the current {@link BytecodeWriter} to write to or null if none.
      */
     public BytecodeWriter getBytecodeWriter() {
-        return bytecodeWriter;
+        return _writer;
     }
 
     /**
      * Set the {@link BytecodeWriter} to write the bytecode to or null if none.
      */
     public void setBytecodeWriter(BytecodeWriter writer) {
-        bytecodeWriter = writer;
+        _writer = writer;
     }
 
     /**
@@ -560,15 +558,15 @@ public class PCEnhancer {
             for (String iface : managedType.getClassNode().interfaces) {
                 final String pctypeInternalName = TYPE_PCTYPE.getInternalName();
                 if (iface.equals(pctypeInternalName)) {
-                    if (log.isTraceEnabled()) {
-                        log.trace(_loc.get("pc-type", managedType.getClassNode().name, loader));
+                    if (_log.isTraceEnabled()) {
+                        _log.trace(_loc.get("pc-type", managedType.getClassNode().name, loader));
                     }
                     return ENHANCE_NONE;
                 }
             }
 
-            if (log.isTraceEnabled()) {
-                log.trace(_loc.get("enhance-start", managedType.getClassNode().name));
+            if (_log.isTraceEnabled()) {
+                _log.trace(_loc.get("enhance-start", managedType.getClassNode().name));
             }
 
 
@@ -576,7 +574,7 @@ public class PCEnhancer {
 
             // validate properties before replacing field access so that
             // we build up a record of backing fields, etc
-            if (isPropertyAccess(meta)) {
+            if (isPropertyAccess(_meta)) {
                 validateProperties();
                 if (getCreateSubclass()) {
                     addAttributeTranslation();
@@ -585,7 +583,7 @@ public class PCEnhancer {
             replaceAndValidateFieldAccess();
             processViolations();
 
-            if (meta != null) {
+            if (_meta != null) {
                 enhanceClass(pc);
                 addFields(pc);
                 addStaticInitializer(pc);
@@ -610,7 +608,7 @@ public class PCEnhancer {
     }
 
     private void configureBCs() {
-        if (!bytecodeConfigured) {
+        if (!_bcsConfigured) {
             if (getRedefine()) {
                 final boolean isRedefined = managedType.getClassNode().attrs != null &&
                         managedType.getClassNode().attrs.stream().anyMatch(a -> a.isUnknown() && a.type.equals(RedefinedAttribute.ATTR_TYPE));
@@ -622,12 +620,12 @@ public class PCEnhancer {
                     managedType.getClassNode().attrs.add(new RedefinedAttribute());
                 }
                 else {
-                    alreadyRedefined = true;
+                    _isAlreadyRedefined = true;
                 }
             }
 
             if (getCreateSubclass()) {
-                PCSubclassValidator val = new PCSubclassValidator(meta, managedType.getClassNode(), log, failOnPropertyViolation);
+                PCSubclassValidator val = new PCSubclassValidator(_meta, managedType.getClassNode(), _log, _fail);
                 val.assertCanSubclass();
                 pc = project.loadClass(toPCSubclassName(managedType));
                 if (pc.getClassNode().superName.equals("java/lang/Object")) {
@@ -640,11 +638,11 @@ public class PCEnhancer {
                     pc.declareInterface(DynamicPersistenceCapable.class);
                 }
                 else {
-                    alreadySubclassed = true;
+                    _isAlreadySubclassed = true;
                 }
             }
 
-            bytecodeConfigured = true;
+            _bcsConfigured = true;
         }
     }
 
@@ -664,10 +662,10 @@ public class PCEnhancer {
      */
     private void record(ClassNodeTracker cnt)
             throws IOException {
-        if (bytecodeWriter != null) {
-            bytecodeWriter.write(cnt);
+        if (_writer != null) {
+            _writer.write(cnt);
         }
-        else if (directory == null) {
+        else if (_dir == null) {
             String name = cnt.getClassNode().name.replace(".", "/");
             ClassLoader cl = cnt.getClassLoader();
             if (cl == null) {
@@ -681,7 +679,7 @@ public class PCEnhancer {
         }
         else {
             String name = cnt.getClassNode().name.replace(".", "/") + ".class";
-            File targetFile = new File(directory, name);
+            File targetFile = new File(_dir, name);
             if (!targetFile.getParentFile().exists()) {
                 targetFile.getParentFile().mkdirs();
             }
@@ -698,23 +696,21 @@ public class PCEnhancer {
         final ClassNode classNode = managedType.getClassNode();
         FieldMetaData[] fmds;
         if (getCreateSubclass()) {
-            fmds = meta.getFields();
+            fmds = _meta.getFields();
         }
         else {
-            fmds = meta.getDeclaredFields();
+            fmds = _meta.getDeclaredFields();
         }
 
-        Method getter;
-        Method setter;
-        Field returned;
-        Field assigned = null;
+        Method getter, setter;
+        Field returned, assigned = null;
 
         for (FieldMetaData fmd : fmds) {
             if (!(fmd.getBackingMember() instanceof Method)) {
                 // If not mixed access is not defined, flag the field members,
                 // otherwise do not process them because they are valid
                 // persistent attributes.
-                if (!meta.isMixedAccess()) {
+                if (!_meta.isMixedAccess()) {
                     addViolation("property-bad-member",
                                  new Object[]{fmd, fmd.getBackingMember()},
                                  true);
@@ -782,20 +778,20 @@ public class PCEnhancer {
     }
 
     private void registerBackingFieldInfo(FieldMetaData fmd, Method method, Field field) {
-        if (backingFields == null) {
-            backingFields = new HashMap();
+        if (_backingFields == null) {
+            _backingFields = new HashMap();
         }
-        backingFields.put(method.getName(), field.getName());
+        _backingFields.put(method.getName(), field.getName());
 
-        if (attributesToFields == null) {
-            attributesToFields = new HashMap();
+        if (_attrsToFields == null) {
+            _attrsToFields = new HashMap();
         }
-        attributesToFields.put(fmd.getName(), field.getName());
+        _attrsToFields.put(fmd.getName(), field.getName());
 
-        if (fieldsToAttributes == null) {
-            fieldsToAttributes = new HashMap();
+        if (_fieldsToAttrs == null) {
+            _fieldsToAttrs = new HashMap();
         }
-        fieldsToAttributes.put(field.getName(), fmd.getName());
+        _fieldsToAttrs.put(field.getName(), fmd.getName());
     }
 
 
@@ -803,9 +799,9 @@ public class PCEnhancer {
 
         // Get all field metadata
         ArrayList<Integer> propFmds = new ArrayList<>();
-        FieldMetaData[] fmds = meta.getFields();
+        FieldMetaData[] fmds = _meta.getFields();
 
-        if (meta.isMixedAccess()) {
+        if (_meta.isMixedAccess()) {
             // Stores indexes of property access fields to be used in
             //
             propFmds = new ArrayList<>();
@@ -819,7 +815,7 @@ public class PCEnhancer {
             }
 
             // if no fields have property access do not do attribute translation
-            if (propFmds.isEmpty()) {
+            if (propFmds.size() == 0) {
                 return;
             }
         }
@@ -837,7 +833,7 @@ public class PCEnhancer {
 
         // switch (val)
         instructions.add(new VarInsnNode(Opcodes.ILOAD, 1)); // int param of the method
-        if (!meta.isMixedAccess()) {
+        if (!_meta.isMixedAccess()) {
             // if not mixed access use a table switch on all property-based fmd.
             // a table switch is more efficient with +1 incremental operations
 
@@ -846,12 +842,12 @@ public class PCEnhancer {
             instructions.add(switchNd);
 
             // case i:
-            //     return <attributesToFields.get(fmds[i].getName())>
+            //     return <_attrsToFields.get(fmds[i].getName())>
             for (FieldMetaData fmd : fmds) {
                 LabelNode caseLabel = new LabelNode();
                 switchNd.labels.add(caseLabel);
                 instructions.add(caseLabel);
-                instructions.add(AsmHelper.getLoadConstantInsn(attributesToFields.get(fmd.getName())));
+                instructions.add(AsmHelper.getLoadConstantInsn(_attrsToFields.get(fmd.getName())));
                 instructions.add(new InsnNode(Opcodes.ARETURN));
             }
 
@@ -870,7 +866,7 @@ public class PCEnhancer {
                 instructions.add(caseLabel);
                 switchNd.labels.add(caseLabel);
                 switchNd.keys.add(propFmds.get(i));
-                instructions.add(AsmHelper.getLoadConstantInsn(attributesToFields.get(fmds[i].getName())));
+                instructions.add(AsmHelper.getLoadConstantInsn(_attrsToFields.get(fmds[i].getName())));
                 instructions.add(new InsnNode(Opcodes.ARETURN));
             }
         }
@@ -920,8 +916,7 @@ public class PCEnhancer {
 
         Field field = null;
         Field cur;
-        AbstractInsnNode prevInsn;
-        AbstractInsnNode earlierInsn;
+        AbstractInsnNode prevInsn, earlierInsn;
         for (AbstractInsnNode insn : methodNode.instructions) {
             if (!ain.test(insn)) {
                 continue;
@@ -1015,24 +1010,24 @@ public class PCEnhancer {
      * Record a violation of the property access restrictions.
      */
     private void addViolation(String key, Object[] args, boolean fatal) {
-        if (violations == null) {
-            violations = new HashSet();
+        if (_violations == null) {
+            _violations = new HashSet();
         }
-        violations.add(_loc.get(key, args));
-        failOnPropertyViolation |= fatal;
+        _violations.add(_loc.get(key, args));
+        _fail |= fatal;
     }
 
     /**
      * Log / throw recorded property access violations.
      */
     private void processViolations() {
-        if (violations == null) {
+        if (_violations == null) {
             return;
         }
 
         String sep = J2DoPrivHelper.getLineSeparator();
         StringBuilder buf = new StringBuilder();
-        for (Iterator itr = violations.iterator(); itr.hasNext(); ) {
+        for (Iterator itr = _violations.iterator(); itr.hasNext(); ) {
             buf.append(itr.next());
             if (itr.hasNext()) {
                 buf.append(sep);
@@ -1040,11 +1035,11 @@ public class PCEnhancer {
         }
         Message msg = _loc.get("property-violations", buf);
 
-        if (failOnPropertyViolation) {
+        if (_fail) {
             throw new UserException(msg);
         }
-        if (log.isWarnEnabled()) {
-            log.warn(msg);
+        if (_log.isWarnEnabled()) {
+            _log.warn(msg);
         }
     }
 
@@ -1092,17 +1087,17 @@ public class PCEnhancer {
             if (isPropertyAccess(fmd)) {
                 // if we're directly accessing a field in another class
                 // hierarchy that uses property access, something is wrong
-                if (owner != meta && owner.getDeclaredField(name) != null &&
-                        meta != null && !owner.getDescribedType()
-                        .isAssignableFrom(meta.getDescribedType())) {
+                if (owner != _meta && owner.getDeclaredField(name) != null &&
+                        _meta != null && !owner.getDescribedType()
+                        .isAssignableFrom(_meta.getDescribedType())) {
                     throw new UserException(_loc.get("property-field-access",
-                                                     new Object[]{meta, owner, name, methodNode.name}));
+                                                     new Object[]{_meta, owner, name, methodNode.name}));
                 }
 
                 // if we're directly accessing a property-backing field outside
                 // the property in our own class, notify user
                 if (isBackingFieldOfAnotherProperty(methodNode, name)) {
-                    addViolation("property-field-access", new Object[]{meta, owner, name, methodNode.name}, false);
+                    addViolation("property-field-access", new Object[]{_meta, owner, name, methodNode.name}, false);
                 }
             }
 
@@ -1246,9 +1241,9 @@ public class PCEnhancer {
     private boolean isBackingFieldOfAnotherProperty(MethodNode methodNode, String name) {
         String methName = methodNode.name;
         return !"<init>".equals(methName)
-                && backingFields != null
-                && !name.equals(backingFields.get(methName))
-                && backingFields.containsValue(name);
+                && _backingFields != null
+                && !name.equals(_backingFields.get(methName))
+                && _backingFields.containsValue(name);
     }
 
     /**
@@ -1270,11 +1265,11 @@ public class PCEnhancer {
         }
 
         // managed interface
-        if (meta != null && meta.getDescribedType().isInterface()) {
-            return meta;
+        if (_meta != null && _meta.getDescribedType().isInterface()) {
+            return _meta;
         }
 
-        return repos.getMetaData(f.getDeclaringClass(), null, false);
+        return _repos.getMetaData(f.getDeclaringClass(), null, false);
     }
 
     /**
@@ -1297,12 +1292,12 @@ public class PCEnhancer {
 
         addCopyFieldsMethod(pc.getClassNode());
 
-        if (meta.getPCSuperclass() == null || getCreateSubclass()) {
+        if (_meta.getPCSuperclass() == null || getCreateSubclass()) {
             addStockMethods();
             addGetVersionMethod();
             addReplaceStateManagerMethod();
 
-            if (meta.getIdentityType() != ClassMetaData.ID_APPLICATION) {
+            if (_meta.getIdentityType() != ClassMetaData.ID_APPLICATION) {
                 addNoOpApplicationIdentityMethods();
             }
         }
@@ -1311,27 +1306,27 @@ public class PCEnhancer {
         // than just the superclass, since it is possible to have
         // a subclass with an app id hierarchy that matches the
         // persistent class inheritance hierarchy
-        if (meta.getIdentityType() == ClassMetaData.ID_APPLICATION
-                && (meta.getPCSuperclass() == null || getCreateSubclass() ||
-                meta.getObjectIdType() != meta.getPCSuperclassMetaData().getObjectIdType())) {
+        if (_meta.getIdentityType() == ClassMetaData.ID_APPLICATION
+                && (_meta.getPCSuperclass() == null || getCreateSubclass() ||
+                _meta.getObjectIdType() != _meta.getPCSuperclassMetaData().getObjectIdType())) {
 
             addCopyKeyFieldsToObjectIdMethod(true);
             addCopyKeyFieldsToObjectIdMethod(false);
             addCopyKeyFieldsFromObjectIdMethod(true);
             addCopyKeyFieldsFromObjectIdMethod(false);
 
-            if (meta.hasAbstractPKField()) {
+            if (_meta.hasAbstractPKField()) {
                 addGetIDOwningClass();
             }
 
-            if (meta.isEmbeddable() && meta.getIdentityType() == ClassMetaData.ID_APPLICATION) {
-                log.warn(_loc.get("ID-field-in-embeddable-unsupported", meta.toString()));
+            if (_meta.isEmbeddable() && _meta.getIdentityType() == ClassMetaData.ID_APPLICATION) {
+                _log.warn(_loc.get("ID-field-in-embeddable-unsupported", _meta.toString()));
             }
 
             addNewObjectIdInstanceMethod(true);
             addNewObjectIdInstanceMethod(false);
         }
-        else if (meta.hasPKFieldsFromAbstractClass()) {
+        else if (_meta.hasPKFieldsFromAbstractClass()) {
             addGetIDOwningClass();
         }
     }
@@ -1350,15 +1345,15 @@ public class PCEnhancer {
         classNode.methods.add(clearFieldMethod);
         final InsnList instructions = clearFieldMethod.instructions;
 
-        if (meta.getPCSuperclass() != null && !getCreateSubclass()) {
+        if (_meta.getPCSuperclass() != null && !getCreateSubclass()) {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
             instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
-                                                Type.getInternalName(getType(meta.getPCSuperclassMetaData())),
+                                                Type.getInternalName(getType(_meta.getPCSuperclassMetaData())),
                                                 PRE + "ClearFields",
                                                 Type.getMethodDescriptor(Type.VOID_TYPE)));
         }
 
-        FieldMetaData[] fmds = meta.getDeclaredFields();
+        FieldMetaData[] fmds = _meta.getDeclaredFields();
         for (FieldMetaData fmd : fmds) {
             if (fmd.getManagement() != FieldMetaData.MANAGE_PERSISTENT) {
                 continue;
@@ -1478,9 +1473,9 @@ public class PCEnhancer {
         // pcInheritedFieldCount field isn't initialized!  so instead,
         // return <fields> + <superclass>.pcGetManagedFieldCount ()
         final InsnList instructions = getFieldCountMeth.instructions;
-        instructions.add(AsmHelper.getLoadConstantInsn(meta.getDeclaredFields().length));
-        if (meta.getPCSuperclass() != null) {
-            Class superClass = getType(meta.getPCSuperclassMetaData());
+        instructions.add(AsmHelper.getLoadConstantInsn(_meta.getDeclaredFields().length));
+        if (_meta.getPCSuperclass() != null) {
+            Class superClass = getType(_meta.getPCSuperclassMetaData());
             String superName = getCreateSubclass() ?
                     PCEnhancer.toPCSubclassName(superClass).replace(".", "/") :
                     Type.getInternalName(superClass);
@@ -1509,8 +1504,8 @@ public class PCEnhancer {
         final int relLocal = beginSwitchMethod(classNode, PRE + "ProvideField", instructions, false);
 
         // if no fields in this inst, just throw exception
-        FieldMetaData[] fmds = getCreateSubclass() ? meta.getFields()
-                : meta.getDeclaredFields();
+        FieldMetaData[] fmds = getCreateSubclass() ? _meta.getFields()
+                : _meta.getDeclaredFields();
         if (fmds.length == 0) {
             instructions.add(AsmHelper.throwException(IllegalArgumentException.class));
         }
@@ -1571,8 +1566,8 @@ public class PCEnhancer {
         final int relLocal = beginSwitchMethod(classNode, PRE + "ReplaceField", instructions, false);
 
         // if no fields in this inst, just throw exception
-        FieldMetaData[] fmds = getCreateSubclass() ? meta.getFields()
-                : meta.getDeclaredFields();
+        FieldMetaData[] fmds = getCreateSubclass() ? _meta.getFields()
+                : _meta.getDeclaredFields();
         if (fmds.length == 0) {
             instructions.add(AsmHelper.throwException(IllegalArgumentException.class));
         }
@@ -1611,12 +1606,12 @@ public class PCEnhancer {
 
                 addSetManagedValueCode(classNode, instructions, fmd);
 
-                if (addVersionInitFlag && fmd.isVersion()) {
+                if (_addVersionInitFlag && fmd.isVersion()) {
                     // If this case is setting the version field
                     // pcVersionInit = true;
                     instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
                     instructions.add(new InsnNode(Opcodes.ICONST_1));
-                    putfield(classNode, instructions, getType(meta), VERSION_INIT_STR, boolean.class);
+                    putfield(classNode, instructions, getType(_meta), VERSION_INIT_STR, boolean.class);
                 }
 
                 instructions.add(new InsnNode(Opcodes.RETURN));
@@ -1645,8 +1640,8 @@ public class PCEnhancer {
         final int relLocal = beginSwitchMethod(classNode, PRE + "CopyField", instructions, true);
 
         // if no fields in this inst, just throw exception
-        FieldMetaData[] fmds = getCreateSubclass() ? meta.getFields()
-                : meta.getDeclaredFields();
+        FieldMetaData[] fmds = getCreateSubclass() ? _meta.getFields()
+                : _meta.getDeclaredFields();
         if (fmds.length == 0) {
             instructions.add(AsmHelper.throwException(IllegalArgumentException.class));
         }
@@ -1711,9 +1706,9 @@ public class PCEnhancer {
 
         instructions.add(new VarInsnNode(Opcodes.ILOAD, relLocal));
         instructions.add(new JumpInsnNode(Opcodes.IFGE, afterRelCheck));
-        if (meta.getPCSuperclass() != null) {
+        if (_meta.getPCSuperclass() != null) {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
-            final Class pcSuperClass = getType(meta.getPCSuperclassMetaData());
+            final Class pcSuperClass = getType(_meta.getPCSuperclassMetaData());
             String mDesc = copy
                     ? Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(pcSuperClass), Type.INT_TYPE)
                     : Type.getMethodDescriptor(Type.VOID_TYPE, Type.INT_TYPE);
@@ -1993,7 +1988,7 @@ public class PCEnhancer {
         LabelNode lblAfterIf = new LabelNode();
         instructions.add(new JumpInsnNode(Opcodes.IFNONNULL, lblAfterIf));
 
-        FieldMetaData versionField = meta.getVersionField();
+        FieldMetaData versionField = _meta.getVersionField();
         if (versionField == null) {
             instructions.add(new InsnNode(Opcodes.ACONST_NULL));
         }
@@ -2187,20 +2182,20 @@ public class PCEnhancer {
         InsnList instructions = copyKFMeth.instructions;
 
         // single field identity always throws exception
-        if (meta.isOpenJPAIdentity()) {
+        if (_meta.isOpenJPAIdentity()) {
             instructions.add(AsmHelper.throwException(INTERNEXCEP));
             return;
         }
 
         // call superclass method
-        if (meta.getPCSuperclass() != null && !getCreateSubclass()) {
+        if (_meta.getPCSuperclass() != null && !getCreateSubclass()) {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st parameter object
             if (fieldManager) {
                 instructions.add(new VarInsnNode(Opcodes.ALOAD, 2)); // 2nd parameter object
             }
             instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
-                                                Type.getInternalName(getType(meta.getPCSuperclassMetaData())),
+                                                Type.getInternalName(getType(_meta.getPCSuperclassMetaData())),
                                                 PRE + "CopyKeyFieldsToObjectId",
                                                 mDesc));
         }
@@ -2213,7 +2208,7 @@ public class PCEnhancer {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st parameter object
         }
 
-        if (meta.isObjectIdTypeShared()) {
+        if (_meta.isObjectIdTypeShared()) {
             // oid = ((ObjectId) id).getId ();
             instructions.add(new TypeInsnNode(Opcodes.CHECKCAST, Type.getInternalName(ObjectId.class)));
             instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
@@ -2226,7 +2221,7 @@ public class PCEnhancer {
         int nextFreeVarPos = (fieldManager) ? 3 : 2;
         int idVarPos = nextFreeVarPos++;
 
-        Class oidType = meta.getObjectIdType();
+        Class oidType = _meta.getObjectIdType();
         instructions.add(new TypeInsnNode(Opcodes.CHECKCAST, Type.getInternalName(oidType)));
         instructions.add(new VarInsnNode(Opcodes.ASTORE, idVarPos));
 
@@ -2240,12 +2235,12 @@ public class PCEnhancer {
 
         // id.<field> = fs.fetch<type>Field (<index>); or...
         // id.<field> = pc.<field>;
-        FieldMetaData[] fmds = getCreateSubclass() ? meta.getFields()
-                : meta.getDeclaredFields();
+        FieldMetaData[] fmds = getCreateSubclass() ? _meta.getFields()
+                : _meta.getDeclaredFields();
 
         // If optimizeIdCopy is enabled and not a field manager method, try to
         // optimize the copyTo by using a public constructor instead of reflection
-        if (optimizeIdCopy) {
+        if (_optimizeIdCopy) {
             ArrayList<Integer> pkfields = optimizeIdCopy(oidType, fmds);
             if (pkfields != null) {
                 // search for a constructor on the IdClass that can be used
@@ -2757,14 +2752,14 @@ public class PCEnhancer {
 
 
         // call superclass method
-        if (meta.getPCSuperclass() != null && !getCreateSubclass()) {
+        if (_meta.getPCSuperclass() != null && !getCreateSubclass()) {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st parameter object
             if (fieldManager) {
                 instructions.add(new VarInsnNode(Opcodes.ALOAD, 2)); // 2nd parameter object
             }
             instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
-                                                Type.getInternalName(getType(meta.getPCSuperclassMetaData())),
+                                                Type.getInternalName(getType(_meta.getPCSuperclassMetaData())),
                                                 PRE + "CopyKeyFieldsFromObjectId",
                                                 mDesc));
         }
@@ -2777,7 +2772,7 @@ public class PCEnhancer {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st parameter object
         }
 
-        if (!meta.isOpenJPAIdentity() && meta.isObjectIdTypeShared()) {
+        if (!_meta.isOpenJPAIdentity() && _meta.isObjectIdTypeShared()) {
             // oid = ((ObjectId) id).getId ();
             instructions.add(new TypeInsnNode(Opcodes.CHECKCAST, Type.getInternalName(ObjectId.class)));
             instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
@@ -2790,15 +2785,15 @@ public class PCEnhancer {
         int nextFreeVarPos = (fieldManager) ? 3 : 2;
         int idVarPos = nextFreeVarPos++;
 
-        Class oidType = meta.getObjectIdType();
+        Class oidType = _meta.getObjectIdType();
         instructions.add(new TypeInsnNode(Opcodes.CHECKCAST, Type.getInternalName(oidType)));
         instructions.add(new VarInsnNode(Opcodes.ASTORE, idVarPos));
 
         // fs.store<type>Field (<index>, id.<field>); or...
         // this.<field> = id.<field>
         // or for single field identity: id.getId ()
-        FieldMetaData[] fmds = getCreateSubclass() ? meta.getFields()
-                : meta.getDeclaredFields();
+        FieldMetaData[] fmds = getCreateSubclass() ? _meta.getFields()
+                : _meta.getDeclaredFields();
         for (int i = 0; i < fmds.length; i++) {
             if (!fmds[i].isPrimaryKey()) {
                 continue;
@@ -2850,7 +2845,7 @@ public class PCEnhancer {
                 }
 
                 instructions.add(new VarInsnNode(Opcodes.ALOAD, idVarPos));
-                if (meta.isOpenJPAIdentity()) {
+                if (_meta.isOpenJPAIdentity()) {
                     if (oidType == ObjectId.class) {
                         instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
                                                             Type.getInternalName(oidType),
@@ -2899,7 +2894,7 @@ public class PCEnhancer {
                     }
                     else {
                         boolean usedFastOid = false;
-                        if (optimizeIdCopy) {
+                        if (_optimizeIdCopy) {
                             // If fastOids, ignore access type and try to use a public getter
                             Method getter = Reflection.findGetter(oidType, name, false);
                             if (getter != null && Modifier.isPublic(getter.getModifiers())) {
@@ -2983,18 +2978,18 @@ public class PCEnhancer {
      * instead of just String.
      */
     private Boolean usesClassStringIdConstructor() {
-        if (meta.getIdentityType() != ClassMetaData.ID_APPLICATION) {
+        if (_meta.getIdentityType() != ClassMetaData.ID_APPLICATION) {
             return Boolean.FALSE;
         }
 
-        if (meta.isOpenJPAIdentity()) {
-            if (meta.getObjectIdType() == ObjectId.class) {
+        if (_meta.isOpenJPAIdentity()) {
+            if (_meta.getObjectIdType() == ObjectId.class) {
                 return null;
             }
             return Boolean.TRUE;
         }
 
-        Class oidType = meta.getObjectIdType();
+        Class oidType = _meta.getObjectIdType();
         try {
             oidType.getConstructor(new Class[]{Class.class, String.class});
             return Boolean.TRUE;
@@ -3090,21 +3085,21 @@ public class PCEnhancer {
         InsnList instructions = newOidMeth.instructions;
 
         Boolean usesClsString = usesClassStringIdConstructor();
-        Class oidType = meta.getObjectIdType();
+        Class oidType = _meta.getObjectIdType();
         if (obj && usesClsString == null) {
             // throw new IllegalArgumentException (...);
-            String msg = _loc.get("str-cons", oidType, meta.getDescribedType()).getMessage();
+            String msg = _loc.get("str-cons", oidType, _meta.getDescribedType()).getMessage();
 
             instructions.add(AsmHelper.throwException(IllegalArgumentException.class, msg));
             return;
         }
 
-        if (!meta.isOpenJPAIdentity() && meta.isObjectIdTypeShared()) {
+        if (!_meta.isOpenJPAIdentity() && _meta.isObjectIdTypeShared()) {
             // new ObjectId (cls, oid)
             instructions.add(new TypeInsnNode(Opcodes.NEW, Type.getInternalName(ObjectId.class)));
             instructions.add(new InsnNode(Opcodes.DUP));
 
-            if (meta.isEmbeddedOnly() || meta.hasAbstractPKField()) {
+            if (_meta.isEmbeddedOnly() || _meta.hasAbstractPKField()) {
                 instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
                 instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
                                                     classNode.name,
@@ -3112,17 +3107,17 @@ public class PCEnhancer {
                                                     Type.getMethodDescriptor(Type.getType(Class.class))));
             }
             else {
-                instructions.add(AsmHelper.getLoadConstantInsn(getType(meta)));
+                instructions.add(AsmHelper.getLoadConstantInsn(getType(_meta)));
             }
         }
 
         // new <oid class> ();
         instructions.add(new TypeInsnNode(Opcodes.NEW, Type.getInternalName(oidType)));
         instructions.add(new InsnNode(Opcodes.DUP));
-        if (meta.isOpenJPAIdentity() || (obj && usesClsString == Boolean.TRUE)) {
-            if ((meta.isEmbeddedOnly()
-                    && !(meta.isEmbeddable() && meta.getIdentityType() == ClassMetaData.ID_APPLICATION))
-                    || meta.hasAbstractPKField()) {
+        if (_meta.isOpenJPAIdentity() || (obj && usesClsString == Boolean.TRUE)) {
+            if ((_meta.isEmbeddedOnly()
+                    && !(_meta.isEmbeddable() && _meta.getIdentityType() == ClassMetaData.ID_APPLICATION))
+                    || _meta.hasAbstractPKField()) {
                 instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
                 instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
                                                     classNode.name,
@@ -3130,7 +3125,7 @@ public class PCEnhancer {
                                                     Type.getMethodDescriptor(Type.getType(Class.class))));
             }
             else {
-                instructions.add(AsmHelper.getLoadConstantInsn(getType(meta)));
+                instructions.add(AsmHelper.getLoadConstantInsn(getType(_meta)));
             }
         }
 
@@ -3146,20 +3141,20 @@ public class PCEnhancer {
                 mDescInit = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(String.class));
             }
         }
-        else if (meta.isOpenJPAIdentity()) {
+        else if (_meta.isOpenJPAIdentity()) {
             // new <type>Identity (XXX.class, <pk>);
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
-            FieldMetaData pk = meta.getPrimaryKeyFields()[0];
+            FieldMetaData pk = _meta.getPrimaryKeyFields()[0];
             addGetManagedValueCode(classNode, instructions, pk, true);
             if (pk.getDeclaredTypeCode() == JavaTypes.PC) {
                 int nextFreeVarPos = 1;
                 addExtractObjectIdFieldValueCode(classNode, instructions, pk, nextFreeVarPos);
             }
 
-            if (meta.getObjectIdType() == ObjectId.class) {
+            if (_meta.getObjectIdType() == ObjectId.class) {
                 mDescInit = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(Class.class), Type.getType(Object.class));
             }
-            else if (meta.getObjectIdType() == Date.class) {
+            else if (_meta.getObjectIdType() == Date.class) {
                 mDescInit = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(Class.class), Type.getType(Date.class));
             }
             else {
@@ -3172,7 +3167,7 @@ public class PCEnhancer {
                                             "<init>",
                                             mDescInit));
 
-        if (!meta.isOpenJPAIdentity() && meta.isObjectIdTypeShared()) {
+        if (!_meta.isOpenJPAIdentity() && _meta.isObjectIdTypeShared()) {
             instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
                                                 Type.getInternalName(ObjectId.class),
                                                 "<init>",
@@ -3282,13 +3277,13 @@ public class PCEnhancer {
         final boolean hasDefaultCt = classNode.methods.stream()
                 .anyMatch(m -> m.name.equals("<init>") && m.desc.equals("()V"));
         if (!hasDefaultCt) {
-            if (!addDefaultConstructor) {
+            if (!_defCons) {
                 throw new UserException(_loc.get("enhance-defaultconst", classNode.name));
             }
 
             int accessMode;
             String access;
-            if (meta.isDetachable()) {
+            if (_meta.isDetachable()) {
                 // externalizable requires that the constructor
                 // be public, so make the added constructor public
                 accessMode = Opcodes.ACC_PUBLIC;
@@ -3313,8 +3308,8 @@ public class PCEnhancer {
             ctNode.instructions.add(new InsnNode(Opcodes.RETURN));
             classNode.methods.add(ctNode);
 
-            if (!(meta.getDescribedType().isInterface() || getCreateSubclass()) && log.isWarnEnabled()) {
-                log.warn(_loc.get("enhance-adddefaultconst", classNode.name, access));
+            if (!(_meta.getDescribedType().isInterface() || getCreateSubclass()) && _log.isWarnEnabled()) {
+                _log.warn(_loc.get("enhance-adddefaultconst", classNode.name, access));
             }
 
         }
@@ -3347,11 +3342,11 @@ public class PCEnhancer {
         classNode.fields.add(new FieldNode(Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC,
                                            SUPER, Type.getDescriptor(Class.class), null, null));
 
-        if (addVersionInitFlag && meta.getVersionField() != null) {
+        if (_addVersionInitFlag && _meta.getVersionField() != null) {
             classNode.fields.add(new FieldNode(Opcodes.ACC_PROTECTED | Opcodes.ACC_TRANSIENT,
                                                VERSION_INIT_STR, Type.getDescriptor(boolean.class), null, null));
         }
-        if (meta.getPCSuperclass() == null || getCreateSubclass()) {
+        if (_meta.getPCSuperclass() == null || getCreateSubclass()) {
             classNode.fields.add(new FieldNode(Opcodes.ACC_PROTECTED | Opcodes.ACC_TRANSIENT,
                                                SM, Type.getDescriptor(SMTYPE), null, null));
         }
@@ -3365,7 +3360,7 @@ public class PCEnhancer {
     private void addStaticInitializer(ClassNodeTracker classNodeTracker) {
         final ClassNode classNode = classNodeTracker.getClassNode();
         InsnList instructions = new InsnList();
-        if (meta.getPCSuperclass() != null) {
+        if (_meta.getPCSuperclass() != null) {
             if (getCreateSubclass()) {
                 instructions.add(AsmHelper.getLoadConstantInsn(0));
                 instructions.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, INHERIT, Type.INT_TYPE.getDescriptor()));
@@ -3382,11 +3377,11 @@ public class PCEnhancer {
             // pcPCSuperclass = <superClass>;
             // this intentionally calls getDescribedType() directly
             // instead of PCEnhancer.getType()
-            instructions.add(AsmHelper.getLoadConstantInsn(meta.getPCSuperclassMetaData().getDescribedType()));
+            instructions.add(AsmHelper.getLoadConstantInsn(_meta.getPCSuperclassMetaData().getDescribedType()));
             instructions.add(new FieldInsnNode(Opcodes.PUTSTATIC, classNode.name, SUPER, Type.getDescriptor(Class.class)));
         }
 
-        FieldMetaData[] fmds = meta.getDeclaredFields();
+        FieldMetaData[] fmds = _meta.getDeclaredFields();
 
         // pcFieldNames = new String[] { "<name1>", "<name2>", ... };
         instructions.add(AsmHelper.getLoadConstantInsn(fmds.length));
@@ -3424,14 +3419,14 @@ public class PCEnhancer {
         // PCRegistry.register (cls,
         //    pcFieldNames, pcFieldTypes, pcFieldFlags,
         //  pcPCSuperclass, alias, new XXX ());
-        instructions.add(AsmHelper.getLoadConstantInsn(meta.getDescribedType()));
+        instructions.add(AsmHelper.getLoadConstantInsn(_meta.getDescribedType()));
         instructions.add(new FieldInsnNode(Opcodes.GETSTATIC, classNode.name, PRE + "FieldNames", Type.getDescriptor(String[].class)));
         instructions.add(new FieldInsnNode(Opcodes.GETSTATIC, classNode.name, PRE + "FieldTypes", Type.getDescriptor(Class[].class)));
         instructions.add(new FieldInsnNode(Opcodes.GETSTATIC, classNode.name, PRE + "FieldFlags", Type.getDescriptor(byte[].class)));
         instructions.add(new FieldInsnNode(Opcodes.GETSTATIC, classNode.name, SUPER, Type.getDescriptor(Class.class)));
 
-        if (meta.isMapped() || meta.isAbstract()) {
-            instructions.add(AsmHelper.getLoadConstantInsn(meta.getTypeAlias()));
+        if (_meta.isMapped() || _meta.isAbstract()) {
+            instructions.add(AsmHelper.getLoadConstantInsn(_meta.getTypeAlias()));
         }
         else {
             instructions.add(new InsnNode(Opcodes.ACONST_NULL));
@@ -3503,7 +3498,7 @@ public class PCEnhancer {
      * class is Serializable and does not define them.
      */
     private void addSerializationCode() {
-        if (externalizeDetached() || !Serializable.class.isAssignableFrom(meta.getDescribedType())) {
+        if (externalizeDetached() || !Serializable.class.isAssignableFrom(_meta.getDescribedType())) {
             return;
         }
 
@@ -3511,7 +3506,7 @@ public class PCEnhancer {
             // ##### what should happen if a type is Externalizable? It looks
             // ##### like Externalizable classes will not be serialized as PCs
             // ##### based on this logic.
-            if (!Externalizable.class.isAssignableFrom(meta.getDescribedType())) {
+            if (!Externalizable.class.isAssignableFrom(_meta.getDescribedType())) {
                 addSubclassSerializationCode();
             }
             return;
@@ -3528,16 +3523,16 @@ public class PCEnhancer {
         if (serialVersionUIDNode.isEmpty()) {
             Long uid = null;
             try {
-                uid = ObjectStreamClass.lookup(meta.getDescribedType()).getSerialVersionUID();
+                uid = ObjectStreamClass.lookup(_meta.getDescribedType()).getSerialVersionUID();
             }
             catch (Throwable t) {
                 // last-chance catch for bug #283 (which can happen
                 // in a variety of ClassLoading environments)
-                if (log.isTraceEnabled()) {
-                    log.warn(_loc.get("enhance-uid-access", meta), t);
+                if (_log.isTraceEnabled()) {
+                    _log.warn(_loc.get("enhance-uid-access", _meta), t);
                 }
                 else {
-                    log.warn(_loc.get("enhance-uid-access", meta));
+                    _log.warn(_loc.get("enhance-uid-access", _meta));
                 }
             }
 
@@ -3616,7 +3611,7 @@ public class PCEnhancer {
 
         // copy all the fields.
         // ##### limiting to JPA @Transient limitations
-        FieldMetaData[] fmds = meta.getFields();
+        FieldMetaData[] fmds = _meta.getFields();
         for (FieldMetaData fmd : fmds) {
             if (fmd.isTransient()) {
                 continue;
@@ -3624,8 +3619,8 @@ public class PCEnhancer {
             // o.<field> = this.<field> (or reflective analog)
             instructions.add(new InsnNode(Opcodes.DUP)); // for putfield
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this for getfield
-            getfield(classNode, instructions, meta.getDescribedType(), fmd.getName(), fmd.getDeclaredType());
-            putfield(classNode, instructions, meta.getDescribedType(), fmd.getName(), fmd.getDeclaredType());
+            getfield(classNode, instructions, _meta.getDescribedType(), fmd.getName(), fmd.getDeclaredType());
+            putfield(classNode, instructions, _meta.getDescribedType(), fmd.getName(), fmd.getDeclaredType());
         }
         instructions.add(new InsnNode(Opcodes.ARETURN));
     }
@@ -3635,9 +3630,9 @@ public class PCEnhancer {
      * instance rather than serialize.
      */
     private boolean externalizeDetached() {
-        return ClassMetaData.SYNTHETIC.equals(meta.getDetachedState())
-                && Serializable.class.isAssignableFrom(meta.getDescribedType())
-                && !repos.getConfiguration().getDetachStateInstance().
+        return ClassMetaData.SYNTHETIC.equals(_meta.getDetachedState())
+                && Serializable.class.isAssignableFrom(_meta.getDescribedType())
+                && !_repos.getConfiguration().getDetachStateInstance().
                 isDetachedStateTransient();
     }
 
@@ -3702,7 +3697,7 @@ public class PCEnhancer {
 
         // if this instance uses synthetic detached state, note that it has
         // been deserialized
-        if (ClassMetaData.SYNTHETIC.equals(meta.getDetachedState())) {
+        if (ClassMetaData.SYNTHETIC.equals(_meta.getDetachedState())) {
 
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
             instructions.add(new FieldInsnNode(Opcodes.GETSTATIC,
@@ -3770,7 +3765,7 @@ public class PCEnhancer {
     private boolean writeIsDetachedMethod(ClassNode classNode, MethodNode meth) throws NoSuchMethodException {
         InsnList instructions = meth.instructions;
         // not detachable: return Boolean.FALSE
-        if (!meta.isDetachable()) {
+        if (!_meta.isDetachable()) {
             instructions.add(new FieldInsnNode(Opcodes.GETSTATIC, Type.getInternalName(Boolean.class),
                                                "FALSE", Type.getDescriptor(Boolean.class)));
             instructions.add(new InsnNode(Opcodes.ARETURN));
@@ -3807,7 +3802,7 @@ public class PCEnhancer {
         // if (pcGetDetachedState () != null
         //     && pcGetDetachedState != DESERIALIZED)
         //     return Boolean.TRUE;
-        Boolean state = meta.usesDetachedState();
+        Boolean state = _meta.usesDetachedState();
         LabelNode lblNotDeser = null;
 
         if (state != Boolean.FALSE) {
@@ -3858,7 +3853,7 @@ public class PCEnhancer {
         // account non-existent detached state
 
         // consider detached if version is non-default
-        FieldMetaData version = meta.getVersionField();
+        FieldMetaData version = _meta.getVersionField();
         if (state != Boolean.TRUE && version != null) {
             // if (<version> != <default>)
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
@@ -3872,7 +3867,7 @@ public class PCEnhancer {
 
             instructions.add(lblAfterDefault);
 
-            if (!addVersionInitFlag) {
+            if (!_addVersionInitFlag) {
                 // else return false;
                 instructions.add(new FieldInsnNode(Opcodes.GETSTATIC, Type.getInternalName(Boolean.class),
                                                    "FALSE", Type.getDescriptor(Boolean.class)));
@@ -3901,11 +3896,11 @@ public class PCEnhancer {
         // consider detached if auto-genned primary keys are non-default
         LabelNode ifIns = null;
         LabelNode ifIns2 = null;
-        if (state != Boolean.TRUE && meta.getIdentityType() == ClassMetaData.ID_APPLICATION) {
+        if (state != Boolean.TRUE && _meta.getIdentityType() == ClassMetaData.ID_APPLICATION) {
             // for each pk field:
             // if (<pk> != <default> [&& !"".equals (<pk>)])
             //        return Boolean.TRUE;
-            FieldMetaData[] pks = meta.getPrimaryKeyFields();
+            FieldMetaData[] pks = _meta.getPrimaryKeyFields();
             for (FieldMetaData pk : pks) {
                 if (pk.getValueStrategy() == ValueStrategies.NONE) {
                     continue;
@@ -3964,9 +3959,9 @@ public class PCEnhancer {
         // synthetic or the instance is not serializable or the state isn't
         // transient, must not be detached
         if (state == null
-                && (!ClassMetaData.SYNTHETIC.equals(meta.getDetachedState())
-                || !Serializable.class.isAssignableFrom(meta.getDescribedType())
-                || !repos.getConfiguration().getDetachStateInstance().isDetachedStateTransient())) {
+                && (!ClassMetaData.SYNTHETIC.equals(_meta.getDetachedState())
+                || !Serializable.class.isAssignableFrom(_meta.getDescribedType())
+                || !_repos.getConfiguration().getDetachStateInstance().isDetachedStateTransient())) {
             // return Boolean.FALSE
             instructions.add(new FieldInsnNode(Opcodes.GETSTATIC, Type.getInternalName(Boolean.class),
                                                "FALSE", Type.getDescriptor(Boolean.class)));
@@ -4071,7 +4066,7 @@ public class PCEnhancer {
      * that may have been initialized in a super's clone() method.
      */
     private void addCloningCode() {
-        if (meta.getPCSuperclass() != null && !getCreateSubclass()) {
+        if (_meta.getPCSuperclass() != null && !getCreateSubclass()) {
             return;
         }
 
@@ -4093,8 +4088,8 @@ public class PCEnhancer {
             }
 
             if (!getCreateSubclass()) {
-                if (log.isTraceEnabled()) {
-                    log.trace(_loc.get("enhance-cloneable", managedType.getClassNode().name));
+                if (_log.isTraceEnabled()) {
+                    _log.trace(_loc.get("enhance-cloneable", managedType.getClassNode().name));
                 }
             }
 
@@ -4153,7 +4148,7 @@ public class PCEnhancer {
      */
     private void runAuxiliaryEnhancers() {
         for (AuxiliaryEnhancer auxEnhancer : _auxEnhancers) {
-            auxEnhancer.run(pc.getClassNode(), meta);
+            auxEnhancer.run(pc.getClassNode(), _meta);
         }
     }
 
@@ -4184,7 +4179,7 @@ public class PCEnhancer {
      */
     private void addAccessors(ClassNodeTracker cnt) throws NoSuchMethodException {
         ClassNode classNode = cnt.getClassNode();
-        FieldMetaData[] fmds = getCreateSubclass() ? meta.getFields() : meta.getDeclaredFields();
+        FieldMetaData[] fmds = getCreateSubclass() ? _meta.getFields() : _meta.getDeclaredFields();
         for (int i = 0; i < fmds.length; i++) {
             if (getCreateSubclass()) {
                 if (!getRedefine() && isPropertyAccess(fmds[i])) {
@@ -4387,7 +4382,7 @@ public class PCEnhancer {
         instructions.add(loadManagedInstance());
         instructions.add(new VarInsnNode(AsmHelper.getLoadInsn(fmd.getDeclaredType()), fieldParamPos));
         addSetManagedValueCode(classNode, instructions, fmd);
-        if (fmd.isVersion() && addVersionInitFlag) {
+        if (fmd.isVersion() && _addVersionInitFlag) {
             // if we are setting the version, flip the versionInit flag to true
 
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
@@ -4429,7 +4424,7 @@ public class PCEnhancer {
     private void addAttachDetachCode() throws NoSuchMethodException {
         // see if any superclasses are detachable
         boolean parentDetachable = false;
-        for (ClassMetaData parent = meta.getPCSuperclassMetaData();
+        for (ClassMetaData parent = _meta.getPCSuperclassMetaData();
              parent != null; parent = parent.getPCSuperclassMetaData()) {
             if (parent.isDetachable()) {
                 parentDetachable = true;
@@ -4441,9 +4436,9 @@ public class PCEnhancer {
 
         // if parent not detachable, we need to add the detach state fields and
         // accessor methods
-        if (meta.getPCSuperclass() == null || getCreateSubclass() || parentDetachable != meta.isDetachable()) {
+        if (_meta.getPCSuperclass() == null || getCreateSubclass() || parentDetachable != _meta.isDetachable()) {
             addIsDetachedMethod(classNode);
-            addDetachedStateMethods(meta.usesDetachedState() != Boolean.FALSE);
+            addDetachedStateMethods(_meta.usesDetachedState() != Boolean.FALSE);
         }
 
         // if we detach on serialize, we also need to implement the
@@ -4451,7 +4446,7 @@ public class PCEnhancer {
         // being detached
         if (externalizeDetached()) {
             try {
-                addDetachExternalize(parentDetachable, meta.usesDetachedState() != Boolean.FALSE);
+                addDetachExternalize(parentDetachable, _meta.usesDetachedState() != Boolean.FALSE);
             }
             catch (NoSuchMethodException nsme) {
                 throw new GeneralException(nsme);
@@ -4465,7 +4460,7 @@ public class PCEnhancer {
      * @param impl whether to fully implement detach state functionality
      */
     private void addDetachedStateMethods(boolean impl) {
-        Field detachField = meta.getDetachedStateField();
+        Field detachField = _meta.getDetachedStateField();
         String name = null;
         Class<?> declarer = null;
         final ClassNode classNode = pc.getClassNode();
@@ -4646,10 +4641,10 @@ public class PCEnhancer {
      */
     private String toBackingFieldName(String name) {
         // meta is null when enhancing persistence-aware
-        FieldMetaData fmd = meta == null ? null : meta.getField(name);
-        if (meta != null && isPropertyAccess(fmd)
-                && attributesToFields != null && attributesToFields.containsKey(name)) {
-            name = (String) attributesToFields.get(name);
+        FieldMetaData fmd = _meta == null ? null : _meta.getField(name);
+        if (_meta != null && isPropertyAccess(fmd)
+                && _attrsToFields != null && _attrsToFields.containsKey(name)) {
+            name = (String) _attrsToFields.get(name);
         }
         return name;
     }
@@ -4660,10 +4655,10 @@ public class PCEnhancer {
      */
     private String fromBackingFieldName(String name) {
         // meta is null when enhancing persistence-aware
-        FieldMetaData fmd = meta == null ? null : meta.getField(name);
-        if (meta != null && isPropertyAccess(fmd)
-                && fieldsToAttributes != null && fieldsToAttributes.containsKey(name)) {
-            return (String) fieldsToAttributes.get(name);
+        FieldMetaData fmd = _meta == null ? null : _meta.getField(name);
+        if (_meta != null && isPropertyAccess(fmd)
+                && _fieldsToAttrs != null && _fieldsToAttrs.containsKey(name)) {
+            return (String) _fieldsToAttrs.get(name);
         }
         else {
             return name;
@@ -4684,14 +4679,14 @@ public class PCEnhancer {
 
 
         if ((ctNode.access & Opcodes.ACC_PUBLIC) == 0) {
-            if (log.isWarnEnabled()) {
-                log.warn(_loc.get("enhance-defcons-extern", meta.getDescribedType()));
+            if (_log.isWarnEnabled()) {
+                _log.warn(_loc.get("enhance-defcons-extern", _meta.getDescribedType()));
             }
             ctNode.access = ctNode.access & ~Opcodes.ACC_PRIVATE & ~Opcodes.ACC_PROTECTED | Opcodes.ACC_PUBLIC;
         }
 
         // declare externalizable interface
-        if (!Externalizable.class.isAssignableFrom(meta.getDescribedType())) {
+        if (!Externalizable.class.isAssignableFrom(_meta.getDescribedType())) {
             pc.declareInterface(Externalizable.class);
         }
 
@@ -4706,7 +4701,7 @@ public class PCEnhancer {
                 .anyMatch(m -> m.name.equals("writeObject") && m.desc.equals(writeObjectDesc));
 
         if (hasReadObject || hasWriteObject) {
-            throw new UserException(_loc.get("detach-custom-ser", meta));
+            throw new UserException(_loc.get("detach-custom-ser", _meta));
         }
 
         String readExternalDesc = Type.getMethodDescriptor(Type.VOID_TYPE, Type.getType(ObjectInput.class));
@@ -4718,7 +4713,7 @@ public class PCEnhancer {
                 .anyMatch(m -> m.name.equals("writeExternal") && m.desc.equals(writeExternalDesc));
 
         if (hasReadExternal || hasWriteExternal) {
-            throw new UserException(_loc.get("detach-custom-extern", meta));
+            throw new UserException(_loc.get("detach-custom-extern", _meta));
         }
 
         // create list of all unmanaged serializable fields
@@ -4727,7 +4722,7 @@ public class PCEnhancer {
         for (FieldNode field : fields) {
             if ((field.access & (Opcodes.ACC_TRANSIENT | Opcodes.ACC_STATIC | Opcodes.ACC_FINAL)) == 0
                     && !field.name.startsWith(PRE)
-                    && meta.getDeclaredField(field.name) == null) {
+                    && _meta.getDeclaredField(field.name) == null) {
                 unmgd.add(field);
             }
         }
@@ -4758,7 +4753,7 @@ public class PCEnhancer {
         // not sure if this works: this is depending on the order of the enhancement!
         // if the subclass gets enhanced first, then the superclass misses
         // the Externalizable at this point!
-        Class<?> sup = meta.getDescribedType().getSuperclass();
+        Class<?> sup = _meta.getDescribedType().getSuperclass();
         if (!parentDetachable && Externalizable.class.isAssignableFrom(sup)) {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st param
@@ -4772,7 +4767,7 @@ public class PCEnhancer {
         instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
         instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st param
         instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
-                                            Type.getInternalName(getType(meta)),
+                                            Type.getInternalName(getType(_meta)),
                                             PRE + "ReadUnmanaged",
                                             methodDescriptor));
 
@@ -4828,7 +4823,7 @@ public class PCEnhancer {
         classNode.methods.add(readExternalMeth);
         InsnList instructions = readExternalMeth.instructions;
 
-        Class<?> sup = meta.getPCSuperclass();
+        Class<?> sup = _meta.getPCSuperclass();
         if (sup != null) {
             //add a call to super.readExternalFields()
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
@@ -4840,7 +4835,7 @@ public class PCEnhancer {
         }
 
         // read managed fields
-        FieldMetaData[] fmds = meta.getDeclaredFields();
+        FieldMetaData[] fmds = _meta.getDeclaredFields();
         for (FieldMetaData fmd : fmds) {
             if (!fmd.isTransient()) {
                 readExternal(classNode, instructions, fmd.getName(), Type.getType(fmd.getDeclaredType()), fmd);
@@ -4870,7 +4865,7 @@ public class PCEnhancer {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st param
             instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
-                                                Type.getInternalName(getType(meta.getPCSuperclassMetaData())),
+                                                Type.getInternalName(getType(_meta.getPCSuperclassMetaData())),
                                                 PRE + "ReadUnmanaged",
                                                 methodDescriptor));
         }
@@ -4970,7 +4965,7 @@ public class PCEnhancer {
 
 
         // super.writeExternal (out);
-        Class sup = getType(meta).getSuperclass();
+        Class sup = getType(_meta).getSuperclass();
         if (!parentDetachable && Externalizable.class.isAssignableFrom(sup)) {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st param
@@ -4984,7 +4979,7 @@ public class PCEnhancer {
         instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
         instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st param
         instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
-                                            Type.getInternalName(getType(meta)),
+                                            Type.getInternalName(getType(_meta)),
                                             PRE + "WriteUnmanaged",
                                             methodDescriptor));
 
@@ -5061,7 +5056,7 @@ public class PCEnhancer {
         classNode.methods.add(writeExternalFieldsMeth);
         InsnList instructions = writeExternalFieldsMeth.instructions;
 
-        Class<?> sup = meta.getPCSuperclass();
+        Class<?> sup = _meta.getPCSuperclass();
         if (sup != null) {
             // add a call to super.writeExternalFields()
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
@@ -5072,7 +5067,7 @@ public class PCEnhancer {
                                                 methodDescriptor));
         }
 
-        FieldMetaData[] fmds = meta.getDeclaredFields();
+        FieldMetaData[] fmds = _meta.getDeclaredFields();
         for (FieldMetaData fmd : fmds) {
             if (!fmd.isTransient()) {
                 writeExternal(classNode, instructions, fmd.getName(),
@@ -5104,7 +5099,7 @@ public class PCEnhancer {
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
             instructions.add(new VarInsnNode(Opcodes.ALOAD, 1)); // 1st param
             instructions.add(new MethodInsnNode(Opcodes.INVOKESPECIAL,
-                                                Type.getInternalName(getType(meta.getPCSuperclassMetaData())),
+                                                Type.getInternalName(getType(_meta.getPCSuperclassMetaData())),
                                                 PRE + "WriteUnmanaged",
                                                 methodDescriptor));
         }
@@ -5182,7 +5177,7 @@ public class PCEnhancer {
         // since it would sacrifice lazy loading and efficient dirty tracking.
 
         if (getRedefine() || isFieldAccess(fmd)) {
-            getfield(classNode, instructions, getType(meta), fmd.getName(), fmd.getDeclaredType());
+            getfield(classNode, instructions, getType(_meta), fmd.getName(), fmd.getDeclaredType());
         }
         else if (getCreateSubclass()) {
             // property access, and we're not redefining. If we're operating
@@ -5197,7 +5192,7 @@ public class PCEnhancer {
                                                     Type.getMethodDescriptor(meth)));
             }
             else {
-                getfield(classNode, instructions, getType(meta), fmd.getName(), fmd.getDeclaredType());
+                getfield(classNode, instructions, getType(_meta), fmd.getName(), fmd.getDeclaredType());
             }
         }
         else {
@@ -5268,7 +5263,7 @@ public class PCEnhancer {
         // just do a subclass approach instead. But this is not a good option,
         // since it would sacrifice lazy loading and efficient dirty tracking.
         if (getRedefine() || isFieldAccess(fmd)) {
-            putfield(classNode, instructions, getType(meta), fmd.getName(), fmd.getDeclaredType());
+            putfield(classNode, instructions, getType(_meta), fmd.getName(), fmd.getDeclaredType());
         }
         else if (getCreateSubclass()) {
             // property access, and we're not redefining. invoke the
@@ -5397,7 +5392,7 @@ public class PCEnhancer {
                                                        | Opcodes.ACC_FINAL | Opcodes.ACC_STATIC,
                                                PRE + "Set" + fmd.getName(),
                                                Type.getMethodDescriptor(Type.VOID_TYPE,
-                                                                        Type.getType(getType(meta)),
+                                                                        Type.getType(getType(_meta)),
                                                                         Type.getType(fmd.getDeclaredType())),
                                                null, null);
 
@@ -5655,7 +5650,7 @@ public class PCEnhancer {
                                              null, null);
         pc.getClassNode().methods.add(idOCMeth);
 
-        idOCMeth.instructions.add(AsmHelper.getLoadConstantInsn(getType(meta)));
+        idOCMeth.instructions.add(AsmHelper.getLoadConstantInsn(getType(_meta)));
         idOCMeth.instructions.add(new InsnNode(Opcodes.ARETURN));
     }
 
@@ -5689,8 +5684,8 @@ public class PCEnhancer {
      * Read the optimizedIdCopy value from the config (if available)
      */
     private void configureOptimizeIdCopy() {
-        if (repos != null && repos.getConfiguration() != null) {
-            optimizeIdCopy = repos.getConfiguration().getOptimizeIdCopy();
+        if (_repos != null && _repos.getConfiguration() != null) {
+            _optimizeIdCopy = _repos.getConfiguration().getOptimizeIdCopy();
         }
     }
 
