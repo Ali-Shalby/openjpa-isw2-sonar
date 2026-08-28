@@ -25,18 +25,18 @@ import java.util.NoSuchElementException;
 
 /**
  * Converts an {@link Iterator} into a {@link ResettableListIterator}.
- * For plain {@code Iterator}s this is accomplished by caching the returned
+ * For plain <code>Iterator</code>s this is accomplished by caching the returned
  * elements. This class can also be used to simply add
- * {@link ResettableIterator} functionality to a given {@link ListIterator}.
+ * {@link ResettableIterator}
+ * functionality to a given {@link ListIterator}.
  * <p>
- * The {@code ListIterator} interface has additional useful methods
- * for navigation, such as {@code previous()} and the index methods.
- * This class allows a regular {@code Iterator} to behave as a
- * {@code ListIterator}. It achieves this by building an internal list
- * as the underlying iterator is traversed.
+ * The <code>ListIterator</code> interface has additional useful methods
+ * for navigation - <code>previous()</code> and the index methods.
+ * This class allows a regular <code>Iterator</code> to behave as a
+ * <code>ListIterator</code>. It achieves this by building a list internally
+ * of as the underlying iterator is traversed.
  * <p>
- * The optional operations of {@code ListIterator} are not supported for
- * plain {@code Iterator}s.
+ * The optional operations of <code>ListIterator</code> are not supported for plain <code>Iterator</code>s.
  * <p>
  * This class implements ResettableListIterator from Commons Collections 3.2.
  *
@@ -44,154 +44,117 @@ import java.util.NoSuchElementException;
  */
 public class ListIteratorWrapper<E> implements ResettableListIterator<E> {
 
-    /** Message used when set or add are called on a plain iterator. */
+    /** Message used when set or add are called. */
     private static final String UNSUPPORTED_OPERATION_MESSAGE =
         "ListIteratorWrapper does not support optional operations of ListIterator.";
 
-    /** Message used when remove cannot be delegated safely. */
+    /** Message used when removal is not allowed. */
     private static final String CANNOT_REMOVE_MESSAGE =
         "Cannot remove element at index {0}.";
 
     /** The underlying iterator being decorated. */
     private final Iterator<? extends E> iterator;
 
-    /**
-     * The underlying iterator as a ListIterator, or {@code null} when the
-     * wrapped iterator is a plain Iterator.
-     */
-    private final ListIterator<E> listIterator;
-
-    /** The list used to cache elements returned by a plain iterator. */
+    /** The list being used to cache the iterator. */
     private final List<E> list = new ArrayList<>();
 
-    /** The current logical position of this iterator in the cached elements. */
-    private int currentIndex;
+    /** The current index of this iterator. */
+    private int currentIndex = 0;
 
-    /** The number of elements consumed from the wrapped plain iterator. */
-    private int wrappedIteratorIndex;
+    /** The current index of the wrapped iterator. */
+    private int wrappedIteratorIndex = 0;
 
     /**
-     * Whether the wrapped plain iterator is in a state that permits remove().
+     * Recall whether the wrapped iterator's cursor is in such a state
+     * as to allow remove() to be called.
      */
     private boolean removeState;
 
     /**
-     * Constructs a new {@code ListIteratorWrapper} that wraps the given
-     * iterator.
+     * Constructs a new <code>ListIteratorWrapper</code> that will wrap
+     * the given iterator.
      *
      * @param iterator the iterator to wrap
      * @throws NullPointerException if the iterator is null
      */
     public ListIteratorWrapper(final Iterator<? extends E> iterator) {
+        super();
         if (iterator == null) {
             throw new NullPointerException("Iterator must not be null");
         }
-
         this.iterator = iterator;
-        this.listIterator = asListIterator(iterator);
     }
 
     /**
-     * Converts the wrapped iterator to a ListIterator when possible.
+     * Returns the wrapped iterator as a ListIterator when possible.
      *
-     * @param iterator the wrapped iterator
-     * @return the iterator as a ListIterator, or {@code null} if it is plain
+     * @return the wrapped ListIterator or null if not available
      */
     @SuppressWarnings("unchecked")
-    private static <E> ListIterator<E> asListIterator(
-            final Iterator<? extends E> iterator) {
-        if (iterator instanceof ListIterator) {
-            return (ListIterator<E>) iterator;
-        }
-        return null;
+    private ListIterator<E> getListIterator() {
+        return iterator instanceof ListIterator
+            ? (ListIterator<E>) iterator
+            : null;
     }
 
-    /**
-     * Throws {@link UnsupportedOperationException} unless the underlying
-     * {@code Iterator} is a {@code ListIterator}.
-     *
-     * @param obj the object to add
-     * @throws UnsupportedOperationException if the underlying iterator is not
-     *         a {@link ListIterator}
-     */
     @Override
     public void add(final E obj) throws UnsupportedOperationException {
-        if (listIterator == null) {
-            throw new UnsupportedOperationException(
-                UNSUPPORTED_OPERATION_MESSAGE);
+        final ListIterator<E> listIterator = getListIterator();
+        if (listIterator != null) {
+            listIterator.add(obj);
+            return;
         }
-        listIterator.add(obj);
+        throw new UnsupportedOperationException(UNSUPPORTED_OPERATION_MESSAGE);
     }
 
-    /**
-     * Returns true if there are more elements in the iterator.
-     *
-     * @return true if there are more elements
-     */
     @Override
     public boolean hasNext() {
-        return listIterator != null
-            || currentIndex == wrappedIteratorIndex
-                ? iterator.hasNext()
-                : true;
+        if (currentIndex == wrappedIteratorIndex || getListIterator() != null) {
+            return iterator.hasNext();
+        }
+        return true;
     }
 
-    /**
-     * Returns true if there are previous elements in the iterator.
-     *
-     * @return true if there are previous elements
-     */
     @Override
     public boolean hasPrevious() {
-        return listIterator != null
-            ? listIterator.hasPrevious()
-            : currentIndex > 0;
+        final ListIterator<E> listIterator = getListIterator();
+        if (listIterator != null) {
+            return listIterator.hasPrevious();
+        }
+        return currentIndex > 0;
     }
 
-    /**
-     * Returns the next element from the iterator.
-     *
-     * @return the next element from the iterator
-     * @throws NoSuchElementException if there are no more elements
-     */
     @Override
     public E next() throws NoSuchElementException {
-        if (listIterator != null) {
+        if (getListIterator() != null) {
             return iterator.next();
         }
 
         if (currentIndex < wrappedIteratorIndex) {
-            return list.get(currentIndex++);
+            currentIndex++;
+            return list.get(currentIndex - 1);
         }
 
-        final E nextElement = iterator.next();
-        list.add(nextElement);
+        final E value = iterator.next();
+        list.add(value);
         currentIndex++;
         wrappedIteratorIndex++;
         removeState = true;
-        return nextElement;
+        return value;
     }
 
-    /**
-     * Returns the index of the next element.
-     *
-     * @return the index of the next element
-     */
     @Override
     public int nextIndex() {
-        return listIterator != null
-            ? listIterator.nextIndex()
-            : currentIndex;
+        final ListIterator<E> listIterator = getListIterator();
+        if (listIterator != null) {
+            return listIterator.nextIndex();
+        }
+        return currentIndex;
     }
 
-    /**
-     * Returns the previous element.
-     *
-     * @return the previous element
-     * @throws NoSuchElementException if there are no previous elements
-     */
     @Override
     public E previous() throws NoSuchElementException {
+        final ListIterator<E> listIterator = getListIterator();
         if (listIterator != null) {
             return listIterator.previous();
         }
@@ -201,41 +164,29 @@ public class ListIteratorWrapper<E> implements ResettableListIterator<E> {
         }
 
         removeState = wrappedIteratorIndex == currentIndex;
-        currentIndex--;
-        return list.get(currentIndex);
+        return list.get(--currentIndex);
     }
 
-    /**
-     * Returns the index of the previous element.
-     *
-     * @return the index of the previous element
-     */
     @Override
     public int previousIndex() {
-        return listIterator != null
-            ? listIterator.previousIndex()
-            : currentIndex - 1;
+        final ListIterator<E> listIterator = getListIterator();
+        if (listIterator != null) {
+            return listIterator.previousIndex();
+        }
+        return currentIndex - 1;
     }
 
-    /**
-     * Removes the last applicable element from the underlying iterator.
-     *
-     * @throws IllegalStateException if removal is not valid in the current
-     *         cached-iterator state
-     * @throws UnsupportedOperationException if the underlying iterator does
-     *         not support removal
-     */
     @Override
     public void remove() throws UnsupportedOperationException {
-        if (listIterator != null) {
+        if (getListIterator() != null) {
             iterator.remove();
             return;
         }
 
-        final int removeIndex =
-            currentIndex == wrappedIteratorIndex
-                ? currentIndex - 1
-                : currentIndex;
+        int removeIndex = currentIndex;
+        if (currentIndex == wrappedIteratorIndex) {
+            removeIndex--;
+        }
 
         if (!removeState || wrappedIteratorIndex - currentIndex > 1) {
             throw new IllegalStateException(
@@ -249,31 +200,19 @@ public class ListIteratorWrapper<E> implements ResettableListIterator<E> {
         removeState = false;
     }
 
-    /**
-     * Throws {@link UnsupportedOperationException} unless the underlying
-     * {@code Iterator} is a {@code ListIterator}.
-     *
-     * @param obj the object to set
-     * @throws UnsupportedOperationException if the underlying iterator is not
-     *         a {@link ListIterator}
-     */
     @Override
     public void set(final E obj) throws UnsupportedOperationException {
-        if (listIterator == null) {
-            throw new UnsupportedOperationException(
-                UNSUPPORTED_OPERATION_MESSAGE);
+        final ListIterator<E> listIterator = getListIterator();
+        if (listIterator != null) {
+            listIterator.set(obj);
+            return;
         }
-        listIterator.set(obj);
+        throw new UnsupportedOperationException(UNSUPPORTED_OPERATION_MESSAGE);
     }
 
-    /**
-     * Resets this iterator back to the position at which the iterator was
-     * created.
-     *
-     * @since 3.2
-     */
     @Override
     public void reset() {
+        final ListIterator<E> listIterator = getListIterator();
         if (listIterator != null) {
             while (listIterator.previousIndex() >= 0) {
                 listIterator.previous();
