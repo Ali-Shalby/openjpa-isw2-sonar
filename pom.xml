@@ -5,11 +5,11 @@
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>isw2.analysis</groupId>
-  <artifactId>openjpa-sonar-pilot</artifactId>
-  <version>4.1.1</version>
+  <artifactId>openjpa-automatic-test-quality</artifactId>
+  <version>1.0</version>
   <packaging>jar</packaging>
 
-  <name>OpenJPA 4.1.1 - ISW2 Sonar class-selection snapshot</name>
+  <name>OpenJPA automatic test quality - PCEnhancer C0 RND</name>
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
